@@ -12,7 +12,7 @@ Suru is designed with modern programming principles in mind, featuring:
 - Intersection and union types
 - Method and function overrloading
 - Method and function curring 
-- Pipled values
+- Piped values
 - Composition
 - Rich documentation support
 - Advanced string interpolation with multiple nesting levels
@@ -22,7 +22,7 @@ Suru is designed with modern programming principles in mind, featuring:
 - [File Structure](#file-structure)
 - [Lexical elements and literals](#lexical_elements_and_literals)
 
-## File Structure {#file-structure}
+## File Structure
 
 A Suru source file has `.suru` extension and follows this structure:
 
@@ -31,7 +31,7 @@ A Suru source file has `.suru` extension and follows this structure:
 3. **Export Block** (optional)
 4. **Declarations** (types, functions, variables, expressions)
 
-## Lexical elements and literals {#lexical_elements_and_literals}
+## Lexical elements and literals
 
 ### Booleans
 
