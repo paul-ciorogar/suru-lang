@@ -1,74 +1,150 @@
 # Suru Programming Language
 
-Suru is high-level programming language designed for productivity and maintainablility. It features a clean syntax with strong typing, documentation-first design, and powerful pattern matching capabilities.
+A general-purpose, high-level programming language with a focus on clean syntax, type safety, and modular design.
+
+## Overview
+
+Suru is designed with modern programming principles in mind, featuring:
+- Clear, readable syntax with minimal punctuation
+- Strong type system with generics support
+- Module-based organization
+- Pattern matching for control flow
+- Intersection and union types
+- Method and function overrloading
+- Method and function curring 
+- Pipled values
+- Composition
+- Rich documentation support
+- Advanced string interpolation with multiple nesting levels
 
 ## Table of Contents
 
-- [Getting Started](#getting-started)
-- [Language Basics](#language-basics)
-- [Module System](#module-system)
-- [Documentation](#documentation)
-- [Variables and Types](#variables-and-types)
-- [Functions](#functions)
-- [Type Definitions](#type-definitions)
-- [Control Flow](#control-flow)
-- [String Interpolation](#string-interpolation)
-- [Examples](#examples)
+- [File Structure](#file-structure)
+- [Lexical elements and literals](#lexical_elements_and_literals)
 
-## Getting Started
+## File Structure {#file-structure}
 
-A Suru program 
+A Suru source file has `.suru` extension and follows this structure:
 
-```suru
-module main
+1. **Module Declaration** (optional)
+2. **Import Block** (optional)  
+3. **Export Block** (optional)
+4. **Declarations** (types, functions, variables, expressions)
 
-import {
-    * : io
-}
+## Lexical elements and literals {#lexical_elements_and_literals}
 
-main: () {
-    printLine("Hello, Suru!")
-}
-```
-
-This is the simplest program in Suru.
-The first line says this is the main module. This is the entry point of your program.
-Then we have an import block where we add to the file scope everything from the io module.
-`main: () {}` declares a function named main that is called wen you run this program.
-and last we have the `printLine` function call from the io module that does exactly what you expect.
+### Booleans
 
 ```suru
-module MyProgram
-
-import {
-    utils : standard_lib
-    {print, readline} : io
-}
-
-export {
-    main
-}
-
-main: () {
-    print("Hello, Suru!")
-}
+isTrue: true
+isFalse: false
 ```
 
-## Language Basics
+### Comments
 
-### Syntax Fundamentals
+```suru
+// This is a line comment
+```
 
-- **Statements end** with newlines or semicolons
-- **Blocks** are defined with `{ }`
-- **Comments** use `//` for line comments
-- **Case sensitive** identifiers
-- **Type annotations** are optional but recommended
+### String and character literals
 
-## Module System
+```suru
+doubleQuoted: "Hello, World!"
+singleQuoted: 'Hello, World!'
+
+// String interpolation with backticks
+simple: &#96;Hello {name}!&#96;
+```
+
+#### Escape Characters #
+
+- \b - backspace (BS)
+- \e - escape (ESC)
+- \n - newline
+- \r - carriage return
+- \t - tab
+- \\ - backslash
+- \" - double quote (if needed)
+- \' - single quote (if needed)
+- \` - single tick (if needed)
+- \NNN- octal 6 bit character (3 digits)
+- \xNN - hexadecimal 8 bit character (2 digits)
+- \uNNNN - hexadecimal 16-bit Unicode character UTF-8 encoded (4 digits)
+- \UNNNNNNNN - hexadecimal 32-bit Unicode character UTF-8 encoded (8 digits)
+
+### Numbers
+
+Multiple Number Bases:
+
+- Binary: `0b1010, 0b1010_1100`
+- Octal: `0o755, 0o77_55`
+- Hexadecimal: `0xFF, 0xDEAD_BEEF`
+- Decimal: `123`, `1_000_000`
+
+Underscore Separators for Readability:
+
+- `1_000_000` instead of 1000000
+- `0xDEAD_BEEF` for hex numbers
+- Works in all number bases
+
+Scientific Notation:
+
+- `1e10, 1.5e10, 1e-10`
+- Supports underscores: `1_000e5`
+
+
+Hexadecimal Floats:
+
+- `0x1.Ap+3` 
+
+
+Type Suffixes:
+
+- Numberegers: `i8, i16, i32, i64, i128, u8, u16, u32, u64, u128`
+- Floats: `f16, f32, f64, f128`
+
+Examples
+
+```suru
+// Decimal with separators and suffix
+count: 1_000_000u64;
+
+// Binary with suffix
+flags: 0b1010_1100u8;
+
+// Hex with suffix
+address: 0xDEAD_BEEFuintptr;
+
+// Float with scientific notation
+pi: 3.14159_26535f64;
+large_number: 1.5e10f32;
+
+// Hex float
+precise: 0x1.921FB54442D18p+1f64; // π in hex float
+```
+
+## Variable declarations 
+
+A variable declaration declares a new variable for the current scope.
+```suru
+name : value // type is infered
+name Type : value
+```
+Declarations at the file scope are constants.
+A constant’s value cannot be changed. The constant’s value must be able to be evaluated at compile time
+
+### Assignment statements
+```suru
+name : value
+```
+
+## Modules
+
+Suru programs are organized into modules. A module is a directory of Suru code files, one of which has module declaration at the top. Execution starts in the main module's main ffunction.
 
 ### Module Declaration
 
-Every Suru file can start with a module declaration:
+Module names have to start with a letter and can contain numbers dots and underscores
 
 ```suru
 module Calculator
@@ -76,7 +152,7 @@ module Calculator
 
 ### Imports
 
-Suru supports three types of imports:
+suru supports three types of imports:
 
 #### Full Module Import
 ```suru
@@ -104,7 +180,8 @@ import {
 
 ### Exports
 
-Specify what your module makes available to other modules:
+If a file starts with a module declaration then exports specify what your module makes available to other modules.
+If a file does not have a module declaration then the exports are only available to the module in the same directory.
 
 ```suru
 export {
@@ -114,192 +191,547 @@ export {
 }
 ```
 
-## Documentation
+## Operators
 
-Suru has built-in documentation support using `====` delimiters:
+### Unary
+`-` negation `-2_283i64`
+
+### Logical
+`not` not false = true
+`and` true and true = true
+`for` true or false = true
+
+### Compositional
+`+` used for composing types and structs
+
+## Types
+
+### Unit Types
+Simple types with no definition, perfect for flags and states:
 
 ```suru
-====
-This is a documentation block for the following function.
-You can use **markdown** formatting here.
-
-@param x The first number to add
-@param y The second number to add  
-@return The sum of x and y
-@example add(5, 3) // returns 8
-====
-add: (x Number, y Number) Number {
-    return x + y
-}
+type Success
+type Error
+type Loading
 ```
 
-### Documentation Keywords
+### Type Aliases
+Simple renames:
 
-- `@param name description` - Parameter documentation
-- `@return description` - Return value documentation
-- `@example code` - Usage examples
-- `@deprecated reason` - Mark as deprecated
-- `@experimental note` - Mark as experimental
-- `@todo description` - TODO items
-- `@see reference` - Cross-references
-- `@link url` - External links
-
-## Variables and Types
-
-### Variable Declaration
-
-Variables are declared with the pattern: `name : value` or `name Type : value`
-
-```suru
-// Type inferred
-name : "Alice"
-age : 25
-isStudent : true
-
-// Explicit typing
-height Number : 5.9
-grades List<Number> : [85, 92, 78]
 ```
-
-### Basic Types
-
-```suru
-// Numbers
-count : 42
-price : 19.99
-
-// Strings  
-message : "Hello World"
-singleQuoted : 'Also valid'
-
-// Booleans
-isReady : true
-isComplete : false
-```
-
-## Functions
-
-### Function Declaration
-
-Functions use the syntax: `name: (parameters) ReturnType { body }`
-
-```suru
-// Simple function types infered
-greet: (name) {
-    return "Hello, " + name + "!"
-}
-
-// Simple function
-greet: (name String) String {
-    return "Hello, " + name + "!"
-}
-
-// Function with multiple parameters
-calculateArea: (width Number, height Number) Number {
-    return width * height
-}
-
-// Function without return type (void)
-printMessage: (msg String) {
-    print(msg)
-}
-
-// Function with no parameters
-getCurrentTime: () String {
-    return getTime()
-}
-```
-
-### Function Calls
-
-```suru
-result : greet("Alice")
-area : calculateArea(10, 5)
-printMessage("Debug info")
-time : getCurrentTime()
-```
-
-### Pipe expressions 
-
-```suru
-// Simple piping
-data | processData | formatOutput
-
-// Chaining multiple operations
-numbers | filter | map | reduce
-
-// Mixed with other expressions
-result : getValue() | transform | validate
-```
-
-## Type Definitions
-
-### Struct Types
-
-Define custom data structures:
-
-```suru
-type Person: {
-    name String
-    age Number
-    email String
-    
-    // Methods can be declared in type definitions
-    getDisplayName: () String
-    isAdult: () Boolean
-}
+type UserId : Number
+type Username : String
 ```
 
 ### Union Types
-
-Use commas for union types (OR relationship):
+Alternative types:
 
 ```suru
-type Result: Success, Error, Pending
+type Status : Success, Error, Loading
+type Value : Int, String, Bool
+```
 
-type StringOrNumber: String, Number
+### Struct Types
+Records with fields and method declarations:
+
+```suru
+type Person : {
+    name String
+    age Number
+    
+    greet: () String
+    birthday: () Person
+}
 ```
 
 ### Intersection Types
-
-Use `+` for intersection types (AND relationship):
+Combine types using `+`:
 
 ```suru
-type Employee: Person + {
-    employeeId String
+type Employee : Person + {
+    salary Int
     department String
 }
 ```
 
-### Generic Types
-
-```suru
-type Container<T>: {
-    value T
-    isEmpty: () Boolean
-}
-
-type Pair<T, U>: {
-    first T  
-    second U
-}
-```
-
 ### Function Types
+Function signatures must be defined as named types:
 
 ```suru
-type MathOperation: (Number, Number) Number
-
-type EventHandler: (Event) 
+type AddFunction : (a Number, b Number) Number
+type Predicate : (value String) Bool
+type VoidFunction : ()
+type Identity<T> : (value T) T
+type UnaryOperator : (x Float) Float
 ```
 
-## Control Flow
+### Generic Types
+Define types that work with multiple specific types:
+
+```suru
+// Single type parameter
+type List<T> : {
+    items Array<T>
+    size Int
+    
+    add: (item T) List<T>
+    get: (index Int) T
+    contains: (item T) Bool
+    map: <R>(transform (T) R) List<R>
+}
+
+// Multiple type parameters  
+type Map<K, V> : {
+    entries Array<Pair<K, V>>
+    
+    put: (key K, value V) Map<K, V>
+    get: (key K) Option<V>
+    containsKey: (key K) Bool
+}
+
+// Generic types with constraints
+type Comparable<T: Orderable> : {
+    value T
+    
+    compare: (other Comparable<T>) Ordering
+    lessThan: (other Comparable<T>) Bool
+}
+```
+
+## Functions
+All function types must be defined as named types first:
+
+```suru
+type AddFunction : (x Number, y Number) Number
+type UnaryFunction : (x Number) Number
+type Transformer : (input String) String
+type AnyToString : (input) String
+
+// Function returning a simple type
+add: (x Number, y Number) Number {
+    return x.add(y)
+}
+
+// Function with infered types
+add: (x, y) {
+    return x.add(y)
+}
+
+// Function returning a function type 
+createAdder: (base Number) UnaryFunction {
+    return (x Number) Number {
+        return x.add(base)
+    }
+}
+
+// Function taking a function 
+applyTwice: (fn UnaryFunction, value Number) Number {
+    temp : fn(value)
+    return fn(temp)
+}
+```
+
+### Generic Functions
+Functions that work with multiple types:
+
+```
+// Simple generic function
+identity<T>: (value T) T {
+    return value
+}
+
+// Multiple type parameters
+map<T, R>: (items List<T>, transform Transform<T, R>) List<R> {
+    result : List<R>()
+    // Implementation iterates and transforms
+    return result
+}
+
+// Generic function with constraints
+sort<T: Orderable>: (items List<T>) List<T> {
+    // Implementation uses T's ordering methods
+    return items.quick_sort()
+}
+```
+
+### Function overloading
+```suru
+// Function overloading (same name, different signatures)
+add: (a i32, b i32) i32 { return a + b }
+add: (a f64, b f64) f64 { return a + b }
+add: (a i32) i32 { return a }
+add: (a string, b string) string { return a + b }
+```
+
+### Method overloading
+
+Same as function overloading
+
+```suru
+type Adds: {
+    add: (a i32, b i32) i32 { return a + b }
+    add: (a f64, b f64) f64 { return a + b }
+    add: (a i32) i32 { return a }
+    add: (a string, b string) string { return a + b }
+}
+```
+
+### Overloading by Return Type
+
+```suru
+// Same function name and parameters, different return types
+parse: (input String) Int {
+    return input.to_int()
+}
+
+parse: (input String) Float {
+    return input.to_float()
+}
+
+parse: (input String) Bool {
+    return input.equals("true")
+}
+
+// Usage - type annotation determines which overload
+int_value Int : parse("123")      // Calls parse: (String) Int
+float_value Float : parse("3.14") // Calls parse: (String) Float
+bool_value Bool : parse("true")   // Calls parse: (String) Bool
+```
+
+## Pipeline
+
+The `|` (pipe) operator can be used to pipe values to functions
+
+```suru
+2_283 | subtract(_, 2) | print // 2281 would be printed
+
+processed : "Hello, world!"
+    | trim()
+    | to_lower()
+    | replace(_, "world", "you")
+    | capitalize()
+```
+
+## Type implementation
+
+Simple struct implementation
+```suru
+type User: {
+    username: String
+    authenticate: (password String) Bool 
+}
+
+// implementation
+user User: {
+    username: "Paul"
+    authenticate: (password) {
+        return true;
+    } 
+}
+```
+
+### Constructors
+Any struct type can define a constructor function
+The constructor function can have the same name as the type
+```suru
+type User: {
+    username: String
+    authenticate: (password String) Bool 
+}
+
+// constructor function
+User: (name String) User {
+    return {
+        username: name
+        authenticate: (password) {
+            return true;
+        } 
+    }
+}
+user: User("Paul")
+```
+
+### Custom Instance
+Each instance can have unique method implementations:
+```suru
+// we can create instances without using the constructor
+user User: {
+    username: "Paul"
+    authenticate: (password) {
+        return true;
+    } 
+}
+
+// or this way
+newUser: (name String) User {
+    return {
+        username: name
+        authenticate: (password) {
+            return true;
+        } 
+    }
+}
+user: newUser("Paul")
+```
+
+## Privacy and Encapsulation
+
+Suru uses private member declarations for encapsulation.
+
+### Private Members
+Use `_` prefix in declarations to mark fields and methods as private:
+
+```
+type User: {
+    username: String                      // Public field
+
+    authenticate: (password String) Bool  // Public method
+}
+
+user: User : {
+    username: "Paul"        // Public field
+    _ passwordHash: "2283"  // Private field
+    _ salt: "qwerty"        // Private field
+    
+    authenticate: (password String) Bool { // Public method
+        // implementation
+    }
+    _ hashPassword: (password String) String {  // Private method
+        // implementation
+    }
+}
+```
+
+### The `this` Keyword
+Within method implementations, `this` refers to the current instance:
+
+```suru
+// Public interface - what consumers see
+type BankAccount: {
+    accountId String
+    deposit: (amount Float) Float
+    withdraw: (amount Float) Float
+    getBalance: () Float
+}
+
+// Constructor
+BankAccount: (initial Float, id String) BankAccount {
+    impl BankAccount: {
+        account_id: id
+        transaction_count: 0
+        _ balance: initial
+
+        deposit: (amount Float) Float {
+            return match this.validate(amount) {  // Call private method
+                true : {
+                    this.balance : this.balance.add(amount)
+                    this.logTransaction("deposit", amount)
+                    return this.balance
+                },
+                false : this.balance
+            }
+        }
+
+        _ validate: (amount Float) Bool {  // Private method implementation
+            return amount.greater_than(0.0)
+        }
+
+        _ log_transaction: (type String, amount Float) {
+            // Private logging logic
+        }
+
+        // ... other methods
+    }
+
+    return impl
+}
+
+// Usage
+account : BankAccount(100.0, "ACC123")
+// account.balance        // ❌ Compile error: not in public interface  
+// account.validate(50.0) // ❌ Compile error: private method not accessible
+balance : account.getBalance()  // ✅ OK: public method
+```
+
+## Currying and Partial Application
+
+All functions and methods in Suru can be curried.
+Calling a function with `_` placeholder instead of an argument returns a new function that takes the remaining arguments which where given the placeholder.
+Explicit `partial` keword when a function has many arguments and adding a lot of `_, _, _, _, _, _, _, _, _,` would look ugly.
+
+```suru
+// Currying with placeholders
+addTwo: add(2, _)           // Partial application
+addToFive: add(_, 5)        // Different partial application
+increment: add(_, 1)        // Another partial application
+
+// Explicit partial when a function has many arguments and adding a lot of `_, _, _, _, _, _, _, _, _,` would look ugly.
+complexCurry: partial functionWithManyArguments(2_283i32)
+
+// Multiple placeholders
+combine: someFunction(_, "default", _)
+
+// Works with pipe operations
+result: 10 | addTwo    // Same as addTwo(10)
+```
+
+### Function Currying
+```
+type BinaryFunction : (x Number, y Number) Number
+type UnaryFunction : (x Number) Number
+
+// Multi-parameter function
+add: (x Number, y Number, z Number) Number {
+    return x.add(y).add(z)
+}
+
+// Partial application creates functions of named types
+addFive : add(5)           // Type: BinaryFunction (conceptually)
+addEight : add(5, 3)  // Type: UnaryFunction
+
+// Usage
+result1 : addFive(2, 1)    // Same as add(5, 2, 1) = 8
+result2 : addEight(4) // Same as add(5, 3, 4) = 12
+```
+
+### Method Currying
+Methods can also be curried:
+
+```
+type BinaryOperation : (a Int, b Int) Int
+type UnaryOperation : (x Int) Int
+
+type Calculator : {
+    multiply: (a Int, b Int, c Int) Int
+}
+
+calc Calculator : {
+    multiply: (a Int, b Int, c Int) Int {
+        return a.multiply(b).multiply(c)
+    }
+}
+
+// Curry the method
+double : calc.multiply(2, _, _)        // Type: BinaryOperation (conceptually)
+double_triple : calc.multiply(2, 3, _)  // Type: UnaryOperation
+
+result : double_triple(4)        // 2 * 3 * 4 = 24
+```
+
+## Lexical Scoping
+
+Functions and methods have strict lexical scoping - they can only access:
+1. Their parameters
+2. Variables declared within their body
+3. Global constants and functions
+
+They **cannot** access variables from outer scopes. This ensures predictable behavior and makes currying safe.
+
+### Correct Scoping
+```
+constant: 42
+
+outerFunction: (x Number) Number {
+    localVar : 10
+    
+    innerFunction: (y Number) Number {
+        // ✅ Can access: y (parameter), constant
+        // ✅ Can access other functions: outerFunction
+        return y.add(constant)
+    }
+    
+    // ❌ Cannot access: localVar from outer scope
+    // innerFunction: (y Number) Number {
+    //     return y.add(localVar)  // ERROR: localVar not in scope
+    // }
+    
+    return innerFunction(x)
+}
+```
+
+### Currying with Proper Scoping
+```
+type NumberFunction : (x Number) Number
+
+// Parameters become part of the curried function's closure
+add: (x Number, y Number) Number {
+    return x.add(y)
+}
+
+addFive : add(5)
+result : addFive(3)  // 8
+```
+
+## Collections
+
+Suru provides four built-in collection types, all using the unified `[]` syntax for creation. The type annotation determines which collection is created.
+
+### Lists
+Ordered collections that allow duplicates:
+
+```
+// List creation using [] syntax
+numbers List<Number> : [1, 2, 3, 4, 5]
+names List<String> : ["alice", "bob", "charlie"]
+empty_list List<Float> : []
+
+// List building
+extended : numbers
+    .add(6)
+    .add([7, 8, 9])
+    .set(0, 0)                         // Insert at index
+```
+
+### Sets
+Unordered collections with unique elements:
+
+```suru
+// Set creation - duplicates automatically removed
+uniqueNumbers Set<Number> : [1, 2, 3, 2, 1]  // Results in {1, 2, 3}
+colors Set<String> : ["red", "green", "blue"]
+emptySet Set<Float> : []
+```
+
+### Maps
+Key-value collections:
+
+```suru
+// Map creation using key:value syntax
+userAges Map<String, Number> : [
+    "alice": 25,
+    "bob": 30,
+    "charlie": 35
+]
+
+scores Map<String, Float> : [
+    "math": 95.5,
+    "science": 87.2,
+    "history": 92.1
+]
+
+emptyMap Map<String, Int> : []
+```
+
+### Collection Type Inference
+The type annotation determines which collection is created:
+
+```suru
+// Same syntax, different types based on annotation
+numbersList List<Number> : [1, 2, 3]        // Creates List
+numbersSet Set<Number> : [1, 2, 3]          // Creates Set  
+
+// Maps require key:value syntax
+mapping Map<Int, String> : [1: "one", 2: "two"]  // Creates Map
+```
+
+## Control flow statements
 
 ### Match Expressions
 
 Suru uses pattern matching for control flow:
 
 ```suru
+// Match on types
 processResult: (result Result) String {
     match result {
         Success: "Operation completed successfully"
@@ -319,248 +751,351 @@ checkNumber: (n Number) String {
 }
 
 // Match with member access
-handleResponse: (response HttpResponse) {
-    match response.status {
-        200: processSuccess()
-        404: handleNotFound()
-        _: handleError()
+status : match user_input {
+    .equals("quit") : "exiting",
+    .equals("help") : "showing help",
+    _ : "unknown command"
+}
+```
+
+### Loops
+
+Suru has no syntax for looping. 
+Suru uses method-based iteration instead of loop keywords, maintaining consistency with our method-centric approach. Control flow is managed through continuation types.
+
+#### Continuation Types
+Control flow is managed with union types representing continuation decisions:
+
+```suru
+// Core continuation types
+type Continue
+type Break<T>: Some<T>, None
+type Produce<T>
+type Continuation<T> : Produce<T>, Continue, Break<T>
+```
+
+#### Number Iteration
+Numbers provide iteration methods:
+
+```suru
+// Basic repetition
+printHello: (step Number) {
+    print("Hello #" + step.toString())
+}
+
+5.times(printHello)  // Prints "Hello #1" through "Hello #5"
+
+// Early termination
+countWithBreak: (step Number) Continuation {
+    print("Step: " + step.toString())
+    return match step {
+        .equals(3) : Break,  // Stop at step 3
+        _ : Continue
     }
 }
-```
 
-## String Interpolation
+10.times(countWithBreak)  // Only prints steps 1, 2, 3
 
-Suru supports multiple levels of string interpolation:
-
-### Single Backticks
-```suru
-name : "Alice"
-message : `Hello, {name}!`
-```
-
-### Double Backticks (Multiline)
-```suru
-template : ``
-Welcome to Suru, {{username}}!
-Your account balance is: ${{balance}}
-``
-```
-
-### Triple Backticks (Complex)
-```suru
-report : ```
-Report for {{{date}}}:
-- Total users: {{{userCount}}}
-- Revenue: ${{{revenue}}}
-```
-
-### Quad Backticks (Maximum Nesting)
-```suru
-complexTemplate : ````
-{{{{deeplyNestedData.process()}}}}
-````
-```
-
-## Examples
-
-### Basic Calculator
-
-```suru
-====
-A simple calculator module demonstrating basic Suru features
-====
-module Calculator
-
-export {
-    add
-    subtract  
-    multiply
-    divide
-}
-
-====
-Adds two numbers together
-@param a First number
-@param b Second number
-@return Sum of a and b
-====
-add: (a Number, b Number) Number {
-    return a + b
-}
-
-====
-Subtracts second number from first
-@param a First number  
-@param b Second number to subtract
-@return Difference of a and b
-====
-subtract: (a Number, b Number) Number {
-    return a - b  
-}
-
-multiply: (a Number, b Number) Number {
-    return a * b
-}
-
-divide: (a Number, b Number) Number {
-    match b {
-        0: error("Division by zero")
-        _: return a / b
+// Early termination with value
+find3: (step Number) Continuation<Number> {
+    return match step {
+        .equals(3) : Break(step),  // Stop at step 3
+        _ : Continue
     }
 }
+
+result Option<Number>: 10.times(find3) // returns Some(3)
+
+// Accumulator 
+appendStars: (_, result String) Continuation<String> {
+    return Produce(result + "*")
+}
+
+result: 3.times(appendStars, "+") // returns "+***"
 ```
 
-### User Management System
+#### Collection Iteration
+Collections provide rich iteration methods:
 
 ```suru
-module UserSystem
+numbers List<Number> : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-type Role: Admin, User, Guest
+// Basic iteration
+printNumbers: (num Number) {
+    print("Number: " + num.toString())
+}
 
+numbers.each(printNumbers)
+
+// Iteration with index
+printNumbersWithIndex: (num Number, index Number) {
+    print("Index " + index.toString() + ": " + num.toString())
+}
+
+numbers.each(printNumbersWithIndex)
+
+```
+
+### Infinit loops
+Conditional loops using method calls:
+
+```suru
+// While-like behavior
+while: (current Number) Continuation<Number> {
+    print("Count: " + current.toString())
+    current : current.subtract(1)
+    
+    return match current.equals(3) {
+        true : Break,    // Early exit
+        false : Continue(current)
+    }
+})
+
+loop(while, 100);
+```
+
+## Composition
+Code reuse is done by composition
+The `+` operator is used for all composition.
+
+### Type composition
+Suru composes types from other types similar to interface iheritence.
+
+```
+type Point: {
+    x Number
+    y Number
+}
+
+type Circle: Point + {
+    radius Number
+}
+```
+
+### Data composition
+
+Building on the previous type declarations we can have:
+```suru
+aPoint Point: {
+   x: 100
+   Y: 300
+}
+
+aCircle Circle: aPoint + {
+    radius: 500
+}
+```
+
+### Method composition
+
+```suru
+type Shape: Circle, Square
+
+type AreaFunction: (shape Shape) Number
+
+// Implementation of an area function
+area AreaFunction: (shape){
+    // some implementation
+}
+
+// function reuse with partial application
+aCircle Circle: aPonit + {
+    radius: 500
+    area: + partial area(this) // "adding" a method to the struct by partially applying a function with the instance itself
+}
+
+// Usage
+theArea: aCircle.area()
+```
+
+Considerations:
+- when composing structs if there are name conficts the last overrides the previous
+
+More Examples:
+
+```suru
+// Function library
+validate_email: (email String) Bool { ... }
+format_phone: (phone String) String { ... }
+calculate_tax: (amount Number, rate Number) Number { ... }
+
+// Compose methods into structs
 type User: {
-    id String
-    name String  
     email String
-    role Role
-    isActive Boolean
+    phone String
     
-    getDisplayName: () String
-    hasPermission: (permission String) Boolean
+    // Add validation methods via composition
+    is_valid_email: + partial validate_email(this.email)
+    formatted_phone: + partial format_phone(this.phone)
 }
 
-====
-Creates a new user with default settings
-@param name User's full name
-@param email User's email address  
-@return New User instance
-====
-createUser: (name String, email String) User {
-    return {
-        id: generateId()
-        name: name
-        email: email  
-        role: Guest
-        isActive: true
-        
-        getDisplayName: () String {
-            return `{name} ({email})`
-        }
-        
-        hasPermission: (permission String) Boolean {
-            match role {
-                Admin: true
-                User: permission != "admin"
-                Guest: permission == "read"
-                _: false
-            }
-        }
-    }
+type Invoice: {
+    amount Number
+    tax_rate Number
+    
+    // Compose calculation method
+    total: + partial calculate_tax(this.amount, this.tax_rate)
 }
 
-====
-Processes user authentication
-@param credentials Login credentials
-@return Authentication result
-====
-authenticateUser: (credentials LoginCredentials) AuthResult {
-    user : findUserByEmail(credentials.email)
+// Even compose methods from other types
+type EnhancedCircle: Circle + {
+    // Reuse area function but add logging
+    area_with_log: + partial area(this) | + partial log_result(_)
     
-    match user {
-        null: return AuthResult.Failed
-        _: {
-            isValid : validatePassword(credentials.password, user.passwordHash)
-            match isValid {
-                true: return AuthResult.Success  
-                false: return AuthResult.Failed
-            }
-        }
-    }
+    // Compose validation from another type
+    validate: + Point.validate_coordinates
 }
 ```
 
-### Configuration System
+More examples:
 
 ```suru
-module Config
-
-type Environment: Development, Staging, Production
-
-type DatabaseConfig: {
-    host String
-    port Number
-    username String
-    password String
-    database String
+// Base functionality
+log_call: (func_name String, result Any) Any { 
+    print(`Called {func_name}, result: {result}`)
+    return result
 }
 
-type AppConfig: {
-    environment Environment
-    database DatabaseConfig
-    apiKey String
-    debugMode Boolean
-}
+validate_positive: (value Number) Number { ... }
 
-====
-Loads configuration based on environment
-@param env Target environment
-@return Complete application configuration
-====
-loadConfig: (env Environment) AppConfig {
-    baseConfig : {
-        environment: env
-        apiKey: getEnvVar("API_KEY")
-        debugMode: env == Development
-        
-        database: match env {
-            Development: {
-                host: "localhost"
-                port: 5432
-                username: "dev_user"
-                password: "dev_pass"  
-                database: "app_dev"
-            }
-            
-            Staging: {
-                host: getEnvVar("STAGING_DB_HOST")
-                port: 5432
-                username: getEnvVar("STAGING_DB_USER")
-                password: getEnvVar("STAGING_DB_PASS")
-                database: "app_staging"
-            }
-            
-            Production: {
-                host: getEnvVar("PROD_DB_HOST")
-                port: 5432  
-                username: getEnvVar("PROD_DB_USER")
-                password: getEnvVar("PROD_DB_PASS")
-                database: "app_prod"
-            }
-        }
-    }
+// Compose a rich Circle type
+aCircle Circle: aPoint + {
+    radius: 500
     
-    return baseConfig
+    // Chain multiple behaviors
+    area: + partial area(this) 
+          | + partial validate_positive(_) 
+          | + partial log_call("area", _)
+    
+    // Override inherited behavior
+    move: + partial move_with_bounds(this, _, _)  // Last one wins over Point.move
+    
+    // Compose from multiple sources
+    describe: + partial format_shape(this) 
+              | + partial add_timestamp(_)
+              | + partial to_uppercase(_)
+}
+
+// Usage
+result: aCircle.area()  
+// Calls: area(aCircle) -> validate_positive(result) -> log_call("area", result)
+```
+
+## Documentation
+
+Suru supports rich documentation using equals sign delimiters with markdown content and special keywords:
+
+```tracelang
+==========
+# Calculate Circle Area
+Calculates the area of a circle given its radius.
+
+@param radius The radius of the circle in meters (must be positive)
+@return The area in square meters
+@example
+&#96;&#96;&#96;suru
+area: calculateCircleArea(5.0)
+// Returns: 78.54
+&#96;&#96;&#96;
+@since 1.0.0
+==========
+calculateCircleArea: (radius Float) Float {
+    return 3.14159 * radius * radius
+}
+
+============
+# User Account Type
+Represents a user account in the system with authentication capabilities.
+
+@field id Unique identifier for the user
+@field name Full name of the user  
+@field email Contact email address
+@deprecated Use UserV2 instead
+@author Security Team
+============
+type User: {
+    id UserId
+    name String
+    email String
+
+    getName: () String
 }
 ```
 
-## Best Practices
+Documentation blocks must:
+- Start and end with at least 4 equals signs (`====`)
+- Contain valid markdown between the delimiters
+- Support special `@keyword` annotations for structured metadata
+- Can be placed before any top-level declaration
 
-1. **Always document your functions** with the documentation block syntax
-2. **Use explicit types** for function parameters and return values
-3. **Prefer pattern matching** over complex conditional logic  
-4. **Keep functions small** and focused on single responsibilities
-5. **Use meaningful variable names** that express intent
-6. **Group related functionality** into modules
-7. **Export only what's needed** to maintain clean module interfaces
+### Documentation Keywords
 
-## Language Features Summary
+- `@param name description` - Parameter documentation
+- `@return description` - Return value documentation
+- `@example code` - Usage examples
+- `@deprecated reason` - Mark as deprecated
+- `@experimental note` - Mark as experimental
+- `@todo description` - TODO items
+- `@see reference` - Cross-references
+- `@link url` - External links
 
-- ✅ **Strong typing** with optional type inference
-- ✅ **Documentation-first** design with built-in doc blocks
-- ✅ **Pattern matching** for control flow
-- ✅ **Module system** with flexible import/export
-- ✅ **Generic types** for reusable code  
-- ✅ **String interpolation** with multiple nesting levels
-- ✅ **Union and intersection types** for flexible type composition
-- ✅ **Clean syntax** focused on readability
+## String interpolation
 
-Suru is designed to make code both powerful and readable, with features that scale from simple scripts to large applications.
+Suru features advanced string interpolation with multiple nesting levels using backticks:
+
+### Single Backticks (&#96;)
+
+For simple interpolation:
+
+```suru
+name: "Alice"
+greeting: &#96;Hello {name}!&#96;
+// Result: "Hello Alice!"
+```
+
+For multi-line strings follow the backticls with a new line.
+
+```suru
+name: "Alice"
+greeting: (name) String {
+    return &#96;
+    Hello {name}!
+        How are you?
+    &#96;
+} 
+greeting(name) | print // Result: "Hello Alice!\n\tHow are you?"
+```
+ 
+
+### Double Backticks (&#96;&#96;)
+
+```suru
+user: getUser()
+message: &#96;&#96;
+    Welcome {{user.name}}!
+    Your account balance is ${{user.balance}}.
+    &#96;&#96;
+```
+
+### Triple Backticks (&#96;&#96;&#96;)
+```tracelang
+items: getItems()
+report: &#96;&#96;&#96;
+    Processing {{{items.length}}} items:
+    {{{formatItemList(items)}}}
+    Status: {{{getProcessingStatus()}}}
+    &#96;&#96;&#96;
+```
+
+### Quad Backticks (&#96;&#96;&#96;&#96;)
+```tracelang
+template: getTemplate()
+rendered: &#96;&#96;&#96;&#96;
+    Template: {{{{template.name}}}}
+    Content: {{{{renderContent(template.data)}}}}
+    Metadata: {{{{template.metadata.toString()}}}}
+    &#96;&#96;&#96;&#96;
+```
+
+The different backtick levels allow for flexible string templating.
+
