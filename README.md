@@ -12,7 +12,7 @@ Suru is designed with modern programming principles in mind, featuring:
 - Intersection and union types
 - Method and function overrloading
 - Method and function curring 
-- Piped values
+- Pipled values
 - Composition
 - Rich documentation support
 - Advanced string interpolation with multiple nesting levels
@@ -22,7 +22,7 @@ Suru is designed with modern programming principles in mind, featuring:
 - [File Structure](#file-structure)
 - [Lexical elements and literals](#lexical_elements_and_literals)
 
-## File Structure
+## File Structure {#file-structure}
 
 A Suru source file has `.suru` extension and follows this structure:
 
@@ -31,7 +31,7 @@ A Suru source file has `.suru` extension and follows this structure:
 3. **Export Block** (optional)
 4. **Declarations** (types, functions, variables, expressions)
 
-## Lexical elements and literals
+## Lexical elements and literals {#lexical_elements_and_literals}
 
 ### Booleans
 
@@ -853,6 +853,88 @@ while: (current Number) Continuation<Number> {
 
 loop(while, 100);
 ```
+
+## Error handling
+Suru language uses errors as values you can't throw an error.
+You can use any of the build in types or make your own.
+
+```suru
+type Result<T, E>: Ok T, Error E
+type Option<T>: Some T, None // generally used when there is no value to return.
+type Response<T, E>: Success T, Failure E
+type Either<L, R>: Left L, Right R
+```
+
+### Short circuiting
+Use the `try` keyword in front of a call to shortcircuit if there is an error and return early.  `try` works with any union type with exactly two variants.
+
+```suru
+// Try unwraps the "success" variant (first one) or short-circuits with the "failure" variant (second one)
+processData: (input String) Result<Data, Error> {
+    // try unwraps Ok or returns Error
+    parsed: try parseInput(input)     // parseInput returns Result<ParsedData, ParseError>
+
+    // try unwraps Some or returns None (auto-converted to Err None)
+    value: try findValue(parsed)      // findValue returns Option<Value>
+
+    // try unwraps Success or returns Failure
+    result: try sendRequest(value)    // sendRequest returns Response<Data, NetworkError>
+
+    return Ok(result)
+}
+```
+1. **Try Compatibility**: A type is try-compatible if it's a union with exactly 2 variants
+2. **Success Unwrapping**: `try expr` where `expr Union<A, B>` produces type `A`
+3. **Failure Propagation**: The containing function must return a union where the second variant is compatible with `B`
+
+```suru
+// Option type
+type Option<T>: Some T, None
+
+findUser: (id String) Option<User>
+getProfile: (user User) Option<Profile>
+
+getUserProfile: (id String) Option<Profile> {
+    user: try findUser(id)        // Unwraps Some or returns None
+    profile: try getProfile(user) // Chains naturally
+    return Some(profile)
+}
+
+// Either type
+type Either<L, R>: Left L, Right R
+
+parseAndValidate: (input String) Either<Data, Error> {
+    parsed: try parseJson(input)    // parseJson returns Either<JsonValue, ParseError>
+    data: try validateData(parsed)  // validateData returns Either<Data, ValidationError>
+    return Left(data)
+}
+
+// Custom domain types
+type AuthResult<T>: Authenticated T, Unauthorized String
+type DatabaseResult<T>: Found T, NotFound String
+
+secureGetUser: (token String, id String) AuthResult<User> {
+    session: try authenticate(token)  // Returns AuthResult<Session>
+    user: try getUser(session, id)    // Returns DatabaseResult<User> - needs conversion
+    return Authenticated(user)
+}
+```
+### Pipe Integration
+
+The try operator works beautifully with pipes:
+
+```suru
+// Clean pipeline with automatic unwrapping
+processRequest: (request String) Result<Response, Error> {
+    request
+        | try parseJson
+        | try validateRequest  
+        | try processBusinessLogic
+        | try formatResponse
+        | try sendResponse
+}
+```
+
 
 ## Composition
 Code reuse is done by composition
