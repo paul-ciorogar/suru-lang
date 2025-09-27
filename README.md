@@ -10,9 +10,9 @@ Suru is designed with modern programming principles in mind, featuring:
 - Module-based organization
 - Pattern matching for control flow
 - Intersection and union types
-- Method and function overrloading
-- Method and function curring 
-- Pipled values
+- Method and function overloading
+- Method and function currying 
+- Piped values
 - Composition
 - Rich documentation support
 - Advanced string interpolation with multiple nesting levels
@@ -53,7 +53,7 @@ doubleQuoted: "Hello, World!"
 singleQuoted: 'Hello, World!'
 
 // String interpolation with backticks
-simple: &#96;Hello {name}!&#96;
+simple: `Hello {name}!`
 ```
 
 #### Escape Characters #
@@ -100,8 +100,8 @@ Hexadecimal Floats:
 
 Type Suffixes:
 
-- Numberegers: `i8, i16, i32, i64, i128, u8, u16, u32, u64, u128`
-- Floats: `f16, f32, f64, f128`
+- Integers: `i8, i16, i32, i64, i128, ut8, u16, u32, u64, u128`
+- floats: `f16, f32, f64, f128`
 
 Examples
 
@@ -113,7 +113,7 @@ count: 1_000_000u64;
 flags: 0b1010_1100u8;
 
 // Hex with suffix
-address: 0xDEAD_BEEFuintptr;
+address: 0xDEAD_BEEFu16;
 
 // Float with scientific notation
 pi: 3.14159_26535f64;
@@ -127,11 +127,11 @@ precise: 0x1.921FB54442D18p+1f64; // π in hex float
 
 A variable declaration declares a new variable for the current scope.
 ```suru
-name : value // type is infered
+name : value // type is inferred
 name Type : value
 ```
 Declarations at the file scope are constants.
-A constant’s value cannot be changed. The constant’s value must be able to be evaluated at compile time
+A constant's value cannot be changed. The constant's value must be able to be evaluated at compile time
 
 ### Assignment statements
 ```suru
@@ -140,7 +140,7 @@ name : value
 
 ## Modules
 
-Suru programs are organized into modules. A module is a directory of Suru code files, one of which has module declaration at the top. Execution starts in the main module's main ffunction.
+Suru programs are organized into modules. A module is a directory of Suru code files, one of which has module declaration at the top. Execution starts in the main module's main function.
 
 ### Module Declaration
 
@@ -197,11 +197,13 @@ export {
 `-` negation `-2_283i64`
 
 ### Logical
-`not` not false = true
-`and` true and true = true
-`for` true or false = true
+
+- `not` not false = true
+- `and` true and true = true
+- `or` true or false = true
 
 ### Compositional
+
 `+` used for composing types and structs
 
 ## Types
@@ -312,7 +314,7 @@ add: (x Number, y Number) Number {
     return x.add(y)
 }
 
-// Function with infered types
+// Function with inferred types
 add: (x, y) {
     return x.add(y)
 }
@@ -357,10 +359,10 @@ sort<T: Orderable>: (items List<T>) List<T> {
 ### Function overloading
 ```suru
 // Function overloading (same name, different signatures)
-add: (a i32, b i32) i32 { return a + b }
-add: (a f64, b f64) f64 { return a + b }
-add: (a i32) i32 { return a }
-add: (a string, b string) string { return a + b }
+add: (a Int, b Int) Int { return a + b }
+add: (a Float, b Float) Float { return a + b }
+add: (a Int) Int { return a }
+add: (a String, b String) String { return a + b }
 ```
 
 ### Method overloading
@@ -369,10 +371,10 @@ Same as function overloading
 
 ```suru
 type Adds: {
-    add: (a i32, b i32) i32 { return a + b }
-    add: (a f64, b f64) f64 { return a + b }
-    add: (a i32) i32 { return a }
-    add: (a string, b string) string { return a + b }
+    add: (a Int, b Int) Int { return a + b }
+    add: (a Float, b Float) Float { return a + b }
+    add: (a Int) Int { return a }
+    add: (a String, b String) String { return a + b }
 }
 ```
 
@@ -556,8 +558,8 @@ balance : account.getBalance()  // ✅ OK: public method
 ## Currying and Partial Application
 
 All functions and methods in Suru can be curried.
-Calling a function with `_` placeholder instead of an argument returns a new function that takes the remaining arguments which where given the placeholder.
-Explicit `partial` keword when a function has many arguments and adding a lot of `_, _, _, _, _, _, _, _, _,` would look ugly.
+Calling a function with `_` placeholder instead of an argument returns a new function that takes the remaining arguments which were given the placeholder.
+Explicit `partial` keyword when a function has many arguments and adding a lot of `_, _, _, _, _, _, _, _, _,` would look ugly.
 
 ```suru
 // Currying with placeholders
@@ -836,7 +838,7 @@ numbers.each(printNumbersWithIndex)
 
 ```
 
-### Infinit loops
+### Infinite loops
 Conditional loops using method calls:
 
 ```suru
@@ -855,8 +857,8 @@ loop(while, 100);
 ```
 
 ## Error handling
-Suru language uses errors as values you can't throw an error.
-You can use any of the build in types or make your own.
+The Suru language uses errors as values you can't throw an error.
+You can use any of the built-in types or make your own.
 
 ```suru
 type Result<T, E>: Ok T, Error E
@@ -866,7 +868,7 @@ type Either<L, R>: Left L, Right R
 ```
 
 ### Short circuiting
-Use the `try` keyword in front of a call to shortcircuit if there is an error and return early.  `try` works with any union type with exactly two variants.
+Use the `try` keyword in front of a call to short-circuit if there is an error and return early.  `try` works with any union type with exactly two variants.
 
 ```suru
 // Try unwraps the "success" variant (first one) or short-circuits with the "failure" variant (second one)
@@ -941,7 +943,7 @@ Code reuse is done by composition
 The `+` operator is used for all composition.
 
 ### Type composition
-Suru composes types from other types similar to interface iheritence.
+Suru composes types from other types similar to interface inheritance.
 
 ```
 type Point: {
@@ -960,7 +962,7 @@ Building on the previous type declarations we can have:
 ```suru
 aPoint Point: {
    x: 100
-   Y: 300
+   y: 300
 }
 
 aCircle Circle: aPoint + {
@@ -981,7 +983,7 @@ area AreaFunction: (shape){
 }
 
 // function reuse with partial application
-aCircle Circle: aPonit + {
+aCircle Circle: aPoint + {
     radius: 500
     area: + partial area(this) // "adding" a method to the struct by partially applying a function with the instance itself
 }
@@ -991,7 +993,7 @@ theArea: aCircle.area()
 ```
 
 Considerations:
-- when composing structs if there are name conficts the last overrides the previous
+- when composing structs if there are name conflicts the last overrides the previous
 
 More Examples:
 
@@ -1067,7 +1069,7 @@ result: aCircle.area()
 
 Suru supports rich documentation using equals sign delimiters with markdown content and special keywords:
 
-```tracelang
+```suru
 ==========
 # Calculate Circle Area
 Calculates the area of a circle given its radius.
@@ -1075,10 +1077,10 @@ Calculates the area of a circle given its radius.
 @param radius The radius of the circle in meters (must be positive)
 @return The area in square meters
 @example
-&#96;&#96;&#96;suru
+\`\`\`suru
 area: calculateCircleArea(5.0)
 // Returns: 78.54
-&#96;&#96;&#96;
+\`\`\`
 @since 1.0.0
 ==========
 calculateCircleArea: (radius Float) Float {
@@ -1125,59 +1127,58 @@ Documentation blocks must:
 
 Suru features advanced string interpolation with multiple nesting levels using backticks:
 
-### Single Backticks (&#96;)
+### Single Backticks (\`)
 
 For simple interpolation:
 
 ```suru
 name: "Alice"
-greeting: &#96;Hello {name}!&#96;
+greeting: \`Hello {name}!\`
 // Result: "Hello Alice!"
 ```
 
-For multi-line strings follow the backticls with a new line.
+For multi-line strings follow the backticks with a new line.
 
 ```suru
 name: "Alice"
 greeting: (name) String {
-    return &#96;
+    return \`
     Hello {name}!
         How are you?
-    &#96;
+    \`
 } 
 greeting(name) | print // Result: "Hello Alice!\n\tHow are you?"
 ```
  
 
-### Double Backticks (&#96;&#96;)
+### Double Backticks (\`\`)
 
 ```suru
 user: getUser()
-message: &#96;&#96;
+message: \`\`
     Welcome {{user.name}}!
     Your account balance is ${{user.balance}}.
-    &#96;&#96;
+    \`\`
 ```
 
-### Triple Backticks (&#96;&#96;&#96;)
-```tracelang
+### Triple Backticks (\`\`\`)
+```suru
 items: getItems()
-report: &#96;&#96;&#96;
+report: \`\`\`
     Processing {{{items.length}}} items:
     {{{formatItemList(items)}}}
     Status: {{{getProcessingStatus()}}}
-    &#96;&#96;&#96;
+    \`\`\`
 ```
 
-### Quad Backticks (&#96;&#96;&#96;&#96;)
-```tracelang
+### Quad Backticks (\`\`\`\`)
+```suru
 template: getTemplate()
-rendered: &#96;&#96;&#96;&#96;
+rendered: \`\`\`\`
     Template: {{{{template.name}}}}
     Content: {{{{renderContent(template.data)}}}}
     Metadata: {{{{template.metadata.toString()}}}}
-    &#96;&#96;&#96;&#96;
+    \`\`\`\`
 ```
 
 The different backtick levels allow for flexible string templating.
-
