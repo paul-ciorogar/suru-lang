@@ -867,7 +867,7 @@ add: (x Number, y Number) Number {
     return x.add(y)
 }
 
-addFive : add(5)
+addFive : add(5, _)
 result : addFive(3)  // 8
 ```
 
@@ -989,14 +989,14 @@ Numbers provide iteration methods:
 ```suru
 // Basic repetition
 printHello: (step Number) {
-    print("Hello #" + step.toString())
+    print(`Hello #{step.toString()}`)
 }
 
 5.times(printHello)  // Prints "Hello #1" through "Hello #5"
 
 // Early termination
 countWithBreak: (step Number) Continuation {
-    print("Step: " + step.toString())
+    print(`Step: {step.toString()}`)
     return match step {
         .equals(3) : Break,  // Stop at step 3
         _ : Continue
@@ -1031,14 +1031,14 @@ numbers List<Number> : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 // Basic iteration
 printNumbers: (num Number) {
-    print("Number: " + num.toString())
+    print(`Number: {num.toString()}`)
 }
 
 numbers.each(printNumbers)
 
 // Iteration with index
 printNumbersWithIndex: (num Number, index Number) {
-    print("Index " + index.toString() + ": " + num.toString())
+    print(`Index {index.toString()} {num.toString()}`)
 }
 
 numbers.each(printNumbersWithIndex)
@@ -1051,7 +1051,7 @@ Conditional loops using method calls:
 ```suru
 // While-like behavior
 while: (current Number) Continuation<Number> {
-    print("Count: " + current.toString())
+    print(`Count: {current.toString()}`)
     current : current.subtract(1)
     
     return match current.equals(3) {
@@ -1192,7 +1192,9 @@ area AreaFunction: (shape){
 // function reuse with partial application
 aCircle Circle: aPoint + {
     radius: 500
-    area: + partial area(this) // "adding" a method to the struct by partially applying a function with the instance itself
+
+    // "adding" a method to the struct by partially applying a function with the instance itself
+    area: + partial area(this) 
 }
 
 // Usage
@@ -1276,7 +1278,7 @@ result: aCircle.area()
 
 Suru supports rich documentation using equals sign delimiters with markdown content and special keywords:
 
-```suru
+````suru
 ==========
 # Calculate Circle Area
 Calculates the area of a circle given its radius.
@@ -1284,10 +1286,10 @@ Calculates the area of a circle given its radius.
 @param radius The radius of the circle in meters (must be positive)
 @return The area in square meters
 @example
-\`\`\`suru
+```suru
 area: calculateCircleArea(5.0)
 // Returns: 78.54
-\`\`\`
+```
 @since 1.0.0
 ==========
 calculateCircleArea: (radius Float) Float {
@@ -1311,7 +1313,7 @@ type User: {
 
     getName: () String
 }
-```
+````
 
 Documentation blocks must:
 - Start and end with at least 4 equals signs (`====`)
@@ -1340,7 +1342,7 @@ For simple interpolation:
 
 ```suru
 name: "Alice"
-greeting: \`Hello {name}!\`
+greeting: `Hello {name}!`
 // Result: "Hello Alice!"
 ```
 
@@ -1349,10 +1351,10 @@ For multi-line strings follow the backticks with a new line.
 ```suru
 name: "Alice"
 greeting: (name) String {
-    return \`
+    return `
     Hello {name}!
         How are you?
-    \`
+    `
 } 
 greeting(name) | print // Result: "Hello Alice!\n\tHow are you?"
 ```
@@ -1362,30 +1364,30 @@ greeting(name) | print // Result: "Hello Alice!\n\tHow are you?"
 
 ```suru
 user: getUser()
-message: \`\`
+message: ``
     Welcome {{user.name}}!
     Your account balance is ${{user.balance}}.
-    \`\`
+    ``
 ```
 
 ### Triple Backticks (\`\`\`)
-```suru
+````suru
 items: getItems()
-report: \`\`\`
+report: ```
     Processing {{{items.length}}} items:
     {{{formatItemList(items)}}}
     Status: {{{getProcessingStatus()}}}
-    \`\`\`
-```
+    ```
+````
 
 ### Quad Backticks (\`\`\`\`)
-```suru
+`````suru
 template: getTemplate()
-rendered: \`\`\`\`
+rendered: ````
     Template: {{{{template.name}}}}
     Content: {{{{renderContent(template.data)}}}}
     Metadata: {{{{template.metadata.toString()}}}}
-    \`\`\`\`
-```
+    ````
+`````
 
 The different backtick levels allow for flexible string templating.
