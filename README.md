@@ -47,6 +47,12 @@ Suru is designed with modern programming principles in mind, featuring:
   - [Intersection Types](#intersection-types)
   - [Function Types](#function-types)
   - [Generic Types](#generic-types)
+  - [Structural Typing](#structural-typing)
+  - [Basic Structural Compatibility](#basic-structural-compatibility)
+  - [Structural Compatibility with Functions](#structural-compatibility-with-functions)
+  - [Duck Typing with Methods](#duck-typing-with-methods)
+  - [Structural Subtyping](#structural-subtyping)
+  - [Generic Type Structural Compatibility](#generic-type-structural-compatibility)
 - [Functions](#functions)
   - [Generic Functions](#generic-functions)
   - [Function Overloading](#function-overloading)
@@ -101,7 +107,7 @@ A Suru source file has `.suru` extension and follows this structure:
 3. **Export Block** (optional)
 4. **Declarations** (types, functions, variables, expressions)
 
-## Lexical elements and literals {#lexical_elements_and_literals}
+## Lexical elements and literals
 
 ### Booleans
 
@@ -133,10 +139,10 @@ simple: `Hello {name}!`
 - \n - newline
 - \r - carriage return
 - \t - tab
-- \\ - backslash
-- \" - double quote (if needed)
-- \' - single quote (if needed)
-- \` - single tick (if needed)
+- \\\\ - backslash
+- \\" - double quote (if needed)
+- \\\' - single quote (if needed)
+- \\\` - single tick (if needed)
 - \NNN- octal 6 bit character (3 digits)
 - \xNN - hexadecimal 8 bit character (2 digits)
 - \uNNNN - hexadecimal 16-bit Unicode character UTF-8 encoded (4 digits)
@@ -146,10 +152,10 @@ simple: `Hello {name}!`
 
 Multiple Number Bases:
 
-- Binary: `0b1010, 0b1010_1100`
-- Octal: `0o755, 0o77_55`
-- Hexadecimal: `0xFF, 0xDEAD_BEEF`
-- Decimal: `123`, `1_000_000`
+- Binary: `0b1010`
+- Octal: `0o755`
+- Hexadecimal: `0xFF`
+- Decimal: `123`
 
 Underscore Separators for Readability:
 
@@ -196,6 +202,7 @@ precise: 0x1.921FB54442D18p+1f64; // π in hex float
 ## Variable declarations 
 
 A variable declaration declares a new variable for the current scope.
+Declarations end with a new line unless on the next line there is a continuation like `| , . + and or`
 ```suru
 name : value // type is inferred
 name Type : value
@@ -370,14 +377,161 @@ type Comparable<T: Orderable> : {
 }
 ```
 
-## Functions
-All function types must be defined as named types first:
+### Structural Typing
+Suru uses structural typing, meaning types are compatible based on their structure rather than explicit declarations. Two types are considered equivalent if they have the same shape, regardless of their names.
+
+### Basic Structural Compatibility
 
 ```suru
-type AddFunction : (x Number, y Number) Number
+// Two different type declarations with same structure
+type Person : {
+    name String
+    age Number
+}
+
+type Employee : {
+    name String
+    age Number
+}
+
+// These are structurally equivalent
+checkAge: (p Person) Bool {
+    return p.age.greater_than(18)
+}
+
+emp Employee : {
+    name: "Alice"
+    age: 25
+}
+
+// This works because Employee has same structure as Person
+isAdult : checkAge(emp)  // ✅ Valid - structural compatibility
+```
+
+### Structural Compatibility with Functions
+
+Function types are also structurally typed:
+
+```suru
+type PersonProcessor : (p Person) String
+type EmployeeHandler : (e Employee) String
+
+// These function types are structurally equivalent
+formatPerson: (person Person) String {
+    return `{person.name} is {person.age} years old`
+}
+
+// Can assign to either function type
+processor PersonProcessor : formatPerson
+handler EmployeeHandler : formatPerson  // ✅ Same structure
+```
+
+### Duck Typing with Methods
+
+If a type has the required methods, it can be used wherever that interface is expected:
+
+```suru
+type Drawable : {
+    draw: () String
+}
+
+type Circle : {
+    radius Number
+    draw: () String
+    area: () Number
+}
+
+type Rectangle : {
+    width Number
+    height Number
+    draw: () String
+}
+
+// Function expecting Drawable interface
+render: (shape Drawable) String {
+    return shape.draw()
+}
+
+circle Circle : {
+    radius: 5.0
+    draw: () { return "Drawing circle" }
+    area: () { return 3.14159 * this.radius * this.radius }
+}
+
+rectangle Rectangle : {
+    width: 10.0
+    height: 5.0
+    draw: () { return "Drawing rectangle" }
+}
+
+// Both work because they have draw() method
+circleOutput : render(circle)     // ✅ Valid
+rectangleOutput : render(rectangle) // ✅ Valid
+```
+
+### Structural Subtyping
+
+Types with additional fields are compatible with types that have fewer fields:
+
+```suru
+type BasicInfo : {
+    name String
+}
+
+type DetailedInfo : {
+    name String
+    age Number
+    email String
+}
+
+getName: (info BasicInfo) String {
+    return info.name
+}
+
+detailed DetailedInfo : {
+    name: "Bob"
+    age: 30
+    email: "bob@example.com"
+}
+
+// Works because DetailedInfo contains all fields of BasicInfo
+name : getName(detailed)  // ✅ Valid - structural subtyping
+```
+
+### Generic Type Structural Compatibility
+
+Generic types follow structural rules:
+
+```suru
+type Container<T> : {
+    value T
+    getValue: () T
+}
+
+type Box<T> : {
+    value T
+    getValue: () T
+}
+
+// Structurally equivalent generic types
+stringContainer Container<String> : {
+    value: "hello"
+    getValue: () { return this.value }
+}
+
+// Can be used as Box<String> due to structural compatibility
+useBox: (box Box<String>) String {
+    return box.getValue()
+}
+
+result : useBox(stringContainer)  // ✅ Valid
+```
+
+
+## Functions
+
+```suru
 type UnaryFunction : (x Number) Number
-type Transformer : (input String) String
-type AnyToString : (input) String
 
 // Function returning a simple type
 add: (x Number, y Number) Number {
@@ -631,6 +785,8 @@ All functions and methods in Suru can be curried.
 Calling a function with `_` placeholder instead of an argument returns a new function that takes the remaining arguments which were given the placeholder.
 Explicit `partial` keyword when a function has many arguments and adding a lot of `_, _, _, _, _, _, _, _, _,` would look ugly.
 
+### Function Currying
+
 ```suru
 // Currying with placeholders
 addTwo: add(2, _)           // Partial application
@@ -645,25 +801,6 @@ combine: someFunction(_, "default", _)
 
 // Works with pipe operations
 result: 10 | addTwo    // Same as addTwo(10)
-```
-
-### Function Currying
-```
-type BinaryFunction : (x Number, y Number) Number
-type UnaryFunction : (x Number) Number
-
-// Multi-parameter function
-add: (x Number, y Number, z Number) Number {
-    return x.add(y).add(z)
-}
-
-// Partial application creates functions of named types
-addFive : add(5)           // Type: BinaryFunction (conceptually)
-addEight : add(5, 3)  // Type: UnaryFunction
-
-// Usage
-result1 : addFive(2, 1)    // Same as add(5, 2, 1) = 8
-result2 : addEight(4) // Same as add(5, 3, 4) = 12
 ```
 
 ### Method Currying
