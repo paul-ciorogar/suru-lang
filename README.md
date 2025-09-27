@@ -2,6 +2,18 @@
 
 A general-purpose, high-level programming language with a focus on clean syntax, type safety, and modular design.
 
+## Getting Started
+
+1. **Compile the build system**:
+   ```bash
+   gcc -o builder builder.c
+   ```
+
+2. **Build the compiler**:
+   ```bash
+   ./builder
+   ```
+
 ## Overview
 
 Suru is designed with modern programming principles in mind, featuring:
