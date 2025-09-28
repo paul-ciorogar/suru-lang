@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -38,6 +39,11 @@ typedef struct {
 } test_stats_t;
 
 // Function prototypes
+int check_and_rebuild_self(const char *source_file, const char *target_exe,
+                           char *argv[]);
+int file_exists(const char *filename);
+time_t get_file_mtime(const char *filename);
+int rebuild_self(const char *source_file, const char *target_exe, char *argv[]);
 test_t *create_test_list(void);
 void add_test(test_t **head, const char *filename, const char *other_files);
 int compile_test(test_t *test);
@@ -45,8 +51,81 @@ int run_test(test_t *test);
 void run_all_tests(test_t *head);
 void print_summary(test_t *head);
 void cleanup_tests(test_t *head);
-double get_time_diff(struct timespec start, struct timespec end);
+double get_time_diff(clock_t start, clock_t end);
 char *get_executable_name(const char *filename);
+
+// Check if file exists
+int file_exists(const char *filename) {
+    struct stat buffer;
+    return (stat(filename, &buffer) == 0);
+}
+
+// Get file modification time
+time_t get_file_mtime(const char *filename) {
+    struct stat file_stat;
+    if (stat(filename, &file_stat) == 0) {
+        return file_stat.st_mtime;
+    }
+    return 0;
+}
+
+// Rebuild the test runner executable and restart
+int rebuild_self(const char *source_file, const char *target_exe,
+                 char *argv[]) {
+    printf("Rebuilding test runner...\n");
+
+    char compile_cmd[512];
+    snprintf(compile_cmd, sizeof(compile_cmd),
+             "gcc -o %s %s -Wall -Wextra -std=c99", target_exe, source_file);
+
+    printf("Executing: %s\n", compile_cmd);
+
+    int result = system(compile_cmd);
+
+    if (result == 0) {
+        printf("Test runner rebuilt successfully\n");
+        printf("Restarting with new executable...\n\n");
+
+        // Execute the new version
+        execv(target_exe, argv);
+
+        // If we get here, execv failed
+        perror("Failed to restart with new executable");
+        return 0;
+    } else {
+        printf("Failed to rebuild test runner\n");
+        return 0;
+    }
+}
+
+// Check if self needs rebuilding and do it if necessary
+int check_and_rebuild_self(const char *source_file, const char *target_exe,
+                           char *argv[]) {
+    // Check if source file exists
+    if (!file_exists(source_file)) {
+        printf("Source file '%s' not found, skipping self-rebuild check\n",
+               source_file);
+        return 1; // Continue anyway
+    }
+
+    // Check if target executable exists
+    if (!file_exists(target_exe)) {
+        printf("Target executable '%s' not found, rebuilding...\n", target_exe);
+        return rebuild_self(source_file, target_exe, argv);
+    }
+
+    // Compare modification times
+    time_t source_mtime = get_file_mtime(source_file);
+    time_t target_mtime = get_file_mtime(target_exe);
+
+    if (source_mtime > target_mtime) {
+        printf("Source file is newer than executable, rebuilding...\n");
+        return rebuild_self(source_file, target_exe, argv);
+    }
+
+    printf("Test runner is up to date\n");
+    return 1;
+}
 
 // Create an empty test list
 test_t *create_test_list(void) { return NULL; }
@@ -108,8 +187,8 @@ char *get_executable_name(const char *filename) {
 
 // Compile a single test
 int compile_test(test_t *test) {
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    clock_t start, end;
+    start = clock();
 
     // Build compile command
     char compile_cmd[1024];
@@ -128,14 +207,14 @@ int compile_test(test_t *test) {
 
     int result = system(compile_cmd);
 
-    clock_gettime(CLOCK_MONOTONIC, &end);
+    end = clock();
     test->compile_time = get_time_diff(start, end);
 
     if (result == 0) {
-        printf("✓ Compilation successful (%.3fs)\n", test->compile_time);
+        printf("Compilation successful (%.3fs)\n", test->compile_time);
         return 1;
     } else {
-        printf("✗ Compilation failed (%.3fs)\n", test->compile_time);
+        printf("Compilation failed (%.3fs)\n", test->compile_time);
         test->result = TEST_COMPILE_ERROR;
         return 0;
     }
@@ -143,8 +222,8 @@ int compile_test(test_t *test) {
 
 // Run a single test
 int run_test(test_t *test) {
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    clock_t start, end;
+    start = clock();
 
     char run_cmd[512];
     snprintf(run_cmd, sizeof(run_cmd), "./%s", test->executable_name);
@@ -161,12 +240,12 @@ int run_test(test_t *test) {
         int status;
         int result = waitpid(pid, &status, 0);
 
-        clock_gettime(CLOCK_MONOTONIC, &end);
+        end = clock();
         test->run_time = get_time_diff(start, end);
 
         if (result == -1) {
             test->result = TEST_RUNTIME_ERROR;
-            printf("✗ Runtime error (%.3fs)\n", test->run_time);
+            printf("Runtime error (%.3fs)\n", test->run_time);
             return 0;
         }
 
@@ -174,18 +253,18 @@ int run_test(test_t *test) {
 
         if (test->exit_code == 0) {
             test->result = TEST_PASSED;
-            printf("✓ Test passed (%.3fs)\n", test->run_time);
+            printf("Test passed (%.3fs)\n", test->run_time);
             return 1;
         } else {
             test->result = TEST_FAILED;
-            printf("✗ Test failed with exit code %d (%.3fs)\n", test->exit_code,
+            printf("Test failed with exit code %d (%.3fs)\n", test->exit_code,
                    test->run_time);
             return 0;
         }
     } else {
         // Fork failed
         test->result = TEST_RUNTIME_ERROR;
-        printf("✗ Failed to create process\n");
+        printf("Failed to create process\n");
         return 0;
     }
 }
@@ -318,19 +397,35 @@ void cleanup_tests(test_t *head) {
     }
 }
 
-// Calculate time difference in seconds
-double get_time_diff(struct timespec start, struct timespec end) {
-    return (end.tv_sec - start.tv_sec) +
-           (end.tv_nsec - start.tv_nsec) / 1000000000.0;
+// Calculate time difference in seconds using standard C clock()
+double get_time_diff(clock_t start, clock_t end) {
+    return ((double)(end - start)) / CLOCKS_PER_SEC;
 }
 
-// Example usage
-int main() {
+// Main function with self-rebuild capability
+int main(int argc, char *argv[]) {
+    (void)argc;
+    // Define source and target names
+    const char *source_file = "test_runner.c"; // Source file name
+    const char *target_exe = "test";           // Target executable name
+
+    printf("=== Test Runner with Self-Rebuild ===\n\n");
+
+    // Check if we need to rebuild ourselves
+    if (!check_and_rebuild_self(source_file, target_exe, argv)) {
+        fprintf(stderr,
+                "Failed to rebuild test runner, continuing anyway...\n");
+    }
+
+    printf("\n");
+
     // Create test list
     test_t *tests = create_test_list();
 
     // Add some example tests
     add_test(&tests, "tests/arena_test.c", NULL);
+    // Add more tests here as needed
+    // add_test(&tests, "tests/another_test.c", "helper.c");
 
     // Run all tests
     run_all_tests(tests);

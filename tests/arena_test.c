@@ -319,8 +319,7 @@ int test_chunk_reuse() {
 
     // ptr3 should be in the first chunk (reuse)
     ASSERT(ptr3 >= arena->first_chunk->memory &&
-               ptr3 < (char *)arena->first_chunk->memory +
-                          arena->first_chunk->size,
+               ptr3 < arena->first_chunk->memory + arena->first_chunk->size,
            "Small allocation not placed in first chunk");
 
     arena_destroy(arena);
