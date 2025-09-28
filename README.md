@@ -346,12 +346,15 @@ type Employee : Person + {
 ```
 
 ### Function Types
+
 Function signatures must be defined as named types:
+
+- `void` can be used to tell that a function returns nothing.
 
 ```suru
 type AddFunction : (a Number, b Number) Number
 type Predicate : (value String) Bool
-type VoidFunction : ()
+type VoidFunction : () void
 type Identity<T> : (value T) T
 type UnaryOperator : (x Float) Float
 ```
