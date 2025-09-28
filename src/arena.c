@@ -57,12 +57,12 @@ static Chunk *chunk_create(size_t min_size) {
 }
 
 // Initialize an arena with one page of memory
-Arena *arena_create() {
+Arena *arena_create(size_t size) {
     Arena *arena = (Arena *)malloc(sizeof(Arena));
     if (!arena)
         return NULL;
 
-    arena->first_chunk = chunk_create(ARENA_PAGE_SIZE);
+    arena->first_chunk = chunk_create(size);
     if (!arena->first_chunk) {
         free(arena);
         return NULL;

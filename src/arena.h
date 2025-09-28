@@ -7,7 +7,7 @@
 typedef struct Arena Arena;
 
 // Public API
-Arena* arena_create(void);
+Arena* arena_create(size_t size);
 void* arena_alloc(Arena* arena, size_t size);
 void* arena_calloc(Arena* arena, size_t count, size_t size);
 void arena_reset(Arena* arena);

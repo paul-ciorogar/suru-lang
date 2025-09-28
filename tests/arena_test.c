@@ -40,7 +40,7 @@ static int tests_passed = 0;
 int test_arena_creation() {
     TEST_START("Arena Creation and Destruction");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
     ASSERT(arena->first_chunk != NULL, "First chunk not created");
     ASSERT(arena->current_chunk == arena->first_chunk,
@@ -60,7 +60,7 @@ int test_arena_creation() {
 int test_basic_allocation() {
     TEST_START("Basic Allocation");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     // Allocate some memory
@@ -90,7 +90,7 @@ int test_basic_allocation() {
 int test_alignment() {
     TEST_START("Memory Alignment");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     // Test various sizes to ensure 8-byte alignment
@@ -123,7 +123,7 @@ int test_alignment() {
 int test_large_allocation() {
     TEST_START("Large Allocation");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     size_t page_size = ARENA_PAGE_SIZE;
@@ -158,7 +158,7 @@ int test_large_allocation() {
 int test_huge_allocation() {
     TEST_START("Huge Allocation");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     size_t page_size = ARENA_PAGE_SIZE;
@@ -192,7 +192,7 @@ int test_huge_allocation() {
 int test_arena_reset() {
     TEST_START("Arena Reset");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     // Make some allocations
@@ -232,7 +232,7 @@ int test_arena_reset() {
 int test_arena_calloc() {
     TEST_START("Arena Calloc");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     // Allocate zeroed memory
@@ -266,7 +266,7 @@ int test_arena_calloc() {
 int test_arena_available() {
     TEST_START("Arena Available Space");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     size_t initial_available = arena_available(arena);
@@ -299,7 +299,7 @@ int test_arena_available() {
 int test_chunk_reuse() {
     TEST_START("Chunk Reuse");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     size_t page_size = ARENA_PAGE_SIZE;
@@ -332,7 +332,7 @@ int test_chunk_reuse() {
 int test_edge_cases() {
     TEST_START("Edge Cases");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     // Test zero-size allocation
@@ -364,7 +364,7 @@ int test_edge_cases() {
 int test_stress() {
     TEST_START("Stress Test");
 
-    Arena *arena = arena_create();
+    Arena *arena = arena_create(1024);
     ASSERT(arena != NULL, "Arena creation failed");
 
     const int num_allocs = 1000;
