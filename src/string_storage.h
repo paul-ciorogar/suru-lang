@@ -2,9 +2,7 @@
 #define STRING_STORAGE_H
 
 #include <stddef.h>
-
-// Forward declaration for Arena (assuming it's defined elsewhere)
-typedef struct Arena Arena;
+#include "arena.h"
 
 // String structure with length and null-terminated data
 typedef struct {
