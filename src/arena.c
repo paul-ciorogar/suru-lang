@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -78,16 +79,7 @@ void *arena_alloc(Arena *arena, size_t size) {
     // Align to 8 bytes for better memory access
     size_t aligned_size = (size + 7) & ~7;
 
-    // Try to allocate from the current chunk
-    if (arena->current_chunk->used + aligned_size <=
-        arena->current_chunk->size) {
-        void *ptr =
-            (char *)arena->current_chunk->memory + arena->current_chunk->used;
-        arena->current_chunk->used += aligned_size;
-        return ptr;
-    }
-
-    // Current chunk doesn't have enough space, try to find an existing chunk
+    // Try to find an existing chunk
     // with space
     Chunk *chunk = arena->first_chunk;
     while (chunk) {

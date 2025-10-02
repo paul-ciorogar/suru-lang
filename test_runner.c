@@ -246,7 +246,7 @@ int run_test(test_t *test) {
         if (result == -1) {
             test->result = TEST_RUNTIME_ERROR;
             printf("Runtime error (%.3fs)\n", test->run_time);
-            return 0;
+            return 1;
         }
 
         test->exit_code = WEXITSTATUS(status);
@@ -254,18 +254,18 @@ int run_test(test_t *test) {
         if (test->exit_code == 0) {
             test->result = TEST_PASSED;
             printf("Test passed (%.3fs)\n", test->run_time);
-            return 1;
+            return 0;
         } else {
             test->result = TEST_FAILED;
             printf("Test failed with exit code %d (%.3fs)\n", test->exit_code,
                    test->run_time);
-            return 0;
+            return 1;
         }
     } else {
         // Fork failed
         test->result = TEST_RUNTIME_ERROR;
         printf("Failed to create process\n");
-        return 0;
+        return 1;
     }
 }
 
@@ -283,13 +283,16 @@ void run_all_tests(test_t *head) {
         // Try to compile
         if (compile_test(current)) {
             // If compilation successful, run the test
-            run_test(current);
+            int error = run_test(current);
 
             // Clean up executable
             char rm_cmd[256];
             snprintf(rm_cmd, sizeof(rm_cmd), "rm -f %s",
                      current->executable_name);
             system(rm_cmd);
+
+            if (error > 0)
+                abort();
         }
 
         printf("\n");
