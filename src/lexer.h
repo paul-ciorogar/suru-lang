@@ -7,6 +7,29 @@
 typedef enum {
     TOKEN_EOF,
     TOKEN_NEWLINE,
+
+    // keywords
+    TOKEN_MODULE,
+    TOKEN_IMPORT,
+    TOKEN_EXPORT,
+    TOKEN_RETURN,
+    TOKEN_MATCH,
+    TOKEN_TYPE,
+    TOKEN_TRY,
+    TOKEN_AND,
+    TOKEN_OR,
+    TOKEN_TRUE,
+    TOKEN_FALSE,
+    TOKEN_THIS,
+    TOKEN_PARTIAL,
+
+    TOKEN_IDENTIFIER,
+
+    // numbers
+    TOKEN_NUMBER_BINARY,
+    TOKEN_NUMBER_OCTAL,
+    TOKEN_NUMBER,
+
 } TokenType;
 
 typedef struct Token {

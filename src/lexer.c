@@ -1,16 +1,26 @@
 #include "lexer.h"
 #include "arena.h"
 #include "string_storage.h"
-#include <cstring>
 #include <ctype.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 static char current_char(Lexer *lexer) {
     if (lexer->position >= lexer->length)
         return '\0';
     return lexer->source[lexer->position];
+}
+
+static char peek_char(Lexer *lexer, size_t offset) {
+    size_t pos = lexer->position + offset;
+
+    if (pos >= lexer->length)
+        return '\0';
+
+    return lexer->source[pos];
 }
 
 static void advance_lexer(Lexer *lexer) {
@@ -37,7 +47,7 @@ static void skip_whitespace(Lexer *lexer) {
     }
 }
 
-static Token create_simple_token(TokenType type, Lexer *lexer) {
+static Token new_token(TokenType type, Lexer *lexer) {
     Token token;
     token.type = type;
     token.line = lexer->line;
@@ -47,53 +57,145 @@ static Token create_simple_token(TokenType type, Lexer *lexer) {
     return token;
 }
 
+static Token new_token_from_text(TokenType type, Lexer *lexer, size_t start) {
+    size_t length = lexer->position - start;
+
+    Token token;
+    token.type = type;
+    token.line = lexer->line;
+    token.column = lexer->column;
+    token.text =
+        store_from_buffer(lexer->strings, lexer->source, start, length);
+
+    return token;
+}
+
 static int is_identifier_start(char c) { return isalpha(c) || c == '_'; }
 
 static int is_identifier_char(char c) { return isalnum(c) || c == '_'; }
 
-static Token read_identifier_or_keyword(Lexer *lexer) {
-    Token token = {0};
-    token.line = lexer->line;
-    token.column = lexer->column;
+static int is_digit(char c) { return c >= '0' && c <= '9'; }
 
+static Token read_identifier_or_keyword(Lexer *lexer) {
     size_t start = lexer->position;
 
     while (is_identifier_char(current_char(lexer))) {
         advance_lexer(lexer);
     }
 
-    char text[lexer->position - start + 1] = {'\0'};
-    char *text =
-        memcpy(void *__restrict dest, const void *__restrict src, size_t n)
+    char *text = lexer->source + start;
+    size_t length = lexer->position - start;
 
-            token.text = lexer->source + start;
-    token.length = lexer->pos - start;
-
-    // Check for keywords
-    if (token.length == 6 && strncmp(token.text, "module", 6) == 0) {
-        token.type = TOKEN_MODULE;
-    } else if (token.length == 6 && strncmp(token.text, "import", 6) == 0) {
-        token.type = TOKEN_IMPORT;
-    } else if (token.length == 6 && strncmp(token.text, "export", 6) == 0) {
-        token.type = TOKEN_EXPORT;
-    } else if (token.length == 4 && strncmp(token.text, "type", 4) == 0) {
-        token.type = TOKEN_TYPE;
-    } else if (token.length == 6 && strncmp(token.text, "return", 6) == 0) {
-        token.type = TOKEN_RETURN;
-    } else if (token.length == 5 && strncmp(token.text, "match", 5) == 0) {
-        token.type = TOKEN_MATCH;
-    } else if (token.length == 3 && strncmp(token.text, "and", 3) == 0) {
-        token.type = TOKEN_AND;
-    } else if (token.length == 2 && strncmp(token.text, "or", 2) == 0) {
-        token.type = TOKEN_OR;
-    } else if (token.length == 4 && strncmp(token.text, "true", 4) == 0) {
-        token.type = TOKEN_TRUE;
-    } else if (token.length == 5 && strncmp(token.text, "false", 5) == 0) {
-        token.type = TOKEN_FALSE;
-    } else {
-        token.type = TOKEN_IDENTIFIER;
+    // if it starts with a capital letter then we can rule out keywords
+    if (isupper(text[0]) || length > 7) {
+        return new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
     }
 
+    switch (length) {
+    case 7: {
+        if (strncmp(text, "partial", 7) == 0) {
+            return new_token(TOKEN_PARTIAL, lexer);
+        }
+        break;
+    }
+    }
+
+    // Check for keywords
+    switch (length) {
+    case 7:
+        if (strncmp(text, "partial", 7) == 0) {
+            return new_token(TOKEN_PARTIAL, lexer);
+        }
+        break;
+
+    case 6:
+        if (strncmp(text, "module", 6) == 0) {
+            return new_token(TOKEN_MODULE, lexer);
+        } else if (strncmp(text, "import", 6) == 0) {
+            return new_token(TOKEN_IMPORT, lexer);
+        } else if (strncmp(text, "export", 6) == 0) {
+            return new_token(TOKEN_EXPORT, lexer);
+        } else if (strncmp(text, "return", 6) == 0) {
+            return new_token(TOKEN_RETURN, lexer);
+        }
+        break;
+
+    case 5:
+        if (strncmp(text, "match", 5) == 0) {
+            return new_token(TOKEN_MATCH, lexer);
+        } else if (strncmp(text, "false", 5) == 0) {
+            return new_token(TOKEN_FALSE, lexer);
+        }
+        break;
+
+    case 4:
+        if (strncmp(text, "type", 4) == 0) {
+            return new_token(TOKEN_TYPE, lexer);
+        } else if (strncmp(text, "true", 4) == 0) {
+            return new_token(TOKEN_TRUE, lexer);
+        } else if (strncmp(text, "this", 4) == 0) {
+            return new_token(TOKEN_THIS, lexer);
+        }
+        break;
+
+    case 3:
+        if (strncmp(text, "and", 3) == 0) {
+            return new_token(TOKEN_AND, lexer);
+        } else if (strncmp(text, "try", 3) == 0) {
+            return new_token(TOKEN_TRY, lexer);
+        }
+        break;
+
+    case 2:
+        if (strncmp(text, "or", 2) == 0) {
+            return new_token(TOKEN_OR, lexer);
+        }
+        break;
+    }
+
+    return new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
+}
+
+static Token read_number(Lexer *lexer) {
+    Token token = {0};
+    token.type = TOKEN_NUMBER;
+    token.line = lexer->line;
+    token.column = lexer->column;
+
+    size_t start = lexer->position;
+
+    // Read binary
+    if (current_char(lexer) == '0' && peek_char(lexer, 1) == 'b') {
+        while (current_char(lexer) == '0' || current_char(lexer) == '1') {
+            advance_lexer(lexer);
+        }
+        return new_token_from_text(TOKEN_NUMBER_BINARY, lexer, start);
+    }
+
+    // Read octal
+    if (current_char(lexer) == '0' && peek_char(lexer, 1) == 'o') {
+        advance_lexer(lexer);
+        while (current_char(lexer) >= '0' && current_char(lexer) <= '7') {
+            advance_lexer(lexer);
+        }
+        return new_token_from_text(TOKEN_NUMBER_OCTAL, lexer, start);
+    }
+
+    // Read integer part with separators
+    while (is_digit(current_char(lexer)) || current_char(lexer) == '_') {
+        advance_lexer(lexer);
+    }
+
+    // Check for decimal point
+    if (current_char(lexer) == '.' && is_digit(peek_char(lexer, 1))) {
+        advance_lexer(lexer); // skip '.'
+        while (is_digit(current_char(lexer))) {
+            advance_lexer(lexer);
+        }
+    }
+
+    token.text = lexer->source + start;
+    token.length = lexer->pos - start;
     return token;
 }
 
@@ -102,14 +204,14 @@ static Token next_token(Lexer *lexer) {
 
     // End of file
     if (lexer->position >= lexer->length) {
-        return create_simple_token(TOKEN_EOF, lexer);
+        return new_token(TOKEN_EOF, lexer);
     }
 
     char c = current_char(lexer);
 
     // New line
     if (c == '\n') {
-        Token token = create_simple_token(TOKEN_NEWLINE, lexer);
+        Token token = new_token(TOKEN_NEWLINE, lexer);
         advance_lexer(lexer);
         return token;
     }
