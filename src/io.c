@@ -1,0 +1,26 @@
+#ifndef IO_H
+#define IO_H
+
+#include <stdio.h>
+#include <stdlib.h>
+
+char *read_file(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        printf("Error: Could not oppen file %s\n", filename);
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long lenght = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char *content = malloc(lenght + 1);
+    fread(content, 1, lenght, file);
+    content[lenght] = '\0';
+
+    fclose(file);
+    return content;
+}
+
+#endif
