@@ -110,7 +110,7 @@ Suru is designed with modern programming principles in mind, featuring:
   - [Triple Backticks (```)](#triple-backticks-)
   - [Quad Backticks (````)](#quad-backticks-)
 
-## File Structure {#file-structure}
+## File Structure
 
 A Suru source file has `.suru` extension and follows this structure:
 
