@@ -1,10 +1,16 @@
 #ifndef IO_H
 #define IO_H
 
+#include "io.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-char *read_file(const char *filename) {
+typedef struct Buffer {
+    size_t length;
+    char *data;
+} Buffer;
+
+Buffer *read_file(const char *filename) {
     FILE *file = fopen(filename, "r");
     if (!file) {
         printf("Error: Could not oppen file %s\n", filename);
@@ -20,7 +26,16 @@ char *read_file(const char *filename) {
     content[lenght] = '\0';
 
     fclose(file);
-    return content;
+    Buffer *result = malloc(sizeof(Buffer));
+    if (!result) {
+        printf("Error: Could not allocate buffer.");
+        return NULL;
+    }
+
+    result->length = lenght;
+    result->data = content;
+
+    return result;
 }
 
 #endif

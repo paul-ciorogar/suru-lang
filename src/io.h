@@ -2,8 +2,14 @@
 #define IO_H
 
 #include "code_generation.h"
+#include <stdio.h>
 
-char *read_file(const char *filename);
-void write_file(char *filename, Code *code);
+typedef struct Buffer {
+    size_t length;
+    char* data;
+} Buffer;
+
+Buffer *read_file(const char *filename);
+void write_file(char *filename, Buffer *buffer);
 
 #endif
