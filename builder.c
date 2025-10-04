@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 // Configuration
 #define MAX_PATH 512
@@ -276,8 +277,82 @@ void print_usage(const char *program_name) {
     printf("  --help      - Show this help\n");
 }
 
+// Rebuild the test runner executable and restart
+void rebuild_self(const char *source_file, const char *target_exe,
+                  char *argv[]) {
+    printf("Rebuilding test runner...\n");
+
+    char compile_cmd[512];
+    snprintf(compile_cmd, sizeof(compile_cmd),
+             "gcc -o %s %s -Wall -Wextra -std=c99", target_exe, source_file);
+
+    printf("Executing: %s\n", compile_cmd);
+
+    int result = system(compile_cmd);
+
+    if (result == 0) {
+        printf("Test runner rebuilt successfully\n");
+        printf("Restarting with new executable...\n\n");
+
+        // Execute the new version
+        execv(target_exe, argv);
+
+        // If we get here, execv failed
+        perror("Failed to restart with new executable");
+        return;
+    } else {
+        printf("Failed to rebuild test runner\n");
+        return;
+    }
+}
+
+// Get file modification time
+time_t get_file_mtime(const char *filename) {
+    struct stat file_stat;
+    if (stat(filename, &file_stat) == 0) {
+        return file_stat.st_mtime;
+    }
+    return 0;
+}
+
+// Check if self needs rebuilding and do it if necessary
+void check_and_rebuild_self(const char *source_file, const char *target,
+                            char *argv[]) {
+
+    // Check if source file exists
+    if (!file_exists(source_file)) {
+        printf("Source file '%s' not found, skipping self-rebuild check\n",
+               source_file);
+        return; // Continue anyway
+    }
+
+    // Check if target executable exists
+    if (!file_exists(target)) {
+        printf("Target executable '%s' not found, rebuilding...\n", target);
+        rebuild_self(source_file, target, argv);
+        return;
+    }
+
+    // Compare modification times
+    time_t source_mtime = get_file_mtime(source_file);
+    time_t target_mtime = get_file_mtime(target);
+
+    if (source_mtime > target_mtime) {
+        printf("Source file is newer than executable, rebuilding...\n");
+        return rebuild_self(source_file, target, argv);
+    }
+
+    printf("Test runner is up to date\n");
+    return;
+}
+
 int main(int argc, char *argv[]) {
     BuildConfig config;
+
+    const char *source_file = "builder.c";
+    const char *targer_executable = "builder";
+
+    check_and_rebuild_self(source_file, targer_executable, argv);
 
     // Parse command line arguments
     char *action = "build";
