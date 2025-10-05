@@ -17,7 +17,6 @@
 
 #define EXPECTED_ERROR_FILE "expected_error.txt"
 #define EXPECTED_OUTPUT_FILE "expected_output.txt"
-#define EXPECTED_FILES_FILE "expected_files.txt"
 
 #define DEBUG_FLAGS "-Wall -Wextra -std=c99 -O2 -DNDEBUG"
 #define PRODUCTION_FLAGS "-Wall -Wextra -std=c99 -g -O0"
@@ -209,40 +208,6 @@ int execute_command(const char *cmd) {
     return system(cmd);
 }
 
-// Calculate required command buffer size
-size_t calculate_command_size(BuildConfig *config) {
-    size_t total_size = 0;
-
-    // Compiler name + space
-    total_size += strlen(config->compiler) + 1;
-
-    // Flags + space
-    if (config->is_production) {
-        total_size += strlen(DEBUG_FLAGS) + 1;
-    } else {
-        total_size += strlen(PRODUCTION_FLAGS) + 1;
-    }
-
-    // Source files + spaces
-    SourceFile *current = config->source_files;
-    while (current) {
-        total_size += strlen(current->filename) + 1; // +1 for space
-        current = current->next;
-    }
-
-    // Output flag and filename
-    total_size += strlen("-o /") + strlen(config->build_directory) +
-                  strlen(config->output_name);
-
-    // Null terminator
-    total_size += 1;
-
-    // Add small safety margin (10 bytes)
-    total_size += 10;
-
-    return total_size;
-}
-
 // Create directory if it doesn't exist
 int create_directory(const char *path) {
     struct stat st = {0};
@@ -269,17 +234,9 @@ int build_project(BuildConfig *config) {
         return 0; // Already up to date
     }
 
-    // Calculate required buffer size and allocate dynamically
-    size_t cmd_size = calculate_command_size(config);
-    char *command = calloc(cmd_size, sizeof(char));
-    if (!command) {
-        printf("Error: Memory allocation failed for command buffer\n");
-        return 1;
-    }
-
-    StringBuilder *s = sb_create(1024);
-
     // Start building the command
+    StringBuilder *s = sb_create(MAX_CMD);
+
     sb_append(s, config->compiler);
     sb_append(s, " ");
 
@@ -316,11 +273,12 @@ int build_project(BuildConfig *config) {
 int clean_project(BuildConfig *config) {
     printf("Cleaning project...\n");
     char output_path[MAX_PATH];
-    snprintf(output_path, sizeof(output_path), "build/%s", config->output_name);
+    snprintf(output_path, sizeof(output_path), "%s/%s", BUILD_DIRECTORY,
+             config->output_name);
 
     if (file_exists(output_path)) {
-        char cmd[MAX_CMD];
-        snprintf(cmd, MAX_CMD, "rm -f %s", output_path);
+        char cmd[MAX_CMD + MAX_PATH];
+        snprintf(cmd, MAX_CMD + MAX_PATH, "rm -f %s", output_path);
         return execute_command(cmd);
     }
     printf("Nothing to clean.\n");
@@ -454,7 +412,6 @@ void check_and_rebuild_self(const char *source_file, const char *target,
 typedef enum {
     TEST_COMPILE_ERROR, // expected_error.txt exists
     TEST_RUN_OUTPUT,    // expected_output.txt exists
-    TEST_CHECK_FILES,   // expected_files.txt exists
     TEST_UNKNOWN
 } TestType;
 
@@ -520,11 +477,6 @@ TestType detect_test_type(const char *test_folder) {
         return TEST_RUN_OUTPUT;
     }
 
-    snprintf(path, MAX_PATH, "%s/%s", test_folder, EXPECTED_FILES_FILE);
-    if (file_exists(path)) {
-        return TEST_CHECK_FILES;
-    }
-
     return TEST_UNKNOWN;
 }
 
@@ -577,7 +529,6 @@ TestList *discover_tests(const char *integration_tests_dir) {
     return list;
 }
 
-// Build compile command based on test type
 char *build_compile_command(const TestCase *test, const char *compiler_path) {
     StringBuilder *s = sb_create(512);
 
@@ -586,77 +537,83 @@ char *build_compile_command(const TestCase *test, const char *compiler_path) {
     sb_append(s, " ");
 
     // Redirect output based on test type
-    if (test->type == TEST_COMPILE_ERROR) {
-        sb_append(s, test->test_folder);
-        sb_append(s, "/main.suru > ");
-        sb_append(s, test->test_folder);
-        sb_append(s, "/compiler_output.txt 2>&1");
-
-    } else if (test->type == TEST_RUN_OUTPUT) {
-        sb_append(s, " run ");
-        sb_append(s, test->test_folder);
-        sb_append(s, "/main.suru > ");
-        sb_append(s, test->test_folder);
-        sb_append(s, "/test_executable");
-        sb_append(s, " > ");
-        sb_append(s, test->test_folder);
-        sb_append(s, "/compiler_output.txt 2>&1");
+    if (test->type == TEST_RUN_OUTPUT) {
+        sb_append(s, "run ");
     }
-}
-else if (test->type == TEST_RUN_OUTPUT || test->type == TEST_CHECK_FILES) {
-    sb_append(s, " -o ");
+
     sb_append(s, test->test_folder);
-    sb_append(s, "/test_executable");
-    sb_append(s, " > ");
+    sb_append(s, "/main.suru > ");
     sb_append(s, test->test_folder);
     sb_append(s, "/compiler_output.txt 2>&1");
+
+    char *result = malloc(s->length);
+    sb_copy_to_buffer(s, result, s->length);
+    sb_free(s);
+    free(s);
+
+    return result;
 }
 
-String result = command_builder_build(builder);
-string_free(&source_file);
-command_builder_free(builder);
+int compare_files(const char *file1, const char *file2) {
+    FILE *f1 = fopen(file1, "r");
+    FILE *f2 = fopen(file2, "r");
 
-return result;
-}
-
-int run_test_compile_error(const TestCase *test, const char *compiler_path) {
-    char *compile_cmd = build_compile_command(test, compiler_path);
-    printf("  Executing: %s\n", compile_cmd.data);
-
-    int ret = system(compile_cmd.data);
-    string_free(&compile_cmd);
-
-    if (ret == 0) {
-        return test_run_result_create(
-            RESULT_FAIL, "Expected compilation to fail, but it succeeded");
+    if (!f1 || !f2) {
+        if (f1)
+            fclose(f1);
+        if (f2)
+            fclose(f2);
+        return 0;
     }
 
-    // Compare error output with expected
-    char actual_path[1024], expected_path[1024];
-    snprintf(actual_path, sizeof(actual_path), "%s/compiler_output.txt",
-             test->test_folder.data);
-    snprintf(expected_path, sizeof(expected_path), "%s/%s",
-             test->test_folder.data, test->expected_file.data);
+    int same = 1;
+    int ch1, ch2;
+
+    while ((ch1 = fgetc(f1)) != EOF && (ch2 = fgetc(f2)) != EOF) {
+        if (ch1 != ch2) {
+            same = 0;
+            break;
+        }
+    }
+
+    // Check if both reached EOF
+    if (same && (fgetc(f1) != EOF || fgetc(f2) != EOF)) {
+        same = 0;
+    }
+
+    fclose(f1);
+    fclose(f2);
+    return same;
+}
+
+int compare_test_output(const TestCase *test) {
+    char actual_path[MAX_PATH], expected_path[MAX_PATH];
+    snprintf(actual_path, MAX_PATH, "%s/output.txt", test->test_folder);
+    snprintf(expected_path, MAX_PATH, "%s/%s", test->test_folder,
+             test->expected_file);
 
     if (!compare_files(actual_path, expected_path)) {
-        return test_run_result_create(
-            RESULT_FAIL, "Error message does not match expected error");
+        printf("Fail: actual does not match expected\n");
+        return 0;
     }
 
-    return test_run_result_create(RESULT_PASS, "Error output matches");
+    return 1;
 }
 
 int run_single_test(const TestCase *test, const char *compiler_path) {
-    switch (test->type) {
-    case TEST_COMPILE_ERROR:
-        return run_test_compile_error(test, compiler_path);
-    case TEST_RUN_OUTPUT:
-        return run_test_run_output(test, compiler_path);
-    case TEST_CHECK_FILES:
-        return run_test_check_files(test, compiler_path);
-    default:
-        return test_run_result_create(RESULT_ERROR, "Unknown test type");
+    char *compile_cmd = build_compile_command(test, compiler_path);
+    printf("  Executing: %s\n", compile_cmd);
+
+    int ret = system(compile_cmd);
+
+    free(compile_cmd);
+
+    if (ret != 0) {
+        printf("Compilation failed (non-zero exit code)\n");
+        return 0;
     }
+
+    return compare_test_output(test);
 }
 
 int run_all_tests(TestList *tests, const char *compiler_path) {
@@ -672,13 +629,16 @@ int run_all_tests(TestList *tests, const char *compiler_path) {
 
         printf("Running: %s\n", test_name);
 
-        int result = run_single_test(test, compiler_path);
-        print_test_result(test_name, &result);
+        int success = run_single_test(test, compiler_path);
+
+        if (!success) {
+            return 0;
+        }
 
         current = current->next;
     }
 
-    return 0;
+    return 1;
 }
 
 int run_integration_tests() {
@@ -688,14 +648,14 @@ int run_integration_tests() {
     TestList *tests = discover_tests(INTEGRATION_TEST_DIR);
 
     if (!tests || tests->count == 0) {
-        printf(stderr, "No tests found in %s\n", INTEGRATION_TEST_DIR);
+        fprintf(stderr, "No tests found in %s\n", INTEGRATION_TEST_DIR);
         return 0;
     }
 
     printf("Found %zu test(s)\n\n", tests->count);
 
     // Run all tests
-    return run_all_tests(tests, compiler_path);
+    return run_all_tests(tests, BUILD_DIRECTORY);
 }
 
 int main(int argc, char *argv[]) {
