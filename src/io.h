@@ -1,7 +1,6 @@
 #ifndef IO_H
 #define IO_H
 
-#include "code_generation.h"
 #include <stdio.h>
 
 typedef struct Buffer {

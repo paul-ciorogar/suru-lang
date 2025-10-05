@@ -157,11 +157,6 @@ static Token read_identifier_or_keyword(Lexer *lexer) {
 }
 
 static Token read_number(Lexer *lexer) {
-    Token token = {0};
-    token.type = TOKEN_NUMBER;
-    token.line = lexer->line;
-    token.column = lexer->column;
-
     size_t start = lexer->position;
 
     // Read binary
@@ -192,11 +187,10 @@ static Token read_number(Lexer *lexer) {
         while (is_digit(current_char(lexer))) {
             advance_lexer(lexer);
         }
+        return new_token_from_text(TOKEN_NUMBER_FLOAT, lexer, start);
     }
 
-    token.text = lexer->source + start;
-    token.length = lexer->pos - start;
-    return token;
+    return new_token_from_text(TOKEN_NUMBER, lexer, start);
 }
 
 static Token next_token(Lexer *lexer) {
@@ -223,12 +217,15 @@ static Token next_token(Lexer *lexer) {
     if (is_digit(c)) {
         return read_number(lexer);
     }
+
+    return new_token(TOKEN_UNKNOWN, lexer);
 }
 
 Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source,
                     size_t length) {
     Lexer *lexer = arena_alloc(arena, sizeof(Lexer));
     lexer->source = source;
+    lexer->strings = strings;
     lexer->position = 0;
     lexer->length = length;
     lexer->line = 1;

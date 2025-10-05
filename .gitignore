@@ -1,5 +1,6 @@
 /test
 /builder
+/tmpbuild
 
 # Prerequisites
 *.d

@@ -265,7 +265,11 @@ int build_project(BuildConfig *config) {
 
     int result = execute_command(s->data);
     sb_free(s);
-    free(s);
+
+    if (result > 0) {
+        printf("Build completed successfully!\n");
+    }
+
     return result;
 }
 
@@ -516,16 +520,15 @@ TestList *discover_tests(const char *integration_tests_dir) {
 
         if (test.type != TEST_UNKNOWN) {
             test_list_append(list, test);
-            // printf("Discovered test: %s (type: %d)\n", test.test_folder.data,
-            // test.type);
+            printf("Discovered test: %s (type: %d)\n", test.test_folder,
+                   test.type);
         } else {
-            // printf("Skipping %s: no expected file found\n", test_path);
+            printf("Skipping %s: no expected file found\n", test.test_folder);
         }
     }
 
     closedir(dir);
     sb_free(s);
-    free(s);
     return list;
 }
 
@@ -549,7 +552,6 @@ char *build_compile_command(const TestCase *test, const char *compiler_path) {
     char *result = malloc(s->length);
     sb_copy_to_buffer(s, result, s->length);
     sb_free(s);
-    free(s);
 
     return result;
 }
@@ -720,12 +722,10 @@ int main(int argc, char *argv[]) {
     // Cleanup allocated memory
     free_source_files(&config);
 
-    if (result >= 0) {
+    if (result > 0) {
         printf("Build failed with exit code %d\n", result);
         return result;
     }
-
-    printf("Build completed successfully!\n");
 
     result = run_integration_tests();
 

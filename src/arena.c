@@ -1,6 +1,4 @@
-#ifndef ARENA_H
-#define ARENA_H
-
+#include "arena.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,7 +18,7 @@ typedef struct Chunk {
 } Chunk;
 
 // Define the arena structure
-typedef struct {
+typedef struct Arena {
     Chunk *first_chunk;   // First chunk in the linked list
     Chunk *current_chunk; // Current chunk we're allocating from
 } Arena;
@@ -174,5 +172,3 @@ size_t arena_available(Arena *arena) {
 //        arena->current_chunk->used = mark;
 //    }
 //}
-
-#endif // ARENA_H

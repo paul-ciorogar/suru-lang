@@ -8,15 +8,16 @@
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Usege: %s <source file>.suru", argv[0]);
+        printf("Usege: %s <source file>.suru\n", argv[0]);
         return 1;
     }
+
     Arena *strings_arena = arena_create(1);
 
     StringStorage *strings = string_storage_init(strings_arena);
 
     // Read source file
-    char *source = read_file(argv[1]);
+    Buffer *source = read_file(argv[1]);
 
     if (!source) {
         return 1;
@@ -24,7 +25,7 @@ int main(int argc, char *argv[]) {
 
     // Lexical analysis
     Arena *arena = arena_create(1);
-    Lexer *lexer = create_lexer(arena, strings, source);
+    Lexer *lexer = create_lexer(arena, strings, source->data, source->length);
     Parser *parser = create_parser(arena, lexer);
 
     // Parse the source code
@@ -35,7 +36,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Generate machine code
-    Code *code = generate_code(ast);
+    Buffer *code = generate_code(ast);
 
     // Write the new executable
     write_file(argv[1], code);

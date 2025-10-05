@@ -1,14 +1,8 @@
-#ifndef IO_H
-#define IO_H
-
 #include "io.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef struct Buffer {
-    size_t length;
-    char *data;
-} Buffer;
+void write_file(char *filename, Buffer *buffer) {}
 
 Buffer *read_file(const char *filename) {
     FILE *file = fopen(filename, "r");
@@ -37,5 +31,3 @@ Buffer *read_file(const char *filename) {
 
     return result;
 }
-
-#endif

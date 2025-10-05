@@ -1,9 +1,8 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-#include "arena.c"
 #include "arena.h"
-#include "lexer.c"
+#include "lexer.h"
 #include <unistd.h>
 
 typedef struct Parser {
