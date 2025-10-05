@@ -7,7 +7,104 @@
 #include <unistd.h>
 
 // Configuration
+
+// used for self rebuild
+#define SOURCE_FILE "builder.c"
+#define TARGET_EXECUTABLE "builder"
+#define BUILD_DIRECTORY "tmpbuild"
+
+#define INTEGRATION_TEST_DIR "integration_tests"
+
+#define EXPECTED_ERROR_FILE "expected_error.txt"
+#define EXPECTED_OUTPUT_FILE "expected_output.txt"
+#define EXPECTED_FILES_FILE "expected_files.txt"
+
+#define DEBUG_FLAGS "-Wall -Wextra -std=c99 -O2 -DNDEBUG"
+#define PRODUCTION_FLAGS "-Wall -Wextra -std=c99 -g -O0"
+
 #define MAX_PATH 512
+#define MAX_CMD 512
+
+typedef struct {
+    char *data;
+    size_t length;
+    size_t capacity;
+} StringBuilder;
+
+// Initialize a new string builder
+StringBuilder *sb_create(size_t initial_capacity) {
+    StringBuilder *sb = (StringBuilder *)malloc(sizeof(StringBuilder));
+    if (!sb)
+        return NULL;
+
+    sb->capacity = initial_capacity > 0 ? initial_capacity : 16;
+    sb->data = (char *)malloc(sb->capacity);
+    if (!sb->data) {
+        free(sb);
+        return NULL;
+    }
+
+    sb->data[0] = '\0';
+    sb->length = 0;
+    return sb;
+}
+
+void sb_reset(StringBuilder *sb) {
+    sb->data[0] = '\0';
+    sb->length = 0;
+}
+
+// Append a string to the string builder
+int sb_append(StringBuilder *sb, const char *str) {
+    if (!sb || !str)
+        return -1;
+
+    size_t str_len = strlen(str);
+    size_t required = sb->length + str_len + 1;
+
+    // Resize if needed
+    if (required > sb->capacity) {
+        size_t new_capacity = sb->capacity;
+        while (new_capacity < required) {
+            new_capacity *= 2;
+        }
+
+        char *new_data = (char *)realloc(sb->data, new_capacity);
+        if (!new_data)
+            return -1;
+
+        sb->data = new_data;
+        sb->capacity = new_capacity;
+    }
+
+    memcpy(sb->data + sb->length, str, str_len);
+    sb->length += str_len;
+    sb->data[sb->length] = '\0';
+
+    return 0;
+}
+
+// Free the string builder
+void sb_free(StringBuilder *sb) {
+    if (sb) {
+        free(sb->data);
+        free(sb);
+    }
+}
+
+// Copy contents to a buffer
+int sb_copy_to_buffer(const StringBuilder *sb, char *buffer,
+                      size_t buffer_size) {
+    if (!sb || !buffer || buffer_size == 0)
+        return -1;
+
+    size_t copy_len =
+        sb->length < buffer_size - 1 ? sb->length : buffer_size - 1;
+    memcpy(buffer, sb->data, copy_len);
+    buffer[copy_len] = '\0';
+
+    return copy_len;
+}
 
 // Linked list node for source files
 typedef struct SourceFile {
@@ -25,9 +122,14 @@ typedef struct {
 } BuildConfig;
 
 // Function to check if file exists
-int file_exists(const char *filename) {
-    struct stat buffer;
-    return (stat(filename, &buffer) == 0);
+int file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+int is_directory(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 // Get file modification time
@@ -76,7 +178,7 @@ void free_source_files(BuildConfig *config) {
 // Check if source files are newer than output
 int needs_rebuild(BuildConfig *config) {
     char output_path[MAX_PATH];
-    snprintf(output_path, sizeof(output_path), "%s/%s", config->build_directory,
+    snprintf(output_path, MAX_PATH, "%s/%s", config->build_directory,
              config->output_name);
 
     if (!file_exists(output_path)) {
@@ -116,9 +218,9 @@ size_t calculate_command_size(BuildConfig *config) {
 
     // Flags + space
     if (config->is_production) {
-        total_size += strlen("-Wall -Wextra -std=c99 -O2 -DNDEBUG") + 1;
+        total_size += strlen(DEBUG_FLAGS) + 1;
     } else {
-        total_size += strlen("-Wall -Wextra -std=c99 -g -O0") + 1;
+        total_size += strlen(PRODUCTION_FLAGS) + 1;
     }
 
     // Source files + spaces
@@ -158,7 +260,7 @@ int create_directory(const char *path) {
 // Build the project
 int build_project(BuildConfig *config) {
     // Create build directory if it doesn't exist
-    if (create_directory("tmpbuild") != 0) {
+    if (create_directory(BUILD_DIRECTORY) != 0) {
         printf("Error: Failed to create build directory\n");
         return 1;
     }
@@ -175,37 +277,38 @@ int build_project(BuildConfig *config) {
         return 1;
     }
 
-    // printf("Allocated command buffer: %zu bytes\n", cmd_size);
+    StringBuilder *s = sb_create(1024);
 
     // Start building the command
-    strcat(command, config->compiler);
-    strcat(command, " ");
+    sb_append(s, config->compiler);
+    sb_append(s, " ");
 
     // Add flags based on build type
     if (config->is_production) {
-        strcat(command, "-Wall -Wextra -std=c99 -O2 -DNDEBUG");
+        sb_append(s, DEBUG_FLAGS);
     } else {
-        strcat(command, "-Wall -Wextra -std=c99 -g -O0");
+        sb_append(s, PRODUCTION_FLAGS);
     }
 
-    strcat(command, " ");
+    sb_append(s, " ");
 
     // Add source files
     SourceFile *current = config->source_files;
     while (current) {
-        strcat(command, current->filename);
-        strcat(command, " ");
+        sb_append(s, current->filename);
+        sb_append(s, " ");
         current = current->next;
     }
 
     // Add output (in build directory)
-    strcat(command, "-o ");
-    strcat(command, config->build_directory);
-    strcat(command, "/");
-    strcat(command, config->output_name);
+    sb_append(s, "-o ");
+    sb_append(s, config->build_directory);
+    sb_append(s, "/");
+    sb_append(s, config->output_name);
 
-    int result = execute_command(command);
-    free(command);
+    int result = execute_command(s->data);
+    sb_free(s);
+    free(s);
     return result;
 }
 
@@ -216,8 +319,8 @@ int clean_project(BuildConfig *config) {
     snprintf(output_path, sizeof(output_path), "build/%s", config->output_name);
 
     if (file_exists(output_path)) {
-        char cmd[MAX_PATH + 20];
-        snprintf(cmd, sizeof(cmd), "rm -f %s", output_path);
+        char cmd[MAX_CMD];
+        snprintf(cmd, MAX_CMD, "rm -f %s", output_path);
         return execute_command(cmd);
     }
     printf("Nothing to clean.\n");
@@ -242,7 +345,7 @@ void discover_source_files(BuildConfig *config) {
         if (ext && strcmp(ext, ".c") == 0) {
             // Build full path: src/filename.c
             char full_path[MAX_PATH];
-            snprintf(full_path, sizeof(full_path), "src/%s", entry->d_name);
+            snprintf(full_path, MAX_PATH, "src/%s", entry->d_name);
 
             add_source_file(config, full_path);
             printf("  Found: %s\n", full_path);
@@ -257,7 +360,7 @@ void init_config(BuildConfig *config, int is_production) {
     memset(config, 0, sizeof(BuildConfig));
     config->compiler = "gcc";
     config->output_name = "suru";
-    config->build_directory = "tmpbuild";
+    config->build_directory = BUILD_DIRECTORY;
     config->is_production = is_production;
     config->source_files = NULL;
     config->file_count = 0;
@@ -282,9 +385,9 @@ void rebuild_self(const char *source_file, const char *target_exe,
                   char *argv[]) {
     printf("Rebuilding test runner...\n");
 
-    char compile_cmd[512];
-    snprintf(compile_cmd, sizeof(compile_cmd),
-             "gcc -o %s %s -Wall -Wextra -std=c99", target_exe, source_file);
+    char compile_cmd[MAX_CMD];
+    snprintf(compile_cmd, MAX_CMD, "gcc -o %s %s -Wall -Wextra -std=c99 ",
+             target_exe, source_file);
 
     printf("Executing: %s\n", compile_cmd);
 
@@ -346,13 +449,262 @@ void check_and_rebuild_self(const char *source_file, const char *target,
     return;
 }
 
+// Integration tests
+
+typedef enum {
+    TEST_COMPILE_ERROR, // expected_error.txt exists
+    TEST_RUN_OUTPUT,    // expected_output.txt exists
+    TEST_CHECK_FILES,   // expected_files.txt exists
+    TEST_UNKNOWN
+} TestType;
+
+// Test case structure
+typedef struct {
+    char *test_folder;
+    char *expected_file;
+    TestType type;
+} TestCase;
+
+// Linked list node for test cases
+typedef struct TestNode {
+    TestCase test;
+    struct TestNode *next;
+} TestNode;
+
+// Test list
+typedef struct {
+    TestNode *head;
+    TestNode *tail;
+    size_t count;
+} TestList;
+
+// Test list operations
+TestList *test_list_create(void) {
+    TestList *list = malloc(sizeof(TestList));
+    if (list) {
+        list->head = NULL;
+        list->tail = NULL;
+        list->count = 0;
+    }
+    return list;
+}
+
+void test_list_append(TestList *list, TestCase test) {
+    TestNode *node = malloc(sizeof(TestNode));
+    if (!node)
+        return;
+
+    node->test = test;
+    node->next = NULL;
+
+    if (list->tail) {
+        list->tail->next = node;
+        list->tail = node;
+    } else {
+        list->head = list->tail = node;
+    }
+    list->count++;
+}
+
+// Determine test type based on which expected file exists
+TestType detect_test_type(const char *test_folder) {
+    char path[MAX_PATH];
+
+    snprintf(path, MAX_PATH, "%s/%s", test_folder, EXPECTED_ERROR_FILE);
+    if (file_exists(path)) {
+        return TEST_COMPILE_ERROR;
+    }
+
+    snprintf(path, MAX_PATH, "%s/%s", test_folder, EXPECTED_OUTPUT_FILE);
+    if (file_exists(path)) {
+        return TEST_RUN_OUTPUT;
+    }
+
+    snprintf(path, MAX_PATH, "%s/%s", test_folder, EXPECTED_FILES_FILE);
+    if (file_exists(path)) {
+        return TEST_CHECK_FILES;
+    }
+
+    return TEST_UNKNOWN;
+}
+
+TestList *discover_tests(const char *integration_tests_dir) {
+    TestList *list = test_list_create();
+    if (!list)
+        return NULL;
+
+    DIR *dir = opendir(integration_tests_dir);
+    if (!dir) {
+        fprintf(stderr, "Failed to open directory: %s\n",
+                integration_tests_dir);
+        return list;
+    }
+
+    StringBuilder *s = sb_create(MAX_PATH);
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        sb_reset(s);
+
+        // Skip hidden and parent directories
+        if (entry->d_name[0] == '.')
+            continue;
+
+        sb_append(s, integration_tests_dir);
+        sb_append(s, "/");
+        sb_append(s, entry->d_name);
+
+        if (!is_directory(s->data))
+            continue;
+
+        TestCase test;
+        test.test_folder = malloc(s->length);
+        sb_copy_to_buffer(s, test.test_folder, s->length);
+
+        test.type = detect_test_type(test.test_folder);
+
+        if (test.type != TEST_UNKNOWN) {
+            test_list_append(list, test);
+            // printf("Discovered test: %s (type: %d)\n", test.test_folder.data,
+            // test.type);
+        } else {
+            // printf("Skipping %s: no expected file found\n", test_path);
+        }
+    }
+
+    closedir(dir);
+    sb_free(s);
+    free(s);
+    return list;
+}
+
+// Build compile command based on test type
+char *build_compile_command(const TestCase *test, const char *compiler_path) {
+    StringBuilder *s = sb_create(512);
+
+    // Build command: compiler_path source_file
+    sb_append(s, compiler_path);
+    sb_append(s, " ");
+
+    // Redirect output based on test type
+    if (test->type == TEST_COMPILE_ERROR) {
+        sb_append(s, test->test_folder);
+        sb_append(s, "/main.suru > ");
+        sb_append(s, test->test_folder);
+        sb_append(s, "/compiler_output.txt 2>&1");
+
+    } else if (test->type == TEST_RUN_OUTPUT) {
+        sb_append(s, " run ");
+        sb_append(s, test->test_folder);
+        sb_append(s, "/main.suru > ");
+        sb_append(s, test->test_folder);
+        sb_append(s, "/test_executable");
+        sb_append(s, " > ");
+        sb_append(s, test->test_folder);
+        sb_append(s, "/compiler_output.txt 2>&1");
+    }
+}
+else if (test->type == TEST_RUN_OUTPUT || test->type == TEST_CHECK_FILES) {
+    sb_append(s, " -o ");
+    sb_append(s, test->test_folder);
+    sb_append(s, "/test_executable");
+    sb_append(s, " > ");
+    sb_append(s, test->test_folder);
+    sb_append(s, "/compiler_output.txt 2>&1");
+}
+
+String result = command_builder_build(builder);
+string_free(&source_file);
+command_builder_free(builder);
+
+return result;
+}
+
+int run_test_compile_error(const TestCase *test, const char *compiler_path) {
+    char *compile_cmd = build_compile_command(test, compiler_path);
+    printf("  Executing: %s\n", compile_cmd.data);
+
+    int ret = system(compile_cmd.data);
+    string_free(&compile_cmd);
+
+    if (ret == 0) {
+        return test_run_result_create(
+            RESULT_FAIL, "Expected compilation to fail, but it succeeded");
+    }
+
+    // Compare error output with expected
+    char actual_path[1024], expected_path[1024];
+    snprintf(actual_path, sizeof(actual_path), "%s/compiler_output.txt",
+             test->test_folder.data);
+    snprintf(expected_path, sizeof(expected_path), "%s/%s",
+             test->test_folder.data, test->expected_file.data);
+
+    if (!compare_files(actual_path, expected_path)) {
+        return test_run_result_create(
+            RESULT_FAIL, "Error message does not match expected error");
+    }
+
+    return test_run_result_create(RESULT_PASS, "Error output matches");
+}
+
+int run_single_test(const TestCase *test, const char *compiler_path) {
+    switch (test->type) {
+    case TEST_COMPILE_ERROR:
+        return run_test_compile_error(test, compiler_path);
+    case TEST_RUN_OUTPUT:
+        return run_test_run_output(test, compiler_path);
+    case TEST_CHECK_FILES:
+        return run_test_check_files(test, compiler_path);
+    default:
+        return test_run_result_create(RESULT_ERROR, "Unknown test type");
+    }
+}
+
+int run_all_tests(TestList *tests, const char *compiler_path) {
+    printf("\n=== Running Integration Tests ===\n\n");
+
+    TestNode *current = tests->head;
+    while (current) {
+        const TestCase *test = &current->test;
+
+        // Extract test name from path
+        const char *test_name = strrchr(test->test_folder, '/');
+        test_name = test_name ? test_name + 1 : test->test_folder;
+
+        printf("Running: %s\n", test_name);
+
+        int result = run_single_test(test, compiler_path);
+        print_test_result(test_name, &result);
+
+        current = current->next;
+    }
+
+    return 0;
+}
+
+int run_integration_tests() {
+    printf("Running integration tests!\n");
+
+    // Discover all tests
+    TestList *tests = discover_tests(INTEGRATION_TEST_DIR);
+
+    if (!tests || tests->count == 0) {
+        printf(stderr, "No tests found in %s\n", INTEGRATION_TEST_DIR);
+        return 0;
+    }
+
+    printf("Found %zu test(s)\n\n", tests->count);
+
+    // Run all tests
+    return run_all_tests(tests, compiler_path);
+}
+
 int main(int argc, char *argv[]) {
     BuildConfig config;
 
-    const char *source_file = "builder.c";
-    const char *targer_executable = "builder";
+    const char *source_file = SOURCE_FILE;
+    const char *target_executable = TARGET_EXECUTABLE;
 
-    check_and_rebuild_self(source_file, targer_executable, argv);
+    check_and_rebuild_self(source_file, target_executable, argv);
 
     // Parse command line arguments
     char *action = "build";
@@ -387,9 +739,7 @@ int main(int argc, char *argv[]) {
 
     printf("Configuration:\n");
     printf("  Compiler: %s\n", config.compiler);
-    printf("  Flags: %s\n", is_production
-                                ? "-Wall -Wextra -std=c99 -O2 -DNDEBUG"
-                                : "-Wall -Wextra -std=c99 -g -O0");
+    printf("  Flags: %s\n", is_production ? DEBUG_FLAGS : PRODUCTION_FLAGS);
     printf("  Output: %s/%s\n", config.build_directory, config.output_name);
     printf("  Source files: %d\n", config.file_count);
 
@@ -410,11 +760,14 @@ int main(int argc, char *argv[]) {
     // Cleanup allocated memory
     free_source_files(&config);
 
-    if (result == 0) {
-        printf("Build completed successfully!\n");
-    } else {
+    if (result >= 0) {
         printf("Build failed with exit code %d\n", result);
+        return result;
     }
+
+    printf("Build completed successfully!\n");
+
+    result = run_integration_tests();
 
     return result;
 }
