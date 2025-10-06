@@ -56,4 +56,7 @@ typedef struct Lexer {
 
 Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source, size_t length);
 
+// Reads the source and returns the next recognized token
+Token next_token(Lexer *lexer);
+
 #endif

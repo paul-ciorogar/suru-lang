@@ -3,13 +3,25 @@
 
 
 #include "arena.h"
-#include "arena.h"
 #include "lexer.h"
 #include <unistd.h>
+
+typedef struct ParserError {
+    struct ParserError *next;
+    int line;
+    int column;
+    char *message;
+} ParserError;
+
+typedef struct ParserErrors {
+    ParserError *head;
+    ParserError *tail;
+} ParserErrors;
 
 typedef struct Parser {
     Arena *arena;
     Lexer *lexer;
+    ParserErrors *errors;
 } Parser;
 
 typedef struct ASTNode {

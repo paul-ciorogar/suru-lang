@@ -193,7 +193,7 @@ static Token read_number(Lexer *lexer) {
     return new_token_from_text(TOKEN_NUMBER, lexer, start);
 }
 
-static Token next_token(Lexer *lexer) {
+Token next_token(Lexer *lexer) {
     skip_whitespace(lexer);
 
     // End of file

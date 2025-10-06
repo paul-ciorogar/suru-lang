@@ -5,19 +5,19 @@
 #include "parser.h"
 #include "string_storage.h"
 #include <stdio.h>
+#include <string.h>
 
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        printf("Usege: %s <source file>.suru\n", argv[0]);
-        return 1;
-    }
+void print_usage(char *program_name) {
+    printf("Usege: %s run <source file>.suru\n", program_name);
+}
 
+int command_run(char *source_file) {
     Arena *strings_arena = arena_create(1);
 
     StringStorage *strings = string_storage_init(strings_arena);
 
     // Read source file
-    Buffer *source = read_file(argv[1]);
+    Buffer *source = read_file(source_file);
 
     if (!source) {
         return 1;
@@ -39,7 +39,21 @@ int main(int argc, char *argv[]) {
     Buffer *code = generate_code(ast);
 
     // Write the new executable
-    write_file(argv[1], code);
+    write_file(source_file, code);
 
     return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    if (strcmp(argv[1], "run") == 0) {
+        return command_run(argv[2]);
+    }
+
+    print_usage(argv[0]);
+    return 1;
 }
