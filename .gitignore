@@ -1,6 +1,7 @@
 /test
 /builder
 /tmpbuild
+*compiler_output.txt
 
 # Prerequisites
 *.d

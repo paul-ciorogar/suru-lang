@@ -12,6 +12,7 @@
 #define SOURCE_FILE "builder.c"
 #define TARGET_EXECUTABLE "builder"
 #define BUILD_DIRECTORY "tmpbuild"
+#define OUTPUT_NAME "suru"
 
 #define INTEGRATION_TEST_DIR "integration_tests"
 
@@ -97,8 +98,7 @@ int sb_copy_to_buffer(const StringBuilder *sb, char *buffer,
     if (!sb || !buffer || buffer_size == 0)
         return -1;
 
-    size_t copy_len =
-        sb->length < buffer_size - 1 ? sb->length : buffer_size - 1;
+    size_t copy_len = buffer_size < sb->length ? buffer_size : sb->length;
     memcpy(buffer, sb->data, copy_len);
     buffer[copy_len] = '\0';
 
@@ -513,8 +513,10 @@ TestList *discover_tests(const char *integration_tests_dir) {
             continue;
 
         TestCase test;
-        test.test_folder = malloc(s->length);
+        test.test_folder = malloc(s->length + 1);
+        printf("%s\n", s->data);
         sb_copy_to_buffer(s, test.test_folder, s->length);
+        printf("%s\n", test.test_folder);
 
         test.type = detect_test_type(test.test_folder);
 
@@ -532,11 +534,13 @@ TestList *discover_tests(const char *integration_tests_dir) {
     return list;
 }
 
-char *build_compile_command(const TestCase *test, const char *compiler_path) {
+char *build_compile_command(const TestCase *test) {
     StringBuilder *s = sb_create(512);
 
     // Build command: compiler_path source_file
-    sb_append(s, compiler_path);
+    sb_append(s, BUILD_DIRECTORY);
+    sb_append(s, "/");
+    sb_append(s, OUTPUT_NAME);
     sb_append(s, " ");
 
     // Redirect output based on test type
@@ -549,7 +553,7 @@ char *build_compile_command(const TestCase *test, const char *compiler_path) {
     sb_append(s, test->test_folder);
     sb_append(s, "/compiler_output.txt 2>&1");
 
-    char *result = malloc(s->length);
+    char *result = malloc(s->length + 1);
     sb_copy_to_buffer(s, result, s->length);
     sb_free(s);
 
@@ -602,8 +606,8 @@ int compare_test_output(const TestCase *test) {
     return 1;
 }
 
-int run_single_test(const TestCase *test, const char *compiler_path) {
-    char *compile_cmd = build_compile_command(test, compiler_path);
+int run_single_test(const TestCase *test) {
+    char *compile_cmd = build_compile_command(test);
     printf("  Executing: %s\n", compile_cmd);
 
     int ret = system(compile_cmd);
@@ -618,7 +622,7 @@ int run_single_test(const TestCase *test, const char *compiler_path) {
     return compare_test_output(test);
 }
 
-int run_all_tests(TestList *tests, const char *compiler_path) {
+int run_all_tests(TestList *tests) {
     printf("\n=== Running Integration Tests ===\n\n");
 
     TestNode *current = tests->head;
@@ -631,7 +635,7 @@ int run_all_tests(TestList *tests, const char *compiler_path) {
 
         printf("Running: %s\n", test_name);
 
-        int success = run_single_test(test, compiler_path);
+        int success = run_single_test(test);
 
         if (!success) {
             return 0;
@@ -657,7 +661,7 @@ int run_integration_tests() {
     printf("Found %zu test(s)\n\n", tests->count);
 
     // Run all tests
-    return run_all_tests(tests, BUILD_DIRECTORY);
+    return run_all_tests(tests);
 }
 
 int main(int argc, char *argv[]) {
