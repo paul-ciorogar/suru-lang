@@ -59,4 +59,6 @@ Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source, size_t l
 // Reads the source and returns the next recognized token
 Token next_token(Lexer *lexer);
 
+void print_tokens(Lexer *lexter);
+
 #endif

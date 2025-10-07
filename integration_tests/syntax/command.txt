@@ -1,0 +1,1 @@
+lex integration_tests/syntax/main.suru

@@ -16,8 +16,8 @@
 
 #define INTEGRATION_TEST_DIR "integration_tests"
 
-#define EXPECTED_ERROR_FILE "expected_error.txt"
-#define EXPECTED_OUTPUT_FILE "expected_output.txt"
+#define EXPECTED_FILE "expected.txt"
+#define COMMAND_FILE "command.txt"
 
 #define DEBUG_FLAGS "-Wall -Wextra -std=c99 -O2 -DNDEBUG"
 #define PRODUCTION_FLAGS "-Wall -Wextra -std=c99 -g -O0"
@@ -413,17 +413,10 @@ void check_and_rebuild_self(const char *source_file, const char *target,
 
 // Integration tests
 
-typedef enum {
-    TEST_COMPILE_ERROR, // expected_error.txt exists
-    TEST_RUN_OUTPUT,    // expected_output.txt exists
-    TEST_UNKNOWN
-} TestType;
-
 // Test case structure
 typedef struct {
     char *test_folder;
-    char *expected_file;
-    TestType type;
+    char *command;
 } TestCase;
 
 // Linked list node for test cases
@@ -467,21 +460,38 @@ void test_list_append(TestList *list, TestCase test) {
     list->count++;
 }
 
-// Determine test type based on which expected file exists
-TestType detect_test_type(const char *test_folder) {
+// Read command from command.txt file
+char *read_command_file(const char *test_folder) {
     char path[MAX_PATH];
+    snprintf(path, MAX_PATH, "%s/%s", test_folder, COMMAND_FILE);
 
-    snprintf(path, MAX_PATH, "%s/%s", test_folder, EXPECTED_ERROR_FILE);
-    if (file_exists(path)) {
-        return TEST_COMPILE_ERROR;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return NULL;
     }
 
-    snprintf(path, MAX_PATH, "%s/%s", test_folder, EXPECTED_OUTPUT_FILE);
-    if (file_exists(path)) {
-        return TEST_RUN_OUTPUT;
+    // Read the first line (command)
+    char buffer[MAX_CMD];
+    if (!fgets(buffer, MAX_CMD, f)) {
+        fclose(f);
+        return NULL;
     }
 
-    return TEST_UNKNOWN;
+    fclose(f);
+
+    // Remove trailing newline if present
+    size_t len = strlen(buffer);
+    if (len > 0 && buffer[len - 1] == '\n') {
+        buffer[len - 1] = '\0';
+    }
+
+    // Allocate and return the command string
+    char *command = malloc(strlen(buffer) + 1);
+    if (command) {
+        strcpy(command, buffer);
+    }
+
+    return command;
 }
 
 TestList *discover_tests(const char *integration_tests_dir) {
@@ -518,14 +528,14 @@ TestList *discover_tests(const char *integration_tests_dir) {
         sb_copy_to_buffer(s, test.test_folder, s->length);
         printf("%s\n", test.test_folder);
 
-        test.type = detect_test_type(test.test_folder);
+        test.command = read_command_file(test.test_folder);
 
-        if (test.type != TEST_UNKNOWN) {
+        if (test.command != NULL) {
             test_list_append(list, test);
-            printf("Discovered test: %s (type: %d)\n", test.test_folder,
-                   test.type);
+            printf("Discovered test: %s (command: %s)\n", test.test_folder,
+                   test.command);
         } else {
-            printf("Skipping %s: no expected file found\n", test.test_folder);
+            printf("Skipping %s: no command.txt found\n", test.test_folder);
         }
     }
 
@@ -537,21 +547,15 @@ TestList *discover_tests(const char *integration_tests_dir) {
 char *build_compile_command(const TestCase *test) {
     StringBuilder *s = sb_create(512);
 
-    // Build command: compiler_path source_file
+    // Build command from test.command
     sb_append(s, BUILD_DIRECTORY);
     sb_append(s, "/");
     sb_append(s, OUTPUT_NAME);
     sb_append(s, " ");
-
-    // Redirect output based on test type
-    if (test->type == TEST_RUN_OUTPUT) {
-        sb_append(s, "run ");
-    }
-
+    sb_append(s, test->command);
+    sb_append(s, " > ");
     sb_append(s, test->test_folder);
-    sb_append(s, "/main.suru > ");
-    sb_append(s, test->test_folder);
-    sb_append(s, "/compiler_output.txt 2>&1");
+    sb_append(s, "/output.txt 2>&1");
 
     char *result = malloc(s->length + 1);
     sb_copy_to_buffer(s, result, s->length);
@@ -596,7 +600,7 @@ int compare_test_output(const TestCase *test) {
     char actual_path[MAX_PATH], expected_path[MAX_PATH];
     snprintf(actual_path, MAX_PATH, "%s/output.txt", test->test_folder);
     snprintf(expected_path, MAX_PATH, "%s/%s", test->test_folder,
-             test->expected_file);
+             EXPECTED_FILE);
 
     if (!compare_files(actual_path, expected_path)) {
         printf("Fail: actual does not match expected\n");
