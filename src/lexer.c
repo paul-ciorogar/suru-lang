@@ -76,6 +76,69 @@ static int is_identifier_char(char c) { return isalnum(c) || c == '_'; }
 
 static int is_digit(char c) { return c >= '0' && c <= '9'; }
 
+static void read_type_suffix(Lexer *lexer) {
+    // Check for type suffixes
+    // Integer suffixes: i8, i16, i32, i64, i128, u8, u16, u32, u64, u128
+    // Float suffixes: f16, f32, f64, f128
+    char c = current_char(lexer);
+    if (c == 'i' || c == 'u' || c == 'f') {
+        char next1 = peek_char(lexer, 1);
+        char next2 = peek_char(lexer, 2);
+        char next3 = peek_char(lexer, 3);
+
+        if (c == 'i' || c == 'u') {
+            // Integer suffixes: i8, i16, i32, i64, i128, u8, u16, u32, u64, u128
+            if (next1 == '8' && !is_identifier_char(next2)) {
+                advance_lexer(lexer); // consume 'i' or 'u'
+                advance_lexer(lexer); // consume '8'
+            } else if (next1 == '1' && next2 == '6' && !is_identifier_char(next3)) {
+                advance_lexer(lexer); // consume 'i' or 'u'
+                advance_lexer(lexer); // consume '1'
+                advance_lexer(lexer); // consume '6'
+            } else if (next1 == '3' && next2 == '2' && !is_identifier_char(next3)) {
+                advance_lexer(lexer); // consume 'i' or 'u'
+                advance_lexer(lexer); // consume '3'
+                advance_lexer(lexer); // consume '2'
+            } else if (next1 == '6' && next2 == '4' && !is_identifier_char(next3)) {
+                advance_lexer(lexer); // consume 'i' or 'u'
+                advance_lexer(lexer); // consume '6'
+                advance_lexer(lexer); // consume '4'
+            } else if (next1 == '1' && next2 == '2' && next3 == '8') {
+                char next4 = peek_char(lexer, 4);
+                if (!is_identifier_char(next4)) {
+                    advance_lexer(lexer); // consume 'i' or 'u'
+                    advance_lexer(lexer); // consume '1'
+                    advance_lexer(lexer); // consume '2'
+                    advance_lexer(lexer); // consume '8'
+                }
+            }
+        } else if (c == 'f') {
+            // Float suffixes: f16, f32, f64, f128
+            if (next1 == '1' && next2 == '6' && !is_identifier_char(next3)) {
+                advance_lexer(lexer); // consume 'f'
+                advance_lexer(lexer); // consume '1'
+                advance_lexer(lexer); // consume '6'
+            } else if (next1 == '3' && next2 == '2' && !is_identifier_char(next3)) {
+                advance_lexer(lexer); // consume 'f'
+                advance_lexer(lexer); // consume '3'
+                advance_lexer(lexer); // consume '2'
+            } else if (next1 == '6' && next2 == '4' && !is_identifier_char(next3)) {
+                advance_lexer(lexer); // consume 'f'
+                advance_lexer(lexer); // consume '6'
+                advance_lexer(lexer); // consume '4'
+            } else if (next1 == '1' && next2 == '2' && next3 == '8') {
+                char next4 = peek_char(lexer, 4);
+                if (!is_identifier_char(next4)) {
+                    advance_lexer(lexer); // consume 'f'
+                    advance_lexer(lexer); // consume '1'
+                    advance_lexer(lexer); // consume '2'
+                    advance_lexer(lexer); // consume '8'
+                }
+            }
+        }
+    }
+}
+
 static Token read_identifier_or_keyword(Lexer *lexer) {
     size_t start = lexer->position;
 
@@ -89,15 +152,6 @@ static Token read_identifier_or_keyword(Lexer *lexer) {
     // if it starts with a capital letter then we can rule out keywords
     if (isupper(text[0]) || length > 7) {
         return new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
-    }
-
-    switch (length) {
-    case 7: {
-        if (strncmp(text, "partial", 7) == 0) {
-            return new_token(TOKEN_PARTIAL, lexer);
-        }
-        break;
-    }
     }
 
     // Check for keywords
@@ -161,19 +215,40 @@ static Token read_number(Lexer *lexer) {
 
     // Read binary
     if (current_char(lexer) == '0' && peek_char(lexer, 1) == 'b') {
-        while (current_char(lexer) == '0' || current_char(lexer) == '1') {
+        advance_lexer(lexer); // skip '0'
+        advance_lexer(lexer); // skip 'b'
+        while (current_char(lexer) == '0' || current_char(lexer) == '1' ||
+               current_char(lexer) == '_') {
             advance_lexer(lexer);
         }
+        read_type_suffix(lexer);
         return new_token_from_text(TOKEN_NUMBER_BINARY, lexer, start);
     }
 
     // Read octal
     if (current_char(lexer) == '0' && peek_char(lexer, 1) == 'o') {
-        advance_lexer(lexer);
-        while (current_char(lexer) >= '0' && current_char(lexer) <= '7') {
+        advance_lexer(lexer); // skip '0'
+        advance_lexer(lexer); // skip 'o'
+        while ((current_char(lexer) >= '0' && current_char(lexer) <= '7') ||
+               current_char(lexer) == '_') {
             advance_lexer(lexer);
         }
+        read_type_suffix(lexer);
         return new_token_from_text(TOKEN_NUMBER_OCTAL, lexer, start);
+    }
+
+    // Read hexadecimal
+    if (current_char(lexer) == '0' && peek_char(lexer, 1) == 'x') {
+        advance_lexer(lexer); // skip '0'
+        advance_lexer(lexer); // skip 'x'
+        while ((current_char(lexer) >= '0' && current_char(lexer) <= '9') ||
+               (current_char(lexer) >= 'a' && current_char(lexer) <= 'f') ||
+               (current_char(lexer) >= 'A' && current_char(lexer) <= 'F') ||
+               current_char(lexer) == '_') {
+            advance_lexer(lexer);
+        }
+        read_type_suffix(lexer);
+        return new_token_from_text(TOKEN_NUMBER_HEX, lexer, start);
     }
 
     // Read integer part with separators
@@ -187,9 +262,11 @@ static Token read_number(Lexer *lexer) {
         while (is_digit(current_char(lexer))) {
             advance_lexer(lexer);
         }
+        read_type_suffix(lexer);
         return new_token_from_text(TOKEN_NUMBER_FLOAT, lexer, start);
     }
 
+    read_type_suffix(lexer);
     return new_token_from_text(TOKEN_NUMBER, lexer, start);
 }
 
@@ -281,6 +358,8 @@ static const char *token_type_to_string(TokenType type) {
         return "TOKEN_NUMBER_BINARY";
     case TOKEN_NUMBER_OCTAL:
         return "TOKEN_NUMBER_OCTAL";
+    case TOKEN_NUMBER_HEX:
+        return "TOKEN_NUMBER_HEX";
     case TOKEN_NUMBER_FLOAT:
         return "TOKEN_NUMBER_FLOAT";
     case TOKEN_NUMBER:

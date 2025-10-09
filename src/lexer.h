@@ -28,6 +28,7 @@ typedef enum {
     // numbers
     TOKEN_NUMBER_BINARY,
     TOKEN_NUMBER_OCTAL,
+    TOKEN_NUMBER_HEX,
     TOKEN_NUMBER_FLOAT,
     TOKEN_NUMBER,
 

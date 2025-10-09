@@ -190,17 +190,6 @@ Underscore Separators for Readability:
 - `0xDEAD_BEEF` for hex numbers
 - Works in all number bases
 
-Scientific Notation:
-
-- `1e10, 1.5e10, 1e-10`
-- Supports underscores: `1_000e5`
-
-
-Hexadecimal Floats:
-
-- `0x1.Ap+3` 
-
-
 Type Suffixes:
 
 - Integers: `i8, i16, i32, i64, i128, ut8, u16, u32, u64, u128`
@@ -217,13 +206,6 @@ flags: 0b1010_1100u8;
 
 // Hex with suffix
 address: 0xDEAD_BEEFu16;
-
-// Float with scientific notation
-pi: 3.14159_26535f64;
-large_number: 1.5e10f32;
-
-// Hex float
-precise: 0x1.921FB54442D18p+1f64; // π in hex float
 ```
 
 ## Variable declarations 
