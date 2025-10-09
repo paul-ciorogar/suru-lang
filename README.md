@@ -1,6 +1,21 @@
 # Suru Programming Language
 
-A general-purpose, high-level programming language with a focus on clean syntax, type safety, and modular design.
+A general-purpose, high-level, minimalist, library-Driven programming language.
+
+Suru embraces radical simplicity through a small, ceremony-free syntax that delegates functionality to libraries rather than baking it into language constructs. This design philosophy enables incremental upgrades—update individual libraries without waiting for full language releases.
+
+
+The language prioritizes interactive development over traditional compile-test cycles. Through deep LSP integration, Suru transforms your editor into a REPL-like environment where you can inspect variables, mock dependencies, and define behavioral expectations directly via LSP commands—no separate unit test files required. Stop playing compiler in your head and let the tooling provide immediate feedback.
+
+
+These LSP-defined use cases aren't just for development convenience—they inform the compiler's optimization decisions, allowing performance characteristics to be derived from real usage patterns rather than abstract annotations.
+
+**Core Principles:**
+
+- Minimal syntax, maximum expressiveness
+- Library-based extensibility with granular upgrade paths
+- Interactive development through LSP-first tooling
+- Use cases drive both validation and compilation optimization
 
 ## Getting Started
 
@@ -371,7 +386,7 @@ type List<T> : {
     add: (item T) List<T>
     get: (index Int) T
     contains: (item T) Bool
-    map: <R>(transform (T) R) List<R>
+    map<R>: (transform R) List<R>
 }
 
 // Multiple type parameters  
