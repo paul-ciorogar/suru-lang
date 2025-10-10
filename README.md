@@ -1,6 +1,6 @@
 # Suru Programming Language
 
-A general-purpose, high-level, minimalist, library-Driven programming language.
+A general-purpose, high-level, minimalist, library-driven programming language.
 
 Suru embraces radical simplicity through a small, ceremony-free syntax that delegates functionality to libraries rather than baking it into language constructs. This design philosophy enables incremental upgrades—update individual libraries without waiting for full language releases.
 

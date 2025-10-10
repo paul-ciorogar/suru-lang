@@ -87,19 +87,23 @@ static void read_type_suffix(Lexer *lexer) {
         char next3 = peek_char(lexer, 3);
 
         if (c == 'i' || c == 'u') {
-            // Integer suffixes: i8, i16, i32, i64, i128, u8, u16, u32, u64, u128
+            // Integer suffixes: i8, i16, i32, i64, i128, u8, u16, u32, u64,
+            // u128
             if (next1 == '8' && !is_identifier_char(next2)) {
                 advance_lexer(lexer); // consume 'i' or 'u'
                 advance_lexer(lexer); // consume '8'
-            } else if (next1 == '1' && next2 == '6' && !is_identifier_char(next3)) {
+            } else if (next1 == '1' && next2 == '6' &&
+                       !is_identifier_char(next3)) {
                 advance_lexer(lexer); // consume 'i' or 'u'
                 advance_lexer(lexer); // consume '1'
                 advance_lexer(lexer); // consume '6'
-            } else if (next1 == '3' && next2 == '2' && !is_identifier_char(next3)) {
+            } else if (next1 == '3' && next2 == '2' &&
+                       !is_identifier_char(next3)) {
                 advance_lexer(lexer); // consume 'i' or 'u'
                 advance_lexer(lexer); // consume '3'
                 advance_lexer(lexer); // consume '2'
-            } else if (next1 == '6' && next2 == '4' && !is_identifier_char(next3)) {
+            } else if (next1 == '6' && next2 == '4' &&
+                       !is_identifier_char(next3)) {
                 advance_lexer(lexer); // consume 'i' or 'u'
                 advance_lexer(lexer); // consume '6'
                 advance_lexer(lexer); // consume '4'
@@ -118,11 +122,13 @@ static void read_type_suffix(Lexer *lexer) {
                 advance_lexer(lexer); // consume 'f'
                 advance_lexer(lexer); // consume '1'
                 advance_lexer(lexer); // consume '6'
-            } else if (next1 == '3' && next2 == '2' && !is_identifier_char(next3)) {
+            } else if (next1 == '3' && next2 == '2' &&
+                       !is_identifier_char(next3)) {
                 advance_lexer(lexer); // consume 'f'
                 advance_lexer(lexer); // consume '3'
                 advance_lexer(lexer); // consume '2'
-            } else if (next1 == '6' && next2 == '4' && !is_identifier_char(next3)) {
+            } else if (next1 == '6' && next2 == '4' &&
+                       !is_identifier_char(next3)) {
                 advance_lexer(lexer); // consume 'f'
                 advance_lexer(lexer); // consume '6'
                 advance_lexer(lexer); // consume '4'
@@ -287,6 +293,12 @@ Token next_token(Lexer *lexer) {
         return token;
     }
 
+    if (c == '_' && !isalpha(peek_char(lexer, 1))) {
+        Token token = new_token(TOKEN_UNDERSCORE, lexer);
+        advance_lexer(lexer);
+        return token;
+    }
+
     if (is_identifier_start(c)) {
         return read_identifier_or_keyword(lexer);
     }
@@ -294,6 +306,57 @@ Token next_token(Lexer *lexer) {
     if (is_digit(c)) {
         return read_number(lexer);
     }
+
+    Token token;
+    switch (c) {
+    case ':':
+        token = new_token(TOKEN_COLON, lexer);
+        break;
+    case ';':
+        token = new_token(TOKEN_SEMICOLON, lexer);
+        break;
+    case ',':
+        token = new_token(TOKEN_COMMA, lexer);
+        break;
+    case '.':
+        token = new_token(TOKEN_DOT, lexer);
+        break;
+    case '|':
+        token = new_token(TOKEN_PIPE, lexer);
+        break;
+    case '*':
+        token = new_token(TOKEN_STAR, lexer);
+        break;
+    case '(':
+        token = new_token(TOKEN_LPAREN, lexer);
+        break;
+    case ')':
+        token = new_token(TOKEN_RPAREN, lexer);
+        break;
+    case '{':
+        token = new_token(TOKEN_LBRACE, lexer);
+        break;
+    case '}':
+        token = new_token(TOKEN_RBRACE, lexer);
+        break;
+    case '[':
+        token = new_token(TOKEN_LBRACKET, lexer);
+        break;
+    case ']':
+        token = new_token(TOKEN_RBRACKET, lexer);
+        break;
+    case '<':
+        token = new_token(TOKEN_LANGLE, lexer);
+        break;
+    case '>':
+        token = new_token(TOKEN_RANGLE, lexer);
+        break;
+    case '`':
+        token = new_token(TOKEN_BACKTICK, lexer);
+        break;
+    }
+    advance_lexer(lexer);
+    return token;
 
     return new_token(TOKEN_UNKNOWN, lexer);
 }
@@ -366,6 +429,38 @@ static const char *token_type_to_string(TokenType type) {
         return "TOKEN_NUMBER";
     case TOKEN_UNKNOWN:
         return "TOKEN_UNKNOWN";
+    case TOKEN_COLON:
+        return "TOKEN_COLON";
+    case TOKEN_SEMICOLON:
+        return "TOKEN_SEMICOLON";
+    case TOKEN_COMMA:
+        return "TOKEN_COMMA";
+    case TOKEN_DOT:
+        return "TOKEN_DOT";
+    case TOKEN_PIPE:
+        return "TOKEN_PIPE";
+    case TOKEN_UNDERSCORE:
+        return "TOKEN_UNDERSCORE";
+    case TOKEN_STAR:
+        return "TOKEN_STAR";
+    case TOKEN_LPAREN:
+        return "TOKEN_LPAREN";
+    case TOKEN_RPAREN:
+        return "TOKEN_RPAREN";
+    case TOKEN_LBRACE:
+        return "TOKEN_LBRACE";
+    case TOKEN_RBRACE:
+        return "TOKEN_RBRACE";
+    case TOKEN_LBRACKET:
+        return "TOKEN_LBRACKET";
+    case TOKEN_RBRACKET:
+        return "TOKEN_RBRACKET";
+    case TOKEN_LANGLE:
+        return "TOKEN_LANGLE";
+    case TOKEN_RANGLE:
+        return "TOKEN_RANGLE";
+    case TOKEN_BACKTICK:
+        return "TOKEN_BACKTICK";
     default:
         return "UNKNOWN_TOKEN_TYPE";
     }
