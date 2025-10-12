@@ -32,6 +32,7 @@ typedef enum {
     TOKEN_NUMBER_FLOAT,
     TOKEN_NUMBER,
 
+    // Single character tokens
     TOKEN_COLON,
     TOKEN_SEMICOLON,
     TOKEN_COMMA,
@@ -47,7 +48,13 @@ typedef enum {
     TOKEN_RBRACKET,
     TOKEN_LANGLE,
     TOKEN_RANGLE,
-    TOKEN_BACKTICK,
+    TOKEN_PLUS,
+    TOKEN_MINUS,
+
+    TOKEN_STRING,
+
+    TOKEN_COMMENT,
+    TOKEN_DOCUMENTATION,
 
     TOKEN_UNKNOWN,
 

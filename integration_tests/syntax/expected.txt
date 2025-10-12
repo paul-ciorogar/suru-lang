@@ -6,6 +6,7 @@ Token: TOKEN_NEWLINE
 Token: TOKEN_IDENTIFIER Text: txa
 Token: TOKEN_NEWLINE
 Token: TOKEN_IDENTIFIER Text: someName
+Token: TOKEN_COMMENT Text: // some comment
 Token: TOKEN_NEWLINE
 Token: TOKEN_NEWLINE
 Token: TOKEN_PARTIAL
@@ -75,5 +76,24 @@ Token: TOKEN_LBRACKET
 Token: TOKEN_RBRACKET
 Token: TOKEN_LANGLE
 Token: TOKEN_RANGLE
-Token: TOKEN_BACKTICK
+Token: TOKEN_PLUS
+Token: TOKEN_MINUS
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_STRING Text: ""
+Token: TOKEN_NEWLINE
+Token: TOKEN_STRING Text: "this ia a text\n"
+Token: TOKEN_NEWLINE
+Token: TOKEN_STRING Text: ''
+Token: TOKEN_NEWLINE
+Token: TOKEN_STRING Text: 'this is another text\n'
+Token: TOKEN_NEWLINE
+Token: TOKEN_DOCUMENTATION Text: ============
+============
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_DOCUMENTATION Text: ====
+this is documentation
+....
+====
 Token: TOKEN_NEWLINE

@@ -276,6 +276,77 @@ static Token read_number(Lexer *lexer) {
     return new_token_from_text(TOKEN_NUMBER, lexer, start);
 }
 
+static Token read_comment(Lexer *lexer) {
+    size_t start = lexer->position;
+    advance_lexer(lexer); // skip first '/'
+    advance_lexer(lexer); // skip second '/'
+
+    char c = current_char(lexer);
+
+    while (c != '\n' && c != '\0') {
+        advance_lexer(lexer);
+        c = current_char(lexer);
+    }
+
+    return new_token_from_text(TOKEN_COMMENT, lexer, start);
+}
+
+static Token read_string(Lexer *lexer, char quote) {
+    size_t start = lexer->position;
+    advance_lexer(lexer); // skip opening quote
+
+    char c = current_char(lexer);
+
+    while (c != quote && c != '\0') {
+        if (current_char(lexer) == '\\') {
+            advance_lexer(lexer); // skip backslash
+            advance_lexer(lexer); // skip escaped char
+        } else {
+            advance_lexer(lexer);
+        }
+        c = current_char(lexer);
+    }
+
+    if (current_char(lexer) == quote) {
+        advance_lexer(lexer); // skip closing quote
+    }
+
+    return new_token_from_text(TOKEN_STRING, lexer, start);
+}
+
+static int is_end_of_doc(Lexer *lexer) {
+    int end_of_doc = current_char(lexer) == '\n' &&
+                     peek_char(lexer, 1) == '=' && peek_char(lexer, 2) == '=' &&
+                     peek_char(lexer, 3) == '=';
+
+    return end_of_doc ||
+           current_char(lexer) == '\n' && peek_char(lexer, 1) == '\r' &&
+               peek_char(lexer, 2) == '=' && peek_char(lexer, 3) == '=' &&
+               peek_char(lexer, 4) == '=';
+}
+
+static Token read_doc(Lexer *lexer) {
+    size_t start = lexer->position;
+
+    // advance to the end of the line
+    while (current_char(lexer) != '\n') {
+        advance_lexer(lexer);
+    }
+
+    while (!is_end_of_doc(lexer)) {
+        advance_lexer(lexer);
+    }
+
+    advance_lexer(lexer); // skip the enter
+
+    // advance to the end of the line
+    while (current_char(lexer) != '\n') {
+        advance_lexer(lexer);
+    }
+
+    return new_token_from_text(TOKEN_DOCUMENTATION, lexer, start);
+}
+
 Token next_token(Lexer *lexer) {
     skip_whitespace(lexer);
 
@@ -293,20 +364,42 @@ Token next_token(Lexer *lexer) {
         return token;
     }
 
+    // Line comment
+    if (c == '/' && peek_char(lexer, 1) == '/') {
+        return read_comment(lexer);
+    }
+
+    // Underscore
     if (c == '_' && !isalpha(peek_char(lexer, 1))) {
         Token token = new_token(TOKEN_UNDERSCORE, lexer);
         advance_lexer(lexer);
         return token;
     }
 
+    // Identifier or keyword
     if (is_identifier_start(c)) {
         return read_identifier_or_keyword(lexer);
     }
 
+    // Numbers
     if (is_digit(c)) {
         return read_number(lexer);
     }
 
+    // Strings
+    if (c == '"' || c == '\'') {
+        return read_string(lexer, c);
+    }
+
+    // Interpolated strings
+    // TODO
+
+    if (c == '=' && peek_char(lexer, 1) == '=' && peek_char(lexer, 2) == '=' &&
+        peek_char(lexer, 3) == '=') {
+        return read_doc(lexer);
+    }
+
+    // Single character tokens
     Token token;
     switch (c) {
     case ':':
@@ -351,8 +444,11 @@ Token next_token(Lexer *lexer) {
     case '>':
         token = new_token(TOKEN_RANGLE, lexer);
         break;
-    case '`':
-        token = new_token(TOKEN_BACKTICK, lexer);
+    case '+':
+        token = new_token(TOKEN_PLUS, lexer);
+        break;
+    case '-':
+        token = new_token(TOKEN_MINUS, lexer);
         break;
     }
     advance_lexer(lexer);
@@ -459,8 +555,16 @@ static const char *token_type_to_string(TokenType type) {
         return "TOKEN_LANGLE";
     case TOKEN_RANGLE:
         return "TOKEN_RANGLE";
-    case TOKEN_BACKTICK:
-        return "TOKEN_BACKTICK";
+    case TOKEN_PLUS:
+        return "TOKEN_PLUS";
+    case TOKEN_MINUS:
+        return "TOKEN_MINUS";
+    case TOKEN_COMMENT:
+        return "TOKEN_COMMENT";
+    case TOKEN_STRING:
+        return "TOKEN_STRING";
+    case TOKEN_DOCUMENTATION:
+        return "TOKEN_DOCUMENTATION";
     default:
         return "UNKNOWN_TOKEN_TYPE";
     }

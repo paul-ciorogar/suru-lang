@@ -2,7 +2,7 @@
 t
 ta
 txa
-someName
+someName // some comment
 
 partial
 module
@@ -30,4 +30,16 @@ or
 100i128
 2.5f32
 
-    : ; , . | _ * ( ) { } [ ] < > `
+    : ; , . | _ * ( ) { } [ ] < > + -
+
+""
+"this ia a text\n"
+''
+'this is another text\n'
+============
+============
+
+====
+this is documentation
+....
+====
