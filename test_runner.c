@@ -428,6 +428,7 @@ int main(int argc, char *argv[]) {
     // Add some example tests
     add_test(&tests, "tests/arena_test.c", NULL);
     add_test(&tests, "tests/string_storage_test.c", NULL);
+    add_test(&tests, "tests/array_test.c", NULL);
     // Add more tests here as needed
     // add_test(&tests, "tests/another_test.c", "helper.c");
 
