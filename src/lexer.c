@@ -70,6 +70,20 @@ static Token new_token_from_text(TokenType type, Lexer *lexer, size_t start) {
     return token;
 }
 
+static Token new_token_from_val(TokenType type, Lexer *lexer, int value) {
+    Token token;
+    token.type = type;
+    token.line = lexer->line;
+    token.column = lexer->column;
+
+    // Convert the integer value to a string and store it
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%d", value);
+    token.text = store_cstring(lexer->strings, buffer);
+
+    return token;
+}
+
 static int is_identifier_start(char c) { return isalpha(c) || c == '_'; }
 
 static int is_identifier_char(char c) { return isalnum(c) || c == '_'; }
@@ -314,6 +328,189 @@ static Token read_string(Lexer *lexer, char quote) {
     return new_token_from_text(TOKEN_STRING, lexer, start);
 }
 
+// Count consecutive backticks
+static int count_backticks(Lexer *lexer) {
+    int count = 0;
+    size_t pos = 0;
+    while (peek_char(lexer, pos) == '`') {
+        count++;
+        pos++;
+    }
+    return count;
+}
+
+// Count consecutive opening braces
+static int count_open_braces(Lexer *lexer) {
+    int count = 0;
+    size_t pos = 0;
+    while (peek_char(lexer, pos) == '{') {
+        count++;
+        pos++;
+    }
+    return count;
+}
+
+// Count consecutive closing braces
+static int count_close_braces(Lexer *lexer) {
+    int count = 0;
+    size_t pos = 0;
+    while (peek_char(lexer, pos) == '}') {
+        count++;
+        pos++;
+    }
+    return count;
+}
+
+// Start of string interpolation - returns TOKEN_STRING_I_START
+static Token read_string_interpolation_start(Lexer *lexer) {
+    int backtick_count = count_backticks(lexer);
+
+    // Skip the opening backticks
+    for (int i = 0; i < backtick_count; i++) {
+        advance_lexer(lexer);
+    }
+
+    // Check if this is a multiline string (backticks followed by newline)
+    if (current_char(lexer) == '\n') {
+        lexer->is_multiline_string = 1;
+        advance_lexer(lexer); // skip the newline
+    } else {
+        lexer->is_multiline_string = 0;
+    }
+
+    // Set the state
+    lexer->in_string_interpolation = backtick_count;
+
+    // Return token with just the backtick count
+    return new_token_from_val(TOKEN_STRING_I_START, lexer, backtick_count);
+}
+
+// Read string content until we hit opening braces or closing backticks
+static Token read_string_interpolation_content(Lexer *lexer) {
+    size_t start = lexer->position;
+    int backtick_count = lexer->in_string_interpolation;
+
+    // If we're at the start of a line in multiline mode, check for closing backticks with indentation
+    if (lexer->is_multiline_string && lexer->column == 1) {
+        // Look ahead to find the closing backticks
+        size_t temp_pos = 0;
+        while (lexer->source[lexer->position + temp_pos] == ' ' ||
+               lexer->source[lexer->position + temp_pos] == '\t') {
+            temp_pos++;
+        }
+
+        // Check if after the whitespace we have the closing backticks
+        int has_closing = 1;
+        for (int i = 0; i < backtick_count; i++) {
+            if (lexer->source[lexer->position + temp_pos + i] != '`') {
+                has_closing = 0;
+                break;
+            }
+        }
+
+        if (has_closing && temp_pos > 0) {
+            // Emit the indentation token (whitespace before backticks)
+            while (current_char(lexer) == ' ' || current_char(lexer) == '\t') {
+                advance_lexer(lexer);
+            }
+            return new_token_from_text(TOKEN_STRING_I_INDENT, lexer, start);
+        } else if (has_closing && temp_pos == 0) {
+            // No indentation, just emit the end token
+            for (int i = 0; i < backtick_count; i++) {
+                advance_lexer(lexer);
+            }
+            lexer->in_string_interpolation = 0;
+            lexer->is_multiline_string = 0;
+            return new_token_from_val(TOKEN_STRING_I_END, lexer, backtick_count);
+        }
+    }
+
+    // Check for closing backticks
+    int closing_backticks = count_backticks(lexer);
+    if (closing_backticks >= backtick_count) {
+        // End of string - emit TOKEN_STRING_I_END with the count
+        for (int i = 0; i < backtick_count; i++) {
+            advance_lexer(lexer);
+        }
+        lexer->in_string_interpolation = 0;
+        lexer->is_multiline_string = 0;
+        return new_token_from_val(TOKEN_STRING_I_END, lexer, backtick_count);
+    }
+
+    // Read string content until we hit opening braces or end
+    while (current_char(lexer) != '\0') {
+        char c = current_char(lexer);
+
+        // Check for closing backticks
+        int backtick_check = count_backticks(lexer);
+        if (backtick_check >= backtick_count) {
+            // Found closing backticks
+            if (lexer->position > start) {
+                // Return the string content before the backticks
+                return new_token_from_text(TOKEN_STRING_I, lexer, start);
+            }
+            // The closing backticks will be handled in the next call
+            break;
+        }
+
+        // Check for opening braces (start of expression)
+        int brace_count = count_open_braces(lexer);
+        if (brace_count >= backtick_count) {
+            // Found the required number of opening braces
+            if (lexer->position > start) {
+                // Return the string content before the braces
+                return new_token_from_text(TOKEN_STRING_I, lexer, start);
+            }
+            // The braces will be handled by normal tokenization
+            return read_string_interpolation_content(lexer);
+        }
+
+        // Handle escape sequences
+        if (c == '\\') {
+            advance_lexer(lexer); // skip backslash
+            if (current_char(lexer) != '\0') {
+                advance_lexer(lexer); // skip escaped char
+            }
+        } else if (c == '\n' && lexer->is_multiline_string) {
+            // Look ahead to see if next line has closing backticks
+            size_t look_pos = 1; // Start after the newline
+            while (lexer->source[lexer->position + look_pos] == ' ' ||
+                   lexer->source[lexer->position + look_pos] == '\t') {
+                look_pos++;
+            }
+            // Check if we have closing backticks
+            int has_closing = 1;
+            for (int i = 0; i < backtick_count; i++) {
+                if (lexer->source[lexer->position + look_pos + i] != '`') {
+                    has_closing = 0;
+                    break;
+                }
+            }
+            if (has_closing && lexer->position > start) {
+                // Return content up to (but not including) the newline
+                Token token = new_token_from_text(TOKEN_STRING_I, lexer, start);
+                // Now advance past the newline so next call starts at column 1
+                advance_lexer(lexer);
+                return token;
+            }
+            // Not the closing line, include the newline and continue
+            advance_lexer(lexer);
+        } else if (c == '\n' && !lexer->is_multiline_string) {
+            // Single-line string shouldn't have newlines (unless escaped)
+            break;
+        } else {
+            advance_lexer(lexer);
+        }
+    }
+
+    // Reached end of file or line without proper closing
+    if (lexer->position > start) {
+        return new_token_from_text(TOKEN_STRING_I, lexer, start);
+    }
+
+    return new_token(TOKEN_UNKNOWN, lexer);
+}
+
 static int is_end_of_doc(Lexer *lexer) {
     int end_of_doc = current_char(lexer) == '\n' &&
                      peek_char(lexer, 1) == '=' && peek_char(lexer, 2) == '=' &&
@@ -348,6 +545,74 @@ static Token read_doc(Lexer *lexer) {
 }
 
 Token next_token(Lexer *lexer) {
+    // If we're inside a string interpolation, handle it specially
+    if (lexer->in_string_interpolation > 0) {
+        // If we're inside an expression (brace_depth > 0), use normal tokenization
+        if (lexer->brace_depth > 0) {
+            // Normal tokenization, but track braces
+            skip_whitespace(lexer);
+
+            if (lexer->position >= lexer->length) {
+                return new_token(TOKEN_EOF, lexer);
+            }
+
+            char c = current_char(lexer);
+
+            // Check for closing braces - need to match the opening count
+            int close_brace_count = count_close_braces(lexer);
+            if (close_brace_count >= lexer->in_string_interpolation && lexer->brace_depth == 1) {
+                // This closes the expression - consume all required braces
+                for (int i = 0; i < lexer->in_string_interpolation; i++) {
+                    advance_lexer(lexer);
+                }
+                lexer->brace_depth = 0;
+                return new_token(TOKEN_STRING_I_EXPR_END, lexer);
+            }
+
+            // Check for single closing brace (nested)
+            if (c == '}') {
+                lexer->brace_depth--;
+                Token token = new_token(TOKEN_RBRACE, lexer);
+                advance_lexer(lexer);
+                return token;
+            }
+
+            // Check for opening brace (nested)
+            if (c == '{') {
+                lexer->brace_depth++;
+                Token token = new_token(TOKEN_LBRACE, lexer);
+                advance_lexer(lexer);
+                return token;
+            }
+
+            // Fall through to normal tokenization below
+        } else {
+            // We're in string content, not inside an expression
+            // Check for opening braces (start of expression)
+            int open_brace_count = count_open_braces(lexer);
+            if (open_brace_count >= lexer->in_string_interpolation) {
+                // Consume the required number of braces
+                for (int i = 0; i < lexer->in_string_interpolation; i++) {
+                    advance_lexer(lexer);
+                }
+                // Set brace depth to 1 (we're now inside one level of expression)
+                // The parser will need to match this with exactly one closing brace
+                lexer->brace_depth = 1;
+                return new_token(TOKEN_STRING_I_EXPR_START, lexer);
+            }
+
+            // Check for end of string (closing backticks)
+            int backtick_count = count_backticks(lexer);
+            if (backtick_count >= lexer->in_string_interpolation) {
+                // This is the end
+                return read_string_interpolation_content(lexer);
+            }
+
+            // Otherwise, it's string content
+            return read_string_interpolation_content(lexer);
+        }
+    }
+
     skip_whitespace(lexer);
 
     // End of file
@@ -392,7 +657,9 @@ Token next_token(Lexer *lexer) {
     }
 
     // Interpolated strings
-    // TODO
+    if (c == '`') {
+        return read_string_interpolation_start(lexer);
+    }
 
     if (c == '=' && peek_char(lexer, 1) == '=' && peek_char(lexer, 2) == '=' &&
         peek_char(lexer, 3) == '=') {
@@ -467,6 +734,9 @@ Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source,
     lexer->line = 1;
     lexer->column = 1;
     lexer->arena = arena;
+    lexer->in_string_interpolation = 0;
+    lexer->is_multiline_string = 0;
+    lexer->brace_depth = 0;
     lexer->current_token = next_token(lexer);
 
     return lexer;
@@ -476,6 +746,9 @@ void reset(Lexer *lexer) {
     lexer->position = 0;
     lexer->line = 1;
     lexer->column = 1;
+    lexer->in_string_interpolation = 0;
+    lexer->is_multiline_string = 0;
+    lexer->brace_depth = 0;
     lexer->current_token = next_token(lexer);
 }
 
@@ -563,6 +836,18 @@ static const char *token_type_to_string(TokenType type) {
         return "TOKEN_COMMENT";
     case TOKEN_STRING:
         return "TOKEN_STRING";
+    case TOKEN_STRING_I_START:
+        return "TOKEN_STRING_I_START";
+    case TOKEN_STRING_I_END:
+        return "TOKEN_STRING_I_END";
+    case TOKEN_STRING_I:
+        return "TOKEN_STRING_I";
+    case TOKEN_STRING_I_INDENT:
+        return "TOKEN_STRING_I_INDENT";
+    case TOKEN_STRING_I_EXPR_START:
+        return "TOKEN_STRING_I_EXPR_START";
+    case TOKEN_STRING_I_EXPR_END:
+        return "TOKEN_STRING_I_EXPR_END";
     case TOKEN_DOCUMENTATION:
         return "TOKEN_DOCUMENTATION";
     default:

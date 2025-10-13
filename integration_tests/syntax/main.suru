@@ -43,3 +43,27 @@ or
 this is documentation
 ....
 ====
+
+// Test single backtick interpolation
+greeting: `Hello {name}!`
+
+// Test empty string
+empty: `{}`
+
+// Test double backticks
+message: ``Welcome {{user.name}}!``
+
+// Test triple backticks
+report: ```Items: {{{count}}}```
+
+// Test multiline single backtick
+multiline: `
+    Hello {name}!
+    How are you?
+    `
+
+// Test multiline double backticks
+complex: ``
+    User: {{user.name}}
+    Balance: ${{user.balance}}
+    ``

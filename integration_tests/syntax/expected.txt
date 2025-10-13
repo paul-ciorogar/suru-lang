@@ -97,3 +97,91 @@ this is documentation
 ....
 ====
 Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_COMMENT Text: // Test single backtick interpolation
+Token: TOKEN_NEWLINE
+Token: TOKEN_IDENTIFIER Text: greeting
+Token: TOKEN_COLON
+Token: TOKEN_STRING_I_START Text: 1
+Token: TOKEN_STRING_I Text: Hello 
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_IDENTIFIER Text: name
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I Text: !
+Token: TOKEN_STRING_I_END Text: 1
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_COMMENT Text: // Test empty string
+Token: TOKEN_NEWLINE
+Token: TOKEN_IDENTIFIER Text: empty
+Token: TOKEN_COLON
+Token: TOKEN_STRING_I_START Text: 1
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I_END Text: 1
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_COMMENT Text: // Test double backticks
+Token: TOKEN_NEWLINE
+Token: TOKEN_IDENTIFIER Text: message
+Token: TOKEN_COLON
+Token: TOKEN_STRING_I_START Text: 2
+Token: TOKEN_STRING_I Text: Welcome 
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_IDENTIFIER Text: user
+Token: TOKEN_DOT
+Token: TOKEN_IDENTIFIER Text: name
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I Text: !
+Token: TOKEN_STRING_I_END Text: 2
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_COMMENT Text: // Test triple backticks
+Token: TOKEN_NEWLINE
+Token: TOKEN_IDENTIFIER Text: report
+Token: TOKEN_COLON
+Token: TOKEN_STRING_I_START Text: 3
+Token: TOKEN_STRING_I Text: Items: 
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_IDENTIFIER Text: count
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I_END Text: 3
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_COMMENT Text: // Test multiline single backtick
+Token: TOKEN_NEWLINE
+Token: TOKEN_IDENTIFIER Text: multiline
+Token: TOKEN_COLON
+Token: TOKEN_STRING_I_START Text: 1
+Token: TOKEN_STRING_I Text:     Hello 
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_IDENTIFIER Text: name
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I Text: !
+    How are you?
+Token: TOKEN_STRING_I_INDENT Text:     
+Token: TOKEN_STRING_I_END Text: 1
+Token: TOKEN_NEWLINE
+Token: TOKEN_NEWLINE
+Token: TOKEN_COMMENT Text: // Test multiline double backticks
+Token: TOKEN_NEWLINE
+Token: TOKEN_IDENTIFIER Text: complex
+Token: TOKEN_COLON
+Token: TOKEN_STRING_I_START Text: 2
+Token: TOKEN_STRING_I Text:     User: 
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_IDENTIFIER Text: user
+Token: TOKEN_DOT
+Token: TOKEN_IDENTIFIER Text: name
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I Text: 
+    Balance: $
+Token: TOKEN_STRING_I_EXPR_START
+Token: TOKEN_IDENTIFIER Text: user
+Token: TOKEN_DOT
+Token: TOKEN_IDENTIFIER Text: balance
+Token: TOKEN_STRING_I_EXPR_END
+Token: TOKEN_STRING_I Text: 
+    
+Token: TOKEN_STRING_I_END Text: 2
+Token: TOKEN_NEWLINE

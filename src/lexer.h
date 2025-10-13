@@ -52,6 +52,12 @@ typedef enum {
     TOKEN_MINUS,
 
     TOKEN_STRING,
+    TOKEN_STRING_I_START,
+    TOKEN_STRING_I_END,
+    TOKEN_STRING_I,
+    TOKEN_STRING_I_INDENT,
+    TOKEN_STRING_I_EXPR_START,
+    TOKEN_STRING_I_EXPR_END,
 
     TOKEN_COMMENT,
     TOKEN_DOCUMENTATION,
@@ -77,6 +83,9 @@ typedef struct Lexer {
     Token current_token;
     int line;
     int column;
+    int in_string_interpolation; // >0 when inside interpolated string, value = backtick count
+    int is_multiline_string;     // 1 if current string is multiline
+    int brace_depth;             // Depth of braces inside expressions (0 = in string content)
 } Lexer;
 
 Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source, size_t length);
