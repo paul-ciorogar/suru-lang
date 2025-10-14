@@ -243,7 +243,7 @@ suru supports three types of imports:
 #### Full Module Import
 ```suru
 import {
-    math : standard_math
+    math : standardMath
 }
 // Usage: math.sin(3.14)
 ```
@@ -251,7 +251,7 @@ import {
 #### Selective Import
 ```suru
 import {
-    {sin, cos, pi} : standard_math
+    {sin, cos, pi} : standardMath
 }
 // Usage: sin(pi)
 ```
@@ -259,7 +259,7 @@ import {
 #### Import All
 ```suru
 import {
-    * : standard_math
+    * : standardMath
 }
 // Usage: sin(pi), cos(pi), etc.
 ```
@@ -306,7 +306,7 @@ type Loading
 ### Type Aliases
 Simple renames:
 
-```
+```suru
 type UserId : Number
 type Username : String
 ```
@@ -408,7 +408,7 @@ type Employee : {
 
 // These are structurally equivalent
 checkAge: (p Person) Bool {
-    return p.age.greater_than(18)
+    return p.age.greaterThan(18)
 }
 
 emp Employee : {
@@ -572,7 +572,7 @@ applyTwice: (fn UnaryFunction, value Number) Number {
 ### Generic Functions
 Functions that work with multiple types:
 
-```
+```suru
 // Simple generic function
 identity<T>: (value T) T {
     return value
@@ -588,7 +588,7 @@ map<T, R>: (items List<T>, transform Transform<T, R>) List<R> {
 // Generic function with constraints
 sort<T: Orderable>: (items List<T>) List<T> {
     // Implementation uses T's ordering methods
-    return items.quick_sort()
+    return items.quickSort()
 }
 ```
 
@@ -619,11 +619,11 @@ type Adds: {
 ```suru
 // Same function name and parameters, different return types
 parse: (input String) Int {
-    return input.to_int()
+    return input.toInt()
 }
 
 parse: (input String) Float {
-    return input.to_float()
+    return input.toFloat()
 }
 
 parse: (input String) Bool {
@@ -631,9 +631,9 @@ parse: (input String) Bool {
 }
 
 // Usage - type annotation determines which overload
-int_value Int : parse("123")      // Calls parse: (String) Int
-float_value Float : parse("3.14") // Calls parse: (String) Float
-bool_value Bool : parse("true")   // Calls parse: (String) Bool
+intValue Int : parse("123")      // Calls parse: (String) Int
+floatValue Float : parse("3.14") // Calls parse: (String) Float
+boolValue Bool : parse("true")   // Calls parse: (String) Bool
 ```
 
 ## Pipeline
@@ -645,7 +645,7 @@ The `|` (pipe) operator can be used to pipe values to functions
 
 processed : "Hello, world!"
     | trim()
-    | to_lower()
+    | toLower()
     | replace(_, "world", "you")
     | capitalize()
 ```
@@ -719,7 +719,7 @@ Suru uses private member declarations for encapsulation.
 ### Private Members
 Use `_` prefix in declarations to mark fields and methods as private:
 
-```
+```suru
 type User: {
     username: String                      // Public field
 
@@ -730,7 +730,7 @@ user: User : {
     username: "Paul"        // Public field
     _ passwordHash: "2283"  // Private field
     _ salt: "qwerty"        // Private field
-    
+
     authenticate: (password String) Bool { // Public method
         // implementation
     }
@@ -755,8 +755,8 @@ type BankAccount: {
 // Constructor
 BankAccount: (initial Float, id String) BankAccount {
     impl BankAccount: {
-        account_id: id
-        transaction_count: 0
+        accountId: id
+        transactionCount: 0
         _ balance: initial
 
         deposit: (amount Float) Float {
@@ -771,10 +771,10 @@ BankAccount: (initial Float, id String) BankAccount {
         }
 
         _ validate: (amount Float) Bool {  // Private method implementation
-            return amount.greater_than(0.0)
+            return amount.greaterThan(0.0)
         }
 
-        _ log_transaction: (type String, amount Float) {
+        _ logTransaction: (type String, amount Float) {
             // Private logging logic
         }
 
@@ -786,7 +786,7 @@ BankAccount: (initial Float, id String) BankAccount {
 
 // Usage
 account : BankAccount(100.0, "ACC123")
-// account.balance        // ❌ Compile error: not in public interface  
+// account.balance        // ❌ Compile error: not in public interface
 // account.validate(50.0) // ❌ Compile error: private method not accessible
 balance : account.getBalance()  // ✅ OK: public method
 ```
@@ -818,7 +818,7 @@ result: 10 | addTwo    // Same as addTwo(10)
 ### Method Currying
 Methods can also be curried:
 
-```
+```suru
 type BinaryOperation : (a Int, b Int) Int
 type UnaryOperation : (x Int) Int
 
@@ -834,9 +834,9 @@ calc Calculator : {
 
 // Curry the method
 double : calc.multiply(2, _, _)        // Type: BinaryOperation (conceptually)
-double_triple : calc.multiply(2, 3, _)  // Type: UnaryOperation
+doubleTriple : calc.multiply(2, 3, _)  // Type: UnaryOperation
 
-result : double_triple(4)        // 2 * 3 * 4 = 24
+result : doubleTriple(4)        // 2 * 3 * 4 = 24
 ```
 
 ## Lexical Scoping
@@ -849,29 +849,29 @@ Functions and methods have strict lexical scoping - they can only access:
 They **cannot** access variables from outer scopes. This ensures predictable behavior and makes currying safe.
 
 ### Correct Scoping
-```
+```suru
 constant: 42
 
 outerFunction: (x Number) Number {
     localVar : 10
-    
+
     innerFunction: (y Number) Number {
         // ✅ Can access: y (parameter), constant
         // ✅ Can access other functions: outerFunction
         return y.add(constant)
     }
-    
+
     // ❌ Cannot access: localVar from outer scope
     // innerFunction: (y Number) Number {
     //     return y.add(localVar)  // ERROR: localVar not in scope
     // }
-    
+
     return innerFunction(x)
 }
 ```
 
 ### Currying with Proper Scoping
-```
+```suru
 type NumberFunction : (x Number) Number
 
 // Parameters become part of the curried function's closure
@@ -890,11 +890,11 @@ Suru provides four built-in collection types, all using the unified `[]` syntax 
 ### Lists
 Ordered collections that allow duplicates:
 
-```
+```suru
 // List creation using [] syntax
 numbers List<Number> : [1, 2, 3, 4, 5]
 names List<String> : ["alice", "bob", "charlie"]
-empty_list List<Float> : []
+emptyList List<Float> : []
 
 // List building
 extended : numbers
@@ -972,7 +972,7 @@ checkNumber: (n Number) String {
 }
 
 // Match with member access
-status : match user_input {
+status : match userInput {
     .equals("quit") : "exiting",
     .equals("help") : "showing help",
     _ : "unknown command"
@@ -1027,7 +1027,7 @@ find3: (step Number) Continuation<Number> {
 
 result Option<Number>: 10.times(find3) // returns Some(3)
 
-// Accumulator 
+// Accumulator
 appendStars: (_, result String) Continuation<String> {
     return Produce(result + "*")
 }
@@ -1164,7 +1164,7 @@ The `+` operator is used for all composition.
 ### Type composition
 Suru composes types from other types similar to interface inheritance.
 
-```
+```suru
 type Point: {
     x Number
     y Number
@@ -1220,35 +1220,35 @@ More Examples:
 
 ```suru
 // Function library
-validate_email: (email String) Bool { ... }
-format_phone: (phone String) String { ... }
-calculate_tax: (amount Number, rate Number) Number { ... }
+validateEmail: (email String) Bool { ... }
+formatPhone: (phone String) String { ... }
+calculateTax: (amount Number, rate Number) Number { ... }
 
 // Compose methods into structs
 type User: {
     email String
     phone String
-    
+
     // Add validation methods via composition
-    is_valid_email: + partial validate_email(this.email)
-    formatted_phone: + partial format_phone(this.phone)
+    isValidEmail: + partial validateEmail(this.email)
+    formattedPhone: + partial formatPhone(this.phone)
 }
 
 type Invoice: {
     amount Number
-    tax_rate Number
-    
+    taxRate Number
+
     // Compose calculation method
-    total: + partial calculate_tax(this.amount, this.tax_rate)
+    total: + partial calculateTax(this.amount, this.taxRate)
 }
 
 // Even compose methods from other types
 type EnhancedCircle: Circle + {
     // Reuse area function but add logging
-    area_with_log: + partial area(this) | + partial log_result(_)
-    
+    areaWithLog: + partial area(this) | + partial logResult(_)
+
     // Compose validation from another type
-    validate: + Point.validate_coordinates
+    validate: + Point.validateCoordinates
 }
 ```
 
@@ -1256,34 +1256,34 @@ More examples:
 
 ```suru
 // Base functionality
-log_call: (func_name String, result Any) Any { 
-    print(`Called {func_name}, result: {result}`)
+logCall: (funcName String, result Any) Any {
+    print(`Called {funcName}, result: {result}`)
     return result
 }
 
-validate_positive: (value Number) Number { ... }
+validatePositive: (value Number) Number { ... }
 
 // Compose a rich Circle type
 aCircle Circle: aPoint + {
     radius: 500
-    
+
     // Chain multiple behaviors
-    area: + partial area(this) 
-          | + partial validate_positive(_) 
-          | + partial log_call("area", _)
-    
+    area: + partial area(this)
+          | + partial validatePositive(_)
+          | + partial logCall("area", _)
+
     // Override inherited behavior
-    move: + partial move_with_bounds(this, _, _)  // Last one wins over Point.move
-    
+    move: + partial moveWithBounds(this, _, _)  // Last one wins over Point.move
+
     // Compose from multiple sources
-    describe: + partial format_shape(this) 
-              | + partial add_timestamp(_)
-              | + partial to_uppercase(_)
+    describe: + partial formatShape(this)
+              | + partial addTimestamp(_)
+              | + partial toUppercase(_)
 }
 
 // Usage
-result: aCircle.area()  
-// Calls: area(aCircle) -> validate_positive(result) -> log_call("area", result)
+result: aCircle.area()
+// Calls: area(aCircle) -> validatePositive(result) -> logCall("area", result)
 ```
 
 ## Documentation
