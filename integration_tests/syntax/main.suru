@@ -46,6 +46,7 @@ this is documentation
 
 // Test single backtick interpolation
 greeting: `Hello {name}!`
+other: `this is a {{name}}`
 
 // Test empty string
 empty: `{}`

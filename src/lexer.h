@@ -85,7 +85,7 @@ typedef struct Lexer {
     int column;
     int in_string_interpolation; // >0 when inside interpolated string, value = backtick count
     int is_multiline_string;     // 1 if current string is multiline
-    int brace_depth;             // Depth of braces inside expressions (0 = in string content)
+    int in_expression;           // 1 when inside an expression (after opening braces)
 } Lexer;
 
 Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source, size_t length);

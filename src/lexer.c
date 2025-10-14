@@ -390,7 +390,8 @@ static Token read_string_interpolation_content(Lexer *lexer) {
     size_t start = lexer->position;
     int backtick_count = lexer->in_string_interpolation;
 
-    // If we're at the start of a line in multiline mode, check for closing backticks with indentation
+    // If we're at the start of a line in multiline mode, check for closing
+    // backticks with indentation
     if (lexer->is_multiline_string && lexer->column == 1) {
         // Look ahead to find the closing backticks
         size_t temp_pos = 0;
@@ -421,7 +422,8 @@ static Token read_string_interpolation_content(Lexer *lexer) {
             }
             lexer->in_string_interpolation = 0;
             lexer->is_multiline_string = 0;
-            return new_token_from_val(TOKEN_STRING_I_END, lexer, backtick_count);
+            return new_token_from_val(TOKEN_STRING_I_END, lexer,
+                                      backtick_count);
         }
     }
 
@@ -455,7 +457,7 @@ static Token read_string_interpolation_content(Lexer *lexer) {
 
         // Check for opening braces (start of expression)
         int brace_count = count_open_braces(lexer);
-        if (brace_count >= backtick_count) {
+        if (brace_count == backtick_count) {
             // Found the required number of opening braces
             if (lexer->position > start) {
                 // Return the string content before the braces
@@ -486,12 +488,19 @@ static Token read_string_interpolation_content(Lexer *lexer) {
                     break;
                 }
             }
-            if (has_closing && lexer->position > start) {
+            if (has_closing) {
                 // Return content up to (but not including) the newline
-                Token token = new_token_from_text(TOKEN_STRING_I, lexer, start);
-                // Now advance past the newline so next call starts at column 1
+                if (lexer->position > start) {
+                    Token token =
+                        new_token_from_text(TOKEN_STRING_I, lexer, start);
+                    advance_lexer(lexer);
+                    return token;
+                }
+                // No content yet, advance past newline and call ourselves
+                // recursively so we start at column 1 and can detect
+                // indentation
                 advance_lexer(lexer);
-                return token;
+                return read_string_interpolation_content(lexer);
             }
             // Not the closing line, include the newline and continue
             advance_lexer(lexer);
@@ -509,6 +518,60 @@ static Token read_string_interpolation_content(Lexer *lexer) {
     }
 
     return new_token(TOKEN_UNKNOWN, lexer);
+}
+
+// Handle tokenization when inside a string interpolation expression
+static Token handle_string_interpolation_expression(Lexer *lexer) {
+    skip_whitespace(lexer);
+
+    if (lexer->position >= lexer->length) {
+        return new_token(TOKEN_EOF, lexer);
+    }
+
+    // Check for closing braces - need to match the opening count
+    int close_brace_count = count_close_braces(lexer);
+    if (close_brace_count >= lexer->in_string_interpolation) {
+        // This closes the expression - consume all required braces
+        for (int i = 0; i < lexer->in_string_interpolation; i++) {
+            advance_lexer(lexer);
+        }
+        lexer->in_expression = 0;
+        return new_token(TOKEN_STRING_I_EXPR_END, lexer);
+    }
+
+    // Fall through to normal tokenization - return a sentinel to indicate this
+    // We'll handle this by continuing in next_token
+    Token token;
+    token.type = TOKEN_UNKNOWN;
+    token.line = 0;
+    token.column = 0;
+    token.text = NULL;
+    return token;
+}
+
+// Handle tokenization when in string content (not inside an expression)
+static Token handle_string_interpolation_content_state(Lexer *lexer) {
+    // Check for opening braces (start of expression)
+    int open_brace_count = count_open_braces(lexer);
+    if (open_brace_count >= lexer->in_string_interpolation) {
+        // Consume the required number of braces
+        for (int i = 0; i < lexer->in_string_interpolation; i++) {
+            advance_lexer(lexer);
+        }
+        // Mark that we're now inside an expression
+        lexer->in_expression = 1;
+        return new_token(TOKEN_STRING_I_EXPR_START, lexer);
+    }
+
+    // Check for end of string (closing backticks)
+    int backtick_count = count_backticks(lexer);
+    if (backtick_count >= lexer->in_string_interpolation) {
+        // This is the end
+        return read_string_interpolation_content(lexer);
+    }
+
+    // Otherwise, it's string content
+    return read_string_interpolation_content(lexer);
 }
 
 static int is_end_of_doc(Lexer *lexer) {
@@ -547,69 +610,18 @@ static Token read_doc(Lexer *lexer) {
 Token next_token(Lexer *lexer) {
     // If we're inside a string interpolation, handle it specially
     if (lexer->in_string_interpolation > 0) {
-        // If we're inside an expression (brace_depth > 0), use normal tokenization
-        if (lexer->brace_depth > 0) {
-            // Normal tokenization, but track braces
-            skip_whitespace(lexer);
-
-            if (lexer->position >= lexer->length) {
-                return new_token(TOKEN_EOF, lexer);
-            }
-
-            char c = current_char(lexer);
-
-            // Check for closing braces - need to match the opening count
-            int close_brace_count = count_close_braces(lexer);
-            if (close_brace_count >= lexer->in_string_interpolation && lexer->brace_depth == 1) {
-                // This closes the expression - consume all required braces
-                for (int i = 0; i < lexer->in_string_interpolation; i++) {
-                    advance_lexer(lexer);
-                }
-                lexer->brace_depth = 0;
-                return new_token(TOKEN_STRING_I_EXPR_END, lexer);
-            }
-
-            // Check for single closing brace (nested)
-            if (c == '}') {
-                lexer->brace_depth--;
-                Token token = new_token(TOKEN_RBRACE, lexer);
-                advance_lexer(lexer);
+        // If we're inside an expression, use normal tokenization
+        if (lexer->in_expression) {
+            Token token = handle_string_interpolation_expression(lexer);
+            // If the helper returned a sentinel (TOKEN_UNKNOWN with line=0),
+            // fall through to normal tokenization
+            if (token.type != TOKEN_UNKNOWN || token.line != 0) {
                 return token;
             }
-
-            // Check for opening brace (nested)
-            if (c == '{') {
-                lexer->brace_depth++;
-                Token token = new_token(TOKEN_LBRACE, lexer);
-                advance_lexer(lexer);
-                return token;
-            }
-
             // Fall through to normal tokenization below
         } else {
             // We're in string content, not inside an expression
-            // Check for opening braces (start of expression)
-            int open_brace_count = count_open_braces(lexer);
-            if (open_brace_count >= lexer->in_string_interpolation) {
-                // Consume the required number of braces
-                for (int i = 0; i < lexer->in_string_interpolation; i++) {
-                    advance_lexer(lexer);
-                }
-                // Set brace depth to 1 (we're now inside one level of expression)
-                // The parser will need to match this with exactly one closing brace
-                lexer->brace_depth = 1;
-                return new_token(TOKEN_STRING_I_EXPR_START, lexer);
-            }
-
-            // Check for end of string (closing backticks)
-            int backtick_count = count_backticks(lexer);
-            if (backtick_count >= lexer->in_string_interpolation) {
-                // This is the end
-                return read_string_interpolation_content(lexer);
-            }
-
-            // Otherwise, it's string content
-            return read_string_interpolation_content(lexer);
+            return handle_string_interpolation_content_state(lexer);
         }
     }
 
@@ -736,7 +748,7 @@ Lexer *create_lexer(Arena *arena, StringStorage *strings, char *source,
     lexer->arena = arena;
     lexer->in_string_interpolation = 0;
     lexer->is_multiline_string = 0;
-    lexer->brace_depth = 0;
+    lexer->in_expression = 0;
     lexer->current_token = next_token(lexer);
 
     return lexer;
@@ -748,7 +760,7 @@ void reset(Lexer *lexer) {
     lexer->column = 1;
     lexer->in_string_interpolation = 0;
     lexer->is_multiline_string = 0;
-    lexer->brace_depth = 0;
+    lexer->in_expression = 0;
     lexer->current_token = next_token(lexer);
 }
 
@@ -859,7 +871,7 @@ void print_tokens(Lexer *lexer) {
     while (lexer->current_token.type != TOKEN_EOF) {
         printf("Token: %s", token_type_to_string(lexer->current_token.type));
         if (lexer->current_token.text != NULL) {
-            printf(" Text: %s", lexer->current_token.text->data);
+            printf(" Text: {%s}", lexer->current_token.text->data);
         }
         printf("\n");
         lexer->current_token = next_token(lexer);
