@@ -5,10 +5,13 @@
 
 typedef struct Buffer {
     size_t length;
+    size_t capacity;
     char* data;
 } Buffer;
 
 Buffer *read_file(const char *filename);
-void write_file(char *filename, Buffer *buffer);
+Buffer *create_buffer(size_t capacity);
+void free_buffer(Buffer *buffer);
+int write_file(const char *filename, Buffer *buffer);
 
 #endif

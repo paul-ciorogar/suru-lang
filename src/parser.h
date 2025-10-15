@@ -1,9 +1,9 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-
 #include "arena.h"
 #include "lexer.h"
+#include "parse_tree.h"
 #include <unistd.h>
 
 typedef struct ParserError {
@@ -22,13 +22,12 @@ typedef struct Parser {
     Arena *arena;
     Lexer *lexer;
     ParserErrors *errors;
+    ParseTree *tree;
 } Parser;
 
-typedef struct ASTNode {
-} ASTNode;
+Parser *create_parser(Arena *arena, Lexer *lexer);
 
-Parser *create_parser(Arena *arena, Lexer *lexer) ;
-
-ASTNode *parse_statement(Parser *parser);
+// Parse source code and build parse tree
+ParseTree *parse(Parser *parser);
 
 #endif

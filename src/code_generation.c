@@ -1,3 +1,3 @@
 #include "code_generation.h"
 
-Buffer *generate_code(ASTNode *ast) { return NULL; }
+Buffer *generate_code(ParseTree *tree) { return NULL; }

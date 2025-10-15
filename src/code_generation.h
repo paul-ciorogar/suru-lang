@@ -2,9 +2,9 @@
 #define CODE_GENERATION_H
 
 #include "io.h"
-#include "parser.h"
+#include "parse_tree.h"
 #include <stdio.h>
 
-Buffer* generate_code(ASTNode *ast);
+Buffer* generate_code(ParseTree *tree);
 
 #endif

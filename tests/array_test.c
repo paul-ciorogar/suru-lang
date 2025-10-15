@@ -1,4 +1,4 @@
-#include "../array.c" // Include the array implementation
+#include "../src/array.c" // Include the array implementation
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
