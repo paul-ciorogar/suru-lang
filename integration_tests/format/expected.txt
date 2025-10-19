@@ -1,0 +1,5 @@
+// Test file for formatter
+main: () {
+	print("hello, world!\n") // prints Hello, world! to stdout
+
+}

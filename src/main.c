@@ -3,8 +3,8 @@
 #include "formatter.h"
 #include "io.h"
 #include "lexer.h"
-#include "parser.h"
 #include "parse_tree_printer.h"
+#include "parser.h"
 #include "string_storage.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,32 +115,21 @@ int command_format(char *source_file, int write_to_file) {
     }
 
     // Format the parse tree
-    FormatterConfig *config = create_default_config();
-    Buffer *formatted = format_parse_tree(tree, config);
-
-    if (!formatted) {
-        fprintf(stderr, "Error: Failed to format %s\n", source_file);
-        free(config);
-        return 1;
-    }
-
-    // Output formatted code
     if (write_to_file) {
         // Write back to the original file
-        if (!write_file(source_file, formatted)) {
-            fprintf(stderr, "Error: Failed to write to %s\n", source_file);
-            free(config);
-            free_buffer(formatted);
+        FILE *file = fopen(source_file, "w");
+        if (!file) {
+            fprintf(stderr, "Error: Failed to open %s for writing\n", source_file);
             return 1;
         }
+        format_to_file(arena, tree, file);
+        fclose(file);
         printf("Formatted %s\n", source_file);
     } else {
         // Print to stdout
-        printf("%s", formatted->data);
+        format_to_stdout(arena, tree);
     }
 
-    free(config);
-    free_buffer(formatted);
     return 0;
 }
 

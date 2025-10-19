@@ -1,37 +1,58 @@
 #ifndef FORMATTER_H
 #define FORMATTER_H
 
-#include "io.h"
+#include "arena.h"
+#include "array.h"
 #include "parse_tree.h"
 #include <stdbool.h>
+#include <stdio.h>
 
-// Formatter configuration
+#define PAGE_SIZE 4096
+
+// Formatter state machine states
+typedef enum {
+    FORMAT_NODE,           // Format a single node
+    FORMAT_CHILDREN,       // Format all children of a node
+    FORMAT_TERMINAL,       // Format a terminal node
+    FORMAT_COMMENT,
+    FORMAT_LITERAL_TEXT,   // Output literal text
+    FORMAT_INDENT_DEC,     // Decrease indentation
+} FormatterState;
+
+// Stack frame for formatting
 typedef struct {
-    int indent_size;      // Number of spaces per indent level (default: 4)
-    int max_line_width;   // Maximum line width (default: 100)
-    bool use_tabs;        // Use tabs instead of spaces (default: false)
-} FormatterConfig;
+    FormatterState state;
+    int node_idx;          // Index of node to format
+    int child_idx;         // For FORMAT_CHILDREN: current child index (-1 = not started)
+    const char *text;      // For FORMAT_LITERAL_TEXT: text to output
+} FormatterStackFrame;
 
 // Formatter state
 typedef struct {
-    FormatterConfig *config;
+    Arena *arena;
     ParseTree *tree;
-    Buffer *output;        // Output buffer for formatted code
+    Array *stack;          // Stack of FormatterStackFrame
+
+    // Output page (single page buffer)
+    char page[PAGE_SIZE];
+    size_t page_used;      // Bytes used in current page
+
+    // Output destination
+    FILE *output_file;     // NULL for stdout
+
+    // Formatting state
     int current_indent;    // Current indentation level
     int current_column;    // Current column position
     bool at_line_start;    // True if at the start of a line
 } Formatter;
 
-// Create default formatter configuration
-FormatterConfig *create_default_config();
+// Create a formatter with file output (NULL for stdout)
+Formatter *create_formatter(Arena *arena, ParseTree *tree, FILE *output_file);
 
-// Create a formatter
-Formatter *create_formatter(ParseTree *tree, FormatterConfig *config);
+// Format the parse tree to stdout
+void format_to_stdout(Arena *arena, ParseTree *tree);
 
-// Format the parse tree and return formatted output
-Buffer *format_parse_tree(ParseTree *tree, FormatterConfig *config);
-
-// Free formatter resources
-void free_formatter(Formatter *formatter);
+// Format the parse tree to a file
+void format_to_file(Arena *arena, ParseTree *tree, FILE *file);
 
 #endif // FORMATTER_H
