@@ -4,6 +4,7 @@
 #include "io.h"
 #include "lexer.h"
 #include "parser.h"
+#include "parse_tree_printer.h"
 #include "string_storage.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 void print_usage(char *program_name) {
     printf("Usage: %s run <source file>.suru\n", program_name);
     printf("       %s lex <source file>.suru\n", program_name);
+    printf("       %s parse <source file>.suru\n", program_name);
     printf("       %s format [--write] <source file>.suru\n", program_name);
 }
 
@@ -32,6 +34,47 @@ int command_lex(char *source_file) {
     Lexer *lexer = create_lexer(arena, strings, source->data, source->length);
 
     print_tokens(lexer);
+
+    return 0;
+}
+
+int command_parse(char *source_file) {
+    Arena *strings_arena = arena_create(1);
+    StringStorage *strings = string_storage_init(strings_arena);
+
+    // Read source file
+    Buffer *source = read_file(source_file);
+    if (!source) {
+        fprintf(stderr, "Error: Could not read file %s\n", source_file);
+        return 1;
+    }
+
+    // Lexical analysis
+    Arena *arena = arena_create(1);
+    Lexer *lexer = create_lexer(arena, strings, source->data, source->length);
+
+    // Parse to build parse tree
+    Parser *parser = create_parser(arena, lexer);
+    ParseTree *tree = parse(parser);
+
+    if (!tree) {
+        fprintf(stderr, "Error: Failed to parse %s\n", source_file);
+        return 1;
+    }
+
+    // Check for syntax errors
+    if (parser->errors && parser->errors->count > 0) {
+        fprintf(stderr, "Syntax errors found in %s:\n", source_file);
+        ParserError *error = parser->errors->head;
+        while (error) {
+            fprintf(stderr, "  Line %d:%d: %s\n", error->line, error->column, error->message);
+            error = error->next;
+        }
+        return 1;
+    }
+
+    // Print the parse tree
+    print_parse_tree(tree);
 
     return 0;
 }
@@ -57,6 +100,17 @@ int command_format(char *source_file, int write_to_file) {
 
     if (!tree) {
         fprintf(stderr, "Error: Failed to parse %s\n", source_file);
+        return 1;
+    }
+
+    // Check for syntax errors
+    if (parser->errors && parser->errors->count > 0) {
+        fprintf(stderr, "Syntax errors found in %s:\n", source_file);
+        ParserError *error = parser->errors->head;
+        while (error) {
+            fprintf(stderr, "  Line %d:%d: %s\n", error->line, error->column, error->message);
+            error = error->next;
+        }
         return 1;
     }
 
@@ -114,6 +168,17 @@ int command_run(char *source_file) {
         return 1;
     }
 
+    // Check for syntax errors
+    if (parser->errors && parser->errors->count > 0) {
+        fprintf(stderr, "Syntax errors found in %s:\n", source_file);
+        ParserError *error = parser->errors->head;
+        while (error) {
+            fprintf(stderr, "  Line %d:%d: %s\n", error->line, error->column, error->message);
+            error = error->next;
+        }
+        return 1;
+    }
+
     // Generate machine code
     Buffer *code = generate_code(tree);
 
@@ -135,6 +200,10 @@ int main(int argc, char *argv[]) {
 
     if (strcmp(argv[1], "lex") == 0) {
         return command_lex(argv[2]);
+    }
+
+    if (strcmp(argv[1], "parse") == 0) {
+        return command_parse(argv[2]);
     }
 
     if (strcmp(argv[1], "format") == 0) {

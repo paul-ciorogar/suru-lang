@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 // Forward declarations
 static void format_node(Formatter *formatter, int node_idx);
@@ -19,9 +20,9 @@ FormatterConfig *create_default_config() {
         return NULL;
     }
 
-    config->indent_size = 4;
+    config->indent_size = 1;
     config->max_line_width = 100;
-    config->use_tabs = false;
+    config->use_tabs = true;
 
     return config;
 }
@@ -148,6 +149,14 @@ static const char *token_type_to_string(TokenType type) {
     }
 }
 
+// Check if last character in output is a specific character
+static bool last_char_is(Formatter *formatter, char c) {
+    if (formatter->output->length == 0) {
+        return false;
+    }
+    return formatter->output->data[formatter->output->length - 1] == c;
+}
+
 // Format a terminal node (token)
 static void format_terminal(Formatter *formatter, ParseNode *node) {
     if (!node) {
@@ -159,30 +168,117 @@ static void format_terminal(Formatter *formatter, ParseNode *node) {
         format_newline(formatter);
     }
 
-    // Add indentation if at line start
-    if (formatter->at_line_start) {
+    // Add indentation if at line start (but not for the very first token)
+    if (formatter->at_line_start && formatter->output->length > 0 && formatter->current_indent > 0) {
         format_indentation(formatter);
     }
 
+    TokenType tt = node->token.type;
+
     // Get token text (either from stored text or from token type)
-    const char *token_text = node->token.text ? node->token.text->data : token_type_to_string(node->token.type);
+    const char *token_text = node->token.text ? node->token.text->data : token_type_to_string(tt);
 
     if (!token_text || token_text[0] == '\0') {
         return;  // Skip empty tokens
     }
 
-    // Add leading spaces (or default spacing based on token type)
+    // Special handling for string interpolation start/end tokens
+    // These tokens store the backtick count as a number, but we need to output backticks
+    if (tt == TOKEN_STRING_I_START || tt == TOKEN_STRING_I_END) {
+        // Convert text (like "1" or "2") to backtick count
+        int backtick_count = atoi(token_text);
+
+        // Add leading spaces
+        if (node->leading_spaces > 0) {
+            for (int i = 0; i < node->leading_spaces; i++) {
+                append_char(formatter, ' ');
+            }
+        } else if (!formatter->at_line_start && tt == TOKEN_STRING_I_START) {
+            append_char(formatter, ' ');
+        }
+
+        // Output the backticks
+        for (int i = 0; i < backtick_count; i++) {
+            append_char(formatter, '`');
+        }
+
+        // Handle trailing spaces
+        if (node->trailing_spaces > 0) {
+            for (int i = 0; i < node->trailing_spaces; i++) {
+                append_char(formatter, ' ');
+            }
+        }
+
+        return;  // Done with this token
+    }
+
+    // Special handling for string interpolation expression delimiters
+    if (tt == TOKEN_STRING_I_EXPR_START) {
+        append_char(formatter, '{');
+        return;
+    }
+
+    if (tt == TOKEN_STRING_I_EXPR_END) {
+        append_char(formatter, '}');
+        return;
+    }
+
+    // Add leading spaces based on token type
     if (node->leading_spaces > 0) {
         for (int i = 0; i < node->leading_spaces; i++) {
             append_char(formatter, ' ');
         }
-    } else if (!formatter->at_line_start && node->type != NODE_PUNCTUATION) {
-        // Add default space before most tokens (except punctuation)
-        TokenType tt = node->token.type;
-        if (tt != TOKEN_LPAREN && tt != TOKEN_RPAREN &&
-            tt != TOKEN_LBRACE && tt != TOKEN_RBRACE &&
-            tt != TOKEN_LBRACKET && tt != TOKEN_RBRACKET &&
-            tt != TOKEN_COMMA && tt != TOKEN_DOT) {
+    } else if (!formatter->at_line_start) {
+        // Determine if we need a space before this token
+        bool needs_space = true;
+
+        // No space after dot operator
+        if (last_char_is(formatter, '.')) {
+            needs_space = false;
+        }
+        // No space after opening parens/brackets or before closing parens/brackets
+        else if (last_char_is(formatter, '(') || last_char_is(formatter, '[')) {
+            needs_space = false;
+        }
+        else if (tt == TOKEN_RPAREN || tt == TOKEN_RBRACKET) {
+            needs_space = false;
+        }
+        // Space after colon or comma
+        else if (last_char_is(formatter, ':') || last_char_is(formatter, ',')) {
+            needs_space = true;
+        }
+        // No space before dot operator
+        else if (tt == TOKEN_DOT) {
+            needs_space = false;
+        }
+        // No space before comma
+        else if (tt == TOKEN_COMMA) {
+            needs_space = false;
+        }
+        // Space before colon in type declarations (after type keyword)
+        // Check if previous non-whitespace token suggests this is a type declaration
+        else if (tt == TOKEN_COLON) {
+            // For now, we'll need more context - skip adding space
+            needs_space = false;
+        }
+        // No space after tab (indentation)
+        else if (last_char_is(formatter, '\t')) {
+            needs_space = false;
+        }
+        // Space after opening brace
+        else if (last_char_is(formatter, '{')) {
+            needs_space = true;
+        }
+        // Space before opening brace
+        else if (tt == TOKEN_LBRACE) {
+            needs_space = true;
+        }
+        // Space before closing brace (unless at start of line)
+        else if (tt == TOKEN_RBRACE && !formatter->at_line_start) {
+            needs_space = true;
+        }
+
+        if (needs_space) {
             append_char(formatter, ' ');
         }
     }
@@ -190,16 +286,13 @@ static void format_terminal(Formatter *formatter, ParseNode *node) {
     // Append the token text
     append_string(formatter, token_text);
 
-    // Add trailing spaces
-    for (int i = 0; i < node->trailing_spaces; i++) {
-        append_char(formatter, ' ');
+    // Handle trailing spaces if specified in parse tree
+    if (node->trailing_spaces > 0) {
+        for (int i = 0; i < node->trailing_spaces; i++) {
+            append_char(formatter, ' ');
+        }
     }
-
-    // Add default spacing after certain operators
-    TokenType tt = node->token.type;
-    if (tt == TOKEN_COLON || tt == TOKEN_COMMA) {
-        append_char(formatter, ' ');
-    }
+    // Don't add automatic spacing here - let the next token's leading logic handle it
 }
 
 // Format all children of a node
@@ -228,11 +321,12 @@ static void format_node(Formatter *formatter, int node_idx) {
     switch (node->type) {
         // Terminal nodes - just output the token
         case NODE_IDENTIFIER:
-        case NODE_NUMBER:
-        case NODE_STRING:
-        case NODE_KEYWORD:
-        case NODE_OPERATOR:
-        case NODE_PUNCTUATION:
+        case NODE_STRING_LITERAL:
+        // case NODE_NUMBER:
+        // case NODE_STRING:
+        // case NODE_KEYWORD:
+        // case NODE_OPERATOR:
+        // case NODE_PUNCTUATION:
             format_terminal(formatter, node);
             break;
 
@@ -241,66 +335,32 @@ static void format_node(Formatter *formatter, int node_idx) {
             format_terminal(formatter, node);
             break;
 
-        case NODE_DOCUMENTATION:
-            // Preserve documentation blocks
-            format_terminal(formatter, node);
-            format_newline(formatter);
-            break;
-
-        case NODE_WHITESPACE:
-            // Skip whitespace - we control formatting
-            break;
-
         case NODE_NEWLINE:
             format_newline(formatter);
             break;
 
         // Non-terminal nodes - format children with appropriate rules
         case NODE_PROGRAM:
-        case NODE_STATEMENT_LIST:
             format_children(formatter, node_idx);
             break;
 
-        case NODE_VARIABLE_DECL:
-        case NODE_TYPE_DECL:
         case NODE_FUNCTION_DECL:
             format_children(formatter, node_idx);
             format_newline(formatter);
             break;
 
         case NODE_BLOCK:
-            // Increase indent for block content
             formatter->current_indent++;
             format_children(formatter, node_idx);
             formatter->current_indent--;
             break;
 
-        case NODE_STRUCT_LITERAL:
+        case NODE_CALL_EXPR:
+        case NODE_ARG_LIST:
+        case NODE_PARAM_LIST:
+        case NODE_PARAM:
+            // Module paths just format their children inline
             format_children(formatter, node_idx);
-            break;
-
-        case NODE_PIPELINE_EXPR:
-        case NODE_BINARY_OP:
-        case NODE_UNARY_OP:
-        case NODE_FUNCTION_CALL:
-        case NODE_ARGUMENT_LIST:
-        case NODE_PARAMETER_LIST:
-        case NODE_TYPE_ANNOTATION:
-        case NODE_ARRAY_LITERAL:
-        case NODE_STRING_INTERP:
-            format_children(formatter, node_idx);
-            break;
-
-        case NODE_MATCH_EXPR:
-            format_children(formatter, node_idx);
-            break;
-
-        case NODE_MODULE_DECL:
-        case NODE_IMPORT_DECL:
-        case NODE_EXPORT_DECL:
-            format_children(formatter, node_idx);
-            format_newline(formatter);
-            format_newline(formatter);  // Extra blank line after module declarations
             break;
 
         default:

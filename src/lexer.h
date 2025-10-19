@@ -18,6 +18,7 @@ typedef enum {
     TOKEN_TRY,
     TOKEN_AND,
     TOKEN_OR,
+    TOKEN_NOT,
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_THIS,

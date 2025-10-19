@@ -171,7 +171,8 @@ static Token read_identifier_or_keyword(Lexer *lexer) {
 
     // if it starts with a capital letter then we can rule out keywords
     if (isupper(text[0]) || length > 7) {
-        return new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
+        Token tok = new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
+        return tok;
     }
 
     // Check for keywords
@@ -217,6 +218,8 @@ static Token read_identifier_or_keyword(Lexer *lexer) {
             return new_token(TOKEN_AND, lexer);
         } else if (strncmp(text, "try", 3) == 0) {
             return new_token(TOKEN_TRY, lexer);
+        } else if (strncmp(text, "not", 3) == 0) {
+            return new_token(TOKEN_NOT, lexer);
         }
         break;
 
@@ -227,7 +230,8 @@ static Token read_identifier_or_keyword(Lexer *lexer) {
         break;
     }
 
-    return new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
+    Token tok = new_token_from_text(TOKEN_IDENTIFIER, lexer, start);
+    return tok;
 }
 
 static Token read_number(Lexer *lexer) {

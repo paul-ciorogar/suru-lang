@@ -7,36 +7,36 @@
 - **Lexer**: Tokenize basic syntax
   - Identifiers, keywords, operators
   - Numbers (decimal, binary `0b`, octal `0o`, hex `0x`)
-  - Strings (single, double quotes, basic backtick interpolation)
+  - Strings (double quotes, basic backtick interpolation)
   - Booleans (`true`, `false`)
-- **Parser**: Build AST for basic constructs
-  - Variable declarations with type inference (`name: value`)
-  - Simple expressions (logical)
-  - Function definitions with explicit types
-  - Basic types (Number, String, Bool)
-- **AST Interpreter**: Execute AST directly
+- **Parser**: Build parse tree for basic constructs
+  - Main function definition
+  - Print function call
+- **Tooling**:
+  - Format tool for code formatting
+- **AST Interpreter**: Build AST from parse tree. Execute AST directly
 - **Standard Library Basics**: Print function
-- **Milestone**: Run "Hello World" and basic arithmetic
+- **Milestone**: Run "Hello World" and basic logical expressions
 
 ### v0.2.0 - Pattern Matching & Control Flow
 - **Pattern Matching**: `match` expressions
-  - Type matching
+  - Variable declarations (`name: value`)
+  - Simple expressions (logical)
   - Value matching
   - Default case (`_`)
   - Member access patterns (`.equals()`)
 - **Method Calls**: Dot notation for methods
 - **Built-in Methods**: Basic string and number methods
-- **Milestone**: Compile programs using pattern matching for control flow
+- **Milestone**: Run programs using pattern matching for control flow
 
 ### v0.3.0 - Functions & Lexical Scoping
 - **Function Definitions**: 
-  - With and without type annotations
-  - Return type inference
+  - Without type annotations
   - Generic functions (simple cases)
 - **Function Calls**: Positional arguments
 - **Lexical Scoping**: Strict function-level scoping
 - **Access Rules**: Parameters, local vars, global constants only
-- **Milestone**: Compile programs with multiple functions and proper scoping
+- **Milestone**: Run programs with multiple functions and proper scoping
 
 ## Phase 2: Type System & Core Features (v0.4.0 - v0.7.0)
 **Goal**: Implement Suru's unique type system and structural typing
@@ -50,7 +50,7 @@
 - **Structural Typing**: Type compatibility by shape, not name
 - **Type Checking**: Structural equivalence checking
 - **Better Error Messages**: Type mismatch explanations
-- **Milestone**: Programs using structural typing with multiple record types
+- **Milestone**: Run programs using structural typing with multiple record types
 
 ### v0.5.0 - Advanced Types & Composition
 - **Type Composition**: Using `+` operator
@@ -62,7 +62,7 @@
   - Multiple type parameters (`Map<K, V>`)
   - Basic constraints
 - **Union Types**: Multi-variant types
-- **Milestone**: Generic collections and type composition working
+- **Milestone**: Run programs with generic collections and type composition working
 
 ### v0.6.0 - Collections & Iteration
 - **Collection Types**: `List<T>`, `Set<T>`, `Map<K,V>`
@@ -72,7 +72,7 @@
   - Iteration with continuation types
 - **Number Iteration**: `.times()` method
 - **Continuation Types**: `Continue`, `Break<T>`, `Produce<T>`
-- **Milestone**: Complex data processing with collections
+- **Milestone**: Run programs with complex data processing with collections
 
 ### v0.7.0 - Privacy, Encapsulation & LSP
 - **Private Members**: `_` prefix for private fields and methods
@@ -144,10 +144,23 @@
 - **Doc Generation**: Extract documentation to readable format
 - **Milestone**: Syntax is final
 
-## Phase 5: Code Generation (v0.14.0)
+## Phase 5: Advance LSP features. (v0.14.0)
+**Goal**: add mocking and symulation using LSP commands
+
+### v0.14.0 - LSP commands
+- **Create LSP specific syntax**:
+  - crete usecases
+  - navigate or select usecases
+  - crete mock data
+  - create asserts
+  - inspect values
+  - navigate through the callstack
+- **Run usecases**: run code with mocked values
+
+## Phase 5: Code Generation (v0.15.0)
 **Goal**: Native compilation target
 
-### v0.14.0 - x86-64 Linux Code Generation
+### v0.15.0 - x86-64 Linux Code Generation
 - **Assembly Generation**: Emit x86-64 assembly code
 - **Calling Conventions**: System V AMD64 ABI
 - **Register Allocation**: Basic register allocation strategy
@@ -157,10 +170,10 @@
 - **Performance Baseline**: Establish benchmarks vs interpreter
 - **Milestone**: Native executables running on Linux x86-64
 
-## Phase 6: Standard Library & tooling (v0.15.0 - v0.16.0)
+## Phase 6: Standard Library & tooling (v0.16.0 - v0.17.0)
 **Goal**: Implement and document a minimal viable standar library
 
-### v0.15.0 - Implementation
+### v0.16.0 - Implementation
 - **Standard Library**: 
   - Complete collection implementations
   - String manipulation functions
@@ -168,13 +181,11 @@
   - File I/O basics
   - Async/concurrency primitives
   - FFI (Foreign Function Interface) for C interop
-- **Tooling**:
-  - Format tool for code formatting
 - **Documentation**: Complete language guide and API docs
 - **Examples**: Real-world example programs
 - **Milestone**: Well-documented standard library and examples
 
-### v0.15.0 - Optimization Pass
+### v0.17.0 - Optimization Pass
 - **Constant Folding**: Compile-time expression evaluation
 - **Dead Code Elimination**: Remove unused functions and types
 - **Type Specialization**: Monomorphization of generics
@@ -182,7 +193,7 @@
 - **Pipeline Optimization**: Optimize chained operations
 - **Milestone**: Significant performance improvements on benchmarks
 
-### v0.16.0 - Refinemnet
+### v0.18.0 - Refinemnet
 
 - **Documentation**: 
   - Complete language reference

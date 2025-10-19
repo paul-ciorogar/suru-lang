@@ -213,15 +213,15 @@ address: 0xDEAD_BEEFu16;
 A variable declaration declares a new variable for the current scope.
 Declarations end with a new line unless on the next line there is a continuation like `| , . + and or`
 ```suru
-name : value // type is inferred
-name Type : value
+name: value // type is inferred
+name Type: value
 ```
 Declarations at the file scope are constants.
 A constant's value cannot be changed. The constant's value must be able to be evaluated at compile time
 
 ### Assignment statements
 ```suru
-name : value
+name: value
 ```
 
 ## Modules
@@ -243,7 +243,7 @@ suru supports three types of imports:
 #### Full Module Import
 ```suru
 import {
-    math : standardMath
+    math: standardMath
 }
 // Usage: math.sin(3.14)
 ```
@@ -251,7 +251,7 @@ import {
 #### Selective Import
 ```suru
 import {
-    {sin, cos, pi} : standardMath
+    {sin, cos, pi}: standardMath
 }
 // Usage: sin(pi)
 ```
@@ -259,7 +259,7 @@ import {
 #### Import All
 ```suru
 import {
-    * : standardMath
+    *: standardMath
 }
 // Usage: sin(pi), cos(pi), etc.
 ```
@@ -307,23 +307,23 @@ type Loading
 Simple renames:
 
 ```suru
-type UserId : Number
-type Username : String
+type UserId: Number
+type Username: String
 ```
 
 ### Union Types
 Alternative types:
 
 ```suru
-type Status : Success, Error, Loading
-type Value : Int, String, Bool
+type Status: Success, Error, Loading
+type Value: Int, String, Bool
 ```
 
 ### Struct Types
 Records with fields and method declarations:
 
 ```suru
-type Person : {
+type Person: {
     name String
     age Number
     
@@ -336,7 +336,7 @@ type Person : {
 Combine types using `+`:
 
 ```suru
-type Employee : Person + {
+type Employee: Person + {
     salary Int
     department String
 }
@@ -349,11 +349,11 @@ Function signatures must be defined as named types:
 - `void` can be used to tell that a function returns nothing.
 
 ```suru
-type AddFunction : (a Number, b Number) Number
-type Predicate : (value String) Bool
-type VoidFunction : () void
-type Identity<T> : (value T) T
-type UnaryOperator : (x Float) Float
+type AddFunction: (a Number, b Number) Number
+type Predicate: (value String) Bool
+type VoidFunction: () void
+type Identity<T>: (value T) T
+type UnaryOperator: (x Float) Float
 ```
 
 ### Generic Types
@@ -361,7 +361,7 @@ Define types that work with multiple specific types:
 
 ```suru
 // Single type parameter
-type List<T> : {
+type List<T>: {
     items Array<T>
     size Int
     
@@ -372,7 +372,7 @@ type List<T> : {
 }
 
 // Multiple type parameters  
-type Map<K, V> : {
+type Map<K, V>: {
     entries Array<Pair<K, V>>
     
     put: (key K, value V) Map<K, V>
@@ -381,7 +381,7 @@ type Map<K, V> : {
 }
 
 // Generic types with constraints
-type Comparable<T: Orderable> : {
+type Comparable<T: Orderable>: {
     value T
     
     compare: (other Comparable<T>) Ordering
@@ -396,12 +396,12 @@ Suru uses structural typing, meaning types are compatible based on their structu
 
 ```suru
 // Two different type declarations with same structure
-type Person : {
+type Person: {
     name String
     age Number
 }
 
-type Employee : {
+type Employee: {
     name String
     age Number
 }
@@ -411,13 +411,13 @@ checkAge: (p Person) Bool {
     return p.age.greaterThan(18)
 }
 
-emp Employee : {
+emp Employee: {
     name: "Alice"
     age: 25
 }
 
 // This works because Employee has same structure as Person
-isAdult : checkAge(emp)  // ✅ Valid - structural compatibility
+isAdult: checkAge(emp)  // ✅ Valid - structural compatibility
 ```
 
 ### Structural Compatibility with Functions
@@ -425,8 +425,8 @@ isAdult : checkAge(emp)  // ✅ Valid - structural compatibility
 Function types are also structurally typed:
 
 ```suru
-type PersonProcessor : (p Person) String
-type EmployeeHandler : (e Employee) String
+type PersonProcessor: (p Person) String
+type EmployeeHandler: (e Employee) String
 
 // These function types are structurally equivalent
 formatPerson: (person Person) String {
@@ -434,8 +434,8 @@ formatPerson: (person Person) String {
 }
 
 // Can assign to either function type
-processor PersonProcessor : formatPerson
-handler EmployeeHandler : formatPerson  // ✅ Same structure
+processor PersonProcessor: formatPerson
+handler EmployeeHandler: formatPerson  // ✅ Same structure
 ```
 
 ### Duck Typing with Methods
@@ -443,17 +443,17 @@ handler EmployeeHandler : formatPerson  // ✅ Same structure
 If a type has the required methods, it can be used wherever that interface is expected:
 
 ```suru
-type Drawable : {
+type Drawable: {
     draw: () String
 }
 
-type Circle : {
+type Circle: {
     radius Number
     draw: () String
     area: () Number
 }
 
-type Rectangle : {
+type Rectangle: {
     width Number
     height Number
     draw: () String
@@ -464,21 +464,21 @@ render: (shape Drawable) String {
     return shape.draw()
 }
 
-circle Circle : {
+circle Circle: {
     radius: 5.0
     draw: () { return "Drawing circle" }
     area: () { return 3.14159 * this.radius * this.radius }
 }
 
-rectangle Rectangle : {
+rectangle Rectangle: {
     width: 10.0
     height: 5.0
     draw: () { return "Drawing rectangle" }
 }
 
 // Both work because they have draw() method
-circleOutput : render(circle)     // ✅ Valid
-rectangleOutput : render(rectangle) // ✅ Valid
+circleOutput: render(circle)     // ✅ Valid
+rectangleOutput: render(rectangle) // ✅ Valid
 ```
 
 ### Structural Subtyping
@@ -486,11 +486,11 @@ rectangleOutput : render(rectangle) // ✅ Valid
 Types with additional fields are compatible with types that have fewer fields:
 
 ```suru
-type BasicInfo : {
+type BasicInfo: {
     name String
 }
 
-type DetailedInfo : {
+type DetailedInfo: {
     name String
     age Number
     email String
@@ -500,14 +500,14 @@ getName: (info BasicInfo) String {
     return info.name
 }
 
-detailed DetailedInfo : {
+detailed DetailedInfo: {
     name: "Bob"
     age: 30
     email: "bob@example.com"
 }
 
 // Works because DetailedInfo contains all fields of BasicInfo
-name : getName(detailed)  // ✅ Valid - structural subtyping
+name: getName(detailed)  // ✅ Valid - structural subtyping
 ```
 
 ### Generic Type Structural Compatibility
@@ -515,18 +515,18 @@ name : getName(detailed)  // ✅ Valid - structural subtyping
 Generic types follow structural rules:
 
 ```suru
-type Container<T> : {
+type Container<T>: {
     value T
     getValue: () T
 }
 
-type Box<T> : {
+type Box<T>: {
     value T
     getValue: () T
 }
 
 // Structurally equivalent generic types
-stringContainer Container<String> : {
+stringContainer Container<String>: {
     value: "hello"
     getValue: () { return this.value }
 }
@@ -536,14 +536,14 @@ useBox: (box Box<String>) String {
     return box.getValue()
 }
 
-result : useBox(stringContainer)  // ✅ Valid
+result: useBox(stringContainer)  // ✅ Valid
 ```
 
 
 ## Functions
 
 ```suru
-type UnaryFunction : (x Number) Number
+type UnaryFunction: (x Number) Number
 
 // Function returning a simple type
 add: (x Number, y Number) Number {
@@ -564,7 +564,7 @@ createAdder: (base Number) UnaryFunction {
 
 // Function taking a function 
 applyTwice: (fn UnaryFunction, value Number) Number {
-    temp : fn(value)
+    temp: fn(value)
     return fn(temp)
 }
 ```
@@ -580,7 +580,7 @@ identity<T>: (value T) T {
 
 // Multiple type parameters
 map<T, R>: (items List<T>, transform Transform<T, R>) List<R> {
-    result : List<R>()
+    result: List<R>()
     // Implementation iterates and transforms
     return result
 }
@@ -631,9 +631,9 @@ parse: (input String) Bool {
 }
 
 // Usage - type annotation determines which overload
-intValue Int : parse("123")      // Calls parse: (String) Int
-floatValue Float : parse("3.14") // Calls parse: (String) Float
-boolValue Bool : parse("true")   // Calls parse: (String) Bool
+intValue Int: parse("123")      // Calls parse: (String) Int
+floatValue Float: parse("3.14") // Calls parse: (String) Float
+boolValue Bool: parse("true")   // Calls parse: (String) Bool
 ```
 
 ## Pipeline
@@ -643,7 +643,7 @@ The `|` (pipe) operator can be used to pipe values to functions
 ```suru
 2_283 | subtract(_, 2) | print // 2281 would be printed
 
-processed : "Hello, world!"
+processed: "Hello, world!"
     | trim()
     | toLower()
     | replace(_, "world", "you")
@@ -726,7 +726,7 @@ type User: {
     authenticate: (password String) Bool  // Public method
 }
 
-user: User : {
+user: User: {
     username: "Paul"        // Public field
     _ passwordHash: "2283"  // Private field
     _ salt: "qwerty"        // Private field
@@ -761,12 +761,12 @@ BankAccount: (initial Float, id String) BankAccount {
 
         deposit: (amount Float) Float {
             return match this.validate(amount) {  // Call private method
-                true : {
-                    this.balance : this.balance.add(amount)
+                true: {
+                    this.balance: this.balance.add(amount)
                     this.logTransaction("deposit", amount)
                     return this.balance
                 },
-                false : this.balance
+                false: this.balance
             }
         }
 
@@ -785,10 +785,10 @@ BankAccount: (initial Float, id String) BankAccount {
 }
 
 // Usage
-account : BankAccount(100.0, "ACC123")
+account: BankAccount(100.0, "ACC123")
 // account.balance        // ❌ Compile error: not in public interface
 // account.validate(50.0) // ❌ Compile error: private method not accessible
-balance : account.getBalance()  // ✅ OK: public method
+balance: account.getBalance()  // ✅ OK: public method
 ```
 
 ## Currying and Partial Application
@@ -819,24 +819,24 @@ result: 10 | addTwo    // Same as addTwo(10)
 Methods can also be curried:
 
 ```suru
-type BinaryOperation : (a Int, b Int) Int
-type UnaryOperation : (x Int) Int
+type BinaryOperation: (a Int, b Int) Int
+type UnaryOperation: (x Int) Int
 
-type Calculator : {
+type Calculator: {
     multiply: (a Int, b Int, c Int) Int
 }
 
-calc Calculator : {
+calc Calculator: {
     multiply: (a Int, b Int, c Int) Int {
         return a.multiply(b).multiply(c)
     }
 }
 
 // Curry the method
-double : calc.multiply(2, _, _)        // Type: BinaryOperation (conceptually)
-doubleTriple : calc.multiply(2, 3, _)  // Type: UnaryOperation
+double: calc.multiply(2, _, _)        // Type: BinaryOperation (conceptually)
+doubleTriple: calc.multiply(2, 3, _)  // Type: UnaryOperation
 
-result : doubleTriple(4)        // 2 * 3 * 4 = 24
+result: doubleTriple(4)        // 2 * 3 * 4 = 24
 ```
 
 ## Lexical Scoping
@@ -853,7 +853,7 @@ They **cannot** access variables from outer scopes. This ensures predictable beh
 constant: 42
 
 outerFunction: (x Number) Number {
-    localVar : 10
+    localVar: 10
 
     innerFunction: (y Number) Number {
         // ✅ Can access: y (parameter), constant
@@ -872,15 +872,15 @@ outerFunction: (x Number) Number {
 
 ### Currying with Proper Scoping
 ```suru
-type NumberFunction : (x Number) Number
+type NumberFunction: (x Number) Number
 
 // Parameters become part of the curried function's closure
 add: (x Number, y Number) Number {
     return x.add(y)
 }
 
-addFive : add(5, _)
-result : addFive(3)  // 8
+addFive: add(5, _)
+result: addFive(3)  // 8
 ```
 
 ## Collections
@@ -892,12 +892,12 @@ Ordered collections that allow duplicates:
 
 ```suru
 // List creation using [] syntax
-numbers List<Number> : [1, 2, 3, 4, 5]
-names List<String> : ["alice", "bob", "charlie"]
-emptyList List<Float> : []
+numbers List<Number>: [1, 2, 3, 4, 5]
+names List<String>: ["alice", "bob", "charlie"]
+emptyList List<Float>: []
 
 // List building
-extended : numbers
+extended: numbers
     .add(6)
     .add([7, 8, 9])
     .set(0, 0)                         // Insert at index
@@ -908,9 +908,9 @@ Unordered collections with unique elements:
 
 ```suru
 // Set creation - duplicates automatically removed
-uniqueNumbers Set<Number> : [1, 2, 3, 2, 1]  // Results in {1, 2, 3}
-colors Set<String> : ["red", "green", "blue"]
-emptySet Set<Float> : []
+uniqueNumbers Set<Number>: [1, 2, 3, 2, 1]  // Results in {1, 2, 3}
+colors Set<String>: ["red", "green", "blue"]
+emptySet Set<Float>: []
 ```
 
 ### Maps
@@ -918,19 +918,19 @@ Key-value collections:
 
 ```suru
 // Map creation using key:value syntax
-userAges Map<String, Number> : [
+userAges Map<String, Number>: [
     "alice": 25,
     "bob": 30,
     "charlie": 35
 ]
 
-scores Map<String, Float> : [
+scores Map<String, Float>: [
     "math": 95.5,
     "science": 87.2,
     "history": 92.1
 ]
 
-emptyMap Map<String, Int> : []
+emptyMap Map<String, Int>: []
 ```
 
 ### Collection Type Inference
@@ -938,11 +938,11 @@ The type annotation determines which collection is created:
 
 ```suru
 // Same syntax, different types based on annotation
-numbersList List<Number> : [1, 2, 3]        // Creates List
-numbersSet Set<Number> : [1, 2, 3]          // Creates Set  
+numbersList List<Number>: [1, 2, 3]        // Creates List
+numbersSet Set<Number>: [1, 2, 3]          // Creates Set  
 
 // Maps require key:value syntax
-mapping Map<Int, String> : [1: "one", 2: "two"]  // Creates Map
+mapping Map<Int, String>: [1: "one", 2: "two"]  // Creates Map
 ```
 
 ## Control flow statements
@@ -972,10 +972,10 @@ checkNumber: (n Number) String {
 }
 
 // Match with member access
-status : match userInput {
-    .equals("quit") : "exiting",
-    .equals("help") : "showing help",
-    _ : "unknown command"
+status: match userInput {
+    .equals("quit"): "exiting",
+    .equals("help"): "showing help",
+    _: "unknown command"
 }
 ```
 
@@ -992,7 +992,7 @@ Control flow is managed with union types representing continuation decisions:
 type Continue
 type Break<T>: Some<T>, None
 type Produce<T>
-type Continuation<T> : Produce<T>, Continue, Break<T>
+type Continuation<T>: Produce<T>, Continue, Break<T>
 ```
 
 #### Number Iteration
@@ -1010,8 +1010,8 @@ printHello: (step Number) {
 countWithBreak: (step Number) Continuation {
     print(`Step: {step.toString()}`)
     return match step {
-        .equals(3) : Break,  // Stop at step 3
-        _ : Continue
+        .equals(3): Break,  // Stop at step 3
+        _: Continue
     }
 }
 
@@ -1020,8 +1020,8 @@ countWithBreak: (step Number) Continuation {
 // Early termination with value
 find3: (step Number) Continuation<Number> {
     return match step {
-        .equals(3) : Break(step),  // Stop at step 3
-        _ : Continue
+        .equals(3): Break(step),  // Stop at step 3
+        _: Continue
     }
 }
 
@@ -1039,7 +1039,7 @@ result: 3.times(appendStars, "+") // returns "+***"
 Collections provide rich iteration methods:
 
 ```suru
-numbers List<Number> : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+numbers List<Number>: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 // Basic iteration
 printNumbers: (num Number) {
@@ -1064,11 +1064,11 @@ Conditional loops using method calls:
 // While-like behavior
 while: (current Number) Continuation<Number> {
     print(`Count: {current.toString()}`)
-    current : current.subtract(1)
+    current: current.subtract(1)
     
     return match current.equals(3) {
-        true : Break,    // Early exit
-        false : Continue(current)
+        true: Break,    // Early exit
+        false: Continue(current)
     }
 })
 

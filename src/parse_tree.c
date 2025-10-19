@@ -1,6 +1,6 @@
 #include "parse_tree.h"
-#include "array.h"
 #include "arena.h"
+#include "array.h"
 #include "lexer.h"
 #include <stdio.h>
 #include <string.h>
@@ -22,7 +22,7 @@ ParseTree *create_parse_tree(Arena *arena) {
     }
 
     tree->arena = arena;
-    tree->root = -1;  // No root initially
+    tree->root = -1; // No root initially
 
     return tree;
 }
@@ -93,41 +93,6 @@ void add_child(ParseTree *tree, int parent_idx, int child_idx) {
     }
 }
 
-// Create a terminal node from a token
-ParseNode create_terminal_node(Token token, ParseNodeType type) {
-    ParseNode node;
-    node.type = type;
-    node.token = token;
-    node.first_child = -1;
-    node.next_sibling = -1;
-    node.parent = -1;
-    node.leading_spaces = 0;
-    node.trailing_spaces = 0;
-    node.leading_newlines = 0;
-    return node;
-}
-
-// Create a non-terminal node
-ParseNode create_nonterminal_node(ParseNodeType type) {
-    ParseNode node;
-    node.type = type;
-
-    // Initialize empty token
-    node.token.type = TOKEN_UNKNOWN;
-    node.token.text = NULL;
-    node.token.length = 0;
-    node.token.line = 0;
-    node.token.column = 0;
-
-    node.first_child = -1;
-    node.next_sibling = -1;
-    node.parent = -1;
-    node.leading_spaces = 0;
-    node.trailing_spaces = 0;
-    node.leading_newlines = 0;
-    return node;
-}
-
 // Traverse all children of a node, calling callback for each
 void traverse_children(ParseTree *tree, int parent_idx, NodeCallback callback, void *data) {
     if (!tree || parent_idx < 0 || !callback) {
@@ -178,6 +143,42 @@ int get_child_count(ParseTree *tree, int parent_idx) {
     }
 
     return count;
+}
+
+// Create a non-terminal node
+ParseNode create_nonterminal_node(ParseNodeType type) {
+    ParseNode node;
+    node.type = type;
+
+    // Initialize empty token
+    node.token.type = TOKEN_UNKNOWN;
+    node.token.text = NULL;
+    node.token.length = 0;
+    node.token.line = 0;
+    node.token.column = 0;
+
+    node.first_child = -1;
+    node.next_sibling = -1;
+    node.parent = -1;
+    node.leading_spaces = 0;
+    node.trailing_spaces = 0;
+    node.leading_newlines = 0;
+    return node;
+}
+
+// Create a terminal node from a token
+ParseNode create_terminal_node(ParseNodeType type, Token token) {
+    ParseNode node;
+    node.type = type;
+    node.token = token;
+
+    node.first_child = -1;
+    node.next_sibling = -1;
+    node.parent = -1;
+    node.leading_spaces = 0;
+    node.trailing_spaces = 0;
+    node.leading_newlines = 0;
+    return node;
 }
 
 // Free parse tree

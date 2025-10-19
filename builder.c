@@ -618,10 +618,9 @@ int run_single_test(const TestCase *test) {
 
     free(compile_cmd);
 
-    if (ret != 0) {
-        printf("Compilation failed (non-zero exit code)\n");
-        return 0;
-    }
+    // Don't fail on non-zero exit code - some tests expect errors
+    // Instead, just compare the output
+    (void)ret;  // Unused variable
 
     return compare_test_output(test);
 }
