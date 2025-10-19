@@ -1,6 +1,8 @@
 #include "arena.h"
+#include "ast_builder.h"
 #include "code_generation.h"
 #include "formatter.h"
+#include "interpreter.h"
 #include "io.h"
 #include "lexer.h"
 #include "parse_tree_printer.h"
@@ -168,13 +170,21 @@ int command_run(char *source_file) {
         return 1;
     }
 
-    // Generate machine code
-    Buffer *code = generate_code(tree);
+    // Build AST from parse tree
+    AST *ast = build_ast_from_parse_tree(arena, tree);
+    if (!ast) {
+        fprintf(stderr, "Error: Failed to build AST\n");
+        return 1;
+    }
 
-    // Write the new executable
-    write_file(source_file, code);
+    // Create and run interpreter
+    Interpreter *interpreter = create_interpreter(arena, ast);
+    if (!interpreter) {
+        fprintf(stderr, "Error: Failed to create interpreter\n");
+        return 1;
+    }
 
-    return 0;
+    return interpret(interpreter);
 }
 
 int main(int argc, char *argv[]) {

@@ -1,0 +1,1 @@
+run integration_tests/run_hello_world/hello_world.suru
