@@ -10,7 +10,9 @@
 // Parser state machine states
 typedef enum {
     PARSE,                  // Top-level parsing
+    PARSE_STATEMENT,        // Parse any statement (variable decl, call expr, etc.)
     PARSE_FUNCTION_DECL,    // Parsing function declaration
+    PARSE_VAR_DECL,         // Parsing variable declaration
     PARSE_PARAM_LIST,       // Parsing parameter list
     PARSE_BLOCK,            // Parsing block statements
     PARSE_EXPRESSION,       // Parsing expressions

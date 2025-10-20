@@ -207,3 +207,48 @@
 ### Current Status
 - A working build system (`builder.c`, `./builder`)
 - Basic project structure in place
+
+---
+
+## Progress Log
+
+### 2025-10-20 - Variable Declarations Implemented
+**Status**: v0.1.0 milestone completed
+
+Implemented variable declarations in the compiler with full parser, AST, and interpreter support.
+
+**Features Added:**
+- **Syntax**: Variables declared with `name: value` (no type annotations yet)
+- **Parser Enhancement**:
+  - Added `PARSE_STATEMENT` state that unifies handling of:
+    - Function declarations (`identifier : (params) block`)
+    - Variable declarations (`identifier : value`)
+    - Call expressions (`identifier(args)`)
+  - Proper lookahead to distinguish statement types
+- **AST Nodes**: Added `AST_VAR_DECL` and `NODE_VAR_DECL` node types
+- **Interpreter**:
+  - Simple array-based variable storage with linear lookup
+  - Variables store String* pointers (all strings interned in string storage)
+  - Supports string values (literals and variable references)
+  - Variables are mutable by default
+  - Function-local scope only
+- **Variable References**: Can use variables in expressions (e.g., `print(message)`)
+- **Test Coverage**: Added integration test `var_decl`
+
+**Example:**
+```suru
+main: () {
+    message: "Hello from a variable!\n"
+    print(message)
+}
+```
+
+**Not Included (Future Work):**
+- Type annotations (explicit types)
+- Expressions as values (arithmetic, etc.) - only literals for now
+- Global/file-scope constants
+- Variable reassignment syntax
+- Nested scopes/shadowing
+- Numbers, booleans, or other value types
+
+**All Tests**: ✅ Passing (5/5 integration tests)

@@ -3,11 +3,20 @@
 
 #include "ast.h"
 #include "arena.h"
+#include "array.h"
+
+// Variable binding (name -> value)
+// Both name and value are String* from string storage
+typedef struct {
+    String *name;
+    String *value;
+} Variable;
 
 // Interpreter context
 typedef struct Interpreter {
     Arena *arena;
     AST *ast;
+    Array *variables;  // Array of Variable
 } Interpreter;
 
 // Create a new interpreter

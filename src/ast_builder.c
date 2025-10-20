@@ -22,6 +22,8 @@ static int map_node_type(ParseNodeType parse_type) {
         return AST_PROGRAM;
     case NODE_FUNCTION_DECL:
         return AST_FUNCTION_DECL;
+    case NODE_VAR_DECL:
+        return AST_VAR_DECL;
     case NODE_PARAM_LIST:
         return AST_PARAM_LIST;
     case NODE_PARAM:

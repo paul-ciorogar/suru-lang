@@ -201,12 +201,12 @@ ParseTree *parse(Parser *parser) {
                 break;  // Done parsing
             }
 
-            // Look for function declaration: identifier followed by colon
+            // Look for declaration: identifier followed by colon
             if (match_token(parser, TOKEN_IDENTIFIER)) {
-                // Push continuation to come back to PARSE after function
+                // Push continuation to come back to PARSE after declaration
                 push_new_frame(parser, PARSE, frame.parent_node_idx, frame.parent_node_idx);
-                // Push function declaration parsing
-                push_new_frame(parser, PARSE_FUNCTION_DECL, frame.parent_node_idx, -1);
+                // Push PARSE_STATEMENT to determine type of declaration
+                push_new_frame(parser, PARSE_STATEMENT, frame.parent_node_idx, -1);
                 break;
             }
 
@@ -215,38 +215,124 @@ ParseTree *parse(Parser *parser) {
             break;
         }
 
-        case PARSE_FUNCTION_DECL: {
-            // Parsing: identifier : param_list block
-
-            // Create function declaration node
-            ParseNode func_node = create_nonterminal_node(NODE_FUNCTION_DECL);
-            int func_idx = add_node(parser->tree, &func_node);
-            add_child(parser->tree, frame.parent_node_idx, func_idx);
+        case PARSE_STATEMENT: {
+            // Determine statement type: variable decl, function decl, or call expression
+            // Parsing: identifier (: | () )
 
             // Expect identifier
             if (!match_token(parser, TOKEN_IDENTIFIER)) {
-                new_error(parser, func_idx, "Expected function name");
+                new_error(parser, frame.parent_node_idx, "Expected identifier");
                 break;
             }
 
-            // Add identifier as child
-            ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
-            int id_idx = add_node(parser->tree, &id_node);
-            add_child(parser->tree, func_idx, id_idx);
+            Token id_token = current_token(parser);
             advance(parser);
 
-            // Expect colon
-            if (!match_token(parser, TOKEN_COLON)) {
-                new_error(parser, func_idx, "Expected ':' after function name");
+            // Check what follows the identifier
+            if (match_token(parser, TOKEN_COLON)) {
+                // It's a declaration (function or variable)
+                advance(parser);
+
+                // Now determine what follows the colon
+                if (match_token(parser, TOKEN_LPAREN)) {
+                    // It's a function declaration: identifier : (params) block
+                    // Create function declaration node
+                    ParseNode func_node = create_nonterminal_node(NODE_FUNCTION_DECL);
+                    int func_idx = add_node(parser->tree, &func_node);
+                    add_child(parser->tree, frame.parent_node_idx, func_idx);
+
+                    // Add identifier as child
+                    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+                    int id_idx = add_node(parser->tree, &id_node);
+                    add_child(parser->tree, func_idx, id_idx);
+
+                    // Push PARSE_FUNCTION_DECL to continue parsing
+                    push_new_frame(parser, PARSE_FUNCTION_DECL, func_idx, func_idx);
+                    break;
+                } else {
+                    // It's a variable declaration: identifier : value
+                    // Create variable declaration node
+                    ParseNode var_node = create_nonterminal_node(NODE_VAR_DECL);
+                    int var_idx = add_node(parser->tree, &var_node);
+                    add_child(parser->tree, frame.parent_node_idx, var_idx);
+
+                    // Add identifier as child
+                    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+                    int id_idx = add_node(parser->tree, &id_node);
+                    add_child(parser->tree, var_idx, id_idx);
+
+                    // Push PARSE_VAR_DECL to continue parsing
+                    push_new_frame(parser, PARSE_VAR_DECL, var_idx, var_idx);
+                    break;
+                }
+            } else if (match_token(parser, TOKEN_LPAREN)) {
+                // It's a call expression: identifier(args)
+                // Create call expression node
+                ParseNode call_node = create_nonterminal_node(NODE_CALL_EXPR);
+                int call_idx = add_node(parser->tree, &call_node);
+                add_child(parser->tree, frame.parent_node_idx, call_idx);
+
+                // Add identifier as first child of call
+                ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+                int id_idx = add_node(parser->tree, &id_node);
+                add_child(parser->tree, call_idx, id_idx);
+
+                // Push PARSE_CALL_ARGS to parse the arguments
+                push_new_frame(parser, PARSE_CALL_ARGS, call_idx, -1);
+                break;
+            } else {
+                new_error(parser, frame.parent_node_idx, "Expected ':' or '(' after identifier");
                 break;
             }
-            advance(parser);
+        }
+
+        case PARSE_FUNCTION_DECL: {
+            // Parsing: param_list block
+            // Note: NODE_FUNCTION_DECL and identifier already created by PARSE_DECL
+
+            int func_idx = frame.current_node_idx;
+            if (func_idx == -1) {
+                new_error(parser, frame.parent_node_idx, "Invalid function declaration state");
+                break;
+            }
 
             // Push PARSE_BLOCK to be executed after PARSE_PARAM_LIST
             push_new_frame(parser, PARSE_BLOCK, func_idx, -1);
 
             // Push PARSE_PARAM_LIST
             push_new_frame(parser, PARSE_PARAM_LIST, func_idx, -1);
+            break;
+        }
+
+        case PARSE_VAR_DECL: {
+            // Parsing: value (string literal for now)
+            // Note: NODE_VAR_DECL and identifier already created by PARSE_DECL
+
+            int var_idx = frame.current_node_idx;
+            if (var_idx == -1) {
+                new_error(parser, frame.parent_node_idx, "Invalid variable declaration state");
+                break;
+            }
+
+            // For now, only support string literals as values
+            if (match_token(parser, TOKEN_STRING)) {
+                ParseNode str_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
+                int str_idx = add_node(parser->tree, &str_node);
+                add_child(parser->tree, var_idx, str_idx);
+                advance(parser);
+                break;
+            }
+
+            // Could also support identifiers (for variable assignment)
+            if (match_token(parser, TOKEN_IDENTIFIER)) {
+                ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
+                int id_idx = add_node(parser->tree, &id_node);
+                add_child(parser->tree, var_idx, id_idx);
+                advance(parser);
+                break;
+            }
+
+            new_error(parser, var_idx, "Expected value expression in variable declaration");
             break;
         }
 
@@ -324,13 +410,13 @@ ParseTree *parse(Parser *parser) {
                     continue;
                 }
 
-                // Look for expression (function call, etc.)
+                // Look for statement (variable declaration or expression)
                 if (match_token(parser, TOKEN_IDENTIFIER)) {
                     // Push continuation to keep parsing this block
                     push_new_frame(parser, PARSE_BLOCK, frame.parent_node_idx, block_idx);
-                    // Push expression parsing
-                    push_new_frame(parser, PARSE_EXPRESSION, block_idx, -1);
-                    // Exit - will resume after expression is parsed
+                    // Push PARSE_STATEMENT to determine statement type
+                    push_new_frame(parser, PARSE_STATEMENT, block_idx, -1);
+                    // Exit - will resume after statement is parsed
                     break;
                 }
 
@@ -428,7 +514,7 @@ ParseTree *parse(Parser *parser) {
                     continue;
                 }
 
-                // Parse string literal directly (simple case for hello_world)
+                // Parse string literal
                 if (match_token(parser, TOKEN_STRING)) {
                     ParseNode str_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
                     int str_idx = add_node(parser->tree, &str_node);
@@ -437,8 +523,16 @@ ParseTree *parse(Parser *parser) {
                     continue;
                 }
 
+                // Parse identifier (variable reference)
+                if (match_token(parser, TOKEN_IDENTIFIER)) {
+                    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
+                    int id_idx = add_node(parser->tree, &id_node);
+                    add_child(parser->tree, arg_list_idx, id_idx);
+                    advance(parser);
+                    continue;
+                }
+
                 // For more complex expressions, we would push PARSE_EXPRESSION here
-                // But for hello_world, we only have string literals
 
                 // Unknown argument type
                 new_error(parser, arg_list_idx, "Expected argument expression");

@@ -9,6 +9,37 @@ static int execute_program(Interpreter *interp, int node_idx);
 static int execute_function_decl(Interpreter *interp, int node_idx);
 static int execute_block(Interpreter *interp, int node_idx);
 static int execute_call_expr(Interpreter *interp, int node_idx);
+static int execute_var_decl(Interpreter *interp, int node_idx);
+
+// Variable storage helpers
+static void store_variable(Interpreter *interp, String *name, String *value) {
+    // Check if variable already exists (update it)
+    size_t count = array_length(interp->variables);
+    for (size_t i = 0; i < count; i++) {
+        Variable *var = (Variable *)array_get(interp->variables, i);
+        if (var->name == name) {  // Pointer comparison works because strings are interned
+            var->value = value;
+            return;
+        }
+    }
+
+    // Add new variable
+    Variable new_var;
+    new_var.name = name;
+    new_var.value = value;
+    array_append(interp->variables, &new_var);
+}
+
+static String *lookup_variable(Interpreter *interp, String *name) {
+    size_t count = array_length(interp->variables);
+    for (size_t i = 0; i < count; i++) {
+        Variable *var = (Variable *)array_get(interp->variables, i);
+        if (var->name == name) {  // Pointer comparison works because strings are interned
+            return var->value;
+        }
+    }
+    return NULL;  // Not found
+}
 
 Interpreter *create_interpreter(Arena *arena, AST *ast) {
     if (!arena || !ast) {
@@ -22,6 +53,10 @@ Interpreter *create_interpreter(Arena *arena, AST *ast) {
 
     interp->arena = arena;
     interp->ast = ast;
+    interp->variables = array_init(sizeof(Variable));
+    if (!interp->variables) {
+        return NULL;
+    }
 
     return interp;
 }
@@ -131,8 +166,13 @@ static int execute_block(Interpreter *interp, int node_idx) {
             break;
         }
 
-        // Execute statement (for now, only call expressions)
-        if (child->type == AST_CALL_EXPR) {
+        // Execute statement
+        if (child->type == AST_VAR_DECL) {
+            int result = execute_var_decl(interp, child_idx);
+            if (result != 0) {
+                return result;
+            }
+        } else if (child->type == AST_CALL_EXPR) {
             int result = execute_call_expr(interp, child_idx);
             if (result != 0) {
                 return result;
@@ -184,20 +224,41 @@ static int execute_call_expr(Interpreter *interp, int node_idx) {
         }
 
         ASTNode *arg = get_ast_node(interp->ast, arg_idx);
-        if (!arg || arg->type != AST_STRING_LITERAL) {
+        if (!arg) {
+            fprintf(stderr, "Error: Invalid argument\n");
+            return 1;
+        }
+
+        // Resolve the string to print
+        String *string_to_print = NULL;
+
+        if (arg->type == AST_STRING_LITERAL) {
+            // Direct string literal
+            string_to_print = arg->token.text;
+        } else if (arg->type == AST_IDENTIFIER) {
+            // Variable reference - look it up
+            String *var_name = arg->token.text;
+            string_to_print = lookup_variable(interp, var_name);
+            if (!string_to_print) {
+                fprintf(stderr, "Error: Undefined variable '");
+                fwrite(var_name->data, 1, var_name->length, stderr);
+                fprintf(stderr, "'\n");
+                return 1;
+            }
+        } else {
             fprintf(stderr, "Error: print() requires a string argument\n");
             return 1;
         }
 
-        // Print the string (without quotes)
+        // Print the string (without quotes if it's a literal)
         // The token includes quotes, so skip first and last character
         // Also handle escape sequences
-        if (!arg->token.text) {
-            fprintf(stderr, "Error: Invalid string literal\n");
+        if (!string_to_print) {
+            fprintf(stderr, "Error: Invalid string\n");
             return 1;
         }
-        const char *str = arg->token.text->data;
-        int len = (int)arg->token.text->length;
+        const char *str = string_to_print->data;
+        int len = (int)string_to_print->length;
 
         // Skip opening quote
         str++;
@@ -246,4 +307,53 @@ static int execute_call_expr(Interpreter *interp, int node_idx) {
     }
     fprintf(stderr, "'\n");
     return 1;
+}
+
+// Execute AST_VAR_DECL node
+static int execute_var_decl(Interpreter *interp, int node_idx) {
+    ASTNode *node = get_ast_node(interp->ast, node_idx);
+    if (!node || node->type != AST_VAR_DECL) {
+        fprintf(stderr, "Error: Invalid variable declaration\n");
+        return 1;
+    }
+
+    // Variable structure: IDENTIFIER, value (STRING_LITERAL or IDENTIFIER)
+    // Get variable name (first child)
+    ASTNode *var_name = get_ast_node(interp->ast, node->first_child);
+    if (!var_name || var_name->type != AST_IDENTIFIER) {
+        fprintf(stderr, "Error: Invalid variable name\n");
+        return 1;
+    }
+
+    // Get value (second child)
+    int value_idx = var_name->next_sibling;
+    ASTNode *value_node = get_ast_node(interp->ast, value_idx);
+    if (!value_node) {
+        fprintf(stderr, "Error: Missing variable value\n");
+        return 1;
+    }
+
+    String *value = NULL;
+
+    if (value_node->type == AST_STRING_LITERAL) {
+        // Direct string literal
+        value = value_node->token.text;
+    } else if (value_node->type == AST_IDENTIFIER) {
+        // Reference to another variable
+        String *ref_name = value_node->token.text;
+        value = lookup_variable(interp, ref_name);
+        if (!value) {
+            fprintf(stderr, "Error: Undefined variable '");
+            fwrite(ref_name->data, 1, ref_name->length, stderr);
+            fprintf(stderr, "'\n");
+            return 1;
+        }
+    } else {
+        fprintf(stderr, "Error: Invalid variable value type\n");
+        return 1;
+    }
+
+    // Store the variable
+    store_variable(interp, var_name->token.text, value);
+    return 0;
 }

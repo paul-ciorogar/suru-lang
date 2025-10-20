@@ -14,6 +14,9 @@ typedef enum {
     AST_PARAM,
     AST_BLOCK,
 
+    // Statements
+    AST_VAR_DECL,
+
     // Expressions
     AST_CALL_EXPR,
     AST_ARG_LIST,

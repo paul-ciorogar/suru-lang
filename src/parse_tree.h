@@ -13,6 +13,7 @@ typedef enum {
     NODE_PARAM_LIST,
     NODE_PARAM,
     NODE_BLOCK,
+    NODE_VAR_DECL,
     NODE_CALL_EXPR,
     NODE_ARG_LIST,
 
