@@ -10,15 +10,70 @@ static int execute_function_decl(Interpreter *interp, int node_idx);
 static int execute_block(Interpreter *interp, int node_idx);
 static int execute_call_expr(Interpreter *interp, int node_idx);
 static int execute_var_decl(Interpreter *interp, int node_idx);
+static int evaluate_expression(Interpreter *interp, int node_idx, ValueType *out_type, String **out_string, int *out_bool);
+
+// Print helpers
+static void print_string(String *str) {
+    // Print string (without quotes, handle escape sequences)
+    // The token includes quotes, so skip first and last character
+    const char *s = str->data;
+    int len = (int)str->length;
+
+    // Skip opening quote
+    s++;
+    len -= 2; // Skip both quotes
+
+    // Print character by character, handling escape sequences
+    for (int i = 0; i < len; i++) {
+        if (s[i] == '\\' && i + 1 < len) {
+            switch (s[i + 1]) {
+            case 'n':
+                printf("\n");
+                i++;
+                break;
+            case 't':
+                printf("\t");
+                i++;
+                break;
+            case 'r':
+                printf("\r");
+                i++;
+                break;
+            case '\\':
+                printf("\\");
+                i++;
+                break;
+            case '"':
+                printf("\"");
+                i++;
+                break;
+            default:
+                printf("%c", s[i]);
+                break;
+            }
+        } else {
+            printf("%c", s[i]);
+        }
+    }
+}
+
+static void print_boolean(int bool_value) {
+    if (bool_value) {
+        printf("true");
+    } else {
+        printf("false");
+    }
+}
 
 // Variable storage helpers
-static void store_variable(Interpreter *interp, String *name, String *value) {
+static void store_string_variable(Interpreter *interp, String *name, String *value) {
     // Check if variable already exists (update it)
     size_t count = array_length(interp->variables);
     for (size_t i = 0; i < count; i++) {
         Variable *var = (Variable *)array_get(interp->variables, i);
         if (var->name == name) {  // Pointer comparison works because strings are interned
-            var->value = value;
+            var->type = VALUE_STRING;
+            var->string_value = value;
             return;
         }
     }
@@ -26,16 +81,37 @@ static void store_variable(Interpreter *interp, String *name, String *value) {
     // Add new variable
     Variable new_var;
     new_var.name = name;
-    new_var.value = value;
+    new_var.type = VALUE_STRING;
+    new_var.string_value = value;
     array_append(interp->variables, &new_var);
 }
 
-static String *lookup_variable(Interpreter *interp, String *name) {
+static void store_boolean_variable(Interpreter *interp, String *name, int bool_value) {
+    // Check if variable already exists (update it)
     size_t count = array_length(interp->variables);
     for (size_t i = 0; i < count; i++) {
         Variable *var = (Variable *)array_get(interp->variables, i);
         if (var->name == name) {  // Pointer comparison works because strings are interned
-            return var->value;
+            var->type = VALUE_BOOLEAN;
+            var->bool_value = bool_value;
+            return;
+        }
+    }
+
+    // Add new variable
+    Variable new_var;
+    new_var.name = name;
+    new_var.type = VALUE_BOOLEAN;
+    new_var.bool_value = bool_value;
+    array_append(interp->variables, &new_var);
+}
+
+static Variable *lookup_variable(Interpreter *interp, String *name) {
+    size_t count = array_length(interp->variables);
+    for (size_t i = 0; i < count; i++) {
+        Variable *var = (Variable *)array_get(interp->variables, i);
+        if (var->name == name) {  // Pointer comparison works because strings are interned
+            return var;
         }
     }
     return NULL;  // Not found
@@ -229,72 +305,34 @@ static int execute_call_expr(Interpreter *interp, int node_idx) {
             return 1;
         }
 
-        // Resolve the string to print
-        String *string_to_print = NULL;
-
+        // Handle different argument types
         if (arg->type == AST_STRING_LITERAL) {
             // Direct string literal
-            string_to_print = arg->token.text;
+            print_string(arg->token.text);
+        } else if (arg->type == AST_BOOLEAN_LITERAL) {
+            // Direct boolean literal
+            int bool_value = (arg->token.type == TOKEN_TRUE) ? 1 : 0;
+            print_boolean(bool_value);
         } else if (arg->type == AST_IDENTIFIER) {
             // Variable reference - look it up
             String *var_name = arg->token.text;
-            string_to_print = lookup_variable(interp, var_name);
-            if (!string_to_print) {
+            Variable *var = lookup_variable(interp, var_name);
+            if (!var) {
                 fprintf(stderr, "Error: Undefined variable '");
                 fwrite(var_name->data, 1, var_name->length, stderr);
                 fprintf(stderr, "'\n");
                 return 1;
             }
-        } else {
-            fprintf(stderr, "Error: print() requires a string argument\n");
-            return 1;
-        }
 
-        // Print the string (without quotes if it's a literal)
-        // The token includes quotes, so skip first and last character
-        // Also handle escape sequences
-        if (!string_to_print) {
-            fprintf(stderr, "Error: Invalid string\n");
-            return 1;
-        }
-        const char *str = string_to_print->data;
-        int len = (int)string_to_print->length;
-
-        // Skip opening quote
-        str++;
-        len -= 2; // Skip both quotes
-
-        // Print character by character, handling escape sequences
-        for (int i = 0; i < len; i++) {
-            if (str[i] == '\\' && i + 1 < len) {
-                switch (str[i + 1]) {
-                case 'n':
-                    printf("\n");
-                    i++;
-                    break;
-                case 't':
-                    printf("\t");
-                    i++;
-                    break;
-                case 'r':
-                    printf("\r");
-                    i++;
-                    break;
-                case '\\':
-                    printf("\\");
-                    i++;
-                    break;
-                case '"':
-                    printf("\"");
-                    i++;
-                    break;
-                default:
-                    printf("%c", str[i]);
-                    break;
-                }
-            } else {
-                printf("%c", str[i]);
+            // Print based on variable type
+            if (var->type == VALUE_STRING) {
+                print_string(var->string_value);
+            } else if (var->type == VALUE_BOOLEAN) {
+                print_boolean(var->bool_value);
             }
+        } else {
+            fprintf(stderr, "Error: print() requires a string or boolean argument\n");
+            return 1;
         }
 
         return 0;
@@ -307,6 +345,151 @@ static int execute_call_expr(Interpreter *interp, int node_idx) {
     }
     fprintf(stderr, "'\n");
     return 1;
+}
+
+// Evaluate an expression node and return its value
+// Returns 0 on success, non-zero on error
+static int evaluate_expression(Interpreter *interp, int node_idx, ValueType *out_type, String **out_string, int *out_bool) {
+    ASTNode *node = get_ast_node(interp->ast, node_idx);
+    if (!node) {
+        fprintf(stderr, "Error: Invalid expression node\n");
+        return 1;
+    }
+
+    switch (node->type) {
+    case AST_BOOLEAN_LITERAL:
+        *out_type = VALUE_BOOLEAN;
+        *out_bool = (node->token.type == TOKEN_TRUE) ? 1 : 0;
+        return 0;
+
+    case AST_STRING_LITERAL:
+        *out_type = VALUE_STRING;
+        *out_string = node->token.text;
+        return 0;
+
+    case AST_IDENTIFIER: {
+        // Variable reference
+        String *var_name = node->token.text;
+        Variable *var = lookup_variable(interp, var_name);
+        if (!var) {
+            fprintf(stderr, "Error: Undefined variable '");
+            fwrite(var_name->data, 1, var_name->length, stderr);
+            fprintf(stderr, "'\n");
+            return 1;
+        }
+        *out_type = var->type;
+        if (var->type == VALUE_STRING) {
+            *out_string = var->string_value;
+        } else if (var->type == VALUE_BOOLEAN) {
+            *out_bool = var->bool_value;
+        }
+        return 0;
+    }
+
+    case AST_NOT_EXPR: {
+        // Unary not: evaluate operand and negate
+        if (node->first_child == -1) {
+            fprintf(stderr, "Error: NOT expression missing operand\n");
+            return 1;
+        }
+
+        ValueType operand_type;
+        String *operand_str;
+        int operand_bool;
+        if (evaluate_expression(interp, node->first_child, &operand_type, &operand_str, &operand_bool) != 0) {
+            return 1;
+        }
+
+        if (operand_type != VALUE_BOOLEAN) {
+            fprintf(stderr, "Error: NOT operator requires boolean operand\n");
+            return 1;
+        }
+
+        *out_type = VALUE_BOOLEAN;
+        *out_bool = !operand_bool;
+        return 0;
+    }
+
+    case AST_AND_EXPR: {
+        // Binary and: evaluate both operands
+        if (node->first_child == -1) {
+            fprintf(stderr, "Error: AND expression missing operands\n");
+            return 1;
+        }
+
+        ASTNode *left_node = get_ast_node(interp->ast, node->first_child);
+        if (!left_node || left_node->next_sibling == -1) {
+            fprintf(stderr, "Error: AND expression missing right operand\n");
+            return 1;
+        }
+
+        ValueType left_type, right_type;
+        String *left_str, *right_str;
+        int left_bool, right_bool;
+
+        if (evaluate_expression(interp, node->first_child, &left_type, &left_str, &left_bool) != 0) {
+            return 1;
+        }
+        if (left_type != VALUE_BOOLEAN) {
+            fprintf(stderr, "Error: AND operator requires boolean operands\n");
+            return 1;
+        }
+
+        if (evaluate_expression(interp, left_node->next_sibling, &right_type, &right_str, &right_bool) != 0) {
+            return 1;
+        }
+        if (right_type != VALUE_BOOLEAN) {
+            fprintf(stderr, "Error: AND operator requires boolean operands\n");
+            return 1;
+        }
+
+        *out_type = VALUE_BOOLEAN;
+        *out_bool = left_bool && right_bool;
+        return 0;
+    }
+
+    case AST_OR_EXPR: {
+        // Binary or: evaluate both operands
+        if (node->first_child == -1) {
+            fprintf(stderr, "Error: OR expression missing operands\n");
+            return 1;
+        }
+
+        ASTNode *left_node = get_ast_node(interp->ast, node->first_child);
+        if (!left_node || left_node->next_sibling == -1) {
+            fprintf(stderr, "Error: OR expression missing right operand\n");
+            return 1;
+        }
+
+        ValueType left_type, right_type;
+        String *left_str, *right_str;
+        int left_bool, right_bool;
+
+        if (evaluate_expression(interp, node->first_child, &left_type, &left_str, &left_bool) != 0) {
+            return 1;
+        }
+        if (left_type != VALUE_BOOLEAN) {
+            fprintf(stderr, "Error: OR operator requires boolean operands\n");
+            return 1;
+        }
+
+        if (evaluate_expression(interp, left_node->next_sibling, &right_type, &right_str, &right_bool) != 0) {
+            return 1;
+        }
+        if (right_type != VALUE_BOOLEAN) {
+            fprintf(stderr, "Error: OR operator requires boolean operands\n");
+            return 1;
+        }
+
+        *out_type = VALUE_BOOLEAN;
+        *out_bool = left_bool || right_bool;
+        return 0;
+    }
+
+    default:
+        fprintf(stderr, "Error: Unsupported expression type in evaluation\n");
+        return 1;
+    }
 }
 
 // Execute AST_VAR_DECL node
@@ -327,33 +510,26 @@ static int execute_var_decl(Interpreter *interp, int node_idx) {
 
     // Get value (second child)
     int value_idx = var_name->next_sibling;
-    ASTNode *value_node = get_ast_node(interp->ast, value_idx);
-    if (!value_node) {
+    if (value_idx == -1) {
         fprintf(stderr, "Error: Missing variable value\n");
         return 1;
     }
 
-    String *value = NULL;
+    // Evaluate the expression
+    ValueType value_type;
+    String *string_value;
+    int bool_value;
 
-    if (value_node->type == AST_STRING_LITERAL) {
-        // Direct string literal
-        value = value_node->token.text;
-    } else if (value_node->type == AST_IDENTIFIER) {
-        // Reference to another variable
-        String *ref_name = value_node->token.text;
-        value = lookup_variable(interp, ref_name);
-        if (!value) {
-            fprintf(stderr, "Error: Undefined variable '");
-            fwrite(ref_name->data, 1, ref_name->length, stderr);
-            fprintf(stderr, "'\n");
-            return 1;
-        }
-    } else {
-        fprintf(stderr, "Error: Invalid variable value type\n");
+    if (evaluate_expression(interp, value_idx, &value_type, &string_value, &bool_value) != 0) {
         return 1;
     }
 
-    // Store the variable
-    store_variable(interp, var_name->token.text, value);
+    // Store the variable based on its type
+    if (value_type == VALUE_STRING) {
+        store_string_variable(interp, var_name->token.text, string_value);
+    } else if (value_type == VALUE_BOOLEAN) {
+        store_boolean_variable(interp, var_name->token.text, bool_value);
+    }
+
     return 0;
 }

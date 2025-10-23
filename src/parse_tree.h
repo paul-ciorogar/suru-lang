@@ -17,9 +17,20 @@ typedef enum {
     NODE_CALL_EXPR,
     NODE_ARG_LIST,
 
+    // Expression nodes - binary operations
+    NODE_AND_EXPR,       // and
+    NODE_OR_EXPR,        // or
+    NODE_PLUS_EXPR,      // + (composition)
+    NODE_PIPE_EXPR,      // | (pipeline)
+
+    // Expression nodes - unary operations
+    NODE_NOT_EXPR,       // not
+    NODE_NEGATE_EXPR,    // - (unary minus)
+
     // Terminal nodes (tokens)
     NODE_IDENTIFIER,
     NODE_STRING_LITERAL,
+    NODE_BOOLEAN_LITERAL,
     NODE_COMMENT,
     NODE_NEWLINE,
 } ParseNodeType;

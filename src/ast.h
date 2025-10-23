@@ -20,6 +20,17 @@ typedef enum {
     // Expressions
     AST_CALL_EXPR,
     AST_ARG_LIST,
+
+    // Binary expressions
+    AST_AND_EXPR,        // and
+    AST_OR_EXPR,         // or
+    AST_PLUS_EXPR,       // + (composition)
+    AST_PIPE_EXPR,       // | (pipeline)
+
+    // Unary expressions
+    AST_NOT_EXPR,        // not
+    AST_NEGATE_EXPR,     // - (unary minus)
+
     AST_IDENTIFIER,
 
     // Literals

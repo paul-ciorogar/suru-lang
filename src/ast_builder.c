@@ -34,10 +34,24 @@ static int map_node_type(ParseNodeType parse_type) {
         return AST_CALL_EXPR;
     case NODE_ARG_LIST:
         return AST_ARG_LIST;
+    case NODE_AND_EXPR:
+        return AST_AND_EXPR;
+    case NODE_OR_EXPR:
+        return AST_OR_EXPR;
+    case NODE_PLUS_EXPR:
+        return AST_PLUS_EXPR;
+    case NODE_PIPE_EXPR:
+        return AST_PIPE_EXPR;
+    case NODE_NOT_EXPR:
+        return AST_NOT_EXPR;
+    case NODE_NEGATE_EXPR:
+        return AST_NEGATE_EXPR;
     case NODE_IDENTIFIER:
         return AST_IDENTIFIER;
     case NODE_STRING_LITERAL:
         return AST_STRING_LITERAL;
+    case NODE_BOOLEAN_LITERAL:
+        return AST_BOOLEAN_LITERAL;
     default:
         // Formatting nodes (comments, newlines) are not mapped
         return -1;
@@ -74,7 +88,8 @@ static int convert_node(ASTBuildContext *ctx, int parse_node_idx) {
     ASTNodeType ast_type = (ASTNodeType)ast_type_int;
     ASTNode ast_node;
     if (parse_node->type == NODE_IDENTIFIER ||
-        parse_node->type == NODE_STRING_LITERAL) {
+        parse_node->type == NODE_STRING_LITERAL ||
+        parse_node->type == NODE_BOOLEAN_LITERAL) {
         // Terminal nodes - preserve token
         ast_node = create_ast_terminal(ast_type, parse_node->token);
     } else {

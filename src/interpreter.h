@@ -5,11 +5,20 @@
 #include "arena.h"
 #include "array.h"
 
+// Value types
+typedef enum {
+    VALUE_STRING,
+    VALUE_BOOLEAN,
+} ValueType;
+
 // Variable binding (name -> value)
-// Both name and value are String* from string storage
 typedef struct {
     String *name;
-    String *value;
+    ValueType type;
+    union {
+        String *string_value;  // For strings (includes quotes)
+        int bool_value;        // For booleans (0 = false, 1 = true)
+    };
 } Variable;
 
 // Interpreter context

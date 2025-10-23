@@ -1,0 +1,9 @@
+a: true
+b: false
+notA: false
+notB: true
+aAndB: false
+aAndNotB: true
+aOrB: true
+bOrA: true
+complex: false

@@ -140,6 +140,9 @@ static int get_operator_precedence(TokenType type) {
         return PREC_COMPOSE;
     case TOKEN_DOT:
         return PREC_MEMBER;
+    case TOKEN_NOT:
+    case TOKEN_MINUS:
+        return PREC_UNARY;
     default:
         return PREC_NONE;
     }
@@ -152,6 +155,261 @@ static int is_binary_operator(TokenType type) {
 
 static int is_unary_operator(TokenType type) {
     return type == TOKEN_MINUS || type == TOKEN_NOT;
+}
+
+// ===== Expression Parsing with Token Stack =====
+
+// Get the specific node type for a unary operator
+static ParseNodeType get_unary_node_type(TokenType op) {
+    switch (op) {
+    case TOKEN_NOT:
+        return NODE_NOT_EXPR;
+    case TOKEN_MINUS:
+        return NODE_NEGATE_EXPR;
+    default:
+        return NODE_IDENTIFIER; // Should not happen
+    }
+}
+
+// Get the specific node type for a binary operator
+static ParseNodeType get_binary_node_type(TokenType op) {
+    switch (op) {
+    case TOKEN_AND:
+        return NODE_AND_EXPR;
+    case TOKEN_OR:
+        return NODE_OR_EXPR;
+    case TOKEN_PLUS:
+        return NODE_PLUS_EXPR;
+    case TOKEN_PIPE:
+        return NODE_PIPE_EXPR;
+    default:
+        return NODE_IDENTIFIER; // Should not happen
+    }
+}
+
+// Build expression tree from postfix token array
+// Uses a stack-based algorithm to construct the parse tree from postfix notation.
+//
+// Example: Build tree from: true false and true or
+//
+// Token | Stack (showing tree structure)
+// ------|--------------------------------
+// true  | [true]
+// false | [true, false]
+// and   | [(true and false)]      // Pop false, pop true, make tree
+// true  | [(true and false), true]
+// or    | [((true and false) or true)]  // Pop true, pop (true and false), make tree
+//
+// Final tree:
+//            or
+//           / \
+//         and  true
+//        / \
+//     true false
+//
+// Algorithm:
+//   - For operands (literals, identifiers): create node and push to stack
+//   - For unary operators: pop 1 operand, create unary node, push result
+//   - For binary operators: pop 2 operands (right then left), create binary node, push result
+//   - Final stack should contain exactly 1 node (the expression root)
+//
+// Parameters:
+//   parser: Parser context containing the parse tree
+//   postfix_tokens: Array of tokens in postfix order
+//   parent_idx: Index of parent node to attach the expression to
+//
+// Returns:
+//   Index of the expression root node, or -1 on error
+static int build_expr_tree_from_postfix(Parser *parser, Array *postfix_tokens, int parent_idx) {
+    // Stack to hold node indices
+    Array *node_stack = array_init(sizeof(int));
+    if (!node_stack) {
+        return -1;
+    }
+
+    // Process each token in postfix order
+    size_t count = array_length(postfix_tokens);
+    for (size_t i = 0; i < count; i++) {
+        Token *token = (Token *)array_get(postfix_tokens, i);
+
+        if (is_unary_operator(token->type)) {
+            // Pop one operand
+            if (array_length(node_stack) < 1) {
+                array_free(node_stack);
+                return -1;
+            }
+            int operand_idx;
+            array_pop(node_stack, &operand_idx);
+
+            // Create specific unary expression node
+            ParseNodeType node_type = get_unary_node_type(token->type);
+            ParseNode unary_node = create_nonterminal_node(node_type);
+            int unary_idx = add_node(parser->tree, &unary_node);
+
+            // Add operand (no operator token needed - node type tells us the operator)
+            add_child(parser->tree, unary_idx, operand_idx);
+
+            // Push result
+            array_append(node_stack, &unary_idx);
+        } else if (is_binary_operator(token->type)) {
+            // Pop two operands (right first, then left)
+            if (array_length(node_stack) < 2) {
+                array_free(node_stack);
+                return -1;
+            }
+            int right_idx, left_idx;
+            array_pop(node_stack, &right_idx);
+            array_pop(node_stack, &left_idx);
+
+            // Create specific binary expression node
+            ParseNodeType node_type = get_binary_node_type(token->type);
+            ParseNode binary_node = create_nonterminal_node(node_type);
+            int binary_idx = add_node(parser->tree, &binary_node);
+
+            // Add left and right operands (no operator token needed)
+            add_child(parser->tree, binary_idx, left_idx);
+            add_child(parser->tree, binary_idx, right_idx);
+
+            // Push result
+            array_append(node_stack, &binary_idx);
+        } else {
+            // Operand (literal, identifier, or call expression)
+            int operand_idx = -1;
+
+            if (token->type == TOKEN_TRUE || token->type == TOKEN_FALSE) {
+                ParseNode bool_node = create_terminal_node(NODE_BOOLEAN_LITERAL, *token);
+                operand_idx = add_node(parser->tree, &bool_node);
+            } else if (token->type == TOKEN_STRING) {
+                ParseNode str_node = create_terminal_node(NODE_STRING_LITERAL, *token);
+                operand_idx = add_node(parser->tree, &str_node);
+            } else if (token->type == TOKEN_IDENTIFIER) {
+                ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, *token);
+                operand_idx = add_node(parser->tree, &id_node);
+            }
+
+            if (operand_idx != -1) {
+                array_append(node_stack, &operand_idx);
+            }
+        }
+    }
+
+    // Should have exactly one node left - the root of the expression tree
+    if (array_length(node_stack) != 1) {
+        array_free(node_stack);
+        return -1;
+    }
+
+    int result_idx;
+    array_pop(node_stack, &result_idx);
+    array_free(node_stack);
+
+    // Add to parent
+    add_child(parser->tree, parent_idx, result_idx);
+
+    return result_idx;
+}
+
+// Convert infix expression to postfix notation using Shunting Yard algorithm
+// Reads tokens from the parser's lexer and converts them from infix to postfix order.
+//
+// Example: Convert: true and false or not true
+//
+// Token  | Stack         | Output
+// -------|---------------|------------------
+// true   | []            | true
+// and    | [and]         | true
+// false  | [and]         | true false
+// or     | [or]          | true false and
+// not    | [or, not]     | true false and
+// true   | [or, not]     | true false and true
+// [end]  | []            | true false and true not or
+//
+// Result: true false and true not or
+//
+// Algorithm (Shunting Yard):
+//   1. Read token from input
+//   2. If operand: append to output
+//   3. If operator:
+//      - Pop operators from stack with higher/equal precedence to output
+//      - Push current operator to stack
+//   4. At end: pop all remaining operators to output
+//
+// Precedence handling:
+//   - Unary operators (not, -): right-associative, pop if top_prec > current_prec
+//   - Binary operators (and, or, +): left-associative, pop if top_prec >= current_prec
+//
+// Terminators (stop parsing):
+//   - EOF, newline, comma, closing parens/braces
+//
+// Parameters:
+//   parser: Parser context with lexer positioned at expression start
+//   parent_idx: Parent node index (unused, for future use)
+//
+// Returns:
+//   Array of tokens in postfix order, or NULL on error
+static Array *infix_to_postfix(Parser *parser, int parent_idx) {
+    Array *output = array_init(sizeof(Token));
+    Array *operator_stack = array_init(sizeof(Token));
+
+    if (!output || !operator_stack) {
+        if (output) array_free(output);
+        if (operator_stack) array_free(operator_stack);
+        return NULL;
+    }
+
+    // Read tokens until we hit a terminator (newline, comma, closing brace, etc.)
+    while (!match_token(parser, TOKEN_EOF) &&
+           !match_token(parser, TOKEN_NEWLINE) &&
+           !match_token(parser, TOKEN_COMMA) &&
+           !match_token(parser, TOKEN_RPAREN) &&
+           !match_token(parser, TOKEN_RBRACE)) {
+
+        Token current = current_token(parser);
+
+        if (current.type == TOKEN_TRUE || current.type == TOKEN_FALSE ||
+            current.type == TOKEN_STRING || current.type == TOKEN_IDENTIFIER) {
+            // Operand - add to output
+            array_append(output, &current);
+            advance(parser);
+        } else if (is_unary_operator(current.type) || is_binary_operator(current.type)) {
+            // Operator - pop operators with higher/equal precedence
+            int current_prec = get_operator_precedence(current.type);
+
+            while (array_length(operator_stack) > 0) {
+                Token *top = (Token *)array_get(operator_stack, array_length(operator_stack) - 1);
+                int top_prec = get_operator_precedence(top->type);
+
+                // For right-associative operators (unary), use >
+                // For left-associative operators (binary), use >=
+                int should_pop = is_unary_operator(current.type) ?
+                    (top_prec > current_prec) : (top_prec >= current_prec);
+
+                if (should_pop) {
+                    Token op;
+                    array_pop(operator_stack, &op);
+                    array_append(output, &op);
+                } else {
+                    break;
+                }
+            }
+
+            array_append(operator_stack, &current);
+            advance(parser);
+        } else {
+            // Unknown token - stop parsing expression
+            break;
+        }
+    }
+
+    // Pop remaining operators
+    while (array_length(operator_stack) > 0) {
+        Token op;
+        array_pop(operator_stack, &op);
+        array_append(output, &op);
+    }
+
+    array_free(operator_stack);
+    return output;
 }
 
 void new_error(Parser *parser, int parent_node_idx, char *message) {
@@ -305,7 +563,7 @@ ParseTree *parse(Parser *parser) {
         }
 
         case PARSE_VAR_DECL: {
-            // Parsing: value (string literal for now)
+            // Parsing: value expression
             // Note: NODE_VAR_DECL and identifier already created by PARSE_DECL
 
             int var_idx = frame.current_node_idx;
@@ -314,25 +572,8 @@ ParseTree *parse(Parser *parser) {
                 break;
             }
 
-            // For now, only support string literals as values
-            if (match_token(parser, TOKEN_STRING)) {
-                ParseNode str_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
-                int str_idx = add_node(parser->tree, &str_node);
-                add_child(parser->tree, var_idx, str_idx);
-                advance(parser);
-                break;
-            }
-
-            // Could also support identifiers (for variable assignment)
-            if (match_token(parser, TOKEN_IDENTIFIER)) {
-                ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
-                int id_idx = add_node(parser->tree, &id_node);
-                add_child(parser->tree, var_idx, id_idx);
-                advance(parser);
-                break;
-            }
-
-            new_error(parser, var_idx, "Expected value expression in variable declaration");
+            // Parse value as an expression
+            push_new_frame(parser, PARSE_EXPRESSION, var_idx, -1);
             break;
         }
 
@@ -441,37 +682,23 @@ ParseTree *parse(Parser *parser) {
         }
 
         case PARSE_EXPRESSION: {
-            // Parse expressions - for hello_world, just call expressions
+            // Parse expression using Shunting Yard algorithm
+            // Convert infix to postfix, then build tree from postfix
 
-            // Check for call expression: identifier followed by LPAREN
-            if (match_token(parser, TOKEN_IDENTIFIER)) {
-                Token id_token = current_token(parser);
-                advance(parser);
-
-                // Check if this is a call
-                if (match_token(parser, TOKEN_LPAREN)) {
-                    // Create call expression node
-                    ParseNode call_node = create_nonterminal_node(NODE_CALL_EXPR);
-                    int call_idx = add_node(parser->tree, &call_node);
-                    add_child(parser->tree, frame.parent_node_idx, call_idx);
-
-                    // Add identifier as first child of call
-                    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
-                    int id_idx = add_node(parser->tree, &id_node);
-                    add_child(parser->tree, call_idx, id_idx);
-
-                    // Push PARSE_CALL_ARGS to parse the arguments
-                    push_new_frame(parser, PARSE_CALL_ARGS, call_idx, -1);
-                    break;
-                }
-
-                // Not a call - just an identifier (shouldn't happen in hello_world)
-                new_error(parser, frame.parent_node_idx, "Expected function call");
+            // Convert to postfix
+            Array *postfix = infix_to_postfix(parser, frame.parent_node_idx);
+            if (!postfix) {
+                new_error(parser, frame.parent_node_idx, "Failed to parse expression");
                 break;
             }
 
-            // Other expression types (literals, etc.) would go here
-            new_error(parser, frame.parent_node_idx, "Expected expression");
+            // Build expression tree from postfix notation
+            int expr_idx = build_expr_tree_from_postfix(parser, postfix, frame.parent_node_idx);
+            if (expr_idx == -1) {
+                new_error(parser, frame.parent_node_idx, "Invalid expression");
+            }
+
+            array_free(postfix);
             break;
         }
 
@@ -519,6 +746,15 @@ ParseTree *parse(Parser *parser) {
                     ParseNode str_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
                     int str_idx = add_node(parser->tree, &str_node);
                     add_child(parser->tree, arg_list_idx, str_idx);
+                    advance(parser);
+                    continue;
+                }
+
+                // Parse boolean literal
+                if (match_token(parser, TOKEN_TRUE) || match_token(parser, TOKEN_FALSE)) {
+                    ParseNode bool_node = create_terminal_node(NODE_BOOLEAN_LITERAL, current_token(parser));
+                    int bool_idx = add_node(parser->tree, &bool_node);
+                    add_child(parser->tree, arg_list_idx, bool_idx);
                     advance(parser);
                     continue;
                 }
