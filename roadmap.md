@@ -200,13 +200,6 @@
   - Tutorial series
   - API documentation
 
----
-
-## Implementation Notes
-
-### Current Status
-- A working build system (`builder.c`, `./builder`)
-- Basic project structure in place
 
 ---
 
@@ -247,8 +240,125 @@ main: () {
 - Type annotations (explicit types)
 - Expressions as values (arithmetic, etc.) - only literals for now
 - Global/file-scope constants
-- Variable reassignment syntax
 - Nested scopes/shadowing
 - Numbers, booleans, or other value types
 
 **All Tests**: ✅ Passing (5/5 integration tests)
+
+---
+
+### 2025-10-21 - Boolean Expressions with Operators (v0.1.0 Progress)
+
+**Status**: Boolean expression support added
+
+Implemented boolean literals and logical operators with full expression tree parsing using the Shunting Yard algorithm.
+
+**Features Added:**
+- **Boolean Literals**: `true` and `false` keywords
+- **Logical Operators**:
+  - `not` (unary negation)
+  - `and` (binary logical AND)
+  - `or` (binary logical OR)
+- **Expression Parsing**:
+  - Implemented Shunting Yard algorithm for infix to postfix conversion
+  - Stack-based expression tree building from postfix notation
+  - Operator precedence: `not` (unary) > `and` > `or`
+  - Handles complex nested expressions
+- **AST Nodes**:
+  - Added `AST_BOOLEAN_LITERAL`, `AST_NOT_EXPR`, `AST_AND_EXPR`, `AST_OR_EXPR`
+  - Also added placeholders for future operators: `AST_PLUS_EXPR`, `AST_PIPE_EXPR`, `AST_NEGATE_EXPR`
+- **Type System Foundation**:
+  - Introduced `ValueType` enum to distinguish string and boolean values
+  - Modified `Variable` struct to use tagged union for typed values
+  - Updated variable storage/lookup to handle multiple types
+- **Interpreter**:
+  - Added `evaluate_expression()` function for recursive expression evaluation
+  - Supports boolean literals, variable references, and logical operators
+  - Extended `print()` to handle boolean values
+- **Test Coverage**: Added integration tests `boolean_test` and `boolean_expr`
+
+**Example:**
+```suru
+main: () {
+    a: true
+    b: false
+
+    notA: not a              // false
+    aAndB: a and b           // false
+    aOrB: a or b             // true
+    complex: not a or b and true  // false
+
+    print(complex)
+}
+```
+
+**Technical Details:**
+- Shunting Yard algorithm converts infix expressions to postfix for easier tree construction
+- Expression tree built using stack-based postfix evaluation
+- All operators stored as specific node types (not generic operator nodes)
+
+**All Tests**: ✅ Passing (7/7 integration tests)
+
+---
+
+## Development Log
+
+### 2025-10-23 - Pattern Matching Implementation (v0.2.0 Progress)
+
+**Implemented**: Pattern matching for boolean and string values with wildcard support.
+
+**Changes**:
+- **AST** (src/ast.h, src/ast_builder.c):
+  - Added `AST_MATCH_EXPR`, `AST_MATCH_ARM`, and `AST_MATCH_WILDCARD` node types
+  - Updated AST builder to map new parse tree nodes to AST
+  - Modified terminal node detection to include wildcard pattern
+
+- **Parse Tree** (src/parse_tree.h):
+  - Added `NODE_MATCH_EXPR`, `NODE_MATCH_ARM`, and `NODE_MATCH_WILDCARD` types
+
+- **Parser** (src/parser.h, src/parser.c):
+  - Added `PARSE_MATCH_EXPR` parser state
+  - Modified `PARSE_EXPRESSION` to detect `match` keyword and delegate to match parser
+  - Implemented match expression parsing:
+    - Subject expression (identifier or literal)
+    - Multiple match arms with patterns and expressions
+    - Boolean patterns (`true`, `false`), string literal patterns, wildcard (`_`)
+    - Reuses existing expression parsing for arm expressions
+
+- **Interpreter** (src/interpreter.c):
+  - Added `AST_MATCH_EXPR` case in `evaluate_expression()`
+  - Pattern matching logic:
+    - Evaluates subject expression
+    - Iterates through arms to find first matching pattern
+    - Supports boolean, string, and wildcard matching
+    - Returns matched arm's expression value
+
+**Integration Tests**:
+- `integration_tests/match_bool/`: Tests boolean pattern matching
+- `integration_tests/match_string/`: Tests string pattern matching with wildcard fallback and variable reassignment
+
+**Test Results**: ✅ All 9 integration tests passing
+
+**Examples**:
+```suru
+// Boolean match
+isTrue: true
+result: match isTrue {
+    true: "Yes\n"
+    false: "No\n"
+}
+print(result)  // Output: Yes
+
+// String match with wildcard
+day: "Monday"
+result: match day {
+    "Monday": "Yes, it's Monday\n"
+    _: "No, maybe tomorrow\n"
+}
+print(result)  // Output: Yes, it's Monday
+```
+
+**Limitations**:
+- Match expressions only supported in variable declarations (not as function arguments)
+- Only boolean and string literal patterns supported (no type matching, destructuring, or guards yet)
+- No nested match expressions

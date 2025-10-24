@@ -16,6 +16,8 @@ typedef enum {
     NODE_VAR_DECL,
     NODE_CALL_EXPR,
     NODE_ARG_LIST,
+    NODE_MATCH_EXPR,     // match expression
+    NODE_MATCH_ARM,      // match arm (pattern: expression)
 
     // Expression nodes - binary operations
     NODE_AND_EXPR,       // and
@@ -31,6 +33,7 @@ typedef enum {
     NODE_IDENTIFIER,
     NODE_STRING_LITERAL,
     NODE_BOOLEAN_LITERAL,
+    NODE_MATCH_WILDCARD, // _ wildcard pattern
     NODE_COMMENT,
     NODE_NEWLINE,
 } ParseNodeType;

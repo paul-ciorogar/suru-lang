@@ -765,7 +765,7 @@ BankAccount: (initial Float, id String) BankAccount {
                     this.balance: this.balance.add(amount)
                     this.logTransaction("deposit", amount)
                     return this.balance
-                },
+                }
                 false: this.balance
             }
         }
@@ -956,7 +956,7 @@ Suru uses pattern matching for control flow:
 processResult: (result Result) String {
     match result {
         Success: "Operation completed successfully"
-        Error: "An error occurred"  
+        Error: "An error occurred"
         Pending: "Operation in progress"
         _: "Unknown status"
     }
@@ -972,10 +972,10 @@ checkNumber: (n Number) String {
 }
 
 // Match with member access
-status: match userInput {
-    .equals("quit"): "exiting",
-    .equals("help"): "showing help",
-    _: "unknown command"
+status: match user {
+    .equals(admin): "admin"
+    .equals(guest): "guest"
+    _: "unknown user"
 }
 ```
 
@@ -1010,7 +1010,7 @@ printHello: (step Number) {
 countWithBreak: (step Number) Continuation {
     print(`Step: {step.toString()}`)
     return match step {
-        .equals(3): Break,  // Stop at step 3
+        .equals(3): Break  // Stop at step 3
         _: Continue
     }
 }
@@ -1020,7 +1020,7 @@ countWithBreak: (step Number) Continuation {
 // Early termination with value
 find3: (step Number) Continuation<Number> {
     return match step {
-        .equals(3): Break(step),  // Stop at step 3
+        .equals(3): Break(step)  // Stop at step 3
         _: Continue
     }
 }
@@ -1067,7 +1067,7 @@ while: (current Number) Continuation<Number> {
     current: current.subtract(1)
     
     return match current.equals(3) {
-        true: Break,    // Early exit
+        true: Break    // Early exit
         false: Continue(current)
     }
 })

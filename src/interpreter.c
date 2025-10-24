@@ -486,6 +486,90 @@ static int evaluate_expression(Interpreter *interp, int node_idx, ValueType *out
         return 0;
     }
 
+    case AST_MATCH_EXPR: {
+        // Match expression: match <subject> { <pattern>: <expr> ... }
+        // First child is the subject expression
+        if (node->first_child == -1) {
+            fprintf(stderr, "Error: MATCH expression missing subject\n");
+            return 1;
+        }
+
+        // Evaluate the subject expression
+        ValueType subject_type;
+        String *subject_str = NULL;
+        int subject_bool = 0;
+
+        if (evaluate_expression(interp, node->first_child, &subject_type, &subject_str, &subject_bool) != 0) {
+            return 1;
+        }
+
+        // Iterate through match arms (siblings of subject)
+        ASTNode *subject_node = get_ast_node(interp->ast, node->first_child);
+        if (!subject_node) {
+            fprintf(stderr, "Error: Invalid subject node\n");
+            return 1;
+        }
+
+        int arm_idx = subject_node->next_sibling;
+        while (arm_idx != -1) {
+            ASTNode *arm = get_ast_node(interp->ast, arm_idx);
+            if (!arm || arm->type != AST_MATCH_ARM) {
+                fprintf(stderr, "Error: Invalid MATCH arm\n");
+                return 1;
+            }
+
+            // Match arm structure: PATTERN, EXPRESSION
+            // First child is the pattern
+            if (arm->first_child == -1) {
+                fprintf(stderr, "Error: MATCH arm missing pattern\n");
+                return 1;
+            }
+
+            ASTNode *pattern = get_ast_node(interp->ast, arm->first_child);
+            if (!pattern) {
+                fprintf(stderr, "Error: Invalid pattern node\n");
+                return 1;
+            }
+
+            // Check if pattern matches
+            int matches = 0;
+
+            if (pattern->type == AST_MATCH_WILDCARD) {
+                // Wildcard always matches
+                matches = 1;
+            } else if (pattern->type == AST_BOOLEAN_LITERAL && subject_type == VALUE_BOOLEAN) {
+                // Match boolean pattern
+                int pattern_bool = (pattern->token.type == TOKEN_TRUE) ? 1 : 0;
+                matches = (pattern_bool == subject_bool);
+            } else if (pattern->type == AST_STRING_LITERAL && subject_type == VALUE_STRING) {
+                // Match string pattern
+                String *pattern_str = pattern->token.text;
+                if (pattern_str && subject_str) {
+                    // Compare strings (both include quotes)
+                    matches = (pattern_str->length == subject_str->length &&
+                              strncmp(pattern_str->data, subject_str->data, pattern_str->length) == 0);
+                }
+            }
+
+            if (matches) {
+                // Evaluate the arm's expression (second child)
+                ASTNode *pattern_node = get_ast_node(interp->ast, arm->first_child);
+                if (!pattern_node || pattern_node->next_sibling == -1) {
+                    fprintf(stderr, "Error: MATCH arm missing expression\n");
+                    return 1;
+                }
+
+                return evaluate_expression(interp, pattern_node->next_sibling, out_type, out_string, out_bool);
+            }
+
+            arm_idx = arm->next_sibling;
+        }
+
+        // No pattern matched
+        fprintf(stderr, "Error: No matching pattern in match expression\n");
+        return 1;
+    }
+
     default:
         fprintf(stderr, "Error: Unsupported expression type in evaluation\n");
         return 1;

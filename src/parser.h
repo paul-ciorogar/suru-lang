@@ -17,6 +17,7 @@ typedef enum {
     PARSE_BLOCK,            // Parsing block statements
     PARSE_EXPRESSION,       // Parsing expressions
     PARSE_CALL_ARGS,        // Parsing function call arguments
+    PARSE_MATCH_EXPR,       // Parsing match expression
 } ParserState;
 
 // Stack frame for parsing

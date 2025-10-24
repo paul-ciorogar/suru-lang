@@ -20,6 +20,8 @@ typedef enum {
     // Expressions
     AST_CALL_EXPR,
     AST_ARG_LIST,
+    AST_MATCH_EXPR,      // match expression
+    AST_MATCH_ARM,       // match arm (pattern: expression)
 
     // Binary expressions
     AST_AND_EXPR,        // and
@@ -37,6 +39,7 @@ typedef enum {
     AST_STRING_LITERAL,
     AST_NUMBER_LITERAL,
     AST_BOOLEAN_LITERAL,
+    AST_MATCH_WILDCARD,  // _ wildcard pattern
 } ASTNodeType;
 
 // AST node - uniform size for array storage
