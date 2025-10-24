@@ -16,6 +16,7 @@ typedef enum {
 
     // Statements
     AST_VAR_DECL,
+    AST_MATCH_STMT,      // match statement
 
     // Expressions
     AST_CALL_EXPR,

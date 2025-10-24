@@ -17,6 +17,7 @@ typedef enum {
     NODE_CALL_EXPR,
     NODE_ARG_LIST,
     NODE_MATCH_EXPR,     // match expression
+    NODE_MATCH_STMT,     // match statement
     NODE_MATCH_ARM,      // match arm (pattern: expression)
 
     // Expression nodes - binary operations

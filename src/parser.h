@@ -18,6 +18,7 @@ typedef enum {
     PARSE_EXPRESSION,       // Parsing expressions
     PARSE_CALL_ARGS,        // Parsing function call arguments
     PARSE_MATCH_EXPR,       // Parsing match expression
+    PARSE_MATCH_STMT,       // Parsing match statement
 } ParserState;
 
 // Stack frame for parsing
@@ -26,6 +27,7 @@ typedef struct {
     int parent_node_idx;      // Index of parent node in parse tree
     int current_node_idx;     // Index of node being built (-1 if none)
     int precedence;           // Operator precedence level for expression parsing
+    int step;                 // Current step within this state (for multi-step parsing)
 } ParserStackFrame;
 
 typedef struct ParserError {

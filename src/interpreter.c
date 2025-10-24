@@ -10,6 +10,7 @@ static int execute_function_decl(Interpreter *interp, int node_idx);
 static int execute_block(Interpreter *interp, int node_idx);
 static int execute_call_expr(Interpreter *interp, int node_idx);
 static int execute_var_decl(Interpreter *interp, int node_idx);
+static int execute_match_stmt(Interpreter *interp, int node_idx);
 static int evaluate_expression(Interpreter *interp, int node_idx, ValueType *out_type, String **out_string, int *out_bool);
 
 // Print helpers
@@ -250,6 +251,11 @@ static int execute_block(Interpreter *interp, int node_idx) {
             }
         } else if (child->type == AST_CALL_EXPR) {
             int result = execute_call_expr(interp, child_idx);
+            if (result != 0) {
+                return result;
+            }
+        } else if (child->type == AST_MATCH_STMT) {
+            int result = execute_match_stmt(interp, child_idx);
             if (result != 0) {
                 return result;
             }
@@ -616,4 +622,109 @@ static int execute_var_decl(Interpreter *interp, int node_idx) {
     }
 
     return 0;
+}
+
+// Execute AST_MATCH_STMT node
+static int execute_match_stmt(Interpreter *interp, int node_idx) {
+    ASTNode *node = get_ast_node(interp->ast, node_idx);
+    if (!node || node->type != AST_MATCH_STMT) {
+        fprintf(stderr, "Error: Invalid match statement\n");
+        return 1;
+    }
+
+    // Match statement: match <subject> { <pattern>: <statement> ... }
+    // First child is the subject expression
+    if (node->first_child == -1) {
+        fprintf(stderr, "Error: MATCH statement missing subject\n");
+        return 1;
+    }
+
+    // Evaluate the subject expression
+    ValueType subject_type;
+    String *subject_str = NULL;
+    int subject_bool = 0;
+
+    if (evaluate_expression(interp, node->first_child, &subject_type, &subject_str, &subject_bool) != 0) {
+        return 1;
+    }
+
+    // Iterate through match arms (siblings of subject)
+    ASTNode *subject_node = get_ast_node(interp->ast, node->first_child);
+    if (!subject_node) {
+        fprintf(stderr, "Error: Invalid subject node\n");
+        return 1;
+    }
+
+    int arm_idx = subject_node->next_sibling;
+    while (arm_idx != -1) {
+        ASTNode *arm = get_ast_node(interp->ast, arm_idx);
+        if (!arm || arm->type != AST_MATCH_ARM) {
+            fprintf(stderr, "Error: Invalid match arm\n");
+            return 1;
+        }
+
+        // Each arm has: pattern (first child), statement (second child)
+        if (arm->first_child == -1) {
+            fprintf(stderr, "Error: Match arm missing pattern\n");
+            return 1;
+        }
+
+        ASTNode *pattern = get_ast_node(interp->ast, arm->first_child);
+        if (!pattern) {
+            fprintf(stderr, "Error: Invalid pattern node\n");
+            return 1;
+        }
+
+        // Check if pattern matches subject
+        int matches = 0;
+
+        if (pattern->type == AST_MATCH_WILDCARD) {
+            // Wildcard always matches
+            matches = 1;
+        } else if (pattern->type == AST_BOOLEAN_LITERAL && subject_type == VALUE_BOOLEAN) {
+            // Check boolean match
+            int pattern_bool = (pattern->token.type == TOKEN_TRUE) ? 1 : 0;
+            matches = (pattern_bool == subject_bool);
+        } else if (pattern->type == AST_STRING_LITERAL && subject_type == VALUE_STRING) {
+            // Check string match (pointer comparison works because strings are interned)
+            matches = (pattern->token.text == subject_str);
+        }
+
+        // If pattern matches, execute the statement
+        if (matches) {
+            ASTNode *pattern_node = get_ast_node(interp->ast, arm->first_child);
+            if (!pattern_node) {
+                fprintf(stderr, "Error: Invalid pattern node\n");
+                return 1;
+            }
+
+            int stmt_idx = pattern_node->next_sibling;
+            if (stmt_idx == -1) {
+                fprintf(stderr, "Error: Match arm missing statement\n");
+                return 1;
+            }
+
+            ASTNode *stmt = get_ast_node(interp->ast, stmt_idx);
+            if (!stmt) {
+                fprintf(stderr, "Error: Invalid statement node\n");
+                return 1;
+            }
+
+            // Execute the statement (only supports call expressions for now)
+            if (stmt->type == AST_CALL_EXPR) {
+                return execute_call_expr(interp, stmt_idx);
+            } else if (stmt->type == AST_VAR_DECL) {
+                return execute_var_decl(interp, stmt_idx);
+            } else {
+                fprintf(stderr, "Error: Unsupported statement type in match arm\n");
+                return 1;
+            }
+        }
+
+        arm_idx = arm->next_sibling;
+    }
+
+    // No matching pattern found
+    fprintf(stderr, "Error: No matching pattern in match statement\n");
+    return 1;
 }

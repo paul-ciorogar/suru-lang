@@ -336,6 +336,18 @@ static void format_tree(Formatter *formatter) {
             case NODE_PROGRAM:
             case NODE_ARG_LIST:
             case NODE_PARAM:
+            case NODE_MATCH_EXPR:
+            case NODE_MATCH_STMT:
+            case NODE_MATCH_ARM:
+            case NODE_VAR_DECL:
+            case NODE_AND_EXPR:
+            case NODE_OR_EXPR:
+            case NODE_PLUS_EXPR:
+            case NODE_PIPE_EXPR:
+            case NODE_NOT_EXPR:
+            case NODE_NEGATE_EXPR:
+            case NODE_MATCH_WILDCARD:
+            case NODE_BOOLEAN_LITERAL:
                 push_frame(formatter, FORMAT_CHILDREN, frame.node_idx, -1);
                 break;
 

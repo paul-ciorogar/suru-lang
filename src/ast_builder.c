@@ -36,6 +36,8 @@ static int map_node_type(ParseNodeType parse_type) {
         return AST_ARG_LIST;
     case NODE_MATCH_EXPR:
         return AST_MATCH_EXPR;
+    case NODE_MATCH_STMT:
+        return AST_MATCH_STMT;
     case NODE_MATCH_ARM:
         return AST_MATCH_ARM;
     case NODE_AND_EXPR:

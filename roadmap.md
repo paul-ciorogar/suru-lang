@@ -362,3 +362,86 @@ print(result)  // Output: Yes, it's Monday
 - Match expressions only supported in variable declarations (not as function arguments)
 - Only boolean and string literal patterns supported (no type matching, destructuring, or guards yet)
 - No nested match expressions
+
+---
+
+### 2025-01-24 - Match Statements Implementation
+
+**Implemented**: Match statements for side-effect execution (complementing match expressions)
+
+**Changes**:
+
+- **AST & Parse Tree** (src/ast.h, src/parse_tree.h):
+  - Added `AST_MATCH_STMT` and `NODE_MATCH_STMT` types
+  - Match statements use same `NODE_MATCH_ARM` structure as expressions
+
+- **Parser Framework** (src/parser.h):
+  - Added `step` field to `ParserStackFrame` for improved state management
+  - Updated `push_new_frame()` to accept step parameter for multi-stage parsing
+  - All existing parser states updated to use step-based approach
+
+- **Parser** (src/parser.c):
+  - Added `PARSE_MATCH_STMT` parser state
+  - Modified `PARSE_BLOCK` to detect `match` keyword at statement position
+  - Implemented match statement parsing with step-based state machine:
+    - Step 0: Create node and parse subject expression
+    - Step 1: Expect opening brace `{`
+    - Step 2: Parse match arms (pattern `:` statement)
+  - Refactored `PARSE_MATCH_EXPR` to use consistent step-based approach
+  - Pattern support: boolean, string literals, identifiers, wildcard (`_`)
+
+- **AST Builder** (src/ast_builder.c):
+  - Added `NODE_MATCH_STMT → AST_MATCH_STMT` mapping
+
+- **Interpreter** (src/interpreter.c):
+  - Implemented `execute_match_stmt()` function
+  - Evaluates subject expression and matches patterns
+  - Executes matching arm's statement (supports `AST_CALL_EXPR` and `AST_VAR_DECL`)
+  - Returns 0 on success (no value propagation, unlike match expressions)
+  - Updated `execute_block()` to handle `AST_MATCH_STMT`
+
+- **Formatter** (src/formatter.c):
+  - Added `NODE_MATCH_STMT` and related expression nodes to formatting cases
+
+**Integration Tests**:
+- `integration_tests/match_stmt/`: Tests boolean pattern matching with side effects
+
+**Test Results**: ✅ All 10 integration tests passing
+
+**Examples**:
+```suru
+// Match statement (executes for side effects, no return value)
+main: () {
+    someVal: true
+
+    match someVal {
+        true: print("Yes\n")
+        false: print("No\n")
+    }
+    // Output: Yes
+}
+
+// String patterns with wildcard
+main: () {
+    day: "Monday"
+
+    match day {
+        "Monday": print("It's Monday!\n")
+        "Friday": print("It's Friday!\n")
+        _: print("It's another day\n")
+    }
+    // Output: It's Monday!
+}
+```
+
+**Key Differences from Match Expressions**:
+- Match statements execute for side effects (e.g., function calls)
+- No return value (cannot be assigned to variables)
+- Used at statement position in blocks
+- Arms contain statements, not expressions
+- Otherwise identical pattern matching semantics
+
+**Architecture Improvements**:
+- Step-based parser state machine provides clearer multi-stage parsing
+- Consistent pattern between match expressions and statements
+- Improved code maintainability and extensibility

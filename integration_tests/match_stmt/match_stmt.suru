@@ -1,0 +1,16 @@
+// Test match statement with boolean values
+main: () {
+	someVal: true
+
+	match someVal {
+		true: print("Yes\n")
+		false: print("No\n")
+	}
+
+	someVal: false
+
+	match someVal {
+		true: print("Yes\n")
+		false: print("No\n")
+	}
+}
