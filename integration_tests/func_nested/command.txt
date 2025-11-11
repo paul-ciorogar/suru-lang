@@ -1,0 +1,1 @@
+run integration_tests/func_nested/func_nested.suru

@@ -10,12 +10,14 @@
 // Parser state machine states
 typedef enum {
     PARSE,                  // Top-level parsing
-    PARSE_STATEMENT,        // Parse any statement (variable decl, call expr, etc.)
+    PARSE_STATEMENT,        // Parse statement (variable decl, call expr)
     PARSE_FUNCTION_DECL,    // Parsing function declaration
     PARSE_VAR_DECL,         // Parsing variable declaration
     PARSE_PARAM_LIST,       // Parsing parameter list
     PARSE_BLOCK,            // Parsing block statements
+	PARSE_RETURN_STATEMENT, // Parsing return statement
     PARSE_EXPRESSION,       // Parsing expressions
+    PARSE_CALL_EXPRESSION,  // Parsing call expressions
     PARSE_CALL_ARGS,        // Parsing function call arguments
     PARSE_MATCH_EXPR,       // Parsing match expression
     PARSE_MATCH_STMT,       // Parsing match statement
@@ -48,7 +50,8 @@ typedef struct Parser {
     Lexer *lexer;
     ParserErrors *errors;
     ParseTree *tree;
-    Array *stack;  // Stack of ParserStackFrame
+    Array *stack;       // Stack of ParserStackFrame
+    Array *token_stack;       // Stack of currently unused tokens
 } Parser;
 
 Parser *create_parser(Arena *arena, Lexer *lexer);

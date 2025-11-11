@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./builder:*)",
+      "Bash(./tmpbuild/suru format:*)",
+      "Bash(./tmpbuild/suru lex:*)",
+      "Bash(cat:*)",
+      "Bash(for dir in integration_tests/*/)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Bash(diff:*)",
+      "Bash(done)",
+      "Bash(for dir in */)",
+      "Bash(do [ -f \"$direxpected.txt\" ])",
+      "Bash([ -f \"$diroutput.txt\" ])",
+      "Bash({ echo \"=== $dir ===\")",
+      "Bash(})",
+      "Bash(for test in syntax_valid_control_flow syntax_error_missing_tokens format syntax_valid_modules syntax_valid_functions syntax_valid_types syntax)",
+      "Bash(do cp \"integration_tests/$test/output.txt\" \"integration_tests/$test/expected.txt\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

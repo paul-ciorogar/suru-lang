@@ -1,0 +1,29 @@
+// Test functions with parameters and return values
+printMessage: (message) {
+    print(message)
+}
+
+coolMessage: () {
+    return "A cool message\n"
+}
+
+isMonday: (val) {
+    return match val {
+        "Monday": true
+        _: false
+    }
+}
+
+main: () {
+    printMessage("Hello from function\n")
+
+    print("isMonday:\n")
+    result1: isMonday("Monday")
+    print(result1)
+    print("\n")
+
+    print("isMonday:\n")
+    result2: isMonday("Friday")
+    print(result2)
+    print("\n")
+}

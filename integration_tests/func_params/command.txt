@@ -1,0 +1,1 @@
+run integration_tests/func_params/func_params.suru

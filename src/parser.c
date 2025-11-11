@@ -1,4 +1,4 @@
-#include "parser.h"
+#include "parser.h" parc
 #include "arena.h"
 #include "array.h"
 #include "lexer.h"
@@ -28,6 +28,7 @@ Parser *create_parser(Arena *arena, Lexer *lexer) {
 
     parser->tree = create_parse_tree(arena);
     parser->stack = array_init(sizeof(ParserStackFrame));
+    parser->token_stack = array_init(sizeof(Token));
 
     if (!parser->stack) {
         return NULL;
@@ -86,6 +87,17 @@ static void report_syntax_error(Parser *parser, const char *message) {
 static void skip_to_newline(Parser *parser) {
     while (!match_token(parser, TOKEN_EOF) &&
            !match_token(parser, TOKEN_NEWLINE)) {
+        advance(parser);
+    }
+}
+
+// Consume and preserve whitespace (comments and newlines) as child nodes
+static void consume_whitespace(Parser *parser, int parent_idx) {
+    while (match_token(parser, TOKEN_COMMENT) || match_token(parser, TOKEN_NEWLINE)) {
+        ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
+        ParseNode node = create_terminal_node(node_type, current_token(parser));
+        int node_idx = add_node(parser->tree, &node);
+        add_child(parser->tree, parent_idx, node_idx);
         advance(parser);
     }
 }
@@ -353,8 +365,10 @@ static Array *infix_to_postfix(Parser *parser, int parent_idx) {
     Array *operator_stack = array_init(sizeof(Token));
 
     if (!output || !operator_stack) {
-        if (output) array_free(output);
-        if (operator_stack) array_free(operator_stack);
+        if (output)
+            array_free(output);
+        if (operator_stack)
+            array_free(operator_stack);
         return NULL;
     }
 
@@ -382,8 +396,7 @@ static Array *infix_to_postfix(Parser *parser, int parent_idx) {
 
                 // For right-associative operators (unary), use >
                 // For left-associative operators (binary), use >=
-                int should_pop = is_unary_operator(current.type) ?
-                    (top_prec > current_prec) : (top_prec >= current_prec);
+                int should_pop = is_unary_operator(current.type) ? (top_prec > current_prec) : (top_prec >= current_prec);
 
                 if (should_pop) {
                     Token op;
@@ -420,11 +433,139 @@ void new_error(Parser *parser, int parent_node_idx, char *message) {
     push_new_frame(parser, PARSE, parent_node_idx, parent_node_idx, 0);
 }
 
+// Top-level parsing - handles program-level declarations
+void parse_top_level(Parser *parser, ParserStackFrame *frame) {
+
+    // Consume whitespace
+    consume_whitespace(parser, frame->parent_node_idx);
+
+    // Check for EOF
+    if (match_token(parser, TOKEN_EOF)) {
+        return; // Done parsing
+    }
+
+    // Look for declaration: identifier followed by colon
+    if (match_token(parser, TOKEN_IDENTIFIER)) {
+        // Push continuation to come back to PARSE after declaration
+        push_new_frame(parser, PARSE, frame->parent_node_idx, frame->parent_node_idx, 0);
+        // Push PARSE_STATEMENT to determine type of declaration
+        push_new_frame(parser, PARSE_STATEMENT, frame->parent_node_idx, -1, 0);
+        return;
+    }
+
+    // Unknown token at top level
+    new_error(parser, frame->parent_node_idx, "Expected function declaration");
+    return;
+}
+
+// Handles statement parsing
+static void parse_statement(Parser *parser, ParserStackFrame *frame) {
+    // Determine statement type: variable decl, function decl, or call expression
+    // Parsing: identifier (: | () )
+
+    if (!match_token(parser, TOKEN_IDENTIFIER)) {
+        return;
+    }
+
+    Token id_token = current_token(parser);
+    array_append(parser->token_stack, &id_token);
+    advance(parser);
+
+    // Check what follows the identifier
+    if (match_token(parser, TOKEN_COLON)) {
+        // It's a declaration (function or variable)
+        advance(parser);
+
+        // Now determine what follows the colon
+        if (match_token(parser, TOKEN_LPAREN)) {
+            // It's a function declaration: identifier : (params) block
+            // Push PARSE_FUNCTION_DECL to continue parsing
+            push_new_frame(parser, PARSE_FUNCTION_DECL, frame->parent_node_idx, -1, 0);
+        } else {
+            // It's a variable declaration: identifier : expression
+            // Push PARSE_VAR_DECL to continue parsing
+            push_new_frame(parser, PARSE_VAR_DECL, frame->parent_node_idx, -1, 0);
+        }
+    } else if (match_token(parser, TOKEN_LPAREN)) {
+        // It's a call expression: identifier(args)
+        // Push PARSE_CALL_ARGS to parse the arguments
+        push_new_frame(parser, PARSE_CALL_EXPRESSION, frame->parent_node_idx, -1, 0);
+    } else {
+        new_error(parser, frame->parent_node_idx, "Expected ':' or '(' after identifier");
+    }
+}
+
+void parse_block(Parser *parser, ParserStackFrame *frame) {
+    // Parsing: { statements }
+    // step 0 parse {
+    // step 1 parse statements }
+
+    int block_idx = frame->current_node_idx;
+
+    // First time: create block node and consume LBRACE
+    if (frame->step == 0) {
+        // Create block node
+        ParseNode block_node = create_nonterminal_node(NODE_BLOCK);
+        block_idx = add_node(parser->tree, &block_node);
+        add_child(parser->tree, frame->parent_node_idx, block_idx);
+
+        // Expect LBRACE
+        if (!match_token(parser, TOKEN_LBRACE)) {
+            new_error(parser, block_idx, "Expected '{' for block");
+            return;
+        }
+        advance(parser);
+        // Push continuation to keep parsing this block
+        push_new_frame(parser, PARSE_BLOCK, frame->parent_node_idx, block_idx, 1);
+
+    } else if (frame->step == 1) {
+        if (match_token(parser, TOKEN_RBRACE)) {
+            advance(parser);
+            return;
+        }
+        // Push continuation to keep parsing this block
+        push_new_frame(parser, PARSE_BLOCK, frame->parent_node_idx, block_idx, 1);
+
+        // Parse block statements
+        push_new_frame(parser, PARSE_STATEMENT, block_idx, -1, 0);
+        push_new_frame(parser, TRY_PARSE_RETURN, block_idx, -1, 0);
+    }
+}
+
+void parse_function_declaration(Parser *parser, ParserStackFrame *frame) {
+    if (array_length(parser->token_stack) == 0) {
+        new_error(parser, frame.parent_node_idx, "Expected identifier token on token stack");
+    }
+    // Create function declaration node
+    ParseNode func_node = create_nonterminal_node(NODE_FUNCTION_DECL);
+    int func_idx = add_node(parser->tree, &func_node);
+    add_child(parser->tree, frame.parent_node_idx, func_idx);
+
+    // Add identifier as child
+    Token id_token = {0};
+    array_pop(parser->token_stack, &id_token);
+    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+    int id_idx = add_node(parser->tree, &id_node);
+    add_child(parser->tree, func_idx, id_idx);
+
+    // Parsing: param_list block
+
+    // Push PARSE_BLOCK to be executed after PARSE_PARAM_LIST
+    push_new_frame(parser, PARSE_BLOCK, func_idx, -1, 0);
+
+    // Push PARSE_PARAM_LIST
+    push_new_frame(parser, PARSE_PARAM_LIST, func_idx, -1, 0);
+}
+
 // Parse the source code and build parse tree with syntax analysis
 ParseTree *parse(Parser *parser) {
     if (!parser || !parser->tree) {
         return NULL;
     }
+
+    // Create expression helpers
+    Array *temp_nodes = array_init(sizeof(ParseNode));
+    Array *temp_stack = array_init(sizeof(ParseNode));
 
     // Create root program node
     ParseNode root = create_nonterminal_node(NODE_PROGRAM);
@@ -444,137 +585,16 @@ ParseTree *parse(Parser *parser) {
         switch (frame.state) {
 
         case PARSE: {
-            // Top-level parsing - handles program-level declarations
-
-            // Consume and preserve comments and newlines
-            while (match_token(parser, TOKEN_COMMENT) || match_token(parser, TOKEN_NEWLINE)) {
-                ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
-                ParseNode node = create_terminal_node(node_type, current_token(parser));
-                int node_idx = add_node(parser->tree, &node);
-                add_child(parser->tree, frame.parent_node_idx, node_idx);
-                advance(parser);
-            }
-
-            // Check for EOF
-            if (match_token(parser, TOKEN_EOF)) {
-                break;  // Done parsing
-            }
-
-            // Look for declaration: identifier followed by colon
-            if (match_token(parser, TOKEN_IDENTIFIER)) {
-                // Push continuation to come back to PARSE after declaration
-                push_new_frame(parser, PARSE, frame.parent_node_idx, frame.parent_node_idx, 0);
-                // Push PARSE_STATEMENT to determine type of declaration
-                push_new_frame(parser, PARSE_STATEMENT, frame.parent_node_idx, -1, 0);
-                break;
-            }
-
-            // Unknown token at top level
-            new_error(parser, frame.parent_node_idx, "Expected function declaration");
+            parse_top_level(parser, &frame);
             break;
         }
 
         case PARSE_STATEMENT: {
-            // Determine statement type: variable decl, function decl, or call expression
-            // Parsing: identifier (: | () )
-
-            // Expect identifier
-            if (!match_token(parser, TOKEN_IDENTIFIER)) {
-                new_error(parser, frame.parent_node_idx, "Expected identifier");
-                break;
-            }
-
-            Token id_token = current_token(parser);
-            advance(parser);
-
-            // Check what follows the identifier
-            if (match_token(parser, TOKEN_COLON)) {
-                // It's a declaration (function or variable)
-                advance(parser);
-
-                // Now determine what follows the colon
-                if (match_token(parser, TOKEN_LPAREN)) {
-                    // It's a function declaration: identifier : (params) block
-                    // Create function declaration node
-                    ParseNode func_node = create_nonterminal_node(NODE_FUNCTION_DECL);
-                    int func_idx = add_node(parser->tree, &func_node);
-                    add_child(parser->tree, frame.parent_node_idx, func_idx);
-
-                    // Add identifier as child
-                    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
-                    int id_idx = add_node(parser->tree, &id_node);
-                    add_child(parser->tree, func_idx, id_idx);
-
-                    // Push PARSE_FUNCTION_DECL to continue parsing
-                    push_new_frame(parser, PARSE_FUNCTION_DECL, func_idx, func_idx, 0);
-                    break;
-                } else {
-                    // It's a variable declaration: identifier : value
-                    // Create variable declaration node
-                    ParseNode var_node = create_nonterminal_node(NODE_VAR_DECL);
-                    int var_idx = add_node(parser->tree, &var_node);
-                    add_child(parser->tree, frame.parent_node_idx, var_idx);
-
-                    // Add identifier as child
-                    ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
-                    int id_idx = add_node(parser->tree, &id_node);
-                    add_child(parser->tree, var_idx, id_idx);
-
-                    // Push PARSE_VAR_DECL to continue parsing
-                    push_new_frame(parser, PARSE_VAR_DECL, var_idx, var_idx, 0);
-                    break;
-                }
-            } else if (match_token(parser, TOKEN_LPAREN)) {
-                // It's a call expression: identifier(args)
-                // Create call expression node
-                ParseNode call_node = create_nonterminal_node(NODE_CALL_EXPR);
-                int call_idx = add_node(parser->tree, &call_node);
-                add_child(parser->tree, frame.parent_node_idx, call_idx);
-
-                // Add identifier as first child of call
-                ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
-                int id_idx = add_node(parser->tree, &id_node);
-                add_child(parser->tree, call_idx, id_idx);
-
-                // Push PARSE_CALL_ARGS to parse the arguments
-                push_new_frame(parser, PARSE_CALL_ARGS, call_idx, -1, 0);
-                break;
-            } else {
-                new_error(parser, frame.parent_node_idx, "Expected ':' or '(' after identifier");
-                break;
-            }
+            parse_statement(parser, &frame);
         }
 
         case PARSE_FUNCTION_DECL: {
-            // Parsing: param_list block
-            // Note: NODE_FUNCTION_DECL and identifier already created by PARSE_DECL
-
-            int func_idx = frame.current_node_idx;
-            if (func_idx == -1) {
-                new_error(parser, frame.parent_node_idx, "Invalid function declaration state");
-                break;
-            }
-
-            // Push PARSE_BLOCK to be executed after PARSE_PARAM_LIST
-            push_new_frame(parser, PARSE_BLOCK, func_idx, -1, 0);
-
-            // Push PARSE_PARAM_LIST
-            push_new_frame(parser, PARSE_PARAM_LIST, func_idx, -1, 0);
-            break;
-        }
-
-        case PARSE_VAR_DECL: {
-            // Parsing: value expression
-            // Note: NODE_VAR_DECL and identifier already created by PARSE_DECL
-
-            int var_idx = frame.current_node_idx;
-            if (var_idx == -1) {
-                new_error(parser, frame.parent_node_idx, "Invalid variable declaration state");
-                break;
-            }
-
-            // Parse value as an expression
-            push_new_frame(parser, PARSE_EXPRESSION, var_idx, -1, 0);
+            parse_function_declaration(parser, &frame);
             break;
         }
 
@@ -593,14 +613,8 @@ ParseTree *parse(Parser *parser) {
             }
             advance(parser);
 
-            // Consume and preserve newlines/comments inside params
-            while (match_token(parser, TOKEN_COMMENT) || match_token(parser, TOKEN_NEWLINE)) {
-                ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
-                ParseNode node = create_terminal_node(node_type, current_token(parser));
-                int node_idx = add_node(parser->tree, &node);
-                add_child(parser->tree, param_list_idx, node_idx);
-                advance(parser);
-            }
+            // Consume whitespace
+            consume_whitespace(parser, param_list_idx);
 
             // Check for empty param list
             if (match_token(parser, TOKEN_RPAREN)) {
@@ -608,8 +622,38 @@ ParseTree *parse(Parser *parser) {
                 break;
             }
 
-            // For now, we expect empty params for hello_world
-            // Full param parsing would go here (identifier : type, ...)
+            // Parse parameters: identifier [, identifier]*
+            while (!match_token(parser, TOKEN_RPAREN) && !match_token(parser, TOKEN_EOF)) {
+                // Expect identifier (parameter name)
+                if (!match_token(parser, TOKEN_IDENTIFIER)) {
+                    new_error(parser, param_list_idx, "Expected parameter name");
+                    break;
+                }
+
+                // Create parameter node
+                ParseNode param_node = create_nonterminal_node(NODE_PARAM);
+                int param_idx = add_node(parser->tree, &param_node);
+                add_child(parser->tree, param_list_idx, param_idx);
+
+                // Add identifier as child of param
+                ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
+                int id_idx = add_node(parser->tree, &id_node);
+                add_child(parser->tree, param_idx, id_idx);
+                advance(parser);
+
+                // Consume whitespace
+                consume_whitespace(parser, param_list_idx);
+
+                // Check for comma (more parameters)
+                if (match_token(parser, TOKEN_COMMA)) {
+                    advance(parser);
+                    consume_whitespace(parser, param_list_idx);
+                    continue;
+                }
+
+                // Otherwise, expect RPAREN
+                break;
+            }
 
             // Expect RPAREN
             if (!match_token(parser, TOKEN_RPAREN)) {
@@ -621,102 +665,275 @@ ParseTree *parse(Parser *parser) {
         }
 
         case PARSE_BLOCK: {
-            // Parsing: { statements }
+            parse_block(parser, &frame);
+        }
 
-            int block_idx = frame.current_node_idx;
+        case PARSE_VAR_DECL: {
+            // Create variable declaration node
+            ParseNode var_node = create_nonterminal_node(NODE_VAR_DECL);
+            int var_idx = add_node(parser->tree, &var_node);
+            add_child(parser->tree, frame.parent_node_idx, var_idx);
 
-            // First time: create block node and consume LBRACE
-            if (block_idx == -1) {
-                // Create block node
-                ParseNode block_node = create_nonterminal_node(NODE_BLOCK);
-                block_idx = add_node(parser->tree, &block_node);
-                add_child(parser->tree, frame.parent_node_idx, block_idx);
+            // Add identifier as child
+            ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+            int id_idx = add_node(parser->tree, &id_node);
+            add_child(parser->tree, var_idx, id_idx);
 
-                // Expect LBRACE
-                if (!match_token(parser, TOKEN_LBRACE)) {
-                    new_error(parser, block_idx, "Expected '{' for block");
-                    break;
-                }
-                advance(parser);
-            }
+            // Parsing: value expression
+            // Note: NODE_VAR_DECL and identifier already created by PARSE_DECL
 
-            // Parse statements until RBRACE
-            while (!match_token(parser, TOKEN_RBRACE) && !match_token(parser, TOKEN_EOF)) {
-                // Consume and preserve newlines/comments
-                if (match_token(parser, TOKEN_COMMENT) || match_token(parser, TOKEN_NEWLINE)) {
-                    ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
-                    ParseNode node = create_terminal_node(node_type, current_token(parser));
-                    int node_idx = add_node(parser->tree, &node);
-                    add_child(parser->tree, block_idx, node_idx);
-                    advance(parser);
-                    continue;
-                }
-
-                // Look for match statement
-                if (match_token(parser, TOKEN_MATCH)) {
-                    // Push continuation to keep parsing this block
-                    push_new_frame(parser, PARSE_BLOCK, frame.parent_node_idx, block_idx, 0);
-                    // Push PARSE_MATCH_STMT to parse match statement
-                    push_new_frame(parser, PARSE_MATCH_STMT, block_idx, -1, 0);
-                    // Exit - will resume after statement is parsed
-                    break;
-                }
-
-                // Look for statement (variable declaration or expression)
-                if (match_token(parser, TOKEN_IDENTIFIER)) {
-                    // Push continuation to keep parsing this block
-                    push_new_frame(parser, PARSE_BLOCK, frame.parent_node_idx, block_idx, 0);
-                    // Push PARSE_STATEMENT to determine statement type
-                    push_new_frame(parser, PARSE_STATEMENT, block_idx, -1, 0);
-                    // Exit - will resume after statement is parsed
-                    break;
-                }
-
-                // Unknown token
-                new_error(parser, block_idx, "Unexpected token in block");
+            int var_idx = frame.current_node_idx;
+            if (var_idx == -1) {
+                new_error(parser, frame.parent_node_idx, "Invalid variable declaration state");
                 break;
             }
 
-            // Check if we exited the loop early (pushed continuation)
-            if (!match_token(parser, TOKEN_RBRACE) && !match_token(parser, TOKEN_EOF)) {
-                // We pushed a continuation, will resume later
-                break;
-            }
+            // Parse value as an expression
+            push_new_frame(parser, PARSE_EXPRESSION, var_idx, -1, 0);
+            break;
+        }
 
-            // Expect RBRACE
-            if (!match_token(parser, TOKEN_RBRACE)) {
-                new_error(parser, block_idx, "Expected '}' at end of block");
-                break;
-            }
-            advance(parser);
+        case PARSE_CALL_EXPRESSION: {
+            // Create call expression node
+            ParseNode call_node = create_nonterminal_node(NODE_CALL_EXPR);
+            int call_idx = add_node(parser->tree, &call_node);
+            add_child(parser->tree, frame.parent_node_idx, call_idx);
+
+            // Add identifier as first child of call
+            ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+            int id_idx = add_node(parser->tree, &id_node);
+            add_child(parser->tree, call_idx, id_idx);
+
             break;
         }
 
         case PARSE_EXPRESSION: {
-            // Check if this is a match expression
-            if (match_token(parser, TOKEN_MATCH)) {
-                // Push PARSE_MATCH_EXPR to handle match expression
-                push_new_frame(parser, PARSE_MATCH_EXPR, frame.parent_node_idx, -1, 0);
+            // Stack-based expression parser
+            // step 0: Initialize and check for match expression
+            // step 1: Parse primary expressions and operators
+            // step 2: Finalize expression
+
+            if (frame.step == 0) {
+                // Check if this is a match expression
+                if (match_token(parser, TOKEN_MATCH)) {
+                    push_new_frame(parser, PARSE_MATCH_EXPR, frame.parent_node_idx, -1, 0);
+                    break;
+                }
+
+                // Move to step 1
+                push_new_frame(parser, PARSE_EXPRESSION, frame.parent_node_idx, -1, 1);
                 break;
             }
 
-            // Parse expression using Shunting Yard algorithm
-            // Convert infix to postfix, then build tree from postfix
+            if (frame.step == 1) {
+                // Parse primary expressions and operators
 
-            // Convert to postfix
-            Array *postfix = infix_to_postfix(parser, frame.parent_node_idx);
-            if (!postfix) {
-                new_error(parser, frame.parent_node_idx, "Failed to parse expression");
+                // Check for end of expression
+                if (match_token(parser, TOKEN_EOF) ||
+                    match_token(parser, TOKEN_NEWLINE) ||
+                    match_token(parser, TOKEN_COMMA) ||
+                    match_token(parser, TOKEN_RPAREN) ||
+                    match_token(parser, TOKEN_RBRACE)) {
+                    // Move to finalization
+                    push_new_frame(parser, PARSE_EXPRESSION, frame.parent_node_idx, -1, 2);
+                    break;
+                }
+
+                // Parse primary expression
+                int primary_idx = -1;
+
+                if (match_token(parser, TOKEN_TRUE) || match_token(parser, TOKEN_FALSE)) {
+                    ParseNode node = create_terminal_node(NODE_BOOLEAN_LITERAL, current_token(parser));
+                    primary_idx = add_node(parser->tree, &node);
+                    advance(parser);
+                } else if (match_token(parser, TOKEN_STRING)) {
+                    ParseNode node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
+                    primary_idx = add_node(parser->tree, &node);
+                    advance(parser);
+                } else if (match_token(parser, TOKEN_IDENTIFIER)) {
+                    Token id_token = current_token(parser);
+                    advance(parser);
+
+                    if (match_token(parser, TOKEN_LPAREN)) {
+                        // Call expression
+                        // Push continuation frame
+                        push_new_frame(parser, PARSE_EXPRESSION, frame.parent_node_idx, -1, 1);
+
+                        ParseNode call_node = create_nonterminal_node(NODE_CALL_EXPR);
+                        int call_idx = add_node(parser->tree, &call_node);
+
+                        ParseNode id_node = create_terminal_node(NODE_IDENTIFIER, id_token);
+                        int id_idx = add_node(parser->tree, &id_node);
+                        add_child(parser->tree, call_idx, id_idx);
+                        // Push parse call expression
+                        push_new_frame(parser, PARSE_CALL_EXPRESSION, frame.parent_node_idx, -1, 1);
+
+                        ParseNode arg_list_node = create_nonterminal_node(NODE_ARG_LIST);
+                        int arg_list_idx = add_node(parser->tree, &arg_list_node);
+                        add_child(parser->tree, call_idx, arg_list_idx);
+
+                        // Parse arguments
+                        while (!match_token(parser, TOKEN_RPAREN) && !match_token(parser, TOKEN_EOF)) {
+                            consume_whitespace(parser, arg_list_idx);
+                            if (match_token(parser, TOKEN_RPAREN))
+                                break;
+                            if (match_token(parser, TOKEN_COMMA)) {
+                                advance(parser);
+                                continue;
+                            }
+
+                            // Parse argument (simple - no nested calls for now)
+                            if (match_token(parser, TOKEN_STRING)) {
+                                ParseNode str_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
+                                int str_idx = add_node(parser->tree, &str_node);
+                                add_child(parser->tree, arg_list_idx, str_idx);
+                                advance(parser);
+                            } else if (match_token(parser, TOKEN_TRUE) || match_token(parser, TOKEN_FALSE)) {
+                                ParseNode bool_node = create_terminal_node(NODE_BOOLEAN_LITERAL, current_token(parser));
+                                int bool_idx = add_node(parser->tree, &bool_node);
+                                add_child(parser->tree, arg_list_idx, bool_idx);
+                                advance(parser);
+                            } else if (match_token(parser, TOKEN_IDENTIFIER)) {
+                                ParseNode arg_id = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
+                                int arg_id_idx = add_node(parser->tree, &arg_id);
+                                add_child(parser->tree, arg_list_idx, arg_id_idx);
+                                advance(parser);
+                            } else {
+                                new_error(parser, arg_list_idx, "Expected argument expression");
+                                if (parser->expr_stack) {
+                                    array_free(parser->expr_stack);
+                                    parser->expr_stack = NULL;
+                                }
+                                goto expr_done;
+                            }
+                        }
+
+                        if (!match_token(parser, TOKEN_RPAREN)) {
+                            new_error(parser, arg_list_idx, "Expected ')' after arguments");
+                            if (parser->expr_stack) {
+                                array_free(parser->expr_stack);
+                                parser->expr_stack = NULL;
+                            }
+                            goto expr_done;
+                        }
+                        advance(parser);
+
+                        primary_idx = call_idx;
+                    } else {
+                        // Just identifier
+                        ParseNode node = create_terminal_node(NODE_IDENTIFIER, id_token);
+                        primary_idx = add_node(parser->tree, &node);
+                    }
+                } else if (is_unary_operator(current_token(parser).type)) {
+                    // Unary operator
+                    TokenType op_type = current_token(parser).type;
+                    advance(parser);
+
+                    ParseNodeType node_type = get_unary_node_type(op_type);
+                    ParseNode unary_node = create_nonterminal_node(node_type);
+                    int unary_idx = add_node(parser->tree, &unary_node);
+
+                    // Parse operand (simplified - no nested expressions)
+                    if (match_token(parser, TOKEN_TRUE) || match_token(parser, TOKEN_FALSE)) {
+                        ParseNode operand = create_terminal_node(NODE_BOOLEAN_LITERAL, current_token(parser));
+                        int operand_idx = add_node(parser->tree, &operand);
+                        add_child(parser->tree, unary_idx, operand_idx);
+                        advance(parser);
+                    } else if (match_token(parser, TOKEN_IDENTIFIER)) {
+                        ParseNode operand = create_terminal_node(NODE_IDENTIFIER, current_token(parser));
+                        int operand_idx = add_node(parser->tree, &operand);
+                        add_child(parser->tree, unary_idx, operand_idx);
+                        advance(parser);
+                    } else {
+                        new_error(parser, unary_idx, "Expected operand after unary operator");
+                        if (parser->expr_stack) {
+                            array_free(parser->expr_stack);
+                            parser->expr_stack = NULL;
+                        }
+                        goto expr_done;
+                    }
+
+                    primary_idx = unary_idx;
+                } else {
+                    // Unknown - end of expression
+                    push_new_frame(parser, PARSE_EXPRESSION, frame.parent_node_idx, -1, 2);
+                    break;
+                }
+
+                // Push primary to stack
+                if (primary_idx != -1) {
+                    array_append(parser->expr_stack, &primary_idx);
+                }
+
+                // Check for binary operator
+                if (is_binary_operator(current_token(parser).type)) {
+                    TokenType op_type = current_token(parser).type;
+                    advance(parser);
+
+                    // Pop left operand
+                    if (array_length(parser->expr_stack) < 1) {
+                        new_error(parser, frame.parent_node_idx, "Binary operator missing left operand");
+                        if (parser->expr_stack) {
+                            array_free(parser->expr_stack);
+                            parser->expr_stack = NULL;
+                        }
+                        goto expr_done;
+                    }
+
+                    int left_idx;
+                    array_pop(parser->expr_stack, &left_idx);
+
+                    // Create binary node
+                    ParseNodeType node_type = get_binary_node_type(op_type);
+                    ParseNode binary_node = create_nonterminal_node(node_type);
+                    int binary_idx = add_node(parser->tree, &binary_node);
+
+                    // Add left child
+                    add_child(parser->tree, binary_idx, left_idx);
+
+                    // Push binary node (right operand parsed in next iteration)
+                    array_append(parser->expr_stack, &binary_idx);
+                }
+
+                // Continue parsing
+                push_new_frame(parser, PARSE_EXPRESSION, frame.parent_node_idx, -1, 1);
                 break;
             }
 
-            // Build expression tree from postfix notation
-            int expr_idx = build_expr_tree_from_postfix(parser, postfix, frame.parent_node_idx);
-            if (expr_idx == -1) {
-                new_error(parser, frame.parent_node_idx, "Invalid expression");
+            if (frame.step == 2) {
+                // Finalize: pop from stack and add to parent
+                if (!parser->expr_stack || array_length(parser->expr_stack) == 0) {
+                    new_error(parser, frame.parent_node_idx, "Empty expression");
+                    if (parser->expr_stack) {
+                        array_free(parser->expr_stack);
+                        parser->expr_stack = NULL;
+                    }
+                    break;
+                }
+
+                if (array_length(parser->expr_stack) == 1) {
+                    // Single node
+                    int expr_idx;
+                    array_pop(parser->expr_stack, &expr_idx);
+                    add_child(parser->tree, frame.parent_node_idx, expr_idx);
+                } else if (array_length(parser->expr_stack) == 2) {
+                    // Binary operator with right operand
+                    int right_idx, binary_idx;
+                    array_pop(parser->expr_stack, &right_idx);
+                    array_pop(parser->expr_stack, &binary_idx);
+
+                    add_child(parser->tree, binary_idx, right_idx);
+                    add_child(parser->tree, frame.parent_node_idx, binary_idx);
+                } else {
+                    new_error(parser, frame.parent_node_idx, "Invalid expression - too many items on stack");
+                }
+
+                array_free(parser->expr_stack);
+                parser->expr_stack = NULL;
+                break;
             }
 
-            array_free(postfix);
+        expr_done:
             break;
         }
 
@@ -743,15 +960,8 @@ ParseTree *parse(Parser *parser) {
 
             // Parse arguments until RPAREN
             while (!match_token(parser, TOKEN_RPAREN) && !match_token(parser, TOKEN_EOF)) {
-                // Preserve comments/newlines inside args
-                if (match_token(parser, TOKEN_COMMENT) || match_token(parser, TOKEN_NEWLINE)) {
-                    ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
-                    ParseNode node = create_terminal_node(node_type, current_token(parser));
-                    int node_idx = add_node(parser->tree, &node);
-                    add_child(parser->tree, arg_list_idx, node_idx);
-                    advance(parser);
-                    continue;
-                }
+                // Consume whitespace
+                consume_whitespace(parser, arg_list_idx);
 
                 // Check for comma (between args)
                 if (match_token(parser, TOKEN_COMMA)) {
@@ -858,55 +1068,53 @@ ParseTree *parse(Parser *parser) {
             if (frame.step == 1) {
                 // Step 1: Parse match arms
                 while (!match_token(parser, TOKEN_RBRACE) && !match_token(parser, TOKEN_EOF)) {
-                // Skip newlines and comments
-                if (match_token(parser, TOKEN_NEWLINE) || match_token(parser, TOKEN_COMMENT)) {
-                    ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
-                    ParseNode node = create_terminal_node(node_type, current_token(parser));
-                    int node_idx = add_node(parser->tree, &node);
-                    add_child(parser->tree, match_idx, node_idx);
-                    advance(parser);
-                    continue;
-                }
+                    // Consume whitespace
+                    consume_whitespace(parser, match_idx);
 
-                // Create match arm node
-                ParseNode arm_node = create_nonterminal_node(NODE_MATCH_ARM);
-                int arm_idx = add_node(parser->tree, &arm_node);
-                add_child(parser->tree, match_idx, arm_idx);
+                    // Check for RBRACE after consuming whitespace
+                    if (match_token(parser, TOKEN_RBRACE)) {
+                        break;
+                    }
 
-                // Parse pattern (boolean literal, string literal, or wildcard)
-                if (match_token(parser, TOKEN_TRUE) || match_token(parser, TOKEN_FALSE)) {
-                    ParseNode pattern_node = create_terminal_node(NODE_BOOLEAN_LITERAL, current_token(parser));
-                    int pattern_idx = add_node(parser->tree, &pattern_node);
-                    add_child(parser->tree, arm_idx, pattern_idx);
+                    // Create match arm node
+                    ParseNode arm_node = create_nonterminal_node(NODE_MATCH_ARM);
+                    int arm_idx = add_node(parser->tree, &arm_node);
+                    add_child(parser->tree, match_idx, arm_idx);
+
+                    // Parse pattern (boolean literal, string literal, or wildcard)
+                    if (match_token(parser, TOKEN_TRUE) || match_token(parser, TOKEN_FALSE)) {
+                        ParseNode pattern_node = create_terminal_node(NODE_BOOLEAN_LITERAL, current_token(parser));
+                        int pattern_idx = add_node(parser->tree, &pattern_node);
+                        add_child(parser->tree, arm_idx, pattern_idx);
+                        advance(parser);
+                    } else if (match_token(parser, TOKEN_STRING)) {
+                        ParseNode pattern_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
+                        int pattern_idx = add_node(parser->tree, &pattern_node);
+                        add_child(parser->tree, arm_idx, pattern_idx);
+                        advance(parser);
+                    } else if (match_token(parser, TOKEN_UNDERSCORE)) {
+                        ParseNode pattern_node = create_terminal_node(NODE_MATCH_WILDCARD, current_token(parser));
+                        int pattern_idx = add_node(parser->tree, &pattern_node);
+                        add_child(parser->tree, arm_idx, pattern_idx);
+                        advance(parser);
+                    } else {
+                        new_error(parser, arm_idx, "Expected pattern (boolean, string, or '_')");
+                        break;
+                    }
+
+                    // Expect colon
+                    if (!match_token(parser, TOKEN_COLON)) {
+                        new_error(parser, arm_idx, "Expected ':' after pattern");
+                        break;
+                    }
                     advance(parser);
-                } else if (match_token(parser, TOKEN_STRING)) {
-                    ParseNode pattern_node = create_terminal_node(NODE_STRING_LITERAL, current_token(parser));
-                    int pattern_idx = add_node(parser->tree, &pattern_node);
-                    add_child(parser->tree, arm_idx, pattern_idx);
-                    advance(parser);
-                } else if (match_token(parser, TOKEN_UNDERSCORE)) {
-                    ParseNode pattern_node = create_terminal_node(NODE_MATCH_WILDCARD, current_token(parser));
-                    int pattern_idx = add_node(parser->tree, &pattern_node);
-                    add_child(parser->tree, arm_idx, pattern_idx);
-                    advance(parser);
-                } else {
-                    new_error(parser, arm_idx, "Expected pattern (boolean, string, or '_')");
+
+                    // Parse arm expression - use existing expression parsing
+                    // Push continuation to come back and parse more arms
+                    push_new_frame(parser, PARSE_MATCH_EXPR, match_idx, match_idx, 1);
+                    // Push PARSE_EXPRESSION to parse the arm's expression
+                    push_new_frame(parser, PARSE_EXPRESSION, arm_idx, -1, 0);
                     break;
-                }
-
-                // Expect colon
-                if (!match_token(parser, TOKEN_COLON)) {
-                    new_error(parser, arm_idx, "Expected ':' after pattern");
-                    break;
-                }
-                advance(parser);
-
-                // Parse arm expression - use existing expression parsing
-                // Push continuation to come back and parse more arms
-                push_new_frame(parser, PARSE_MATCH_EXPR, match_idx, match_idx, 1);
-                // Push PARSE_EXPRESSION to parse the arm's expression
-                push_new_frame(parser, PARSE_EXPRESSION, arm_idx, -1, 0);
-                break;
                 }
 
                 // Check if we're done parsing arms
@@ -960,14 +1168,12 @@ ParseTree *parse(Parser *parser) {
             if (frame.step == 2) {
                 // Step 2: Parse match arms
                 while (!match_token(parser, TOKEN_RBRACE) && !match_token(parser, TOKEN_EOF)) {
-                    // Skip newlines and comments
-                    if (match_token(parser, TOKEN_NEWLINE) || match_token(parser, TOKEN_COMMENT)) {
-                        ParseNodeType node_type = match_token(parser, TOKEN_COMMENT) ? NODE_COMMENT : NODE_NEWLINE;
-                        ParseNode node = create_terminal_node(node_type, current_token(parser));
-                        int node_idx = add_node(parser->tree, &node);
-                        add_child(parser->tree, match_idx, node_idx);
-                        advance(parser);
-                        continue;
+                    // Consume whitespace
+                    consume_whitespace(parser, match_idx);
+
+                    // Check for RBRACE after consuming whitespace
+                    if (match_token(parser, TOKEN_RBRACE)) {
+                        break;
                     }
 
                     // Create match arm node

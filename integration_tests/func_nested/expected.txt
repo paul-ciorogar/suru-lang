@@ -1,0 +1,5 @@
+Testing nested functions
+it is false
+it is true
+yes
+no
