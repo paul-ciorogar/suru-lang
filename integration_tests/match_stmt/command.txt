@@ -1,1 +1,0 @@
-run integration_tests/match_stmt/match_stmt.suru

@@ -1,0 +1,15 @@
+PROGRAM
+  COMMENT: // Test file for parser
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"hello, world!\\n\"
+      COMMENT: // prints Hello, world! to stdout
+      NEWLINE
+  NEWLINE

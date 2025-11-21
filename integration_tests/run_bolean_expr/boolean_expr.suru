@@ -1,0 +1,49 @@
+// Test boolean expressions with and, or, not
+main: () {
+	a: true
+	b: false
+
+	// Test simple not
+	notA: not a
+	notB: not b
+
+	// Test and
+	aAndB: a and b
+	aAndNotB: a and not b
+
+	// Test or
+	aOrB: a or b
+	bOrA: b or a
+
+	// Test complex expression
+	complex: not a or b and true
+
+	// Print results
+	print("a: ")
+	print(a)
+	print("\n")
+	print("b: ")
+	print(b)
+	print("\n")
+	print("notA: ")
+	print(notA)
+	print("\n")
+	print("notB: ")
+	print(notB)
+	print("\n")
+	print("aAndB: ")
+	print(aAndB)
+	print("\n")
+	print("aAndNotB: ")
+	print(aAndNotB)
+	print("\n")
+	print("aOrB: ")
+	print(aOrB)
+	print("\n")
+	print("bOrA: ")
+	print(bOrA)
+	print("\n")
+	print("complex: ")
+	print(complex)
+	print("\n")
+}

@@ -1,0 +1,28 @@
+// Test nested function declarations
+printMessage: (message) {
+    print(message)
+}
+
+main: () {
+    printMessage("Testing nested functions\n")
+
+    print(isItTrue(false))
+    print(isItTrue(true))
+
+    moreArguments("yes\n", "no\n", true)
+    moreArguments("yes\n", "no\n", false)
+
+    isItTrue: (val) {
+        return match val {
+            true: "it is true\n"
+            false: "it is false\n"
+        }
+    }
+
+    moreArguments: (message1, message2, option) {
+        match option {
+            true: printMessage(message1)
+            false: printMessage(message2)
+        }
+    }
+}

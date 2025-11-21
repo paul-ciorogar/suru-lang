@@ -1,0 +1,25 @@
+PROGRAM
+  COMMENT: // Test basic function with no parameters
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: greet
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"Hello\\n\"
+      NEWLINE
+  NEWLINE
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: greet
+        ARG_LIST
+      NEWLINE
+  NEWLINE

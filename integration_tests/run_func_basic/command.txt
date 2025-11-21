@@ -1,0 +1,1 @@
+run integration_tests/run_func_basic/func_basic.suru

@@ -1,0 +1,37 @@
+PROGRAM
+  COMMENT: // Test boolean literals
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: isTrue
+        BOOLEAN_LITERAL
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: isFalse
+        BOOLEAN_LITERAL
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: isTrue
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: isFalse
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+  NEWLINE

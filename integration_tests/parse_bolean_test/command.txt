@@ -1,0 +1,1 @@
+parse integration_tests/parse_bolean_test/boolean_test.suru

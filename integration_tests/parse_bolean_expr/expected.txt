@@ -1,0 +1,211 @@
+PROGRAM
+  COMMENT: // Test boolean expressions with and, or, not
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: a
+        BOOLEAN_LITERAL
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: b
+        BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      COMMENT: // Test simple not
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: notA
+        NOT_EXPR
+          IDENTIFIER: a
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: notB
+        NOT_EXPR
+          IDENTIFIER: b
+      NEWLINE
+      NEWLINE
+      COMMENT: // Test and
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: aAndB
+        AND_EXPR
+          IDENTIFIER: a
+          IDENTIFIER: b
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: aAndNotB
+        AND_EXPR
+          IDENTIFIER: a
+          NOT_EXPR
+            IDENTIFIER: b
+      NEWLINE
+      NEWLINE
+      COMMENT: // Test or
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: aOrB
+        OR_EXPR
+          IDENTIFIER: a
+          IDENTIFIER: b
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: bOrA
+        OR_EXPR
+          IDENTIFIER: b
+          IDENTIFIER: a
+      NEWLINE
+      NEWLINE
+      COMMENT: // Test complex expression
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: complex
+        NOT_EXPR
+          OR_EXPR
+            IDENTIFIER: a
+            AND_EXPR
+              IDENTIFIER: b
+              BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      COMMENT: // Print results
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"a: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: a
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"b: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: b
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"notA: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: notA
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"notB: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: notB
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"aAndB: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: aAndB
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"aAndNotB: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: aAndNotB
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"aOrB: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: aOrB
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"bOrA: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: bOrA
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"complex: \"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: complex
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+  NEWLINE

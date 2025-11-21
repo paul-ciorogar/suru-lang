@@ -1,0 +1,58 @@
+PROGRAM
+  COMMENT: // Test match statement with boolean values
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: someVal
+        BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      MATCH_STMT
+        MATCH_EXPR
+          IDENTIFIER: someVal
+          NEWLINE
+          MATCH_ARM
+            BOOLEAN_LITERAL
+            CALL_EXPR
+              IDENTIFIER: print
+              ARG_LIST
+                STRING_LITERAL: \"Yes\\n\"
+          NEWLINE
+          MATCH_ARM
+            BOOLEAN_LITERAL
+            CALL_EXPR
+              IDENTIFIER: print
+              ARG_LIST
+                STRING_LITERAL: \"No\\n\"
+          NEWLINE
+      NEWLINE
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: someVal
+        BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      MATCH_STMT
+        MATCH_EXPR
+          IDENTIFIER: someVal
+          NEWLINE
+          MATCH_ARM
+            BOOLEAN_LITERAL
+            CALL_EXPR
+              IDENTIFIER: print
+              ARG_LIST
+                STRING_LITERAL: \"Yes\\n\"
+          NEWLINE
+          MATCH_ARM
+            BOOLEAN_LITERAL
+            CALL_EXPR
+              IDENTIFIER: print
+              ARG_LIST
+                STRING_LITERAL: \"No\\n\"
+          NEWLINE
+      NEWLINE
+  NEWLINE

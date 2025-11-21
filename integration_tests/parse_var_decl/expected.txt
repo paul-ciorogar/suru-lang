@@ -1,0 +1,18 @@
+PROGRAM
+  COMMENT: // Test variable declarations
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: message
+        STRING_LITERAL: \"Hello from a variable!\\n\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: message
+      NEWLINE
+  NEWLINE

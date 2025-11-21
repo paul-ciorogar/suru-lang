@@ -1,6 +1,7 @@
 #include "ast.h"
 #include "arena.h"
 #include "array.h"
+#include "symbol_table.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,6 +13,11 @@ AST *create_ast(Arena *arena) {
 
     ast->nodes = array_init(sizeof(ASTNode));
     if (!ast->nodes) {
+        return NULL;
+    }
+
+    ast->symbols = create_symbol_table(arena);
+    if (!ast->symbols) {
         return NULL;
     }
 

@@ -1,0 +1,1 @@
+run integration_tests/run_var_decl/var_test.suru

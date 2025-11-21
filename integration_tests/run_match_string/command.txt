@@ -1,0 +1,1 @@
+run integration_tests/run_match_string/match_string.suru

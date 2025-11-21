@@ -1,0 +1,114 @@
+PROGRAM
+  COMMENT: // Test nested function declarations
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: printMessage
+    PARAM_LIST
+      PARAM
+        IDENTIFIER: message
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: message
+      NEWLINE
+  NEWLINE
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: printMessage
+        ARG_LIST
+          STRING_LITERAL: \"Testing nested functions\\n\"
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          CALL_EXPR
+            IDENTIFIER: isItTrue
+            ARG_LIST
+              BOOLEAN_LITERAL
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          CALL_EXPR
+            IDENTIFIER: isItTrue
+            ARG_LIST
+              BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: moreArguments
+        ARG_LIST
+          STRING_LITERAL: \"yes\\n\"
+          STRING_LITERAL: \"no\\n\"
+          BOOLEAN_LITERAL
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: moreArguments
+        ARG_LIST
+          STRING_LITERAL: \"yes\\n\"
+          STRING_LITERAL: \"no\\n\"
+          BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      FUNCTION_DECL
+        IDENTIFIER: isItTrue
+        PARAM_LIST
+          PARAM
+            IDENTIFIER: val
+        BLOCK
+          NEWLINE
+          RETURN_STMT
+            MATCH_EXPR
+              IDENTIFIER: val
+              NEWLINE
+              MATCH_ARM
+                BOOLEAN_LITERAL
+                STRING_LITERAL: \"it is true\\n\"
+              NEWLINE
+              MATCH_ARM
+                BOOLEAN_LITERAL
+                STRING_LITERAL: \"it is false\\n\"
+              NEWLINE
+          NEWLINE
+      NEWLINE
+      NEWLINE
+      FUNCTION_DECL
+        IDENTIFIER: moreArguments
+        PARAM_LIST
+          PARAM
+            IDENTIFIER: message1
+          PARAM
+            IDENTIFIER: message2
+          PARAM
+            IDENTIFIER: option
+        BLOCK
+          NEWLINE
+          MATCH_STMT
+            MATCH_EXPR
+              IDENTIFIER: option
+              NEWLINE
+              MATCH_ARM
+                BOOLEAN_LITERAL
+                CALL_EXPR
+                  IDENTIFIER: printMessage
+                  ARG_LIST
+                    IDENTIFIER: message1
+              NEWLINE
+              MATCH_ARM
+                BOOLEAN_LITERAL
+                CALL_EXPR
+                  IDENTIFIER: printMessage
+                  ARG_LIST
+                    IDENTIFIER: message2
+              NEWLINE
+          NEWLINE
+      NEWLINE
+  NEWLINE

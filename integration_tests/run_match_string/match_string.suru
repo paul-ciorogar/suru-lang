@@ -1,0 +1,20 @@
+// Test string pattern matching with wildcard
+main: () {
+	day: "Monday"
+
+	result: match day {
+		"Monday": "Yes, it's Monday\n"
+		_: "No, maybe tomorrow\n"
+	}
+
+	print(result)
+
+	day: "Friday"
+
+	result: match day {
+		"Monday": "Yes, it's Monday\n"
+		_: "No, maybe tomorrow\n"
+	}
+
+	print(result)
+}

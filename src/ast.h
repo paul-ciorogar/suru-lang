@@ -4,6 +4,7 @@
 #include "array.h"
 #include "arena.h"
 #include "lexer.h"
+#include "symbol_table.h"
 
 // AST node types - semantic nodes only (no formatting)
 typedef enum {
@@ -17,6 +18,7 @@ typedef enum {
     // Statements
     AST_VAR_DECL,
     AST_MATCH_STMT,      // match statement
+    AST_RETURN_STMT,     // return statement
 
     // Expressions
     AST_CALL_EXPR,
@@ -59,9 +61,10 @@ typedef struct {
 
 // AST tree structure
 typedef struct {
-    Array *nodes;     // Array of ASTNode
-    Arena *arena;     // Arena for memory allocation
-    int root;         // Index of root node (-1 if empty)
+    Array *nodes;          // Array of ASTNode
+    Arena *arena;          // Arena for memory allocation
+    int root;              // Index of root node (-1 if empty)
+    SymbolTable *symbols;  // Symbol table for functions and variables
 } AST;
 
 // Create a new AST

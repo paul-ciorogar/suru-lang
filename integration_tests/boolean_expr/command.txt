@@ -1,1 +1,0 @@
-run integration_tests/boolean_expr/boolean_expr.suru

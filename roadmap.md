@@ -24,9 +24,6 @@
   - Simple expressions (logical)
   - Value matching
   - Default case (`_`)
-  - Member access patterns (`.equals()`)
-- **Method Calls**: Dot notation for methods
-- **Built-in Methods**: Basic string and number methods
 - **Milestone**: Run programs using pattern matching for control flow
 
 ### v0.3.0 - Functions & Lexical Scoping
@@ -50,6 +47,8 @@
 - **Structural Typing**: Type compatibility by shape, not name
 - **Type Checking**: Structural equivalence checking
 - **Better Error Messages**: Type mismatch explanations
+- **Method Calls**: Dot notation for methods
+- **Built-in Methods**: Basic string and number methods
 - **Milestone**: Run programs using structural typing with multiple record types
 
 ### v0.5.0 - Advanced Types & Composition
@@ -238,12 +237,9 @@ main: () {
 
 **Not Included (Future Work):**
 - Type annotations (explicit types)
-- Expressions as values (arithmetic, etc.) - only literals for now
 - Global/file-scope constants
 - Nested scopes/shadowing
 - Numbers, booleans, or other value types
-
-**All Tests**: ✅ Passing (5/5 integration tests)
 
 ---
 
@@ -297,11 +293,7 @@ main: () {
 - Expression tree built using stack-based postfix evaluation
 - All operators stored as specific node types (not generic operator nodes)
 
-**All Tests**: ✅ Passing (7/7 integration tests)
-
 ---
-
-## Development Log
 
 ### 2025-10-23 - Pattern Matching Implementation (v0.2.0 Progress)
 
@@ -445,3 +437,66 @@ main: () {
 - Step-based parser state machine provides clearer multi-stage parsing
 - Consistent pattern between match expressions and statements
 - Improved code maintainability and extensibility
+
+---
+
+### 2025-11-21 - Functions with Parameters and Return Values (v0.3.0 Milestone)
+
+**Implemented**: Full function support with parameters, return statements, nested declarations, and symbol table management.
+
+**Changes**:
+
+- **Symbol Table** (NEW: src/symbol_table.h, src/symbol_table.c):
+  - Added symbol table for tracking function definitions and scoping
+  - Supports function parameter tracking and lookup
+  - Foundation for lexical scoping implementation
+
+- **AST** (src/ast.h, src/ast.c):
+  - Added `AST_RETURN_STMT` node type for return statements
+  - Extended function-related AST node structures
+
+- **Parser** (src/parser.c, src/parser.h):
+  - Function parameter parsing with parameter lists
+  - Return statement parsing
+  - Nested function declaration support
+
+- **Interpreter** (src/interpreter.c, src/interpreter.h):
+  - Function call implementation with argument passing
+  - Return value propagation
+  - Nested function scope management
+  - Match expressions can now return values from function calls
+
+- **Integration Tests**:
+  - Reorganized all tests into `parse_*` and `run_*` variants
+  - Added `parse_func_basic` / `run_func_basic`: Functions without parameters
+  - Added `parse_func_params` / `run_func_params`: Functions with parameters and return values
+  - Added `parse_func_nested` / `run_func_nested`: Nested function declarations with closures
+
+**Examples**:
+```suru
+// Basic function
+greet: () {
+    print("Hello\n")
+}
+
+// Function with parameters and return value
+isMonday: (val) {
+    return match val {
+        "Monday": true
+        _: false
+    }
+}
+
+// Nested functions
+main: () {
+    isItTrue: (val) {
+        return match val {
+            true: "it is true\n"
+            false: "it is false\n"
+        }
+    }
+
+    print(isItTrue(true))  // Output: it is true
+}
+```
+

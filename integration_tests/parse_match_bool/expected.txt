@@ -1,0 +1,34 @@
+PROGRAM
+  COMMENT: // Test boolean pattern matching
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: isTrue
+        BOOLEAN_LITERAL
+      NEWLINE
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: result
+        MATCH_EXPR
+          IDENTIFIER: isTrue
+          NEWLINE
+          MATCH_ARM
+            BOOLEAN_LITERAL
+            STRING_LITERAL: \"Yes\\n\"
+          NEWLINE
+          MATCH_ARM
+            BOOLEAN_LITERAL
+            STRING_LITERAL: \"No\\n\"
+          NEWLINE
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: result
+      NEWLINE
+  NEWLINE

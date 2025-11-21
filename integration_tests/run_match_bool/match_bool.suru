@@ -1,0 +1,11 @@
+// Test boolean pattern matching
+main: () {
+	isTrue: true
+
+	result: match isTrue {
+		true: "Yes\n"
+		false: "No\n"
+	}
+
+	print(result)
+}

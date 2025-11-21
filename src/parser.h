@@ -10,12 +10,17 @@
 // Parser state machine states
 typedef enum {
     PARSE,                  // Top-level parsing
-    PARSE_STATEMENT,        // Parse any statement (variable decl, call expr, etc.)
+    PARSE_STATEMENT,        // Parse statement (variable decl, call expr)
     PARSE_FUNCTION_DECL,    // Parsing function declaration
     PARSE_VAR_DECL,         // Parsing variable declaration
     PARSE_PARAM_LIST,       // Parsing parameter list
     PARSE_BLOCK,            // Parsing block statements
+    PARSE_RETURN_STATEMENT, // Parsing return statement
     PARSE_EXPRESSION,       // Parsing expressions
+    PARSE_BINARY_EXPRESSION, // Parsing binary operator (left-to-right grouping)
+    PARSE_UNARY_OPERATOR,   // Parsing unary operator expression
+    PARSE_CALL_STATEMENT,   // Parsing call statement
+    PARSE_CALL_EXPRESSION,  // Parsing call expressions
     PARSE_CALL_ARGS,        // Parsing function call arguments
     PARSE_MATCH_EXPR,       // Parsing match expression
     PARSE_MATCH_STMT,       // Parsing match statement
@@ -24,10 +29,10 @@ typedef enum {
 // Stack frame for parsing
 typedef struct {
     ParserState state;
-    int parent_node_idx;      // Index of parent node in parse tree
-    int current_node_idx;     // Index of node being built (-1 if none)
-    int precedence;           // Operator precedence level for expression parsing
-    int step;                 // Current step within this state (for multi-step parsing)
+    int parent_node_idx;  // Index of parent node in parse tree
+    int current_node_idx; // Index of node being built (-1 if none)
+    int precedence;       // Operator precedence level for expression parsing
+    int step;             // Current step within this state (for multi-step parsing)
 } ParserStackFrame;
 
 typedef struct ParserError {
@@ -48,7 +53,10 @@ typedef struct Parser {
     Lexer *lexer;
     ParserErrors *errors;
     ParseTree *tree;
-    Array *stack;  // Stack of ParserStackFrame
+    Array *stack;       // Stack of ParserStackFrame
+    Array *token_stack; // Stack of currently unused tokens
+    Array *temp_nodes;  // Temporary node list used for parsing expressions
+    Array *expr_stack;  // Expression stack (stores node indices during expression parsing)
 } Parser;
 
 Parser *create_parser(Arena *arena, Lexer *lexer);

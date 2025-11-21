@@ -1,0 +1,5 @@
+// Test variable declarations
+main: () {
+	message: "Hello from a variable!\n"
+	print(message)
+}

@@ -19,6 +19,7 @@ typedef enum {
     NODE_MATCH_EXPR,     // match expression
     NODE_MATCH_STMT,     // match statement
     NODE_MATCH_ARM,      // match arm (pattern: expression)
+    NODE_RETURN_STMT,    // return statement
 
     // Expression nodes - binary operations
     NODE_AND_EXPR,       // and

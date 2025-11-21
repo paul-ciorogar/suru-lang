@@ -160,6 +160,23 @@ rd/            - Research & development / experimental code
 - The lexer handles complex string interpolation state - be careful modifying `in_string_interpolation` and `brace_depth`
 - Parser error recovery is not yet implemented - currently fails on first error
 
+### Debugging the Parser
+
+The parser includes optional debug logging to help diagnose infinite loops or understand parser flow:
+
+1. Edit `src/parser.c` and uncomment the `#define DEBUG_PARSER_LOOP` line at the top
+2. Rebuild: `./builder`
+3. Run any parse command to see detailed loop iteration output
+
+Debug output shows:
+- Iteration count
+- Parser state ID
+- Current step within state
+- Stack depth
+- Current token type
+
+The debug mode also includes an iteration limit (1000) that breaks the loop if exceeded, helping catch infinite loops early.
+
 ## Common Tasks
 
 **Adding a new token type**:

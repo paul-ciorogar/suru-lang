@@ -9,6 +9,7 @@ typedef struct {
     Arena *arena;
     ParseTree *parse_tree;
     AST *ast;
+    int current_scope_id;  // Current scope ID for symbol table
 } ASTBuildContext;
 
 // Forward declaration
@@ -40,6 +41,8 @@ static int map_node_type(ParseNodeType parse_type) {
         return AST_MATCH_STMT;
     case NODE_MATCH_ARM:
         return AST_MATCH_ARM;
+    case NODE_RETURN_STMT:
+        return AST_RETURN_STMT;
     case NODE_AND_EXPR:
         return AST_AND_EXPR;
     case NODE_OR_EXPR:
@@ -111,7 +114,46 @@ static int convert_node(ASTBuildContext *ctx, int parse_node_idx) {
 
     int ast_node_idx = add_ast_node(ctx->ast, &ast_node);
 
-    // Recursively convert children
+    // Handle function declarations - add to symbol table
+    if (parse_node->type == NODE_FUNCTION_DECL) {
+        // Get function name (first child should be identifier)
+        ParseNode *first_child = get_node(ctx->parse_tree, parse_node->first_child);
+        if (first_child && first_child->type == NODE_IDENTIFIER) {
+            String *func_name = first_child->token.text;
+            // Add function to symbol table and get its scope ID
+            int func_scope_id = add_function_symbol(ctx->ast->symbols, func_name,
+                                                    ast_node_idx, ctx->current_scope_id);
+
+            // Save current scope, switch to function scope for children
+            int saved_scope = ctx->current_scope_id;
+            ctx->current_scope_id = func_scope_id;
+
+            // Recursively convert children in function scope
+            if (parse_node->first_child != -1) {
+                int child_idx = parse_node->first_child;
+                while (child_idx != -1) {
+                    ParseNode *child = get_node(ctx->parse_tree, child_idx);
+                    if (!child) {
+                        break;
+                    }
+
+                    // Convert child (will skip formatting nodes)
+                    int ast_child_idx = convert_node(ctx, child_idx);
+                    if (ast_child_idx != -1) {
+                        add_ast_child(ctx->ast, ast_node_idx, ast_child_idx);
+                    }
+
+                    child_idx = child->next_sibling;
+                }
+            }
+
+            // Restore parent scope
+            ctx->current_scope_id = saved_scope;
+            return ast_node_idx;
+        }
+    }
+
+    // Recursively convert children for non-function nodes
     if (parse_node->first_child != -1) {
         int child_idx = parse_node->first_child;
         while (child_idx != -1) {
@@ -149,6 +191,7 @@ AST *build_ast_from_parse_tree(Arena *arena, ParseTree *tree) {
     ctx.arena = arena;
     ctx.parse_tree = tree;
     ctx.ast = ast;
+    ctx.current_scope_id = 0;  // Start at global scope
 
     // Convert from root
     int root_idx = convert_node(&ctx, tree->root);

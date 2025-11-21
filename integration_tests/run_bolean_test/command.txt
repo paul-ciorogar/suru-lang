@@ -1,0 +1,1 @@
+run integration_tests/run_bolean_test/boolean_test.suru

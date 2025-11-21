@@ -1,0 +1,60 @@
+PROGRAM
+  COMMENT: // Test string pattern matching with wildcard
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: day
+        STRING_LITERAL: \"Monday\"
+      NEWLINE
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: result
+        MATCH_EXPR
+          IDENTIFIER: day
+          NEWLINE
+          MATCH_ARM
+            STRING_LITERAL: \"Monday\"
+            STRING_LITERAL: \"Yes, it's Monday\\n\"
+          NEWLINE
+          MATCH_ARM
+            MATCH_WILDCARD
+            STRING_LITERAL: \"No, maybe tomorrow\\n\"
+          NEWLINE
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: result
+      NEWLINE
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: day
+        STRING_LITERAL: \"Friday\"
+      NEWLINE
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: result
+        MATCH_EXPR
+          IDENTIFIER: day
+          NEWLINE
+          MATCH_ARM
+            STRING_LITERAL: \"Monday\"
+            STRING_LITERAL: \"Yes, it's Monday\\n\"
+          NEWLINE
+          MATCH_ARM
+            MATCH_WILDCARD
+            STRING_LITERAL: \"No, maybe tomorrow\\n\"
+          NEWLINE
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: result
+      NEWLINE
+  NEWLINE

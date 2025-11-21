@@ -1,0 +1,106 @@
+PROGRAM
+  COMMENT: // Test functions with parameters and return values
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: printMessage
+    PARAM_LIST
+      PARAM
+        IDENTIFIER: message
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: message
+      NEWLINE
+  NEWLINE
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: coolMessage
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      RETURN_STMT
+        STRING_LITERAL: \"A cool message\\n\"
+      NEWLINE
+  NEWLINE
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: isMonday
+    PARAM_LIST
+      PARAM
+        IDENTIFIER: val
+    BLOCK
+      NEWLINE
+      RETURN_STMT
+        MATCH_EXPR
+          IDENTIFIER: val
+          NEWLINE
+          MATCH_ARM
+            STRING_LITERAL: \"Monday\"
+            BOOLEAN_LITERAL
+          NEWLINE
+          MATCH_ARM
+            MATCH_WILDCARD
+            BOOLEAN_LITERAL
+          NEWLINE
+      NEWLINE
+  NEWLINE
+  NEWLINE
+  FUNCTION_DECL
+    IDENTIFIER: main
+    PARAM_LIST
+    BLOCK
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: printMessage
+        ARG_LIST
+          STRING_LITERAL: \"Hello from function\\n\"
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"isMonday:\\n\"
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: result1
+        CALL_EXPR
+          IDENTIFIER: isMonday
+          ARG_LIST
+            STRING_LITERAL: \"Monday\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: result1
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"isMonday:\\n\"
+      NEWLINE
+      VAR_DECL
+        IDENTIFIER: result2
+        CALL_EXPR
+          IDENTIFIER: isMonday
+          ARG_LIST
+            STRING_LITERAL: \"Friday\"
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          IDENTIFIER: result2
+      NEWLINE
+      CALL_EXPR
+        IDENTIFIER: print
+        ARG_LIST
+          STRING_LITERAL: \"\\n\"
+      NEWLINE
+  NEWLINE

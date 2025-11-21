@@ -1,0 +1,9 @@
+// Test boolean literals
+main: () {
+	isTrue: true
+	isFalse: false
+	print(isTrue)
+	print("\n")
+	print(isFalse)
+	print("\n")
+}
