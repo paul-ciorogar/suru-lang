@@ -35,10 +35,65 @@
 - **Access Rules**: Parameters, local vars, global constants only
 - **Milestone**: Run programs with multiple functions and proper scoping
 
-## Phase 2: Type System & Core Features (v0.4.0 - v0.7.0)
+## Phase 2: Language Server Protocol (LSP) Foundation (v0.4.0 - v0.6.0)
+**Goal**: Establish LSP infrastructure to enable interactive development and IDE support
+
+### v0.4.0 - LSP Server Foundation & Syntax Highlighting
+- **LSP Server Architecture**:
+  - JSON-RPC communication protocol implementation
+  - Message parsing and response handling
+  - Server initialization and capability negotiation
+- **Syntax Highlighting**:
+  - TextMate grammar for Suru syntax
+  - Token classification (keywords, identifiers, strings, numbers, operators)
+  - Support for string interpolation highlighting
+- **Document Management**:
+  - Track open documents and changes
+  - Incremental document sync
+  - Version tracking
+- **Basic Server Lifecycle**: Initialize, shutdown, exit
+- **Milestone**: Suru files display with proper syntax highlighting in LSP-compatible editors
+
+### v0.5.0 - Diagnostics & Error Reporting
+- **Real-time Diagnostics**:
+  - Lexer error reporting (invalid tokens, malformed strings)
+  - Parser error reporting (syntax errors, unexpected tokens)
+  - Error location tracking (line, column, range)
+- **Diagnostic Publishing**:
+  - Push diagnostics to client on file change
+  - Error severity levels (error, warning, info, hint)
+  - Diagnostic messages with helpful context
+- **Multi-file Support**:
+  - Track multiple open documents
+  - Per-document diagnostic caching
+- **Performance Optimization**:
+  - Debouncing for frequent edits
+  - Background parsing
+- **Milestone**: Developers see syntax and parse errors in real-time as they type
+
+### v0.6.0 - Code Completion & Hover Information
+- **Symbol Table Integration**:
+  - Track function definitions and variables
+  - Scope-aware symbol lookup
+  - Build symbol index from parsed AST
+- **Code Completion**:
+  - Complete function names
+  - Complete variable names in scope
+  - Complete keywords (match, return, true, false)
+  - Context-aware suggestions (e.g., only show functions in call position)
+- **Hover Information**:
+  - Show function signatures on hover
+  - Display variable types (when type system is ready)
+  - Show documentation comments (when available)
+- **Signature Help**:
+  - Parameter hints for function calls
+  - Highlight current parameter
+- **Milestone**: Interactive development with autocomplete and inline information
+
+## Phase 3: Type System & Core Features (v0.7.0 - v0.10.0)
 **Goal**: Implement Suru's unique type system and structural typing
 
-### v0.4.0 - Structural Type System
+### v0.7.0 - Structural Type System
 - **Type Definitions**: 
   - Simple types (flags like `type Success`)
   - Type aliases (`type UserId: Number`)
@@ -51,7 +106,7 @@
 - **Built-in Methods**: Basic string and number methods
 - **Milestone**: Run programs using structural typing with multiple record types
 
-### v0.5.0 - Advanced Types & Composition
+### v0.8.0 - Advanced Types & Composition
 - **Type Composition**: Using `+` operator
   - Struct composition
   - Type extension
@@ -63,7 +118,7 @@
 - **Union Types**: Multi-variant types
 - **Milestone**: Run programs with generic collections and type composition working
 
-### v0.6.0 - Collections & Iteration
+### v0.9.0 - Collections & Iteration
 - **Collection Types**: `List<T>`, `Set<T>`, `Map<K,V>`
 - **Unified Syntax**: `[]` for all collections, type-driven interpretation
 - **Collection Methods**: 
@@ -73,30 +128,25 @@
 - **Continuation Types**: `Continue`, `Break<T>`, `Produce<T>`
 - **Milestone**: Run programs with complex data processing with collections
 
-### v0.7.0 - Privacy, Encapsulation & LSP
+### v0.10.0 - Privacy & Encapsulation
 - **Private Members**: `_` prefix for private fields and methods
 - **Public Interface**: Type declarations define public API
 - **Constructor Functions**: Type-named constructors
 - **Instance Methods**: Per-instance implementations
 - **`this` Reference**: Self-reference in methods
-- **Language Server Protocol (LSP)**: Basic implementation
-  - Syntax highlighting
-  - Go to definition
-  - Hover information
-  - Basic diagnostics
-- **Milestone**: Properly encapsulated types with IDE support
+- **Milestone**: Properly encapsulated types with clean public/private separation
 
-## Phase 3: Advanced Language Features (v0.8.0 - v0.10.0)
+## Phase 4: Advanced Language Features (v0.11.0 - v0.13.0)
 **Goal**: Currying, pipelines, and error handling
 
-### v0.8.0 - Currying & Partial Application
+### v0.11.0 - Currying & Partial Application
 - **Placeholder Currying**: Using `_` for partial application
 - **Explicit Partial**: `partial` keyword for many-argument functions
 - **Method Currying**: Currying on type methods
 - **Function Composition**: Curried functions in pipelines
 - **Milestone**: Complex functional programming patterns working
 
-### v0.9.0 - Pipeline Operator & Error Handling
+### v0.12.0 - Pipeline Operator & Error Handling
 - **Pipeline Operator**: `|` for chaining operations
 - **Result Types**: `Result<T, E>`, `Option<T>`, `Response<T, E>`, `Either<L, R>`
 - **Try Operator**: `try` keyword for error short-circuiting
@@ -104,7 +154,7 @@
 - **Pipeline + Try**: Combining operators for clean error handling
 - **Milestone**: Complex data pipelines with proper error propagation
 
-### v0.10.0 - Modules & Organization
+### v0.13.0 - Modules & Organization
 - **Module System**: 
   - Module declarations
   - Import statements (aliased, selective, wildcard)
@@ -114,10 +164,10 @@
 - **Main Function**: Entry point in main module
 - **Milestone**: Multi-file projects with proper module structure
 
-## Phase 4: Polish & Advanced Features (v0.11.0 - v0.13.0)
+## Phase 5: Polish & Advanced Features (v0.14.0 - v0.16.0)
 **Goal**: String interpolation, overloading, and documentation
 
-### v0.11.0 - String Interpolation
+### v0.14.0 - String Interpolation
 - **Basic Interpolation**: Single backtick with `{expr}`
 - **Multi-line Strings**: Backtick followed by newline
 - **Nested Interpolation**: Multiple backtick levels
@@ -127,14 +177,14 @@
 - **Escape Sequences**: `\n`, `\t`, `\xNN`, `\uNNNN`, `\UNNNNNNNN`
 - **Milestone**: Complex string templating and formatting
 
-### v0.12.0 - Function & Method Overloading
+### v0.15.0 - Function & Method Overloading
 - **Function Overloading**: Same name, different parameter types
 - **Return Type Overloading**: Same signature, different return types
 - **Method Overloading**: Overloaded methods in types
 - **Overload Resolution**: Choose correct overload at compile time
 - **Milestone**: Type-safe overloading across the language
 
-### v0.13.0 - Documentation System
+### v0.16.0 - Documentation System
 - **Doc Comments**: Markdown between `====` delimiters
 - **Doc Annotations**: 
   - `@param`, `@return`, `@example`
@@ -143,10 +193,10 @@
 - **Doc Generation**: Extract documentation to readable format
 - **Milestone**: Syntax is final
 
-## Phase 5: Advance LSP features. (v0.14.0)
-**Goal**: add mocking and symulation using LSP commands
+## Phase 6: Advanced LSP Features (v0.17.0)
+**Goal**: Add mocking and simulation using LSP commands
 
-### v0.14.0 - LSP commands
+### v0.17.0 - LSP Commands & Interactive Development
 - **Create LSP specific syntax**:
   - crete usecases
   - navigate or select usecases
@@ -156,10 +206,10 @@
   - navigate through the callstack
 - **Run usecases**: run code with mocked values
 
-## Phase 5: Code Generation (v0.15.0)
+## Phase 7: Code Generation (v0.18.0)
 **Goal**: Native compilation target
 
-### v0.15.0 - x86-64 Linux Code Generation
+### v0.18.0 - x86-64 Linux Code Generation
 - **Assembly Generation**: Emit x86-64 assembly code
 - **Calling Conventions**: System V AMD64 ABI
 - **Register Allocation**: Basic register allocation strategy
@@ -169,10 +219,10 @@
 - **Performance Baseline**: Establish benchmarks vs interpreter
 - **Milestone**: Native executables running on Linux x86-64
 
-## Phase 6: Standard Library & tooling (v0.16.0 - v0.17.0)
-**Goal**: Implement and document a minimal viable standar library
+## Phase 8: Standard Library & Tooling (v0.19.0 - v0.21.0)
+**Goal**: Implement and document a minimal viable standard library
 
-### v0.16.0 - Implementation
+### v0.19.0 - Standard Library Implementation
 - **Standard Library**: 
   - Complete collection implementations
   - String manipulation functions
@@ -184,7 +234,7 @@
 - **Examples**: Real-world example programs
 - **Milestone**: Well-documented standard library and examples
 
-### v0.17.0 - Optimization Pass
+### v0.20.0 - Optimization Pass
 - **Constant Folding**: Compile-time expression evaluation
 - **Dead Code Elimination**: Remove unused functions and types
 - **Type Specialization**: Monomorphization of generics
@@ -192,7 +242,7 @@
 - **Pipeline Optimization**: Optimize chained operations
 - **Milestone**: Significant performance improvements on benchmarks
 
-### v0.18.0 - Refinemnet
+### v0.21.0 - Refinement
 
 - **Documentation**: 
   - Complete language reference

@@ -109,7 +109,7 @@ The builder runs these tests automatically after successful compilation.
 
 **Code Generation** (`src/code_generation.h`, `src/code_generation.c`):
 - Transforms AST into executable code
-- Currently skeletal - targeting x86-64 assembly (planned for v0.14.0)
+- Currently skeletal - targeting x86-64 assembly (planned for v0.18.0)
 - Key function: `generate_code(ASTNode*)` - produces machine code buffer
 
 **I/O Utilities** (`src/io.h`, `src/io.c`):
@@ -126,9 +126,10 @@ Reference `roadmap.md` for detailed implementation phases. Current focus:
 - **v0.3.0**: Functions and lexical scoping
 
 Key upcoming milestones:
-- v0.4.0-v0.7.0: Type system and structural typing
-- v0.8.0-v0.10.0: Currying, pipelines, error handling, modules
-- v0.14.0: Native x86-64 code generation
+- v0.4.0-v0.6.0: LSP foundation (syntax highlighting, diagnostics, code completion)
+- v0.7.0-v0.10.0: Type system and structural typing
+- v0.11.0-v0.13.0: Currying, pipelines, error handling, modules
+- v0.18.0: Native x86-64 code generation
 
 ## Language Features
 
