@@ -550,3 +550,66 @@ main: () {
 }
 ```
 
+---
+
+### 2025-11-21 - LSP Server Foundation (v0.4.0 Milestone)
+
+**Implemented**: Complete Language Server Protocol (LSP) server with JSON-RPC communication, capability negotiation, and text document synchronization.
+
+**Changes**:
+
+- **LSP Infrastructure** (NEW: lsp/json.h, lsp/json.c):
+  - Custom JSON parser and serializer (no external dependencies)
+  - Supports all JSON value types: null, bool, number, string, array, object
+  - Arena-based allocation for zero-copy parsing
+  - Proper string escaping and Unicode handling
+
+- **JSON-RPC Protocol** (NEW: lsp/jsonrpc.h, lsp/jsonrpc.c):
+  - JSON-RPC 2.0 message parsing (request, response, notification, error)
+  - LSP wire protocol with Content-Length headers
+  - stdio-based message I/O with proper CRLF line endings
+  - Message serialization and deserialization
+
+- **LSP Server** (NEW: lsp/server.h, lsp/server.c):
+  - Server lifecycle management (initialize, initialized, shutdown, exit)
+  - Document state tracking with URI-based storage
+  - Text document synchronization (didOpen, didChange, didClose)
+  - Arena-based memory management (main arena + temporary arena per message)
+  - Request routing and handler dispatch
+
+- **Main Entry Point** (src/main.c):
+  - Added `suru lsp` command to start LSP server
+  - Server runs on stdio for editor integration
+
+- **Build System** (builder.c):
+  - Updated to auto-discover source files in `lsp/` directory
+  - Now compiles 18 source files (15 src + 3 lsp)
+
+- **Integration Tests**:
+  - Added `lsp_initialize`: Tests full lifecycle (initialize → initialized → shutdown → exit)
+  - Added `lsp_did_open`: Tests document opening and tracking
+  - All 24 integration tests passing (22 existing + 2 new LSP tests)
+
+**Server Capabilities**:
+- `textDocumentSync`: Full document synchronization
+  - `openClose`: true
+  - `change`: 1 (full sync)
+- Server Info: "suru-lsp" v0.4.0
+
+**Architecture Highlights**:
+- No external dependencies (custom JSON parser)
+- Memory-safe with arena allocation
+- Clean separation: JSON → JSON-RPC → LSP layers
+- Debug logging to stderr, protocol messages to stdout
+
+**Usage**:
+```bash
+# Start LSP server
+./tmpbuild/suru lsp
+
+# Server listens on stdin, writes to stdout
+# Ready for integration with VS Code, Neovim, etc.
+```
+
+**Test Results**: ✅ All 24 integration tests passing
+

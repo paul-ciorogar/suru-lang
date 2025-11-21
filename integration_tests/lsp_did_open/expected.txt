@@ -1,0 +1,14 @@
+LSP: Suru language server starting...
+LSP: Received request: initialize
+LSP: Handling initialize request
+Content-Length: 152
+
+{"jsonrpc":"2.0","result":{"capabilities":{"textDocumentSync":{"openClose":true,"change":1}},"serverInfo":{"name":"suru-lsp","version":"0.4.0"}},"id":1}LSP: Initialize response sent
+LSP: Received notification: initialized
+LSP: Server initialized
+LSP: Failed to parse JSON-RPC message
+LSP: JSON parse error: Unterminated string
+LSP: Failed to parse JSON-RPC message
+LSP: No Content-Length header found
+LSP: Failed to read message, exiting
+LSP: Server shutting down

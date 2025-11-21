@@ -17,6 +17,7 @@ void print_usage(char *program_name) {
     printf("       %s lex <source file>.suru\n", program_name);
     printf("       %s parse <source file>.suru\n", program_name);
     printf("       %s format [--write] <source file>.suru\n", program_name);
+    printf("       %s lsp\n", program_name);
 }
 
 int command_lex(char *source_file) {
@@ -135,6 +136,13 @@ int command_format(char *source_file, int write_to_file) {
     return 0;
 }
 
+int command_lsp() {
+    // LSP server runs on stdio
+    // Forward declaration - implementation in lsp/server.c
+    extern int lsp_server_run();
+    return lsp_server_run();
+}
+
 int command_run(char *source_file) {
     Arena *strings_arena = arena_create(1);
 
@@ -188,6 +196,15 @@ int command_run(char *source_file) {
 }
 
 int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    if (strcmp(argv[1], "lsp") == 0) {
+        return command_lsp();
+    }
+
     if (argc < 3) {
         print_usage(argv[0]);
         return 1;

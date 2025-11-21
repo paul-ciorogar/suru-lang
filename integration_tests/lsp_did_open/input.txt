@@ -1,0 +1,11 @@
+Content-Length: 201
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":"file:///test","capabilities":{"textDocument":{"synchronization":{"didOpen":true,"didChange":true,"didClose":true}}}}}Content-Length: 52
+
+{"jsonrpc":"2.0","method":"initialized","params":{}}Content-Length: 157
+
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///test/hello.suru","languageId":"suru","version":1,"text":"main: () { print(1) }"}}}Content-Length: 44
+
+{"jsonrpc":"2.0","id":2,"method":"shutdown"}Content-Length: 33
+
+{"jsonrpc":"2.0","method":"exit"}

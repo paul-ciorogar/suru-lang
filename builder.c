@@ -289,25 +289,24 @@ int clean_project(BuildConfig *config) {
     return 0;
 }
 
-// Auto-discover C files in src directory
-void discover_source_files(BuildConfig *config) {
-    DIR *dir = opendir("src");
+// Discover C files in a given directory
+void discover_files_in_directory(BuildConfig *config, const char *dir_path) {
+    DIR *dir = opendir(dir_path);
     struct dirent *entry;
 
     if (dir == NULL) {
-        printf("Error: Cannot open src directory\n");
-        printf("Make sure you have a 'src' folder with your C source files.\n");
+        printf("Warning: Cannot open directory %s (skipping)\n", dir_path);
         return;
     }
 
-    printf("Auto-discovering C source files in src/...\n");
+    printf("Auto-discovering C source files in %s/...\n", dir_path);
 
     while ((entry = readdir(dir)) != NULL) {
         char *ext = strrchr(entry->d_name, '.');
         if (ext && strcmp(ext, ".c") == 0) {
-            // Build full path: src/filename.c
+            // Build full path: dir_path/filename.c
             char full_path[MAX_PATH];
-            snprintf(full_path, MAX_PATH, "src/%s", entry->d_name);
+            snprintf(full_path, MAX_PATH, "%s/%s", dir_path, entry->d_name);
 
             add_source_file(config, full_path);
             printf("  Found: %s\n", full_path);
@@ -315,6 +314,12 @@ void discover_source_files(BuildConfig *config) {
     }
 
     closedir(dir);
+}
+
+// Auto-discover C files in src and src/lsp directories
+void discover_source_files(BuildConfig *config) {
+    discover_files_in_directory(config, "src");
+    discover_files_in_directory(config, "src/lsp");
 }
 
 // Initialize default configuration

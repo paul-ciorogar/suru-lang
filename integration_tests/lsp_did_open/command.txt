@@ -1,0 +1,1 @@
+lsp < integration_tests/lsp_did_open/input.txt
