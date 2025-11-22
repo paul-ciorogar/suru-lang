@@ -1,8 +1,14 @@
+#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
+
 #include <dirent.h>
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -18,6 +24,8 @@
 
 #define EXPECTED_FILE "expected.txt"
 #define COMMAND_FILE "command.txt"
+#define TIMEOUT_FILE "timeout.txt"
+#define DEFAULT_TIMEOUT_SECONDS 5
 
 #define DEBUG_FLAGS "-Wall -Wextra -std=c99 -O2 -DNDEBUG"
 #define PRODUCTION_FLAGS "-Wall -Wextra -std=c99 -g -O0"
@@ -422,6 +430,7 @@ void check_and_rebuild_self(const char *source_file, const char *target,
 typedef struct {
     char *test_folder;
     char *command;
+    int timeout_seconds;  // Timeout in seconds, 0 means use default
 } TestCase;
 
 // Linked list node for test cases
@@ -499,6 +508,34 @@ char *read_command_file(const char *test_folder) {
     return command;
 }
 
+// Read timeout from optional timeout.txt file
+// Returns timeout in seconds, or 0 if file doesn't exist or is invalid
+int read_timeout_file(const char *test_folder) {
+    char path[MAX_PATH];
+    snprintf(path, MAX_PATH, "%s/%s", test_folder, TIMEOUT_FILE);
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return 0;  // File doesn't exist, use default
+    }
+
+    char buffer[32];
+    if (!fgets(buffer, sizeof(buffer), f)) {
+        fclose(f);
+        return 0;
+    }
+
+    fclose(f);
+
+    // Parse the timeout value
+    int timeout = atoi(buffer);
+    if (timeout <= 0) {
+        return 0;  // Invalid value, use default
+    }
+
+    return timeout;
+}
+
 TestList *discover_tests(const char *integration_tests_dir) {
     TestList *list = test_list_create();
     if (!list)
@@ -534,11 +571,13 @@ TestList *discover_tests(const char *integration_tests_dir) {
         printf("%s\n", test.test_folder);
 
         test.command = read_command_file(test.test_folder);
+        test.timeout_seconds = read_timeout_file(test.test_folder);
 
         if (test.command != NULL) {
             test_list_append(list, test);
-            printf("Discovered test: %s (command: %s)\n", test.test_folder,
-                   test.command);
+            int timeout = test.timeout_seconds > 0 ? test.timeout_seconds : DEFAULT_TIMEOUT_SECONDS;
+            printf("Discovered test: %s (command: %s, timeout: %ds)\n",
+                   test.test_folder, test.command, timeout);
         } else {
             printf("Skipping %s: no command.txt found\n", test.test_folder);
         }
@@ -617,25 +656,130 @@ int compare_test_output(const TestCase *test) {
 
 int run_single_test(const TestCase *test) {
     char *compile_cmd = build_compile_command(test);
-    printf("  Executing: %s\n", compile_cmd);
+    int timeout = test->timeout_seconds > 0 ? test->timeout_seconds : DEFAULT_TIMEOUT_SECONDS;
 
-    int ret = system(compile_cmd);
+    printf("  Executing: %s (timeout: %ds)\n", compile_cmd, timeout);
+
+    pid_t pid = fork();
+
+    if (pid == -1) {
+        // Fork failed
+        fprintf(stderr, "Failed to fork process: %s\n", strerror(errno));
+        free(compile_cmd);
+        return 0;
+    }
+
+    if (pid == 0) {
+        // Child process - execute the test command
+        execl("/bin/sh", "sh", "-c", compile_cmd, NULL);
+        // If execl returns, it failed
+        fprintf(stderr, "Failed to execute command: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // Parent process - wait with timeout
+    int status;
+    time_t start_time = time(NULL);
+    int process_finished = 0;
+
+    while (1) {
+        pid_t result = waitpid(pid, &status, WNOHANG);
+
+        if (result == pid) {
+            // Process finished
+            process_finished = 1;
+            break;
+        } else if (result == -1) {
+            // Error occurred
+            fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+            break;
+        }
+
+        // Check if timeout exceeded
+        time_t elapsed = time(NULL) - start_time;
+        if (elapsed >= timeout) {
+            printf("  TIMEOUT: Test exceeded %d seconds, killing process...\n", timeout);
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);  // Clean up zombie process
+            free(compile_cmd);
+            return 0;  // Test failed due to timeout
+        }
+
+        // Sleep briefly before checking again
+        usleep(100000);  // 100ms
+    }
 
     free(compile_cmd);
 
+    if (!process_finished) {
+        return 0;  // Test failed
+    }
+
     // Don't fail on non-zero exit code - some tests expect errors
     // Instead, just compare the output
-    (void)ret;  // Unused variable
-
     return compare_test_output(test);
+}
+
+// Get test category for ordering
+// Returns: 0 for parse tests, 1 for run tests, 2 for lsp tests, 3 for others
+int get_test_category(const char *test_name) {
+    if (strncmp(test_name, "parse_", 6) == 0) {
+        return 0;
+    } else if (strncmp(test_name, "run_", 4) == 0) {
+        return 1;
+    } else if (strncmp(test_name, "lsp_", 4) == 0) {
+        return 2;
+    }
+    return 3;
+}
+
+// Comparison function for sorting tests
+int compare_tests(const void *a, const void *b) {
+    const TestCase *test_a = (const TestCase *)a;
+    const TestCase *test_b = (const TestCase *)b;
+
+    // Extract test names from paths
+    const char *name_a = strrchr(test_a->test_folder, '/');
+    name_a = name_a ? name_a + 1 : test_a->test_folder;
+
+    const char *name_b = strrchr(test_b->test_folder, '/');
+    name_b = name_b ? name_b + 1 : test_b->test_folder;
+
+    // First, compare by category
+    int cat_a = get_test_category(name_a);
+    int cat_b = get_test_category(name_b);
+
+    if (cat_a != cat_b) {
+        return cat_a - cat_b;
+    }
+
+    // Within same category, sort alphabetically
+    return strcmp(name_a, name_b);
 }
 
 int run_all_tests(TestList *tests) {
     printf("\n=== Running Integration Tests ===\n\n");
 
+    // Convert linked list to array for sorting
+    TestCase *test_array = malloc(sizeof(TestCase) * tests->count);
+    if (!test_array) {
+        fprintf(stderr, "Failed to allocate memory for test array\n");
+        return 1;
+    }
+
     TestNode *current = tests->head;
+    size_t index = 0;
     while (current) {
-        const TestCase *test = &current->test;
+        test_array[index++] = current->test;
+        current = current->next;
+    }
+
+    // Sort tests by category (parse, run, lsp, others) then alphabetically
+    qsort(test_array, tests->count, sizeof(TestCase), compare_tests);
+
+    // Run sorted tests
+    for (size_t i = 0; i < tests->count; i++) {
+        const TestCase *test = &test_array[i];
 
         // Extract test name from path
         const char *test_name = strrchr(test->test_folder, '/');
@@ -646,13 +790,13 @@ int run_all_tests(TestList *tests) {
         int success = run_single_test(test);
 
         if (!success) {
-            return 0;
+            free(test_array);
+            return 1;  // Return 1 (failure) on test failure
         }
-
-        current = current->next;
     }
 
-    return 1;
+    free(test_array);
+    return 0;  // Return 0 (success) when all tests pass
 }
 
 int run_integration_tests() {
