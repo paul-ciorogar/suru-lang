@@ -29,6 +29,49 @@ These LSP-defined use cases aren't just for development convenience—they infor
    ./builder
    ```
 
+3. **Run the compiler**:
+   ```bash
+   # Run a Suru program
+   ./tmpbuild/suru run <file.suru>
+
+   # Lex (tokenize) a source file
+   ./tmpbuild/suru lex <file.suru>
+
+   # Parse a source file (show AST)
+   ./tmpbuild/suru parse <file.suru>
+
+   # Format a source file (output to stdout)
+   ./tmpbuild/suru format <file.suru>
+
+   # Format and write back to file
+   ./tmpbuild/suru format --write <file.suru>
+
+   # Start the LSP server
+   ./tmpbuild/suru lsp
+   ```
+
+## Environment Variables
+
+The Suru compiler and LSP server support the following environment variables for logging:
+
+- **`SURU_LOG_FILE`** - Path to the log file. If not set, no logging to file occurs.
+- **`SURU_LOG_LEVEL`** - Log level filter. Valid values:
+  - `DEBUG` - Log all messages (debug, info, and errors)
+  - `INFO` - Log info and error messages
+  - `ERROR` - Log only error messages
+  - `NONE` - Disable logging (default)
+
+Example usage:
+```bash
+# Enable debug logging to a file
+export SURU_LOG_FILE=/tmp/suru.log
+export SURU_LOG_LEVEL=DEBUG
+./tmpbuild/suru lsp
+
+# View logs
+tail -f /tmp/suru.log
+```
+
 ## Overview
 
 Suru is designed with modern programming principles in mind, featuring:

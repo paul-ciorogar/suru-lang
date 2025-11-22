@@ -1,16 +1,5 @@
-LSP: Suru language server starting...
-LSP: Received request: initialize
-LSP: Handling initialize request
 Content-Length: 152
 
-{"jsonrpc":"2.0","result":{"capabilities":{"textDocumentSync":{"openClose":true,"change":1}},"serverInfo":{"name":"suru-lsp","version":"0.4.0"}},"id":1}LSP: Initialize response sent
-LSP: Received notification: initialized
-LSP: Server initialized
-LSP: Received request: shutdown
-LSP: Handling shutdown request
-Content-Length: 38
+{"jsonrpc":"2.0","result":{"capabilities":{"textDocumentSync":{"openClose":true,"change":1}},"serverInfo":{"name":"suru-lsp","version":"0.4.0"}},"id":1}Content-Length: 38
 
-{"jsonrpc":"2.0","result":null,"id":2}LSP: Shutdown response sent
-LSP: Received notification: exit
-LSP: Handling exit notification
-LSP: Server shutting down
+{"jsonrpc":"2.0","result":null,"id":2}

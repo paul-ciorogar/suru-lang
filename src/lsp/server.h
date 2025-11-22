@@ -5,28 +5,30 @@
 #include "jsonrpc.h"
 #include "../arena.h"
 
-// Document state
-typedef struct {
+// Arena sizes
+#define TMP_ARENA_SIZE (1024 * 1024)  // 1MB for temporary allocations
+
+// Document state (stored in linked list)
+typedef struct LspDocument {
     char *uri;
     char *content;
     int version;
+    struct LspDocument *next;
 } LspDocument;
 
 // LSP server state
 typedef struct {
-    Arena *arena;
     Arena *temp_arena; // For temporary allocations during message processing
     int initialized;
     int shutdown_requested;
 
-    // Document storage (simple array for now)
-    LspDocument **documents;
+    // Document storage (linked list)
+    LspDocument *documents_head;
     int document_count;
-    int document_capacity;
 } LspServer;
 
 // Server lifecycle
-LspServer *lsp_server_create(Arena *arena);
+LspServer *lsp_server_create();
 int lsp_server_run();
 void lsp_server_shutdown(LspServer *server);
 

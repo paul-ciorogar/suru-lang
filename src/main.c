@@ -5,6 +5,7 @@
 #include "interpreter.h"
 #include "io.h"
 #include "lexer.h"
+#include "log.h"
 #include "parse_tree_printer.h"
 #include "parser.h"
 #include "string_storage.h"
@@ -196,44 +197,43 @@ int command_run(char *source_file) {
 }
 
 int main(int argc, char *argv[]) {
+    // Initialize logging system
+    log_init();
+
     if (argc < 2) {
         print_usage(argv[0]);
+        log_close();
         return 1;
     }
+
+    int result = 0;
 
     if (strcmp(argv[1], "lsp") == 0) {
-        return command_lsp();
-    }
-
-    if (argc < 3) {
+        result = command_lsp();
+    } else if (argc < 3) {
         print_usage(argv[0]);
-        return 1;
-    }
-
-    if (strcmp(argv[1], "run") == 0) {
-        return command_run(argv[2]);
-    }
-
-    if (strcmp(argv[1], "lex") == 0) {
-        return command_lex(argv[2]);
-    }
-
-    if (strcmp(argv[1], "parse") == 0) {
-        return command_parse(argv[2]);
-    }
-
-    if (strcmp(argv[1], "format") == 0) {
+        result = 1;
+    } else if (strcmp(argv[1], "run") == 0) {
+        result = command_run(argv[2]);
+    } else if (strcmp(argv[1], "lex") == 0) {
+        result = command_lex(argv[2]);
+    } else if (strcmp(argv[1], "parse") == 0) {
+        result = command_parse(argv[2]);
+    } else if (strcmp(argv[1], "format") == 0) {
         // Check for --write flag
         if (argc == 4 && strcmp(argv[2], "--write") == 0) {
-            return command_format(argv[3], 1);
+            result = command_format(argv[3], 1);
         } else if (argc == 3) {
-            return command_format(argv[2], 0);
+            result = command_format(argv[2], 0);
         } else {
             print_usage(argv[0]);
-            return 1;
+            result = 1;
         }
+    } else {
+        print_usage(argv[0]);
+        result = 1;
     }
 
-    print_usage(argv[0]);
-    return 1;
+    log_close();
+    return result;
 }

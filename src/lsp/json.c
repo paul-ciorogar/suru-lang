@@ -1,4 +1,5 @@
 #include "json.h"
+#include "../string_builder.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -232,20 +233,38 @@ char *json_parse_string(JsonParser *parser) {
             i++;
             char escape = parser->input[i];
             switch (escape) {
-                case '"': str[j++] = '"'; break;
-                case '\\': str[j++] = '\\'; break;
-                case '/': str[j++] = '/'; break;
-                case 'b': str[j++] = '\b'; break;
-                case 'f': str[j++] = '\f'; break;
-                case 'n': str[j++] = '\n'; break;
-                case 'r': str[j++] = '\r'; break;
-                case 't': str[j++] = '\t'; break;
-                case 'u':
-                    // Simplified: just copy the unicode escape as-is
-                    str[j++] = '\\';
-                    str[j++] = 'u';
-                    break;
-                default: str[j++] = escape; break;
+            case '"':
+                str[j++] = '"';
+                break;
+            case '\\':
+                str[j++] = '\\';
+                break;
+            case '/':
+                str[j++] = '/';
+                break;
+            case 'b':
+                str[j++] = '\b';
+                break;
+            case 'f':
+                str[j++] = '\f';
+                break;
+            case 'n':
+                str[j++] = '\n';
+                break;
+            case 'r':
+                str[j++] = '\r';
+                break;
+            case 't':
+                str[j++] = '\t';
+                break;
+            case 'u':
+                // Simplified: just copy the unicode escape as-is
+                str[j++] = '\\';
+                str[j++] = 'u';
+                break;
+            default:
+                str[j++] = escape;
+                break;
             }
         } else {
             str[j++] = c;
@@ -401,15 +420,18 @@ JsonValue *json_parse_value(JsonParser *parser) {
 
     if (c == '"') {
         char *str = json_parse_string(parser);
-        if (!str) return NULL;
+        if (!str)
+            return NULL;
         return json_string(parser->arena, str);
     } else if (c == '{') {
         JsonObject *obj = json_parse_object(parser);
-        if (!obj) return NULL;
+        if (!obj)
+            return NULL;
         return json_object_value(parser->arena, obj);
     } else if (c == '[') {
         JsonArray *arr = json_parse_array(parser);
-        if (!arr) return NULL;
+        if (!arr)
+            return NULL;
         return json_array(parser->arena, arr);
     } else if (c == 't') {
         if (match_string(parser, "true")) {
@@ -425,7 +447,8 @@ JsonValue *json_parse_value(JsonParser *parser) {
         }
     } else if (c == '-' || isdigit(c)) {
         double num = json_parse_number(parser);
-        if (parser->error) return NULL;
+        if (parser->error)
+            return NULL;
         return json_number(parser->arena, num);
     }
 
@@ -443,57 +466,52 @@ JsonValue *json_parse(JsonParser *parser) {
 
 JsonSerializer *json_serializer_create(Arena *arena) {
     JsonSerializer *serializer = arena_alloc(arena, sizeof(JsonSerializer));
-    serializer->arena = arena;
-    serializer->capacity = 1024;
-    serializer->length = 0;
-    serializer->buffer = arena_alloc(arena, serializer->capacity);
+    serializer->sb = sb_create(1024);
     return serializer;
 }
 
 static void serializer_append(JsonSerializer *serializer, const char *str) {
-    size_t str_len = strlen(str);
-    while (serializer->length + str_len >= serializer->capacity) {
-        size_t new_capacity = serializer->capacity * 2;
-        char *new_buffer = arena_alloc(serializer->arena, new_capacity);
-        memcpy(new_buffer, serializer->buffer, serializer->length);
-        serializer->buffer = new_buffer;
-        serializer->capacity = new_capacity;
-    }
-    memcpy(serializer->buffer + serializer->length, str, str_len);
-    serializer->length += str_len;
+    sb_append(serializer->sb, str);
 }
 
 static void serializer_append_char(JsonSerializer *serializer, char c) {
-    if (serializer->length + 1 >= serializer->capacity) {
-        size_t new_capacity = serializer->capacity * 2;
-        char *new_buffer = arena_alloc(serializer->arena, new_capacity);
-        memcpy(new_buffer, serializer->buffer, serializer->length);
-        serializer->buffer = new_buffer;
-        serializer->capacity = new_capacity;
-    }
-    serializer->buffer[serializer->length++] = c;
+    sb_append_char(serializer->sb, c);
 }
 
 void json_serialize_string(JsonSerializer *serializer, const char *str) {
     serializer_append_char(serializer, '"');
     for (const char *p = str; *p; p++) {
         switch (*p) {
-            case '"': serializer_append(serializer, "\\\""); break;
-            case '\\': serializer_append(serializer, "\\\\"); break;
-            case '\b': serializer_append(serializer, "\\b"); break;
-            case '\f': serializer_append(serializer, "\\f"); break;
-            case '\n': serializer_append(serializer, "\\n"); break;
-            case '\r': serializer_append(serializer, "\\r"); break;
-            case '\t': serializer_append(serializer, "\\t"); break;
-            default:
-                if (*p < 32) {
-                    char buf[7];
-                    snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)*p);
-                    serializer_append(serializer, buf);
-                } else {
-                    serializer_append_char(serializer, *p);
-                }
-                break;
+        case '"':
+            serializer_append(serializer, "\\\"");
+            break;
+        case '\\':
+            serializer_append(serializer, "\\\\");
+            break;
+        case '\b':
+            serializer_append(serializer, "\\b");
+            break;
+        case '\f':
+            serializer_append(serializer, "\\f");
+            break;
+        case '\n':
+            serializer_append(serializer, "\\n");
+            break;
+        case '\r':
+            serializer_append(serializer, "\\r");
+            break;
+        case '\t':
+            serializer_append(serializer, "\\t");
+            break;
+        default:
+            if (*p < 32) {
+                char buf[7];
+                snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)*p);
+                serializer_append(serializer, buf);
+            } else {
+                serializer_append_char(serializer, *p);
+            }
+            break;
         }
     }
     serializer_append_char(serializer, '"');
@@ -529,31 +547,32 @@ void json_serialize_object(JsonSerializer *serializer, JsonObject *obj) {
 
 void json_serialize(JsonSerializer *serializer, JsonValue *value) {
     switch (value->type) {
-        case JSON_NULL:
-            serializer_append(serializer, "null");
-            break;
-        case JSON_BOOL:
-            serializer_append(serializer, value->as.bool_value ? "true" : "false");
-            break;
-        case JSON_NUMBER: {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "%g", value->as.number_value);
-            serializer_append(serializer, buf);
-            break;
-        }
-        case JSON_STRING:
-            json_serialize_string(serializer, value->as.string_value);
-            break;
-        case JSON_ARRAY:
-            json_serialize_array(serializer, value->as.array_value);
-            break;
-        case JSON_OBJECT:
-            json_serialize_object(serializer, value->as.object_value);
-            break;
+    case JSON_NULL:
+        serializer_append(serializer, "null");
+        break;
+    case JSON_BOOL:
+        serializer_append(serializer, value->as.bool_value ? "true" : "false");
+        break;
+    case JSON_NUMBER: {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%g", value->as.number_value);
+        serializer_append(serializer, buf);
+        break;
+    }
+    case JSON_STRING:
+        json_serialize_string(serializer, value->as.string_value);
+        break;
+    case JSON_ARRAY:
+        json_serialize_array(serializer, value->as.array_value);
+        break;
+    case JSON_OBJECT:
+        json_serialize_object(serializer, value->as.object_value);
+        break;
     }
 }
 
 char *json_serializer_get_string(JsonSerializer *serializer) {
-    serializer_append_char(serializer, '\0');
-    return serializer->buffer;
+    // Return the string builder's data
+    // Note: caller should not free this, it's owned by the serializer
+    return serializer->sb->data;
 }

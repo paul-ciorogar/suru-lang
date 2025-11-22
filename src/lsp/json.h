@@ -2,6 +2,7 @@
 #define JSON_H
 
 #include "../arena.h"
+#include "../string_builder.h"
 #include <stddef.h>
 
 // JSON value types
@@ -61,12 +62,9 @@ typedef struct {
     char *error;
 } JsonParser;
 
-// JSON serializer (builds string in buffer)
+// JSON serializer (builds string using StringBuilder)
 typedef struct {
-    Arena *arena;
-    char *buffer;
-    size_t capacity;
-    size_t length;
+    StringBuilder *sb;
 } JsonSerializer;
 
 // Parser functions

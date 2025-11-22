@@ -1,7 +1,75 @@
 #include "jsonrpc.h"
+#include "../log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// ============================================================================
+// Message parsing helpers
+// ============================================================================
+
+static JsonRpcMessage *parse_error_message(Arena *arena, JsonValue *error_value, JsonValue *id_value) {
+    JsonRpcMessage *message = arena_alloc(arena, sizeof(JsonRpcMessage));
+    message->type = JSONRPC_ERROR;
+    message->as.error.id = id_value;
+
+    if (error_value->type != JSON_OBJECT) {
+        fprintf(stderr, "LSP: Invalid error object\n");
+        return NULL;
+    }
+
+    JsonObject *error_obj = error_value->as.object_value;
+    JsonValue *code_val = json_object_get(error_obj, "code");
+    JsonValue *msg_val = json_object_get(error_obj, "message");
+
+    if (!code_val || code_val->type != JSON_NUMBER) {
+        fprintf(stderr, "LSP: Missing or invalid error code\n");
+        return NULL;
+    }
+    if (!msg_val || msg_val->type != JSON_STRING) {
+        fprintf(stderr, "LSP: Missing or invalid error message\n");
+        return NULL;
+    }
+
+    message->as.error.code = (int)code_val->as.number_value;
+    message->as.error.message = msg_val->as.string_value;
+    message->as.error.data = json_object_get(error_obj, "data");
+
+    return message;
+}
+
+static JsonRpcMessage *parse_response_message(Arena *arena, JsonValue *result_value, JsonValue *id_value) {
+    JsonRpcMessage *message = arena_alloc(arena, sizeof(JsonRpcMessage));
+    message->type = JSONRPC_RESPONSE;
+    message->as.response.result = result_value;
+    message->as.response.id = id_value;
+    return message;
+}
+
+static JsonRpcMessage *parse_request_or_notification(Arena *arena, JsonValue *method_value,
+                                                      JsonValue *params_value, JsonValue *id_value) {
+    if (method_value->type != JSON_STRING) {
+        fprintf(stderr, "LSP: Method must be a string\n");
+        return NULL;
+    }
+
+    JsonRpcMessage *message = arena_alloc(arena, sizeof(JsonRpcMessage));
+
+    if (id_value) {
+        // Request (has id)
+        message->type = JSONRPC_REQUEST;
+        message->as.request.method = method_value->as.string_value;
+        message->as.request.params = params_value;
+        message->as.request.id = id_value;
+    } else {
+        // Notification (no id)
+        message->type = JSONRPC_NOTIFICATION;
+        message->as.notification.method = method_value->as.string_value;
+        message->as.notification.params = params_value;
+    }
+
+    return message;
+}
 
 // ============================================================================
 // Message parsing
@@ -12,9 +80,9 @@ JsonRpcMessage *jsonrpc_parse_message(Arena *arena, const char *content, size_t 
     JsonValue *root = json_parse(parser);
 
     if (!root || root->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Failed to parse JSON-RPC message\n");
+        log_error("LSP: Failed to parse JSON-RPC message");
         if (parser->error) {
-            fprintf(stderr, "LSP: JSON parse error: %s\n", parser->error);
+            log_error("LSP: JSON parse error: %s", parser->error);
         }
         return NULL;
     }
@@ -25,7 +93,7 @@ JsonRpcMessage *jsonrpc_parse_message(Arena *arena, const char *content, size_t 
     JsonValue *version = json_object_get(obj, "jsonrpc");
     if (!version || version->type != JSON_STRING ||
         strcmp(version->as.string_value, "2.0") != 0) {
-        fprintf(stderr, "LSP: Invalid or missing jsonrpc version\n");
+        log_error("LSP: Invalid or missing jsonrpc version");
         return NULL;
     }
 
@@ -34,68 +102,18 @@ JsonRpcMessage *jsonrpc_parse_message(Arena *arena, const char *content, size_t 
     JsonValue *result_value = json_object_get(obj, "result");
     JsonValue *error_value = json_object_get(obj, "error");
 
-    JsonRpcMessage *message = arena_alloc(arena, sizeof(JsonRpcMessage));
-
-    // Determine message type
+    // Determine message type and parse
     if (error_value) {
-        // Error response
-        message->type = JSONRPC_ERROR;
-        message->as.error.id = id_value;
-
-        if (error_value->type != JSON_OBJECT) {
-            fprintf(stderr, "LSP: Invalid error object\n");
-            return NULL;
-        }
-
-        JsonObject *error_obj = error_value->as.object_value;
-        JsonValue *code_val = json_object_get(error_obj, "code");
-        JsonValue *msg_val = json_object_get(error_obj, "message");
-
-        if (!code_val || code_val->type != JSON_NUMBER) {
-            fprintf(stderr, "LSP: Missing or invalid error code\n");
-            return NULL;
-        }
-        if (!msg_val || msg_val->type != JSON_STRING) {
-            fprintf(stderr, "LSP: Missing or invalid error message\n");
-            return NULL;
-        }
-
-        message->as.error.code = (int)code_val->as.number_value;
-        message->as.error.message = msg_val->as.string_value;
-        message->as.error.data = json_object_get(error_obj, "data");
-
+        return parse_error_message(arena, error_value, id_value);
     } else if (result_value) {
-        // Response
-        message->type = JSONRPC_RESPONSE;
-        message->as.response.result = result_value;
-        message->as.response.id = id_value;
-
+        return parse_response_message(arena, result_value, id_value);
     } else if (method_value) {
-        if (method_value->type != JSON_STRING) {
-            fprintf(stderr, "LSP: Method must be a string\n");
-            return NULL;
-        }
-
         JsonValue *params_value = json_object_get(obj, "params");
-
-        if (id_value) {
-            // Request (has id)
-            message->type = JSONRPC_REQUEST;
-            message->as.request.method = method_value->as.string_value;
-            message->as.request.params = params_value;
-            message->as.request.id = id_value;
-        } else {
-            // Notification (no id)
-            message->type = JSONRPC_NOTIFICATION;
-            message->as.notification.method = method_value->as.string_value;
-            message->as.notification.params = params_value;
-        }
+        return parse_request_or_notification(arena, method_value, params_value, id_value);
     } else {
-        fprintf(stderr, "LSP: Invalid JSON-RPC message structure\n");
+        log_error("LSP: Invalid JSON-RPC message structure");
         return NULL;
     }
-
-    return message;
 }
 
 // ============================================================================

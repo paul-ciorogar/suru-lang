@@ -1,4 +1,5 @@
 #include "server.h"
+#include "../log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,26 +8,29 @@
 // Server lifecycle
 // ============================================================================
 
-LspServer *lsp_server_create(Arena *arena) {
-    LspServer *server = arena_alloc(arena, sizeof(LspServer));
-    server->arena = arena;
-    server->temp_arena = arena_create(1024 * 1024); // 1MB for temporary allocations
+LspServer *lsp_server_create() {
+    LspServer *server = malloc(sizeof(LspServer));
+    if (!server) return NULL;
+
+    server->temp_arena = arena_create(TMP_ARENA_SIZE);
     server->initialized = 0;
     server->shutdown_requested = 0;
 
-    // Initialize document storage
-    server->document_capacity = 16;
+    // Initialize document storage (linked list)
+    server->documents_head = NULL;
     server->document_count = 0;
-    server->documents = arena_alloc(arena, sizeof(LspDocument *) * server->document_capacity);
 
     return server;
 }
 
 int lsp_server_run() {
-    Arena *arena = arena_create(16 * 1024 * 1024); // 16MB for server state
-    LspServer *server = lsp_server_create(arena);
+    LspServer *server = lsp_server_create();
+    if (!server) {
+        log_error("LSP: Failed to create server");
+        return 1;
+    }
 
-    fprintf(stderr, "LSP: Suru language server starting...\n");
+    log_info("LSP: Suru language server starting...");
 
     int exit_requested = 0;
 
@@ -34,7 +38,7 @@ int lsp_server_run() {
         // Read message from stdin
         LspMessage *lsp_message = lsp_read_message(server->temp_arena);
         if (!lsp_message) {
-            fprintf(stderr, "LSP: Failed to read message, exiting\n");
+            log_error("LSP: Failed to read message, exiting");
             break;
         }
 
@@ -42,11 +46,10 @@ int lsp_server_run() {
         JsonRpcMessage *message = jsonrpc_parse_message(
             server->temp_arena,
             lsp_message->content,
-            lsp_message->length
-        );
+            lsp_message->length);
 
         if (!message) {
-            fprintf(stderr, "LSP: Failed to parse JSON-RPC message\n");
+            log_error("LSP: Failed to parse JSON-RPC message");
             continue;
         }
 
@@ -61,12 +64,23 @@ int lsp_server_run() {
 
         // Clear temporary arena for next message
         arena_destroy(server->temp_arena);
-        server->temp_arena = arena_create(1024 * 1024);
+        server->temp_arena = arena_create(TMP_ARENA_SIZE);
     }
 
-    fprintf(stderr, "LSP: Server shutting down\n");
+    log_info("LSP: Server shutting down");
+
+    // Free all documents
+    LspDocument *doc = server->documents_head;
+    while (doc) {
+        LspDocument *next = doc->next;
+        free(doc->uri);
+        free(doc->content);
+        free(doc);
+        doc = next;
+    }
+
     arena_destroy(server->temp_arena);
-    arena_destroy(arena);
+    free(server);
     return 0;
 }
 
@@ -80,58 +94,57 @@ void lsp_server_shutdown(LspServer *server) {
 
 void lsp_handle_message(LspServer *server, JsonRpcMessage *message) {
     switch (message->type) {
-        case JSONRPC_REQUEST: {
-            JsonRpcRequest *request = &message->as.request;
-            const char *method = request->method;
+    case JSONRPC_REQUEST: {
+        JsonRpcRequest *request = &message->as.request;
+        const char *method = request->method;
 
-            fprintf(stderr, "LSP: Received request: %s\n", method);
+        log_debug("LSP: Received request: %s", method);
 
-            if (strcmp(method, "initialize") == 0) {
-                lsp_handle_initialize(server, request);
-            } else if (strcmp(method, "shutdown") == 0) {
-                lsp_handle_shutdown(server, request);
-            } else {
-                fprintf(stderr, "LSP: Unknown request method: %s\n", method);
-                char *error = jsonrpc_serialize_error(
-                    server->temp_arena,
-                    -32601, // Method not found
-                    "Method not found",
-                    request->id
-                );
-                lsp_write_message(error);
-            }
-            break;
+        if (strcmp(method, "initialize") == 0) {
+            lsp_handle_initialize(server, request);
+        } else if (strcmp(method, "shutdown") == 0) {
+            lsp_handle_shutdown(server, request);
+        } else {
+            log_debug("LSP: Unknown request method: %s", method);
+            char *error = jsonrpc_serialize_error(
+                server->temp_arena,
+                -32601, // Method not found
+                "Method not found",
+                request->id);
+            lsp_write_message(error);
         }
+        break;
+    }
 
-        case JSONRPC_NOTIFICATION: {
-            JsonRpcNotification *notification = &message->as.notification;
-            const char *method = notification->method;
+    case JSONRPC_NOTIFICATION: {
+        JsonRpcNotification *notification = &message->as.notification;
+        const char *method = notification->method;
 
-            fprintf(stderr, "LSP: Received notification: %s\n", method);
+        log_debug("LSP: Received notification: %s", method);
 
-            if (strcmp(method, "initialized") == 0) {
-                lsp_handle_initialized(server, notification);
-            } else if (strcmp(method, "exit") == 0) {
-                lsp_handle_exit(server, notification);
-            } else if (strcmp(method, "textDocument/didOpen") == 0) {
-                lsp_handle_text_document_did_open(server, notification);
-            } else if (strcmp(method, "textDocument/didChange") == 0) {
-                lsp_handle_text_document_did_change(server, notification);
-            } else if (strcmp(method, "textDocument/didClose") == 0) {
-                lsp_handle_text_document_did_close(server, notification);
-            } else {
-                fprintf(stderr, "LSP: Unknown notification: %s\n", method);
-            }
-            break;
+        if (strcmp(method, "initialized") == 0) {
+            lsp_handle_initialized(server, notification);
+        } else if (strcmp(method, "exit") == 0) {
+            lsp_handle_exit(server, notification);
+        } else if (strcmp(method, "textDocument/didOpen") == 0) {
+            lsp_handle_text_document_did_open(server, notification);
+        } else if (strcmp(method, "textDocument/didChange") == 0) {
+            lsp_handle_text_document_did_change(server, notification);
+        } else if (strcmp(method, "textDocument/didClose") == 0) {
+            lsp_handle_text_document_did_close(server, notification);
+        } else {
+            log_debug("LSP: Unknown notification: %s", method);
         }
+        break;
+    }
 
-        case JSONRPC_RESPONSE:
-            fprintf(stderr, "LSP: Received response (unexpected from client)\n");
-            break;
+    case JSONRPC_RESPONSE:
+        log_debug("LSP: Received response (unexpected from client)");
+        break;
 
-        case JSONRPC_ERROR:
-            fprintf(stderr, "LSP: Received error (unexpected from client)\n");
-            break;
+    case JSONRPC_ERROR:
+        log_debug("LSP: Received error (unexpected from client)");
+        break;
     }
 }
 
@@ -140,7 +153,7 @@ void lsp_handle_message(LspServer *server, JsonRpcMessage *message) {
 // ============================================================================
 
 void lsp_handle_initialize(LspServer *server, JsonRpcRequest *request) {
-    fprintf(stderr, "LSP: Handling initialize request\n");
+    log_debug("LSP: Handling initialize request");
 
     // Build capabilities object
     JsonObject *capabilities = json_object_create(server->temp_arena);
@@ -165,37 +178,35 @@ void lsp_handle_initialize(LspServer *server, JsonRpcRequest *request) {
     char *response = jsonrpc_serialize_response(
         server->temp_arena,
         json_object_value(server->temp_arena, result),
-        request->id
-    );
+        request->id);
     lsp_write_message(response);
 
-    fprintf(stderr, "LSP: Initialize response sent\n");
+    log_debug("LSP: Initialize response sent");
 }
 
 void lsp_handle_initialized(LspServer *server, JsonRpcNotification *notification) {
     (void)notification; // Unused
     server->initialized = 1;
-    fprintf(stderr, "LSP: Server initialized\n");
+    log_debug("LSP: Server initialized");
 }
 
 void lsp_handle_shutdown(LspServer *server, JsonRpcRequest *request) {
-    fprintf(stderr, "LSP: Handling shutdown request\n");
+    log_debug("LSP: Handling shutdown request");
 
     // Send null response
     char *response = jsonrpc_serialize_response(
         server->temp_arena,
         json_null(server->temp_arena),
-        request->id
-    );
+        request->id);
     lsp_write_message(response);
 
-    fprintf(stderr, "LSP: Shutdown response sent\n");
+    log_debug("LSP: Shutdown response sent");
 }
 
 void lsp_handle_exit(LspServer *server, JsonRpcNotification *notification) {
-    (void)server; // Unused
+    (void)server;       // Unused
     (void)notification; // Unused
-    fprintf(stderr, "LSP: Handling exit notification\n");
+    log_debug("LSP: Handling exit notification");
 }
 
 // ============================================================================
@@ -203,10 +214,12 @@ void lsp_handle_exit(LspServer *server, JsonRpcNotification *notification) {
 // ============================================================================
 
 LspDocument *lsp_server_get_document(LspServer *server, const char *uri) {
-    for (int i = 0; i < server->document_count; i++) {
-        if (strcmp(server->documents[i]->uri, uri) == 0) {
-            return server->documents[i];
+    LspDocument *doc = server->documents_head;
+    while (doc) {
+        if (strcmp(doc->uri, uri) == 0) {
+            return doc;
         }
+        doc = doc->next;
     }
     return NULL;
 }
@@ -215,66 +228,81 @@ void lsp_server_add_document(LspServer *server, const char *uri, const char *con
     // Check if document already exists
     LspDocument *existing = lsp_server_get_document(server, uri);
     if (existing) {
-        fprintf(stderr, "LSP: Document already exists: %s\n", uri);
+        log_debug("LSP: Document already exists: %s", uri);
         return;
     }
 
-    // Expand capacity if needed
-    if (server->document_count >= server->document_capacity) {
-        int new_capacity = server->document_capacity * 2;
-        LspDocument **new_docs = arena_alloc(server->arena, sizeof(LspDocument *) * new_capacity);
-        for (int i = 0; i < server->document_count; i++) {
-            new_docs[i] = server->documents[i];
-        }
-        server->documents = new_docs;
-        server->document_capacity = new_capacity;
+    // Create new document
+    LspDocument *doc = malloc(sizeof(LspDocument));
+    if (!doc) {
+        log_error("LSP: Failed to allocate document");
+        return;
     }
 
-    // Create new document
-    LspDocument *doc = arena_alloc(server->arena, sizeof(LspDocument));
     size_t uri_len = strlen(uri);
-    doc->uri = arena_alloc(server->arena, uri_len + 1);
+    doc->uri = malloc(uri_len + 1);
+    if (!doc->uri) {
+        free(doc);
+        log_error("LSP: Failed to allocate document URI");
+        return;
+    }
     strcpy(doc->uri, uri);
 
     size_t content_len = strlen(content);
-    doc->content = arena_alloc(server->arena, content_len + 1);
+    doc->content = malloc(content_len + 1);
+    if (!doc->content) {
+        free(doc->uri);
+        free(doc);
+        log_error("LSP: Failed to allocate document content");
+        return;
+    }
     strcpy(doc->content, content);
 
     doc->version = version;
+    doc->next = server->documents_head;
+    server->documents_head = doc;
+    server->document_count++;
 
-    server->documents[server->document_count++] = doc;
-    fprintf(stderr, "LSP: Document added: %s (version %d)\n", uri, version);
+    log_debug("LSP: Document added: %s (version %d)", uri, version);
 }
 
 void lsp_server_update_document(LspServer *server, const char *uri, const char *content, int version) {
     LspDocument *doc = lsp_server_get_document(server, uri);
     if (!doc) {
-        fprintf(stderr, "LSP: Cannot update non-existent document: %s\n", uri);
+        log_debug("LSP: Cannot update non-existent document: %s", uri);
         return;
     }
 
-    // Allocate new content
+    // Free old content and allocate new
+    free(doc->content);
     size_t content_len = strlen(content);
-    doc->content = arena_alloc(server->arena, content_len + 1);
+    doc->content = malloc(content_len + 1);
+    if (!doc->content) {
+        log_error("LSP: Failed to allocate updated content");
+        return;
+    }
     strcpy(doc->content, content);
     doc->version = version;
 
-    fprintf(stderr, "LSP: Document updated: %s (version %d)\n", uri, version);
+    log_debug("LSP: Document updated: %s (version %d)", uri, version);
 }
 
 void lsp_server_remove_document(LspServer *server, const char *uri) {
-    for (int i = 0; i < server->document_count; i++) {
-        if (strcmp(server->documents[i]->uri, uri) == 0) {
-            // Shift remaining documents
-            for (int j = i; j < server->document_count - 1; j++) {
-                server->documents[j] = server->documents[j + 1];
-            }
+    LspDocument **curr = &server->documents_head;
+    while (*curr) {
+        LspDocument *doc = *curr;
+        if (strcmp(doc->uri, uri) == 0) {
+            *curr = doc->next;
+            free(doc->uri);
+            free(doc->content);
+            free(doc);
             server->document_count--;
-            fprintf(stderr, "LSP: Document removed: %s\n", uri);
+            log_debug("LSP: Document removed: %s", uri);
             return;
         }
+        curr = &doc->next;
     }
-    fprintf(stderr, "LSP: Cannot remove non-existent document: %s\n", uri);
+    log_debug("LSP: Cannot remove non-existent document: %s", uri);
 }
 
 // ============================================================================
@@ -283,7 +311,7 @@ void lsp_server_remove_document(LspServer *server, const char *uri) {
 
 void lsp_handle_text_document_did_open(LspServer *server, JsonRpcNotification *notification) {
     if (!notification->params || notification->params->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Invalid didOpen params\n");
+        log_error("LSP: Invalid didOpen params");
         return;
     }
 
@@ -291,7 +319,7 @@ void lsp_handle_text_document_did_open(LspServer *server, JsonRpcNotification *n
     JsonValue *text_doc_val = json_object_get(params, "textDocument");
 
     if (!text_doc_val || text_doc_val->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Missing textDocument in didOpen\n");
+        log_error("LSP: Missing textDocument in didOpen");
         return;
     }
 
@@ -303,7 +331,7 @@ void lsp_handle_text_document_did_open(LspServer *server, JsonRpcNotification *n
     if (!uri_val || uri_val->type != JSON_STRING ||
         !text_val || text_val->type != JSON_STRING ||
         !version_val || version_val->type != JSON_NUMBER) {
-        fprintf(stderr, "LSP: Invalid textDocument fields in didOpen\n");
+        log_error("LSP: Invalid textDocument fields in didOpen");
         return;
     }
 
@@ -316,7 +344,7 @@ void lsp_handle_text_document_did_open(LspServer *server, JsonRpcNotification *n
 
 void lsp_handle_text_document_did_change(LspServer *server, JsonRpcNotification *notification) {
     if (!notification->params || notification->params->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Invalid didChange params\n");
+        log_error("LSP: Invalid didChange params");
         return;
     }
 
@@ -326,7 +354,7 @@ void lsp_handle_text_document_did_change(LspServer *server, JsonRpcNotification 
 
     if (!text_doc_val || text_doc_val->type != JSON_OBJECT ||
         !content_changes_val || content_changes_val->type != JSON_ARRAY) {
-        fprintf(stderr, "LSP: Invalid didChange structure\n");
+        log_error("LSP: Invalid didChange structure");
         return;
     }
 
@@ -336,7 +364,7 @@ void lsp_handle_text_document_did_change(LspServer *server, JsonRpcNotification 
 
     if (!uri_val || uri_val->type != JSON_STRING ||
         !version_val || version_val->type != JSON_NUMBER) {
-        fprintf(stderr, "LSP: Invalid textDocument fields in didChange\n");
+        log_error("LSP: Invalid textDocument fields in didChange");
         return;
     }
 
@@ -346,13 +374,13 @@ void lsp_handle_text_document_did_change(LspServer *server, JsonRpcNotification 
     // For full document sync (change = 1), we expect a single change with the full text
     JsonArray *content_changes = content_changes_val->as.array_value;
     if (content_changes->count == 0) {
-        fprintf(stderr, "LSP: No content changes in didChange\n");
+        log_error("LSP: No content changes in didChange");
         return;
     }
 
     JsonValue *change_val = json_array_get(content_changes, 0);
     if (!change_val || change_val->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Invalid content change object\n");
+        log_error("LSP: Invalid content change object");
         return;
     }
 
@@ -360,7 +388,7 @@ void lsp_handle_text_document_did_change(LspServer *server, JsonRpcNotification 
     JsonValue *text_val = json_object_get(change, "text");
 
     if (!text_val || text_val->type != JSON_STRING) {
-        fprintf(stderr, "LSP: Missing text in content change\n");
+        log_error("LSP: Missing text in content change");
         return;
     }
 
@@ -370,7 +398,7 @@ void lsp_handle_text_document_did_change(LspServer *server, JsonRpcNotification 
 
 void lsp_handle_text_document_did_close(LspServer *server, JsonRpcNotification *notification) {
     if (!notification->params || notification->params->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Invalid didClose params\n");
+        log_error("LSP: Invalid didClose params");
         return;
     }
 
@@ -378,7 +406,7 @@ void lsp_handle_text_document_did_close(LspServer *server, JsonRpcNotification *
     JsonValue *text_doc_val = json_object_get(params, "textDocument");
 
     if (!text_doc_val || text_doc_val->type != JSON_OBJECT) {
-        fprintf(stderr, "LSP: Missing textDocument in didClose\n");
+        log_error("LSP: Missing textDocument in didClose");
         return;
     }
 
@@ -386,7 +414,7 @@ void lsp_handle_text_document_did_close(LspServer *server, JsonRpcNotification *
     JsonValue *uri_val = json_object_get(text_doc, "uri");
 
     if (!uri_val || uri_val->type != JSON_STRING) {
-        fprintf(stderr, "LSP: Invalid uri in didClose\n");
+        log_error("LSP: Invalid uri in didClose");
         return;
     }
 
