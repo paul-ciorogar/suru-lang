@@ -1,19 +1,78 @@
 # Suru Lang
 
-A new programming language built with Rust and LLVM.
+A general-purpose, high-level, minimalist, library-driven programming language.
 
-## Overview
+## Core Philosophy
 
-Suru Lang is a programming language compiler project that uses:
-- **Rust** (edition 2024) for the compiler implementation
-- **LLVM 18** for code generation and optimization
+The language prioritizes interactive development, transforming editors into REPL-like environments through LSP integration. Developers can inspect variables, mock dependencies, and define behavioral expectations directly without separate test files. Use cases inform compiler optimization decisions based on actual usage patterns.
+
+**Key principles include:**
+- Minimal syntax with maximum expressiveness
+- Library-based extensibility with granular upgrade paths
+- Interactive development through LSP-first tooling
+- Use cases driving both validation and compilation optimization
+
+## Notable Features
+
+Suru supports clear, readable syntax with minimal punctuation, including:
+- Strong type system with generics
+- Module-based organization
+- Pattern matching for control flow
+- Intersection and union types
+- Method and function overloading/currying
+- Piped values and composition
+- Rich documentation support
+- Advanced string interpolation
+
+## Type System
+
+Suru uses **structural typing**, meaning types are compatible based on shape rather than explicit declarations. The language supports:
+- Unit types (simple flags/states)
+- Type aliases
+- Union types (alternatives)
+- Struct types (records with fields/methods)
+- Intersection types (combining types with `+`)
+- Function types
+- Generic types with constraints
+
+The structural approach enables duck typing—if a type has required methods, it satisfies that interface.
+
+## Memory
+
+Suru manages memory without garbage collection, using a straightforward ownership model:
+
+**Ownership and Move Semantics**
+- Functions take ownership of all values passed to them
+- All values are passed by move by default
+- When a value would be mutated after being passed to a function, the language automatically creates a copy before the move
+- Memory can be shared as long as no mutations occur
+
+**No Shared Mutable State**
+- Mutable state is never shared between scopes
+- When a mutation would cause sharing, Suru duplicates the memory instead
+- All copies are deep copies with no exceptions
+
+**Function Scope**
+- Each function owns all its memory values
+- All values within a function scope are mutable
+- Once a function receives a value, it has complete ownership and can modify it freely
+
+This approach eliminates entire classes of memory-related bugs while keeping the memory model simple and predictable.
+
+## File Structure
+
+Suru files (`.suru` extension) follow this structure:
+1. Module declaration (optional)
+2. Import block (optional)
+3. Export block (optional)
+4. Declarations (types, functions, variables, expressions)
 
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) installed on your system
 - Basic familiarity with Docker and command-line tools
 
-## Quick Start
+## Getting Started
 
 ### 1. Build the Docker Image
 
@@ -311,13 +370,13 @@ When contributing to this project:
 
 All of these can be run inside the Docker container.
 
-## License
-
-[Add your license here]
-
 ## Resources
 
 - [Rust Documentation](https://doc.rust-lang.org/)
 - [LLVM Documentation](https://llvm.org/docs/)
 - [Inkwell Documentation](https://thedan64.github.io/inkwell/)
 - [Docker Documentation](https://docs.docker.com/)
+
+## License
+
+[Add your license here]
