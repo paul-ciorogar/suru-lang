@@ -79,9 +79,39 @@ docker run --rm -v $(pwd):/workspace suru-lang:dev cargo run
 docker run --rm -v $(pwd):/workspace suru-lang:dev ./hello
 ```
 
+### Milestone 3: Lexer Implementation
+- **Date**: 2025-12-12
+- **Details**:
+  - Complete lexer implementation for the Suru language
+  - Project restructured into modular architecture
+
+#### Implementation Highlights
+- **Files**:
+  - `src/lexer.rs` (688 lines) - Complete lexer implementation
+  - `src/codegen.rs` (98 lines) - Extracted LLVM code generation
+  - `src/main.rs` (7 lines) - Minimal entry point
+
+#### Token Types
+- **14 Keywords** (lowercase): module, import, export, return, match, type, try, and, or, not, true, false, this, partial
+- **Numbers**: Binary (0b), Octal (0o), Hex (0x), Decimal, Float with type suffixes (i8, u32, f64, etc.)
+- **Strings**: Standard ("..." or '...') with escape sequences, Interpolated (`...`)
+- **Operators**: : ; , . | * + - ( ) { } [ ] < >
+- **Special**: Underscore (_), Newline, EOF
+
+#### Example Usage
+```rust
+use lexer::lex;
+
+let source = "module main return 42";
+let tokens = lex(source)?;
+
+// Tokens:
+// [Module, Ident("main"), Return, Number(Decimal, "42"), Eof]
+```
+
 ## Project Structure
 ```
-suru-lang-rs/
+suru-lang/
 ├── Cargo.toml          # Rust project manifest with Inkwell dependency
 ├── Cargo.lock          # Dependency lock file
 ├── Dockerfile          # Development environment (Ubuntu 24.04 + Rust + LLVM 18)
@@ -89,10 +119,13 @@ suru-lang-rs/
 ├── README.md           # Project documentation
 ├── progress.md         # This file - development progress log
 └── src/
-    └── main.rs         # Hello world LLVM compiler (98 lines)
+    ├── main.rs         # Entry point (7 lines)
+    ├── codegen.rs      # LLVM code generation module (98 lines)
+    └── lexer.rs        # Lexer implementation (688 lines)
 ```
 
 ## Notes
 - All development is done inside Docker container to ensure consistent LLVM environment
 - LLVM 18 is explicitly used for latest features and stability
 - Inkwell provides safe Rust bindings to LLVM C API
+- Lexer follows Rust best practices with zero-copy design and comprehensive error handling
