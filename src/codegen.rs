@@ -6,6 +6,7 @@ use inkwell::targets::{
 use inkwell::OptimizationLevel;
 use inkwell::AddressSpace;
 use std::path::Path;
+use std::fs;
 
 pub fn generate_hello_world() -> Result<(), Box<dyn std::error::Error>> {
     // A. Setup and Initialization
@@ -73,23 +74,33 @@ pub fn generate_hello_world() -> Result<(), Box<dyn std::error::Error>> {
         )
         .ok_or("Failed to create target machine")?;
 
-    let output_path = Path::new("hello.o");
-    target_machine.write_to_file(&module, FileType::Object, output_path)
+    // Create target/dev directory if it doesn't exist
+    let output_dir = Path::new("target/dev");
+    fs::create_dir_all(output_dir)?;
+
+    let output_path = output_dir.join("hello.o");
+    target_machine.write_to_file(&module, FileType::Object, &output_path)
         .map_err(|e| format!("Failed to write object file: {}", e))?;
 
     println!("Object file written to: {}", output_path.display());
 
     // I. Link to Executable
+    let executable_path = output_dir.join("hello");
     let link_status = std::process::Command::new("clang-18")
-        .args(&["hello.o", "-o", "hello", "-no-pie"])
+        .args(&[
+            output_path.to_str().unwrap(),
+            "-o",
+            executable_path.to_str().unwrap(),
+            "-no-pie"
+        ])
         .status()?;
 
     if !link_status.success() {
         return Err("Linking failed".into());
     }
 
-    println!("Executable created: ./hello");
-    println!("\nRun with: ./hello");
+    println!("Executable created: {}", executable_path.display());
+    println!("\nRun with: {}", executable_path.display());
 
     Ok(())
 }

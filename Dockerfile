@@ -85,5 +85,29 @@ RUN mkdir -p /workspace
 # Run as root to avoid permission issues with mounted volumes
 WORKDIR /workspace
 
+# =============================================================================
+# Section E: Cache Cargo Dependencies
+# =============================================================================
+
+# Copy only Cargo manifest files first to cache dependencies layer
+COPY Cargo.toml Cargo.lock* ./
+
+# Create a dummy source file to build dependencies
+RUN mkdir -p src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "pub mod codegen;" >> src/main.rs && \
+    echo "pub mod lexer;" >> src/main.rs && \
+    mkdir -p src && \
+    echo "pub fn generate_hello_world() -> Result<(), Box<dyn std::error::Error>> { Ok(()) }" > src/codegen.rs && \
+    echo "// lexer module" > src/lexer.rs
+
+# Build dependencies (this layer will be cached unless Cargo.toml changes)
+RUN cargo build --release && \
+    cargo build && \
+    rm -rf src target
+
+# Copy actual source code
+COPY . .
+
 # Default command: interactive bash shell for development
 CMD ["/bin/bash"]
