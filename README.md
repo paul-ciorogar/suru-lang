@@ -336,7 +336,7 @@ Alternative types:
 
 ```suru
 type Status: Success, Error, Loading
-type Value: Int, String, Bool
+type Value: Int64, String, Bool
 ```
 
 ### Struct Types
@@ -357,7 +357,7 @@ Combine types using `+`:
 
 ```suru
 type Employee: Person + {
-    salary Int
+    salary Int64
     department String
 }
 ```
@@ -373,7 +373,7 @@ type AddFunction: (a Number, b Number) Number
 type Predicate: (value String) Bool
 type VoidFunction: () void
 type Identity<T>: (value T) T
-type UnaryOperator: (x Float) Float
+type UnaryOperator: (x Float64) Float64
 ```
 
 ### Generic Types
@@ -383,10 +383,10 @@ Define types that work with multiple specific types:
 // Single type parameter
 type List<T>: {
     items Array<T>
-    size Int
+    size Int64
     
     add: (item T) List<T>
-    get: (index Int) T
+    get: (index Int64) T
     contains: (item T) Bool
     map<R>: (transform R) List<R>
 }
@@ -487,7 +487,7 @@ render: (shape Drawable) String {
 circle Circle: {
     radius: 5.0
     draw: () { return "Drawing circle" }
-    area: () { return 3.14159 * this.radius * this.radius }
+    area: () { return 3.14159.multiply(this.radius.squared()) }
 }
 
 rectangle Rectangle: {
@@ -615,9 +615,9 @@ sort<T: Orderable>: (items List<T>) List<T> {
 ### Function overloading
 ```suru
 // Function overloading (same name, different signatures)
-add: (a Int, b Int) Int { return a + b }
-add: (a Float, b Float) Float { return a + b }
-add: (a Int) Int { return a }
+add: (a Int64, b Int64) Int64 { return a + b }
+add: (a Float64, b Float64) Float64 { return a + b }
+add: (a Int64) Int64 { return a }
 add: (a String, b String) String { return a + b }
 ```
 
@@ -627,9 +627,9 @@ Same as function overloading
 
 ```suru
 type Adds: {
-    add: (a Int, b Int) Int { return a + b }
-    add: (a Float, b Float) Float { return a + b }
-    add: (a Int) Int { return a }
+    add: (a Int64, b Int64) Int64 { return a + b }
+    add: (a Float64, b Float64) Float64 { return a + b }
+    add: (a Int64) Int64 { return a }
     add: (a String, b String) String { return a + b }
 }
 ```
@@ -638,12 +638,12 @@ type Adds: {
 
 ```suru
 // Same function name and parameters, different return types
-parse: (input String) Int {
-    return input.toInt()
+parse: (input String) Int64 {
+    return input.toInt64()
 }
 
-parse: (input String) Float {
-    return input.toFloat()
+parse: (input String) Float64 {
+    return input.toFloat64()
 }
 
 parse: (input String) Bool {
@@ -651,8 +651,8 @@ parse: (input String) Bool {
 }
 
 // Usage - type annotation determines which overload
-intValue Int: parse("123")      // Calls parse: (String) Int
-floatValue Float: parse("3.14") // Calls parse: (String) Float
+intValue Int64: parse("123")      // Calls parse: (String) Int64
+floatValue Float64: parse("3.14") // Calls parse: (String) Float64
 boolValue Bool: parse("true")   // Calls parse: (String) Bool
 ```
 
@@ -766,20 +766,20 @@ Within method implementations, `this` refers to the current instance:
 ```suru
 // Public interface - what consumers see
 type BankAccount: {
-    accountId String
-    deposit: (amount Float) Float
-    withdraw: (amount Float) Float
-    getBalance: () Float
+    accountId: String
+    deposit: (amount Float64) Float64
+    withdraw: (amount Float64) Float64
+    getBalance: () Float64
 }
 
 // Constructor
-BankAccount: (initial Float, id String) BankAccount {
+BankAccount: (initial Float64, id String) BankAccount {
     impl BankAccount: {
         accountId: id
         transactionCount: 0
         _ balance: initial
 
-        deposit: (amount Float) Float {
+        deposit: (amount Float64) Float64 {
             return match this.validate(amount) {  // Call private method
                 true: {
                     this.balance: this.balance.add(amount)
@@ -790,11 +790,11 @@ BankAccount: (initial Float, id String) BankAccount {
             }
         }
 
-        _ validate: (amount Float) Bool {  // Private method implementation
+        _ validate: (amount Float64) Bool {  // Private method implementation
             return amount.greaterThan(0.0)
         }
 
-        _ logTransaction: (type String, amount Float) {
+        _ logTransaction: (type String, amount Float64) {
             // Private logging logic
         }
 
@@ -806,9 +806,9 @@ BankAccount: (initial Float, id String) BankAccount {
 
 // Usage
 account: BankAccount(100.0, "ACC123")
-// account.balance        // ❌ Compile error: not in public interface
-// account.validate(50.0) // ❌ Compile error: private method not accessible
-balance: account.getBalance()  // ✅ OK: public method
+// account.balance        // Compile error: not in public interface
+// account.validate(50.0) // Compile error: private method not accessible
+balance: account.getBalance()  // OK: public method
 ```
 
 ## Currying and Partial Application
@@ -839,15 +839,15 @@ result: 10 | addTwo    // Same as addTwo(10)
 Methods can also be curried:
 
 ```suru
-type BinaryOperation: (a Int, b Int) Int
-type UnaryOperation: (x Int) Int
+type BinaryOperation: (a Number, b Number) Number
+type UnaryOperation: (x Number) Number
 
 type Calculator: {
-    multiply: (a Int, b Int, c Int) Int
+    multiply Number: (a Number, b Number, c Number)
 }
 
 calc Calculator: {
-    multiply: (a Int, b Int, c Int) Int {
+    multiply: (a Number, b Number, c Number) Number {
         return a.multiply(b).multiply(c)
     }
 }
@@ -876,12 +876,12 @@ outerFunction: (x Number) Number {
     localVar: 10
 
     innerFunction: (y Number) Number {
-        // ✅ Can access: y (parameter), constant
-        // ✅ Can access other functions: outerFunction
+        // Can access: y (parameter), constant
+        // Can access other functions: outerFunction
         return y.add(constant)
     }
 
-    // ❌ Cannot access: localVar from outer scope
+    // Cannot access: localVar from outer scope
     // innerFunction: (y Number) Number {
     //     return y.add(localVar)  // ERROR: localVar not in scope
     // }
@@ -914,7 +914,7 @@ Ordered collections that allow duplicates:
 // List creation using [] syntax
 numbers List<Number>: [1, 2, 3, 4, 5]
 names List<String>: ["alice", "bob", "charlie"]
-emptyList List<Float>: []
+emptyList List<Float64>: []
 
 // List building
 extended: numbers
@@ -930,7 +930,7 @@ Unordered collections with unique elements:
 // Set creation - duplicates automatically removed
 uniqueNumbers Set<Number>: [1, 2, 3, 2, 1]  // Results in {1, 2, 3}
 colors Set<String>: ["red", "green", "blue"]
-emptySet Set<Float>: []
+emptySet Set<Float64>: []
 ```
 
 ### Maps
@@ -944,13 +944,13 @@ userAges Map<String, Number>: [
     "charlie": 35
 ]
 
-scores Map<String, Float>: [
+scores Map<String, Float64>: [
     "math": 95.5,
     "science": 87.2,
     "history": 92.1
 ]
 
-emptyMap Map<String, Int>: []
+emptyMap Map<String, Int64>: []
 ```
 
 ### Collection Type Inference
@@ -962,7 +962,7 @@ numbersList List<Number>: [1, 2, 3]        // Creates List
 numbersSet Set<Number>: [1, 2, 3]          // Creates Set  
 
 // Maps require key:value syntax
-mapping Map<Int, String>: [1: "one", 2: "two"]  // Creates Map
+mapping Map<Int64, String>: [1: "one", 2: "two"]  // Creates Map
 ```
 
 ## Control flow statements
@@ -1324,7 +1324,7 @@ area: calculateCircleArea(5.0)
 ```
 @since 1.0.0
 ==========
-calculateCircleArea: (radius Float) Float {
+calculateCircleArea: (radius Float64) Float64 {
     return 3.14159 * radius * radius
 }
 
@@ -1450,9 +1450,7 @@ This will create a development environment with:
 ### 2. Run Interactive Development Container
 
 ```bash
-docker run -it --rm \
-  -v $(pwd):/workspace \
-  suru-lang:dev
+docker run -it --rm -v $(pwd):/workspace suru-lang:dev
 ```
 
 This command:

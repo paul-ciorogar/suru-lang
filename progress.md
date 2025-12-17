@@ -87,9 +87,9 @@ docker run --rm -v $(pwd):/workspace suru-lang:dev ./hello
 
 #### Implementation Highlights
 - **Files**:
-  - `src/lexer.rs` (688 lines) - Complete lexer implementation
-  - `src/codegen.rs` (98 lines) - Extracted LLVM code generation
-  - `src/main.rs` (7 lines) - Minimal entry point
+  - `src/lexer.rs` - Complete lexer implementation
+  - `src/codegen.rs` - Extracted LLVM code generation
+  - `src/main.rs` - Minimal entry point
 
 #### Token Types
 - **14 Keywords** (lowercase): module, import, export, return, match, type, try, and, or, not, true, false, this, partial
@@ -109,6 +109,88 @@ let tokens = lex(source)?;
 // [Module, Ident("main"), Return, Number(Decimal, "42"), Eof]
 ```
 
+### Milestone 4: Stack-Based Parser Implementation
+- **Date**: 2025-12-14
+- **Details**:
+  - Complete stack-based parser with no recursion
+  - First-child/next-sibling AST representation
+  - All nodes stored in single vector for cache efficiency
+
+#### Implementation Highlights
+- **Files**:
+  - `src/ast.rs` - AST data structures with uniform-size nodes
+  - `src/parser.rs` - Stack-based parser with state machine
+  - `src/main.rs` - Updated with parser integration and demo
+
+#### Architecture
+- **Parser Style**: State machine with explicit stack (no recursion)
+- **AST Storage**: Single `Vec<AstNode>` with first-child/next-sibling tree
+- **Tree Structure**: Indices instead of pointers (cache-friendly)
+- **Error Handling**: Fail-fast with precise position information
+
+#### Parser States
+1. `ExpectStatement` - Waiting for identifier or EOF
+2. `ExpectColonAfterIdent` - Expecting `:` after variable name
+3. `ExpectValue` - Expecting literal value (boolean, number, string)
+4. `ExpectStatementEnd` - Expecting newline or EOF
+
+#### Supported Syntax
+Currently parses simple variable declarations:
+```suru
+x: 42
+name: "Alice"
+flag: true
+count: 0xFF
+pi: 3.14159
+```
+
+#### AST Structure Example
+For `x: 42`:
+```
+Program (nodes[0])
+└─ VarDecl (nodes[1])
+   ├─ Ident "x" (nodes[2])
+   └─ LiteralNumber "42" (nodes[3])
+```
+
+#### Node Types
+- `Program` - Root node containing all declarations
+- `VarDecl` - Variable declaration
+- `Ident` - Identifier (terminal)
+- `LiteralBoolean` - Boolean literal (terminal)
+- `LiteralNumber` - Number literal (terminal)
+- `LiteralString` - String literal (terminal)
+
+### Milestone 5: Full Recursive Descent Parser Refactoring
+- **Date**: 2025-12-17
+- **Details**:
+  - Converted from hybrid stack-based/recursive to pure recursive descent parser
+  - Removed state machine and explicit stack completely
+  - Unified depth tracking across all parsing
+  - Simplified codebase by ~80 lines
+- All parsing is recursive (statements and expressions)
+- Depth passed as parameter to each function
+- No state machine or stack
+- Simpler `Parser` struct with no state tracking
+
+
+#### Key Design Decisions
+- **Depth as parameter**: Passed to each recursive function, not stored in struct
+- **Depth increment pattern**: Always call with `depth + 1` when recursing
+- **Unified checking**: Same `check_depth()` used for all recursion
+- **Direct grammar mapping**: Each production rule is a method
+
+#### Updated Method Signatures
+```rust
+// Before
+fn parse_expression(&mut self, min_precedence: u8) -> Result<usize, ParseError>
+
+// After
+fn parse_expression(&mut self, depth: usize, min_precedence: u8) -> Result<usize, ParseError>
+fn parse_var_decl(&mut self, depth: usize) -> Result<usize, ParseError>
+fn parse_statement(&mut self, depth: usize) -> Result<Option<usize>, ParseError>
+```
+
 ## Project Structure
 ```
 suru-lang/
@@ -119,9 +201,11 @@ suru-lang/
 ├── README.md           # Project documentation
 ├── progress.md         # This file - development progress log
 └── src/
-    ├── main.rs         # Entry point (7 lines)
-    ├── codegen.rs      # LLVM code generation module (98 lines)
-    └── lexer.rs        # Lexer implementation (688 lines)
+    ├── main.rs         # Entry point with parser demo
+    ├── codegen.rs      # LLVM code generation module
+    ├── lexer.rs        # Lexer implementation
+    ├── ast.rs          # AST data structures
+    └── parser.rs       # Pure recursive descent parser with depth limiting
 ```
 
 ## Notes
@@ -129,3 +213,6 @@ suru-lang/
 - LLVM 18 is explicitly used for latest features and stability
 - Inkwell provides safe Rust bindings to LLVM C API
 - Lexer follows Rust best practices with zero-copy design and comprehensive error handling
+- Parser uses pure recursive descent approach with depth limiting for safety
+- Recursion depth is configurable for safety and testing (default: 256)
+- AST uses first-child/next-sibling representation for memory efficiency

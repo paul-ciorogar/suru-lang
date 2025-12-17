@@ -112,17 +112,42 @@ pub struct Lexer<'src> {
     pos: usize,
     line: usize,
     column: usize,
+    limits: crate::limits::CompilerLimits,
+    token_count: usize,
 }
 
 impl<'src> Lexer<'src> {
-    pub fn new(source: &'src str) -> Self {
-        Self {
+    pub fn new(source: &'src str) -> Result<Self, LexError> {
+        Self::new_with_limits(source, crate::limits::CompilerLimits::default())
+    }
+
+    pub fn new_with_limits(
+        source: &'src str,
+        limits: crate::limits::CompilerLimits,
+    ) -> Result<Self, LexError> {
+        // Check input size limit
+        if source.len() > limits.max_input_size {
+            return Err(LexError {
+                message: format!(
+                    "Input too large: {} bytes (max: {} bytes). Consider splitting into modules.",
+                    source.len(),
+                    limits.max_input_size
+                ),
+                line: 1,
+                column: 1,
+                pos: 0,
+            });
+        }
+
+        Ok(Self {
             source,
             chars: source.char_indices().peekable(),
             pos: 0,
             line: 1,
             column: 1,
-        }
+            limits,
+            token_count: 0,
+        })
     }
 
     // Character navigation methods
@@ -192,6 +217,20 @@ impl<'src> Lexer<'src> {
     // Main tokenization method
 
     pub fn next_token(&mut self) -> Result<Token, LexError> {
+        // Check token count limit before creating new token
+        if self.token_count >= self.limits.max_token_count {
+            return Err(LexError {
+                message: format!(
+                    "Token limit exceeded: {} tokens (max: {}). File is too complex.",
+                    self.token_count,
+                    self.limits.max_token_count
+                ),
+                line: self.line,
+                column: self.column,
+                pos: self.pos,
+            });
+        }
+
         self.skip_whitespace();
 
         let start_pos = self.pos;
@@ -280,6 +319,9 @@ impl<'src> Lexer<'src> {
             }
         };
 
+        // Increment token count after successful tokenization
+        self.token_count += 1;
+
         Ok(Token {
             kind,
             start: start_pos,
@@ -295,9 +337,22 @@ impl<'src> Lexer<'src> {
         self.consume_char(); // first '/'
 
         if self.peek_char() == Some('/') {
+            let comment_start = self.pos;
+
             // Comment - consume until end of line (including the newline)
             while let Some(c) = self.peek_char() {
                 self.consume_char();
+
+                // Check comment length during consumption
+                let comment_len = self.pos - comment_start;
+                if comment_len > self.limits.max_comment_length {
+                    return Err(self.error(format!(
+                        "Comment too long: {} bytes (max: {} bytes)",
+                        comment_len,
+                        self.limits.max_comment_length
+                    )));
+                }
+
                 if c == '\n' {
                     break;
                 }
@@ -328,6 +383,15 @@ impl<'src> Lexer<'src> {
         }
 
         let text = &self.source[start..self.pos];
+
+        // Check identifier length
+        if text.len() > self.limits.max_identifier_length {
+            return Err(self.error(format!(
+                "Identifier too long: {} bytes (max: {} bytes)",
+                text.len(),
+                self.limits.max_identifier_length
+            )));
+        }
 
         // Keywords cannot start with uppercase
         if first_char.is_ascii_uppercase() {
@@ -490,6 +554,7 @@ impl<'src> Lexer<'src> {
     // String lexing
 
     fn lex_standard_string(&mut self) -> Result<TokenKind, LexError> {
+        let string_start = self.pos;
         let quote = self.consume_char().unwrap(); // " or '
 
         loop {
@@ -516,10 +581,21 @@ impl<'src> Lexer<'src> {
             }
         }
 
+        // Check string length
+        let string_len = self.pos - string_start;
+        if string_len > self.limits.max_string_length {
+            return Err(self.error(format!(
+                "String literal too long: {} bytes (max: {} bytes)",
+                string_len,
+                self.limits.max_string_length
+            )));
+        }
+
         Ok(TokenKind::String(StringKind::Standard))
     }
 
     fn lex_interpolated_string(&mut self) -> Result<TokenKind, LexError> {
+        let string_start = self.pos;
         self.consume_char(); // opening `
 
         loop {
@@ -543,6 +619,16 @@ impl<'src> Lexer<'src> {
             }
         }
 
+        // Check string length
+        let string_len = self.pos - string_start;
+        if string_len > self.limits.max_string_length {
+            return Err(self.error(format!(
+                "String literal too long: {} bytes (max: {} bytes)",
+                string_len,
+                self.limits.max_string_length
+            )));
+        }
+
         Ok(TokenKind::String(StringKind::Interpolated))
     }
 }
@@ -560,7 +646,14 @@ fn is_ident_continue(c: char) -> bool {
 // Public API
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
-    let mut lexer = Lexer::new(source);
+    lex_with_limits(source, crate::limits::CompilerLimits::default())
+}
+
+pub fn lex_with_limits(
+    source: &str,
+    limits: crate::limits::CompilerLimits,
+) -> Result<Vec<Token>, LexError> {
+    let mut lexer = Lexer::new_with_limits(source, limits)?;
     let mut tokens = Vec::new();
 
     loop {
@@ -583,7 +676,7 @@ mod tests {
 
     // Helper
     fn lex_single(source: &str) -> Result<Token, LexError> {
-        Lexer::new(source).next_token()
+        Lexer::new(source)?.next_token()
     }
 
     #[test]
