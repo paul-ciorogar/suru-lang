@@ -59,7 +59,10 @@ Hello, world!
 ### Dependencies
 ```toml
 [dependencies]
-inkwell = { version = "0.6", features = ["llvm18-1"] }
+clap = { version = "4.5", features = ["derive"] }
+inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
 ```
 
 ## Build and Run
@@ -69,14 +72,19 @@ inkwell = { version = "0.6", features = ["llvm18-1"] }
 docker run --rm -v $(pwd):/workspace suru-lang:dev cargo build
 ```
 
-### Run the compiler
+### Run tests
 ```bash
-docker run --rm -v $(pwd):/workspace suru-lang:dev cargo run
+docker run --rm -v $(pwd):/workspace suru-lang:dev cargo test
 ```
 
-### Execute the generated program
+### Parse a Suru file
 ```bash
-docker run --rm -v $(pwd):/workspace suru-lang:dev ./hello
+docker run --rm -v $(pwd):/workspace suru-lang:dev cargo run -- parse test.suru
+```
+
+### Show CLI help
+```bash
+docker run --rm -v $(pwd):/workspace suru-lang:dev cargo run -- --help
 ```
 
 ### Milestone 3: Lexer Implementation
@@ -191,21 +199,91 @@ fn parse_var_decl(&mut self, depth: usize) -> Result<usize, ParseError>
 fn parse_statement(&mut self, depth: usize) -> Result<Option<usize>, ParseError>
 ```
 
+### Milestone 6: CLI Infrastructure & Function Call Support
+- **Date**: 2025-12-18
+- **Details**:
+  - Added complete CLI interface using clap
+  - Implemented function call parsing
+  - Enhanced AST with tree printing methods
+  - Improved compiler limits defaults
+
+#### CLI Implementation
+- **New Module**: `src/cli.rs` - Command-line interface definitions
+- **Dependency**: Added clap 4.5 with derive features
+- **Commands**:
+  - `suru parse <file>` - Parse a Suru source file and print AST
+  - Future: lex, compile, run, lsp commands planned
+- **Error Handling**: Proper exit codes and user-friendly error messages
+
+#### Function Call Parsing
+- **New AST Node**: `FunctionCall` - Represents function invocations
+- **Syntax Support**:
+  - Zero arguments: `print()`
+  - Single argument: `print(42)`
+  - Multiple arguments: `add(1, 2, 3)`
+  - Mixed types: `add(42, x, "test", true)`
+  - Function calls in expressions: `not print()`, `f() and g()`
+- **Design Decisions**:
+  - Nested function calls are **explicitly disallowed** (error: "Nested function calls are not supported") for the moment
+  - Identifiers can be used standalone or as function names
+  - Arguments are comma-separated with optional trailing comma support
+
+#### Example Usage
+```bash
+# Parse a Suru file and display AST
+suru parse test.suru
+```
+
+**Input** (`test.suru`):
+```suru
+x: add(1, 2, 3)
+y: print("hello")
+z: not test(true, false)
+```
+
+**Output**:
+```
+Program
+  VarDecl
+    Ident "x"
+    FunctionCall
+      Ident "add"
+      LiteralNumber "1"
+      LiteralNumber "2"
+      LiteralNumber "3"
+  VarDecl
+    Ident "y"
+    FunctionCall
+      Ident "print"
+      LiteralString ""hello""
+  VarDecl
+    Ident "z"
+    Not
+      FunctionCall
+        Ident "test"
+        LiteralBoolean "true"
+        LiteralBoolean "false"
+```
+
 ## Project Structure
 ```
 suru-lang/
-├── Cargo.toml          # Rust project manifest with Inkwell dependency
+├── Cargo.toml          # Rust project manifest (inkwell, clap, toml, serde)
 ├── Cargo.lock          # Dependency lock file
 ├── Dockerfile          # Development environment (Ubuntu 24.04 + Rust + LLVM 18)
 ├── .dockerignore       # Docker build exclusions
-├── README.md           # Project documentation
+├── README.md           # Language specification and documentation
+├── CLAUDE.md           # Project context and architecture guide
 ├── progress.md         # This file - development progress log
+├── todo.md             # Task tracking for upcoming features
 └── src/
-    ├── main.rs         # Entry point with parser demo
-    ├── codegen.rs      # LLVM code generation module
-    ├── lexer.rs        # Lexer implementation
-    ├── ast.rs          # AST data structures
-    └── parser.rs       # Pure recursive descent parser with depth limiting
+    ├── main.rs         # CLI entry point with command routing
+    ├── cli.rs          # Command-line interface using clap
+    ├── lexer.rs        # Lexer implementation (zero-copy tokenization)
+    ├── parser.rs       # Pure recursive descent parser with function calls
+    ├── ast.rs          # AST data structures with tree utilities
+    ├── limits.rs       # Compiler safety limits (TOML configuration)
+    └── codegen.rs      # LLVM code generation module (skeleton)
 ```
 
 ## Notes

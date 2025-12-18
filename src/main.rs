@@ -1,65 +1,67 @@
 pub mod ast;
+pub mod cli;
 pub mod codegen;
 pub mod lexer;
 pub mod limits;
 pub mod parser;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load compiler limits from project.toml or use defaults
-    let limits = match limits::CompilerLimits::from_project_toml("project.toml") {
-        Ok(l) => {
-            l.validate()?;
-            println!("✓ Loaded limits from project.toml");
-            l
-        }
+use clap::Parser;
+use cli::{Cli, Commands};
+
+fn main() {
+    std::process::exit(match run() {
+        Ok(()) => 0,
         Err(e) => {
-            println!("Using default compiler limits ({})", e.message);
-            limits::CompilerLimits::default()
+            eprintln!("Error: {}", e);
+            1
         }
-    };
+    });
+}
 
-    // Demo parser
-    let source = "x: true or false and true\n";
-    println!("\nParsing source:\n{}\n", source);
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
 
-    // Use new limits-aware API
-    let tokens = lexer::lex_with_limits(source, limits.clone())?;
-    let tokens_for_print = tokens.clone();
-    let ast = parser::parse_with_limits(source, tokens, limits)?;
-
-    println!("Parsed {} nodes in AST", ast.nodes.len());
-    println!("Root node index: {:?}\n", ast.root);
-
-    // Print tree structure
-    if let Some(root_idx) = ast.root {
-        print_tree(&ast, &tokens_for_print, root_idx, 0);
+    match cli.command {
+        Commands::Parse(args) => parse_command(args)?,
     }
 
     Ok(())
 }
 
-// Helper to print tree recursively (just for demo)
-fn print_tree(ast: &ast::Ast, tokens: &[lexer::Token], node_idx: usize, depth: usize) {
-    let node = &ast.nodes[node_idx];
-    let indent = "  ".repeat(depth);
-
-    let text = ast
-        .node_text(node_idx, tokens)
-        .map(|s| format!(" \"{}\"", s))
-        .unwrap_or_default();
-
-    println!("{}{:?}{}", indent, node.node_type, text);
-
-    // Print children
-    if let Some(child_idx) = node.first_child {
-        let mut current = child_idx;
-        loop {
-            print_tree(ast, tokens, current, depth + 1);
-            if let Some(next) = ast.nodes[current].next_sibling {
-                current = next;
-            } else {
-                break;
-            }
+fn parse_command(args: cli::ParseArgs) -> Result<(), Box<dyn std::error::Error>> {
+    // Load compiler limits from project.toml or use defaults
+    let limits = match limits::CompilerLimits::from_project_toml("project.toml") {
+        Ok(l) => {
+            l.validate()?;
+            l
         }
+        Err(_) => {
+            // Silently use defaults
+            limits::CompilerLimits::default()
+        }
+    };
+
+    // Read source file
+    let source = std::fs::read_to_string(&args.file).map_err(|e| {
+        format!("Failed to read '{}': {}", args.file, e)
+    })?;
+
+    // Check input size limit
+    if source.len() > limits.max_input_size {
+        return Err(format!(
+            "Input too large: {} bytes (max: {})",
+            source.len(),
+            limits.max_input_size
+        ).into());
     }
+
+    // Lex and parse
+    let tokens = lexer::lex_with_limits(&source, limits.clone())?;
+    let tokens_for_print = tokens.clone();
+    let ast = parser::parse_with_limits(&source, tokens, limits)?;
+
+    // Print AST tree
+    ast.print_tree(&tokens_for_print);
+
+    Ok(())
 }

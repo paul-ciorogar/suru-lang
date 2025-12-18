@@ -23,6 +23,9 @@ pub enum NodeType {
     Not, // Unary not operation
     And, // Binary and operation
     Or,  // Binary or operation
+
+    // Function call
+    FunctionCall, // Function call expression
 }
 
 // Uniform-size parse tree node using first-child/next-sibling representation
@@ -116,5 +119,47 @@ impl Ast {
         } else {
             None
         }
+    }
+
+    // Print the AST tree structure
+    pub fn print_tree(&self, tokens: &[Token]) {
+        print!("{}", self.tree_string(tokens));
+    }
+
+    // Return the AST tree structure as a string
+    pub fn tree_string(&self, tokens: &[Token]) -> String {
+        if let Some(root_idx) = self.root {
+            self.tree_string_recursive(tokens, root_idx, 0)
+        } else {
+            String::new()
+        }
+    }
+
+    // Helper to format tree recursively as string
+    fn tree_string_recursive(&self, tokens: &[Token], node_idx: usize, depth: usize) -> String {
+        let node = &self.nodes[node_idx];
+        let indent = "  ".repeat(depth);
+
+        let text = self
+            .node_text(node_idx, tokens)
+            .map(|s| format!(" \"{}\"", s))
+            .unwrap_or_default();
+
+        let mut result = format!("{}{:?}{}\n", indent, node.node_type, text);
+
+        // Add children
+        if let Some(child_idx) = node.first_child {
+            let mut current = child_idx;
+            loop {
+                result.push_str(&self.tree_string_recursive(tokens, current, depth + 1));
+                if let Some(next) = self.nodes[current].next_sibling {
+                    current = next;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        result
     }
 }

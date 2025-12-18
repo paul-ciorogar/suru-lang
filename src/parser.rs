@@ -238,6 +238,14 @@ impl<'src> Parser<'src> {
         // Parse left side (primary or unary)
         let mut left_idx = self.parse_primary_or_unary(depth)?;
 
+        // POSTFIX PHASE: Handle function calls
+        // Check if this is a function call (identifier followed by '(')
+        if self.ast.nodes[left_idx].node_type == NodeType::Ident {
+            if self.current_token().kind == TokenKind::LParen {
+                left_idx = self.parse_function_call(depth, left_idx)?;
+            }
+        }
+
         // Handle binary operators with precedence climbing
         loop {
             let token = self.current_token();
@@ -320,13 +328,95 @@ impl<'src> Parser<'src> {
                 Ok(literal_node_idx)
             }
 
+            // Identifiers (for function calls and variable references)
+            TokenKind::Ident => {
+                let ident_node = AstNode::new_terminal(NodeType::Ident, self.current);
+                let ident_node_idx = self.ast.add_node(ident_node);
+                self.current += 1;
+                Ok(ident_node_idx)
+            }
+
             _ => Err(ParseError::unexpected_token(
-                "expression (literal value or 'not')",
+                "expression (literal, identifier, or 'not')",
                 token,
                 self.current,
                 self.source,
             )),
         }
+    }
+
+    /// Parse a function call: identifier(arg1, arg2, ...)
+    /// ident_idx is the index of the already-parsed identifier node
+    /// Returns the FunctionCall node index
+    fn parse_function_call(&mut self, depth: usize, ident_idx: usize) -> Result<usize, ParseError> {
+        self.check_depth(depth)?;
+
+        // Consume '('
+        debug_assert!(self.current_token().kind == TokenKind::LParen);
+        self.current += 1;
+
+        // Create FunctionCall node
+        let call_node = AstNode::new(NodeType::FunctionCall);
+        let call_node_idx = self.ast.add_node(call_node);
+
+        // Add identifier as first child
+        self.ast.add_child(call_node_idx, ident_idx);
+
+        // Parse arguments (comma-separated list)
+        loop {
+            // Check for closing paren (empty args or end of list)
+            if self.current_token().kind == TokenKind::RParen {
+                self.current += 1; // Consume ')'
+                break;
+            }
+
+            // Parse argument
+            let arg_idx = self.parse_function_argument(depth + 1)?;
+            self.ast.add_child(call_node_idx, arg_idx);
+
+            // Check for comma or closing paren
+            let token = self.current_token();
+            match token.kind {
+                TokenKind::Comma => {
+                    self.current += 1; // Consume comma, continue to next argument
+                }
+                TokenKind::RParen => {
+                    self.current += 1; // Consume ')'
+                    break;
+                }
+                _ => {
+                    return Err(ParseError::unexpected_token(
+                        "',' or ')'",
+                        token,
+                        self.current,
+                        self.source,
+                    ));
+                }
+            }
+        }
+
+        Ok(call_node_idx)
+    }
+
+    /// Parse a function call argument
+    /// Uses parse_expression but prevents nested function calls
+    fn parse_function_argument(&mut self, depth: usize) -> Result<usize, ParseError> {
+        self.check_depth(depth)?;
+
+        // Parse the argument as an expression
+        let arg_idx = self.parse_expression(depth + 1, 0)?;
+
+        // Check if it's a function call (nested calls not allowed)
+        if self.ast.nodes[arg_idx].node_type == NodeType::FunctionCall {
+            let token = self.current_token();
+            return Err(ParseError::from_token(
+                "Nested function calls are not supported".to_string(),
+                token,
+                self.current,
+            ));
+        }
+
+        Ok(arg_idx)
     }
 
     // Helper: Get current token (with bounds checking)
@@ -469,7 +559,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("literal value"));
+        assert!(err.message.contains("literal") || err.message.contains("identifier"));
     }
 
     #[test]
@@ -719,6 +809,229 @@ mod tests {
         let tokens = lex(source).unwrap();
         let result = parse(source, tokens, 10);
 
+        assert!(result.is_ok());
+    }
+
+    // === Function Call Tests ===
+
+    #[test]
+    fn test_simple_function_call_no_args() {
+        let source = "x: print()\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    FunctionCall
+      Ident \"print\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_single_arg() {
+        let source = "x: print(42)\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    FunctionCall
+      Ident \"print\"
+      LiteralNumber \"42\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_multiple_args() {
+        let source = "x: add(1, 2, 3)\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    FunctionCall
+      Ident \"add\"
+      LiteralNumber \"1\"
+      LiteralNumber \"2\"
+      LiteralNumber \"3\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_string_arg() {
+        let source = "x: print(\"hello\")\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    FunctionCall
+      Ident \"print\"
+      LiteralString \"\"hello\"\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_boolean_args() {
+        let source = "x: test(true, false)\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    FunctionCall
+      Ident \"test\"
+      LiteralBoolean \"true\"
+      LiteralBoolean \"false\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_identifier_arg() {
+        let source = "y: print(x)\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"y\"
+    FunctionCall
+      Ident \"print\"
+      Ident \"x\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_mixed_args() {
+        let source = "z: add(42, x, \"test\", true)\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"z\"
+    FunctionCall
+      Ident \"add\"
+      LiteralNumber \"42\"
+      Ident \"x\"
+      LiteralString \"\"test\"\"
+      LiteralBoolean \"true\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_standalone_identifier() {
+        let source = "x: y\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    Ident \"y\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_call_with_boolean_expr() {
+        let source = "x: not print()\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    Not
+      FunctionCall
+        Ident \"print\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    #[test]
+    fn test_function_calls_in_boolean_expr() {
+        let source = "x: f() and g()\n";
+        let tokens = lex(source).unwrap();
+        let ast = parse(source, tokens.clone(), 256).unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Ident \"x\"
+    And
+      FunctionCall
+        Ident \"f\"
+      FunctionCall
+        Ident \"g\"
+";
+        assert_eq!(ast.tree_string(&tokens), expected);
+    }
+
+    // === Error Tests ===
+
+    #[test]
+    fn test_error_nested_function_call() {
+        let source = "x: print(add(1, 2))\n";
+        let tokens = lex(source).unwrap();
+        let result = parse(source, tokens, 256);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("Nested function calls are not supported"));
+    }
+
+    #[test]
+    fn test_error_missing_closing_paren() {
+        let source = "x: print(42\n";
+        let tokens = lex(source).unwrap();
+        let result = parse(source, tokens, 256);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("',' or ')'") || err.message.contains("Expected"));
+    }
+
+    #[test]
+    fn test_error_missing_comma() {
+        let source = "x: print(1 2)\n";
+        let tokens = lex(source).unwrap();
+        let result = parse(source, tokens, 256);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("',' or ')'") || err.message.contains("Expected"));
+    }
+
+    #[test]
+    fn test_error_trailing_comma() {
+        let source = "x: print(1, 2,)\n";
+        let tokens = lex(source).unwrap();
+        let result = parse(source, tokens, 256);
+
+        // Trailing commas are currently allowed (parser accepts them without error)
+        // This test verifies current behavior - can be changed if we want to reject trailing commas
         assert!(result.is_ok());
     }
 }

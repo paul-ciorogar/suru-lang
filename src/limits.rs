@@ -32,13 +32,13 @@ pub struct CompilerLimits {
 impl Default for CompilerLimits {
     fn default() -> Self {
         Self {
-            max_input_size: 1_000_000,     // 1 MB
+            max_input_size: 10_000_000,    // 10 MB
             max_token_count: 100_000,      // 100k tokens
             max_identifier_length: 1_000,  // 1k bytes
             max_string_length: 10_000_000, // 10 MB
             max_comment_length: 100_000,   // 100k bytes
-            max_expr_depth: 256,           // Keep current value
-            max_ast_nodes: 1_000_000,      // 1M nodes
+            max_expr_depth: 256,
+            max_ast_nodes: 1_000_000, // 1M nodes
         }
     }
 }
