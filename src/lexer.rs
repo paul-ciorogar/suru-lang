@@ -22,7 +22,7 @@ pub enum TokenKind {
     Partial,
 
     // Identifiers and Literals
-    Ident,
+    Identifier,
     Number(NumberKind),
     String(StringKind),
 
@@ -222,8 +222,7 @@ impl<'src> Lexer<'src> {
             return Err(LexError {
                 message: format!(
                     "Token limit exceeded: {} tokens (max: {}). File is too complex.",
-                    self.token_count,
-                    self.limits.max_token_count
+                    self.token_count, self.limits.max_token_count
                 ),
                 line: self.line,
                 column: self.column,
@@ -247,8 +246,29 @@ impl<'src> Lexer<'src> {
             Some(c) if c.is_ascii_digit() => self.lex_number()?,
             Some('_') => self.lex_underscore_or_ident()?,
             Some(c) if is_ident_start(c) => self.lex_ident_or_keyword()?,
-            Some('"') | Some('\'') => self.lex_standard_string()?,
-            Some('`') => self.lex_interpolated_string()?,
+            Some('"') | Some('\'') => {
+                // String functions now return (kind, content_start, content_end)
+                let (kind, content_start, content_end) = self.lex_standard_string()?;
+                self.token_count += 1;
+                return Ok(Token {
+                    kind,
+                    start: content_start,  // Use content offsets
+                    end: content_end,
+                    line: start_line,
+                    column: start_column,
+                });
+            }
+            Some('`') => {
+                let (kind, content_start, content_end) = self.lex_interpolated_string()?;
+                self.token_count += 1;
+                return Ok(Token {
+                    kind,
+                    start: content_start,  // Use content offsets
+                    end: content_end,
+                    line: start_line,
+                    column: start_column,
+                });
+            }
             Some(':') => {
                 self.consume_char();
                 TokenKind::Colon
@@ -348,8 +368,7 @@ impl<'src> Lexer<'src> {
                 if comment_len > self.limits.max_comment_length {
                     return Err(self.error(format!(
                         "Comment too long: {} bytes (max: {} bytes)",
-                        comment_len,
-                        self.limits.max_comment_length
+                        comment_len, self.limits.max_comment_length
                     )));
                 }
 
@@ -395,12 +414,12 @@ impl<'src> Lexer<'src> {
 
         // Keywords cannot start with uppercase
         if first_char.is_ascii_uppercase() {
-            return Ok(TokenKind::Ident);
+            return Ok(TokenKind::Identifier);
         }
 
         // Length-based filtering: keywords are max 7 chars
         if text.len() > 7 {
-            return Ok(TokenKind::Ident);
+            return Ok(TokenKind::Identifier);
         }
 
         // Match keywords
@@ -419,7 +438,7 @@ impl<'src> Lexer<'src> {
             "false" => TokenKind::False,
             "this" => TokenKind::This,
             "partial" => TokenKind::Partial,
-            _ => TokenKind::Ident,
+            _ => TokenKind::Identifier,
         };
 
         Ok(kind)
@@ -439,7 +458,7 @@ impl<'src> Lexer<'src> {
                         break;
                     }
                 }
-                return Ok(TokenKind::Ident);
+                return Ok(TokenKind::Identifier);
             }
         }
 
@@ -513,8 +532,7 @@ impl<'src> Lexer<'src> {
         self.consume_while(|c| c.is_ascii_digit() || c == '_');
 
         // Check for decimal point
-        if self.peek_char() == Some('.')
-            && self.peek_char2().map_or(false, |c| c.is_ascii_digit())
+        if self.peek_char() == Some('.') && self.peek_char2().map_or(false, |c| c.is_ascii_digit())
         {
             self.consume_char(); // '.'
             self.consume_while(|c| c.is_ascii_digit() || c == '_');
@@ -553,9 +571,10 @@ impl<'src> Lexer<'src> {
 
     // String lexing
 
-    fn lex_standard_string(&mut self) -> Result<TokenKind, LexError> {
-        let string_start = self.pos;
+    fn lex_standard_string(&mut self) -> Result<(TokenKind, usize, usize), LexError> {
+        let string_start = self.pos; // For length checking (includes quotes)
         let quote = self.consume_char().unwrap(); // " or '
+        let content_start = self.pos; // Content starts after opening quote
 
         loop {
             match self.peek_char() {
@@ -572,31 +591,36 @@ impl<'src> Lexer<'src> {
                     }
                 }
                 Some(c) if c == quote => {
-                    self.consume_char();
-                    break;
+                    let content_end = self.pos; // Content ends before closing quote
+                    self.consume_char(); // Consume closing quote
+
+                    // Check string length (total literal including quotes for safety)
+                    let string_len = self.pos - string_start;
+                    if string_len > self.limits.max_string_length {
+                        return Err(self.error(format!(
+                            "String literal too long: {} bytes (max: {} bytes)",
+                            string_len, self.limits.max_string_length
+                        )));
+                    }
+
+                    // Return token kind with content offsets (no quotes)
+                    return Ok((
+                        TokenKind::String(StringKind::Standard),
+                        content_start,
+                        content_end,
+                    ));
                 }
                 Some(_) => {
                     self.consume_char();
                 }
             }
         }
-
-        // Check string length
-        let string_len = self.pos - string_start;
-        if string_len > self.limits.max_string_length {
-            return Err(self.error(format!(
-                "String literal too long: {} bytes (max: {} bytes)",
-                string_len,
-                self.limits.max_string_length
-            )));
-        }
-
-        Ok(TokenKind::String(StringKind::Standard))
     }
 
-    fn lex_interpolated_string(&mut self) -> Result<TokenKind, LexError> {
-        let string_start = self.pos;
+    fn lex_interpolated_string(&mut self) -> Result<(TokenKind, usize, usize), LexError> {
+        let string_start = self.pos; // For length checking (includes backticks)
         self.consume_char(); // opening `
+        let content_start = self.pos; // Content starts after opening backtick
 
         loop {
             match self.peek_char() {
@@ -604,8 +628,24 @@ impl<'src> Lexer<'src> {
                     return Err(self.error("Unterminated interpolated string".into()));
                 }
                 Some('`') => {
-                    self.consume_char();
-                    break;
+                    let content_end = self.pos; // Content ends before closing backtick
+                    self.consume_char(); // Consume closing backtick
+
+                    // Check string length (total literal including backticks for safety)
+                    let string_len = self.pos - string_start;
+                    if string_len > self.limits.max_string_length {
+                        return Err(self.error(format!(
+                            "String literal too long: {} bytes (max: {} bytes)",
+                            string_len, self.limits.max_string_length
+                        )));
+                    }
+
+                    // Return token kind with content offsets (no backticks)
+                    return Ok((
+                        TokenKind::String(StringKind::Interpolated),
+                        content_start,
+                        content_end,
+                    ));
                 }
                 Some('\\') => {
                     self.consume_char();
@@ -618,18 +658,6 @@ impl<'src> Lexer<'src> {
                 }
             }
         }
-
-        // Check string length
-        let string_len = self.pos - string_start;
-        if string_len > self.limits.max_string_length {
-            return Err(self.error(format!(
-                "String literal too long: {} bytes (max: {} bytes)",
-                string_len,
-                self.limits.max_string_length
-            )));
-        }
-
-        Ok(TokenKind::String(StringKind::Interpolated))
     }
 }
 
@@ -698,16 +726,16 @@ mod tests {
         assert_eq!(lex_single("partial").unwrap().kind, TokenKind::Partial);
 
         // Uppercase first letter should be identifiers
-        assert_eq!(lex_single("Module").unwrap().kind, TokenKind::Ident);
-        assert_eq!(lex_single("MODULE").unwrap().kind, TokenKind::Ident);
+        assert_eq!(lex_single("Module").unwrap().kind, TokenKind::Identifier);
+        assert_eq!(lex_single("MODULE").unwrap().kind, TokenKind::Identifier);
     }
 
     #[test]
     fn test_identifiers() {
-        assert_eq!(lex_single("foo").unwrap().kind, TokenKind::Ident);
-        assert_eq!(lex_single("_bar").unwrap().kind, TokenKind::Ident);
-        assert_eq!(lex_single("baz123").unwrap().kind, TokenKind::Ident);
-        assert_eq!(lex_single("MyClass").unwrap().kind, TokenKind::Ident);
+        assert_eq!(lex_single("foo").unwrap().kind, TokenKind::Identifier);
+        assert_eq!(lex_single("_bar").unwrap().kind, TokenKind::Identifier);
+        assert_eq!(lex_single("baz123").unwrap().kind, TokenKind::Identifier);
+        assert_eq!(lex_single("MyClass").unwrap().kind, TokenKind::Identifier);
     }
 
     #[test]
@@ -831,6 +859,50 @@ mod tests {
         // Invalid hex number
         assert!(lex_single("0x").is_err());
     }
+
+    #[test]
+    fn test_string_content_excludes_quotes() {
+        // Standard strings with double quotes
+        let source = r#""hello""#;
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), "hello"); // Content only, no quotes
+
+        // Standard strings with single quotes
+        let source = "'world'";
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), "world");
+
+        // Interpolated strings with backticks
+        let source = "`test`";
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), "test");
+    }
+
+    #[test]
+    fn test_empty_strings_exclude_quotes() {
+        let source = r#""""#;
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), ""); // Empty content, zero length
+
+        let source = "''";
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), "");
+
+        let source = "``";
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), "");
+    }
+
+    #[test]
+    fn test_string_with_escapes_excludes_quotes() {
+        let source = r#""hello\nworld""#;
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), r"hello\nworld"); // Escapes preserved, quotes excluded
+
+        let source = r#""quote: \"hi\"""#;
+        let tok = lex_single(source).unwrap();
+        assert_eq!(tok.text(source), r#"quote: \"hi\""#);
+    }
 }
 
 #[cfg(test)]
@@ -843,9 +915,9 @@ mod integration_tests {
         let tokens = lex(source).unwrap();
 
         assert_eq!(tokens[0].kind, TokenKind::Module);
-        assert_eq!(tokens[1].kind, TokenKind::Ident);
+        assert_eq!(tokens[1].kind, TokenKind::Identifier);
         assert_eq!(tokens[2].kind, TokenKind::Import);
-        assert_eq!(tokens[3].kind, TokenKind::Ident);
+        assert_eq!(tokens[3].kind, TokenKind::Identifier);
         assert_eq!(tokens[4].kind, TokenKind::Return);
         assert_eq!(tokens[5].kind, TokenKind::Number(NumberKind::Decimal));
         assert_eq!(tokens[6].kind, TokenKind::Eof);
@@ -857,7 +929,7 @@ mod integration_tests {
         let tokens = lex(source).unwrap();
 
         assert_eq!(tokens[0].kind, TokenKind::Module);
-        assert_eq!(tokens[1].kind, TokenKind::Ident);
+        assert_eq!(tokens[1].kind, TokenKind::Identifier);
         assert_eq!(tokens[2].kind, TokenKind::Newline);
         assert_eq!(tokens[3].kind, TokenKind::Return);
         assert_eq!(tokens[4].kind, TokenKind::Number(NumberKind::Decimal));

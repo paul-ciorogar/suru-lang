@@ -42,9 +42,8 @@ fn parse_command(args: cli::ParseArgs) -> Result<(), Box<dyn std::error::Error>>
     };
 
     // Read source file
-    let source = std::fs::read_to_string(&args.file).map_err(|e| {
-        format!("Failed to read '{}': {}", args.file, e)
-    })?;
+    let source = std::fs::read_to_string(&args.file)
+        .map_err(|e| format!("Failed to read '{}': {}", args.file, e))?;
 
     // Check input size limit
     if source.len() > limits.max_input_size {
@@ -52,16 +51,16 @@ fn parse_command(args: cli::ParseArgs) -> Result<(), Box<dyn std::error::Error>>
             "Input too large: {} bytes (max: {})",
             source.len(),
             limits.max_input_size
-        ).into());
+        )
+        .into());
     }
 
     // Lex and parse
     let tokens = lexer::lex_with_limits(&source, limits.clone())?;
-    let tokens_for_print = tokens.clone();
-    let ast = parser::parse_with_limits(&source, tokens, limits)?;
+    let ast = parser::parse(&source, &tokens, limits)?;
 
     // Print AST tree
-    ast.print_tree(&tokens_for_print);
+    print!("{}", ast.to_string(&tokens));
 
     Ok(())
 }

@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_default_values() {
         let limits = CompilerLimits::default();
-        assert_eq!(limits.max_input_size, 1_000_000);
+        assert_eq!(limits.max_input_size, 10_000_000); // 10 MB
         assert_eq!(limits.max_token_count, 100_000);
         assert_eq!(limits.max_identifier_length, 1_000);
         assert_eq!(limits.max_string_length, 10_000_000);
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn test_missing_file_uses_defaults() {
         let limits = CompilerLimits::from_project_toml("nonexistent.toml").unwrap();
-        assert_eq!(limits.max_input_size, 1_000_000);
+        assert_eq!(limits.max_input_size, 10_000_000); // 10 MB
         assert_eq!(limits.max_token_count, 100_000);
     }
 

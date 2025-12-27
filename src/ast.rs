@@ -14,7 +14,7 @@ pub struct Ast {
 pub enum NodeType {
     Program,        // Root node containing all declarations
     VarDecl,        // Variable declaration
-    Ident,          // Identifier (terminal)
+    Identifier,     // Identifier (terminal)
     LiteralBoolean, // Boolean literal (terminal)
     LiteralNumber,  // Number literal (terminal)
     LiteralString,  // String literal (terminal)
@@ -26,6 +26,30 @@ pub enum NodeType {
 
     // Function call
     FunctionCall, // Function call expression
+
+    // Function declaration
+    FunctionDecl,   // Function declaration: name: () { ... }
+    ParamList,      // Parameter list: (x Type, y Type, ...)
+    Param,          // Parameter: name Type or just name
+    TypeAnnotation, // Type annotation (terminal - references type name)
+    Block,          // Block of statements { stmt1 stmt2 ... }
+    ExprStmt,       // Expression used as statement (wraps standalone calls)
+    ReturnStmt,     // Return statement: return expr
+
+    // Type declarations
+    TypeDecl,           // Type declaration: type Name { ... }
+    TypeName,           // Type name (identifier)
+    TypeBody,   // Type body (unit, alias, union, struct, intersection, function, or generic)
+    TypeParams, // Generic type parameters: <T, K, V>
+    TypeParam,  // Single type parameter: T or T: Constraint
+    TypeConstraint, // Type constraint in generics (terminal)
+    UnionTypeList, // Union type alternatives: A, B, C
+    StructBody, // Struct body: { fields and methods }
+    StructField, // Struct field: name Type
+    StructMethod, // Struct method declaration
+    IntersectionType, // Type intersection using +
+    FunctionType, // Function type signature
+    FunctionTypeParams, // Function type parameter list
 }
 
 // Uniform-size parse tree node using first-child/next-sibling representation
@@ -36,7 +60,6 @@ pub struct AstNode {
     // Token information (for terminal nodes and position tracking)
     pub token_idx: Option<usize>, // Index into token stream
 
-    // Tree structure using indices (None = -1 in C)
     // Tree structure using indices
     pub first_child: Option<usize>,
     pub next_sibling: Option<usize>,
@@ -121,13 +144,8 @@ impl Ast {
         }
     }
 
-    // Print the AST tree structure
-    pub fn print_tree(&self, tokens: &[Token]) {
-        print!("{}", self.tree_string(tokens));
-    }
-
     // Return the AST tree structure as a string
-    pub fn tree_string(&self, tokens: &[Token]) -> String {
+    pub fn to_string(&self, tokens: &[Token]) -> String {
         if let Some(root_idx) = self.root {
             self.tree_string_recursive(tokens, root_idx, 0)
         } else {
@@ -142,7 +160,7 @@ impl Ast {
 
         let text = self
             .node_text(node_idx, tokens)
-            .map(|s| format!(" \"{}\"", s))
+            .map(|s| format!(" '{}'", s))
             .unwrap_or_default();
 
         let mut result = format!("{}{:?}{}\n", indent, node.node_type, text);
