@@ -717,6 +717,61 @@ src/parser/
 - **types.rs**: All 7 type forms (unit, alias, union, struct, intersection, function, generic), ~70 tests
 - **statements.rs**: Variables, functions, returns, blocks, parameters, ~60 tests
 
+### Milestone 11: Method Call & Property Access Support
+- **Date**: 2025-12-27
+- **Details**:
+  - Implemented method calls with dot notation: `person.greet()`
+  - Implemented property access: `person.name`
+  - Added method chaining support: `numbers.add(6).add(7).set(0, 0)`
+  - Works on any expression including literals: `"hello".toUpper()`, `42.toString()`
+  - 14 comprehensive tests added (80 total tests passing)
+
+#### Syntax Support
+
+**Method Calls:**
+```suru
+# Basic method calls
+greeting: person.greet()
+result: person.greet('Alice', 42)
+upper: "hello".toUpper()
+```
+
+**Property Access:**
+```suru
+age: person.age
+name: user.name
+```
+
+**Method Chaining:**
+```suru
+result: numbers.add(6).add(7).set(0, 0)
+text: template.metadata.toString()
+```
+
+**Integration with Operators:**
+```suru
+isValid: value.isValid() and other.check()
+notValid: not user.isAuthenticated()
+name: getUser().getName()
+```
+
+#### AST Structure
+- **MethodCall**: `[receiver, method_name, ArgList]`
+- **PropertyAccess**: `[receiver, property_name]`
+- **ArgList**: `[arg1, arg2, ...]` - Added for consistency with ParamList
+
+#### New AST Node Types (src/ast.rs)
+- `MethodCall` - Method invocation with arguments
+- `PropertyAccess` - Field/property access without arguments
+- `ArgList` - Argument list container (shared by FunctionCall and MethodCall)
+
+#### Key Design Decisions
+- **Separate nodes**: MethodCall vs PropertyAccess are distinct for clarity
+- **Highest precedence**: Dot has precedence 4, binds tighter than all operators
+- **Postfix loop**: Enables chaining like `obj.method1().method2()`
+- **Works on any expression**: Literals, identifiers, function returns can all be receivers
+- **ArgList consistency**: Both function and method calls use ArgList node for uniform structure
+
 ## Current Parser Capabilities
 The parser currently supports:
 ```suru
@@ -762,6 +817,25 @@ type Result<T, E>: Ok, Error
 x: 42
 name: "Alice"
 flag: true and false
+
+# ========== Method Calls & Property Access ==========
+
+# Method calls
+greeting: person.greet()
+result: calc.add(1, 2)
+upper: "hello".toUpper()
+
+# Property access
+age: person.age
+name: user.name
+
+# Method chaining
+result: numbers.add(6).add(7).set(0, 0)
+text: template.metadata.toString()
+
+# Integration
+isValid: value.isValid() and other.check()
+name: getUser().getName()
 
 # ========== Function Declarations ==========
 

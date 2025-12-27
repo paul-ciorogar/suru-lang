@@ -528,7 +528,8 @@ Program
       ExprStmt
         FunctionCall
           Identifier 'print'
-          LiteralString 'hello'
+          ArgList
+            LiteralString 'hello'
 ";
         assert_eq!(ast, expected);
     }
@@ -549,7 +550,8 @@ Program
       ExprStmt
         FunctionCall
           Identifier 'print'
-          Identifier 'x'
+          ArgList
+            Identifier 'x'
 ";
         assert_eq!(ast, expected);
     }
@@ -629,7 +631,8 @@ Program
   ExprStmt
     FunctionCall
       Identifier 'print'
-      LiteralString 'hello'
+      ArgList
+        LiteralString 'hello'
 ";
         assert_eq!(ast, expected);
     }

@@ -25,11 +25,18 @@ impl<'a> Parser<'a> {
         // Parse left side (primary or unary)
         let mut left_idx = self.parse_primary_or_unary(depth)?;
 
-        // POSTFIX PHASE: Handle function calls
-        // Check if this is a function call (identifier followed by '(')
-        if self.ast.nodes[left_idx].node_type == NodeType::Identifier {
-            if self.current_token().kind == TokenKind::LParen {
-                left_idx = self.parse_function_call(depth, left_idx)?;
+        // POSTFIX PHASE: Handle function calls and method calls
+        loop {
+            match self.current_token().kind {
+                // Function call: identifier(...)
+                TokenKind::LParen if self.ast.nodes[left_idx].node_type == NodeType::Identifier => {
+                    left_idx = self.parse_function_call(depth, left_idx)?;
+                }
+                // Method call: expr.method(...) or expr.property
+                TokenKind::Dot => {
+                    left_idx = self.parse_method_call(depth, left_idx)?;
+                }
+                _ => break,
             }
         }
 
@@ -138,16 +145,56 @@ impl<'a> Parser<'a> {
     fn parse_function_call(&mut self, depth: usize, ident_idx: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
-        // Consume '('
-        debug_assert!(self.current_token().kind == TokenKind::LParen);
-        self.advance();
-
         // Create FunctionCall node
         let call_node = AstNode::new(NodeType::FunctionCall);
         let call_node_idx = self.ast.add_node(call_node);
 
         // Add identifier as first child
         self.ast.add_child(call_node_idx, ident_idx);
+
+        // Parse arguments and add ArgList as second child
+        let arg_list_idx = self.parse_argument_list(depth)?;
+        self.ast.add_child(call_node_idx, arg_list_idx);
+
+        Ok(call_node_idx)
+    }
+
+    /// Parse a function call argument
+    /// Uses parse_expression but prevents nested function calls for now
+    fn parse_function_argument(&mut self, depth: usize) -> Result<usize, ParseError> {
+        self.check_depth(depth)?;
+
+        // Parse the argument as an expression
+        let arg_idx = self.parse_expression(depth + 1, 0)?;
+
+        // Check if it's a function call or method call (nested calls not allowed)
+        if self.ast.nodes[arg_idx].node_type == NodeType::FunctionCall
+            || self.ast.nodes[arg_idx].node_type == NodeType::MethodCall
+        {
+            let token = self.current_token();
+            return Err(ParseError::from_token(
+                "Nested function/method calls are not supported".to_string(),
+                token,
+                self.current,
+            ));
+        }
+        // Note: PropertyAccess is allowed in arguments since it's just a field read
+
+        Ok(arg_idx)
+    }
+
+    /// Parse argument list: consumes '(' and ')', parses comma-separated arguments
+    /// Creates an ArgList node and adds arguments as its children
+    /// Returns the ArgList node index
+    fn parse_argument_list(&mut self, depth: usize) -> Result<usize, ParseError> {
+        self.check_depth(depth)?;
+
+        // Consume '('
+        self.consume(TokenKind::LParen, "(")?;
+
+        // Create ArgList node
+        let arg_list_node = AstNode::new(NodeType::ArgList);
+        let arg_list_idx = self.ast.add_node(arg_list_node);
 
         // Parse arguments (comma-separated list)
         loop {
@@ -159,7 +206,7 @@ impl<'a> Parser<'a> {
 
             // Parse argument
             let arg_idx = self.parse_function_argument(depth + 1)?;
-            self.ast.add_child(call_node_idx, arg_idx);
+            self.ast.add_child(arg_list_idx, arg_idx);
 
             // Check for comma or closing paren
             let token = self.current_token();
@@ -182,28 +229,59 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(call_node_idx)
+        Ok(arg_list_idx)
     }
 
-    /// Parse a function call argument
-    /// Uses parse_expression but prevents nested function calls for now
-    fn parse_function_argument(&mut self, depth: usize) -> Result<usize, ParseError> {
+    /// Parse a method call: receiver.method(args) or receiver.property
+    /// receiver_idx is the index of the already-parsed receiver expression
+    /// Returns the MethodCall or PropertyAccess node index
+    fn parse_method_call(&mut self, depth: usize, receiver_idx: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
-        // Parse the argument as an expression
-        let arg_idx = self.parse_expression(depth + 1, 0)?;
+        // Consume '.'
+        self.consume(TokenKind::Dot, ".")?;
 
-        // Check if it's a function call (nested calls not allowed)
-        if self.ast.nodes[arg_idx].node_type == NodeType::FunctionCall {
-            let token = self.current_token();
-            return Err(ParseError::from_token(
-                "Nested function calls are not supported".to_string(),
+        // Parse method/property name (must be identifier)
+        let token = self.current_token();
+        if token.kind != TokenKind::Identifier {
+            return Err(ParseError::unexpected_token(
+                "method or property name (identifier)",
                 token,
                 self.current,
+                self.source,
             ));
         }
 
-        Ok(arg_idx)
+        let name_node = AstNode::new_terminal(NodeType::Identifier, self.current);
+        let name_idx = self.ast.add_node(name_node);
+        self.advance();
+
+        // Check if this is a method call (has '(') or property access (no '(')
+        if self.current_token().kind == TokenKind::LParen {
+            // METHOD CALL: receiver.method(args)
+            let call_node = AstNode::new(NodeType::MethodCall);
+            let call_node_idx = self.ast.add_node(call_node);
+
+            // Add receiver and method name as first two children
+            self.ast.add_child(call_node_idx, receiver_idx);
+            self.ast.add_child(call_node_idx, name_idx);
+
+            // Parse arguments and add ArgList as third child
+            let arg_list_idx = self.parse_argument_list(depth)?;
+            self.ast.add_child(call_node_idx, arg_list_idx);
+
+            Ok(call_node_idx)
+        } else {
+            // PROPERTY ACCESS: receiver.property
+            let access_node = AstNode::new(NodeType::PropertyAccess);
+            let access_node_idx = self.ast.add_node(access_node);
+
+            // Add receiver and property name as children
+            self.ast.add_child(access_node_idx, receiver_idx);
+            self.ast.add_child(access_node_idx, name_idx);
+
+            Ok(access_node_idx)
+        }
     }
 }
 
@@ -333,6 +411,7 @@ Program
     Identifier 'x'
     FunctionCall
       Identifier 'print'
+      ArgList
 ";
         assert_eq!(ast, expected);
     }
@@ -347,7 +426,8 @@ Program
     Identifier 'x'
     FunctionCall
       Identifier 'print'
-      LiteralNumber '42'
+      ArgList
+        LiteralNumber '42'
 ";
 
         assert_eq!(ast, expected);
@@ -363,9 +443,10 @@ Program
     Identifier 'x'
     FunctionCall
       Identifier 'add'
-      LiteralNumber '1'
-      LiteralNumber '2'
-      LiteralNumber '3'
+      ArgList
+        LiteralNumber '1'
+        LiteralNumber '2'
+        LiteralNumber '3'
 ";
         assert_eq!(ast, expected);
     }
@@ -380,7 +461,8 @@ Program
     Identifier 'x'
     FunctionCall
       Identifier 'print'
-      LiteralString 'hello'
+      ArgList
+        LiteralString 'hello'
 ";
         assert_eq!(ast, expected);
     }
@@ -395,8 +477,9 @@ Program
     Identifier 'x'
     FunctionCall
       Identifier 'test'
-      LiteralBoolean 'true'
-      LiteralBoolean 'false'
+      ArgList
+        LiteralBoolean 'true'
+        LiteralBoolean 'false'
 ";
         assert_eq!(ast, expected);
     }
@@ -407,7 +490,7 @@ Program
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.message.contains("Nested function calls"));
+        assert!(err.message.contains("Nested"));
     }
 
     #[test]
@@ -425,5 +508,229 @@ Program
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("too deep"));
+    }
+
+    // ========== METHOD CALL TESTS ==========
+
+    // Basic method calls
+    #[test]
+    fn test_simple_method_call_no_args() {
+        let ast = to_ast_string("x: person.greet()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      Identifier 'person'
+      Identifier 'greet'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_simple_method_call_with_args() {
+        let ast = to_ast_string("x: person.greet('Alice', 42)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      Identifier 'person'
+      Identifier 'greet'
+      ArgList
+        LiteralString 'Alice'
+        LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_property_access() {
+        let ast = to_ast_string("x: person.name\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    PropertyAccess
+      Identifier 'person'
+      Identifier 'name'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_method_on_literal_string() {
+        let ast = to_ast_string("x: 'hello'.toUpper()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      LiteralString 'hello'
+      Identifier 'toUpper'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Method chaining
+    #[test]
+    fn test_method_chaining_two_calls() {
+        let ast = to_ast_string("x: numbers.add(6).set(0)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      MethodCall
+        Identifier 'numbers'
+        Identifier 'add'
+        ArgList
+          LiteralNumber '6'
+      Identifier 'set'
+      ArgList
+        LiteralNumber '0'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_method_chaining_three_calls() {
+        let ast = to_ast_string("x: numbers.add(6).add(7).set(0, 0)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      MethodCall
+        MethodCall
+          Identifier 'numbers'
+          Identifier 'add'
+          ArgList
+            LiteralNumber '6'
+        Identifier 'add'
+        ArgList
+          LiteralNumber '7'
+      Identifier 'set'
+      ArgList
+        LiteralNumber '0'
+        LiteralNumber '0'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_property_then_method() {
+        let ast = to_ast_string("x: template.metadata.toString()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      PropertyAccess
+        Identifier 'template'
+        Identifier 'metadata'
+      Identifier 'toString'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Precedence & integration
+    #[test]
+    fn test_method_call_in_boolean_expression() {
+        let ast_struct = to_ast("x: value.isValid() and other.check()\n").unwrap();
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be And
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::And);
+
+        // Both children should be MethodCall
+        let left_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        let right_idx = ast_struct.nodes[left_idx].next_sibling.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::MethodCall);
+        assert_eq!(ast_struct.nodes[right_idx].node_type, NodeType::MethodCall);
+    }
+
+    #[test]
+    fn test_method_call_with_not_operator() {
+        let ast_struct = to_ast("x: not value.isValid()\n").unwrap();
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be Not
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::Not);
+
+        // Child should be MethodCall
+        let operand_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[operand_idx].node_type, NodeType::MethodCall);
+    }
+
+    #[test]
+    fn test_function_call_then_method_call() {
+        let ast = to_ast_string("x: getUser().getName()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      FunctionCall
+        Identifier 'getUser'
+        ArgList
+      Identifier 'getName'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_method_on_number_literal() {
+        let ast = to_ast_string("x: 42.toString()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      LiteralNumber '42'
+      Identifier 'toString'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_method_on_boolean_literal() {
+        let ast = to_ast_string("x: true.toString()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      LiteralBoolean 'true'
+      Identifier 'toString'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Error cases
+    #[test]
+    fn test_error_method_call_without_name() {
+        let result = to_ast("x: person.()\n");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("method or property name"));
+    }
+
+    #[test]
+    fn test_error_nested_method_call_in_args() {
+        let result = to_ast("x: obj.method(inner.call())\n");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("Nested"));
     }
 }

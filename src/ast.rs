@@ -25,7 +25,10 @@ pub enum NodeType {
     Or,  // Binary or operation
 
     // Function call
-    FunctionCall, // Function call expression
+    FunctionCall,   // Function call expression
+    MethodCall,     // Method call: receiver.method(args)
+    PropertyAccess, // Property access: receiver.property
+    ArgList,        // Argument list for function/method calls
 
     // Function declaration
     FunctionDecl,   // Function declaration: name: () { ... }
