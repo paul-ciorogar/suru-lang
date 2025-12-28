@@ -6,7 +6,7 @@
 
 ### Basic Functions
 
-Functions are declared with parameters and optional return type:
+Functions are declared with parameters and return type:
 
 ```suru
 // Function returning a simple type
@@ -29,9 +29,12 @@ type UnaryFunction: (x Number) Number
 
 // Function returning a function type
 createAdder: (base Number) UnaryFunction {
-    return (x Number) Number {
+
+    identity: (x Number) Number {
         return x.add(base)
     }
+
+    return identity
 }
 
 // Function taking a function
@@ -192,44 +195,7 @@ factorial: (n Number) Number {
     return match n {
         .equals(0): 1
         .equals(1): 1
-        _: n * factorial(n - 1)
-    }
-}
-```
-
-### Functions with Multiple Return Points
-
-```suru
-findFirst: (items List<Number>, target Number) Option<Number> {
-    items.each((item, index) {
-        return match item.equals(target) {
-            true: Break(Some(index))
-            false: Continue
-        }
-    })
-    return None
-}
-```
-
-### Nested Functions
-
-```suru
-createCounter: () {
-    count: 0
-
-    increment: () {
-        count: count + 1
-        return count
-    }
-
-    decrement: () {
-        count: count - 1
-        return count
-    }
-
-    return {
-        increment: increment
-        decrement: decrement
+        _: n.multiply(factorial(n - 1))
     }
 }
 ```
@@ -238,14 +204,17 @@ createCounter: () {
 
 ```suru
 compose<A, B, C>: (f Transform<B, C>, g Transform<A, B>) Transform<A, C> {
-    return (x A) C {
+
+    impl: (x A) C {
         return f(g(x))
     }
+
+    return impl
 }
 
 // Usage
-addOne: (x Number) Number { return x + 1 }
-double: (x Number) Number { return x * 2 }
+addOne: (x Number) Number { return x.add(1) }
+double: (x Number) Number { return x.add(2) }
 
 addOneThenDouble: compose(double, addOne)
 result: addOneThenDouble(5)  // (5 + 1) * 2 = 12
@@ -284,17 +253,6 @@ process: (id String, data) {
 }
 ```
 
-### Default Values (Future Feature)
-
-Currently not supported, but planned:
-
-```suru
-// Planned syntax
-greet: (name String, greeting String = "Hello") String {
-    return `{greeting}, {name}!`
-}
-```
-
 ## Return Types
 
 ### Explicit Return Type
@@ -329,10 +287,6 @@ divide: (x Number, y Number) Result<Number, String> {
 1. **Use type annotations for public APIs**: Makes intent clear
 2. **Prefer type inference for internal functions**: Less verbose
 3. **Use descriptive parameter names**: Improves readability
-4. **Keep functions small and focused**: Single responsibility
-5. **Use pattern matching for complex logic**: More readable than nested ifs
-6. **Leverage generic type constraint inference**: Write reusable code
-7. **Document complex functions**: Help future readers
 
 ---
 

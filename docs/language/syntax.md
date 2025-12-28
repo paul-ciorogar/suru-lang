@@ -6,10 +6,14 @@
 
 A Suru source file has `.suru` extension and follows this structure:
 
-1. **Module Declaration** (optional)
+1. **Module Declaration** (required - either `module Name` or `module .name` for submodules)
 2. **Import Block** (optional)
 3. **Export Block** (optional)
 4. **Declarations** (types, functions, variables, expressions)
+
+**Module Declaration Types:**
+- **Main module**: `module Calculator` - Standard module that can be imported by external code
+- **Submodule**: `module .utils` - Internal module only accessible within the parent module's directory hierarchy
 
 ## Booleans
 
@@ -81,11 +85,11 @@ unicode: "Smile: \u263A"  // ☺
 Suru supports multiple number bases:
 
 ```suru
-binary: 0b1010       # Binary (10 in decimal)
-octal: 0o755         # Octal (493 in decimal)
-hex: 0xFF            # Hexadecimal (255 in decimal)
-decimal: 123         # Decimal
-float: 3.14159       # Floating point
+binary: 0b1010       // Binary (10 in decimal)
+octal: 0o755         // Octal (493 in decimal)
+hex: 0xFF            // Hexadecimal (255 in decimal)
+decimal: 123         // Decimal
+float: 3.14159       // Floating point
 ```
 
 ### Underscore Separators
@@ -129,12 +133,13 @@ pi: 3.14159f64
 
 ## Identifiers
 
-Identifiers must start with a letter and can contain letters, numbers, dots, and underscores:
+Identifiers must start with a letter and can contain letters, numbers, and underscores:
 
 ```suru
 name: value
+name2: value
 userId: 123
-user.name: "Alice"
+userName: "Alice"
 _private: 42
 ```
 
@@ -143,18 +148,18 @@ _private: 42
 Statements are terminated by newlines. Multi-line statements are supported when the next line starts with a continuation character:
 
 ```suru
-# Single line
+// Single line
 x: 42
 
-# Multi-line (continuation with pipe)
+// Multi-line (continuation with pipe)
 result: value
     | transform
     | process
 
-# Multi-line (continuation with comma)
-add: (x Number,
-      y Number,
-      z Number) {
+// Multi-line (continuation with comma)
+add: (x Number
+      , y Number
+      , z Number) {
     return x + y + z
 }
 ```
@@ -202,11 +207,11 @@ See [Operators](operators.md) for detailed precedence and usage.
 Suru is whitespace-sensitive for readability:
 
 ```suru
-# Newlines are significant
+// Newlines are significant
 x: 42
 y: 100
 
-# Indentation is recommended but not enforced
+// Indentation is recommended but not enforced
 type Person: {
     name String
     age Number

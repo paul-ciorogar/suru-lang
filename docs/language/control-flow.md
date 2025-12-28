@@ -154,13 +154,13 @@ numbers.each(printNumbersWithIndex)
 
 ```suru
 // Map - transform each element
-doubled: numbers.map((n) { return n * 2 })
+doubled: numbers.map((n) { return n.multiply(2) })
 
 // Filter - keep only matching elements
-evens: numbers.filter((n) { return n % 2 == 0 })
+evens: numbers.filter((n) { return n.mod(2) == 0 })
 
 // Reduce - accumulate a result
-sum: numbers.reduce(0, (acc, n) { return acc + n })
+sum: numbers.reduce(0, (acc, n) { return acc.add(n) })
 ```
 
 ## Infinite Loops
@@ -202,10 +202,11 @@ findFirst: (items List<Number>, target Number) Option<Number> {
 
 ```suru
 countdown: (from Number) {
-    from.times((step) {
-        remaining: from - step + 1
+    stepDown: (from, step) {
+        remaining: from.substract(step.add(1))
         print(`{remaining.toString()}...`)
-    })
+    }
+    from.times(setepDown(from, _))
     print("Blast off!")
 }
 
@@ -216,52 +217,18 @@ countdown(10)
 
 ```suru
 processUntil: (items List<Data>, condition Predicate) List<Data> {
-    results: []
 
-    items.each((item) {
-        return match condition(item) {
-            true: Break
-            false: {
-                results.add(item)
-                Continue
-            }
-        }
-    })
+    results: items.each(process)
 
     return results
+
+    process: (item) {
+        return match condition(item) {
+            true: Break
+            false: Produce(item)
+        }
+    }
 }
-```
-
-### Accumulating Values
-
-```suru
-sumSquares: (n Number) Number {
-    total: 0
-
-    n.times((i) {
-        total: total + (i * i)
-    })
-
-    return total
-}
-
-result: sumSquares(10)  // 1 + 4 + 9 + 16 + ... + 100
-```
-
-### Nested Iteration
-
-```suru
-multiplicationTable: (size Number) {
-    size.times((i) {
-        size.times((j) {
-            product: (i + 1) * (j + 1)
-            print(`{product}\t`)
-        })
-        print("\n")
-    })
-}
-
-multiplicationTable(10)
 ```
 
 ## Pattern Matching Patterns
@@ -293,31 +260,13 @@ evaluate: (result Result<Data, Error>) String {
 }
 ```
 
-### Match with Guard (Future Feature)
-
-Planned syntax for conditional patterns:
-
-```suru
-// Planned
-classify: (n Number) String {
-    match n where n > 0 {
-        _: "positive"
-    } where n < 0 {
-        _: "negative"
-    } else {
-        _: "zero"
-    }
-}
-```
-
 ## Control Flow Best Practices
 
 1. **Use `.times()` for fixed iterations**: Clearer than manual loops
 2. **Use `.each()` for collection traversal**: More declarative
 3. **Leverage continuation types**: Explicit control flow
-4. **Prefer `match` over chained conditions**: More readable
-5. **Use `Break` with value for early returns**: Communicate result clearly
-6. **Keep iteration functions pure when possible**: Easier to reason about
+4. **Use `Break` with value for early returns**: Communicate result clearly
+5. **Keep iteration functions pure when possible**: Easier to reason about
 
 ---
 

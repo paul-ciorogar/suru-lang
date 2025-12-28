@@ -95,7 +95,7 @@ processed: "Hello, world!"
 output: 2_283 | subtract(_, 2) | print  # 2281 would be printed
 ```
 
-The `_` placeholder indicates where the piped value should be inserted.
+The `_` placeholder indicates partial application
 
 **Detailed usage:** [Pipeline](#pipeline-usage)
 
@@ -121,9 +121,6 @@ result: true or false and false  # true or (false and false) = true
 
 # Dot (member access) has highest precedence
 value: obj.method() and check    # (obj.method()) and check
-
-# Use parentheses for clarity
-explicit: (x and y) or (a and b)
 ```
 
 ## Pipeline Usage
@@ -142,7 +139,7 @@ result: process(value)
 
 ### Placeholder Usage
 
-Use `_` to specify where the piped value should be inserted:
+Use `_` indicates partial application:
 
 ```suru
 # Pipe as second argument
@@ -150,9 +147,6 @@ result: 10 | subtract(20, _)  # subtract(20, 10) = 10
 
 # Pipe as first argument (default)
 result: 10 | subtract(_, 5)   # subtract(10, 5) = 5
-
-# Multiple placeholders
-combined: x | someFunction(_, "default", _)
 ```
 
 ### Chaining
@@ -205,15 +199,6 @@ processRequest: (request String) Result<Response, Error> {
 
 See [Error Handling](error-handling.md#pipe-integration) for details.
 
-## Future Operators
-
-The following operators are reserved for future use:
-
-- Arithmetic: `*`, `/`, `%`, `**`
-- Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- Assignment: `+=`, `-=`, `*=`, `/=`
-- Range: `..`, `..=`
-
 ## Examples
 
 ### Boolean Logic
@@ -221,10 +206,6 @@ The following operators are reserved for future use:
 ```suru
 # Complex boolean expressions
 isEligible: hasAccount and isVerified and not isBanned
-
-canEdit: isOwner or (isMember and hasEditPermission)
-
-shouldNotify: isImportant and (isSubscribed or isFollowing)
 ```
 
 ### Type Composition

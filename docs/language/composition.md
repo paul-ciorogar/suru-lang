@@ -10,7 +10,7 @@ Code reuse in Suru is done through **composition**, not inheritance. The `+` ope
 
 ## Type Composition
 
-Suru composes types from other types, similar to interface inheritance but with structural compatibility:
+Suru composes types from other types, similar to interface inheritance:
 
 ```suru
 type Point: {
@@ -159,7 +159,7 @@ type EnhancedCircle: Circle + {
 
 ```suru
 // Base functionality
-logCall: (funcName String, result Any) Any {
+logCall<T>: (funcName String, result T) T {
     print(`Called {funcName}, result: {result}`)
     return result
 }
@@ -232,37 +232,11 @@ type User: Serializable + Comparable<User> + {
 }
 ```
 
-### Decorator Pattern
-
-```suru
-type Logger: {
-    log: (message String)
-}
-
-type FileLogger: Logger + {
-    file File
-    logToFile: (message String)
-}
-
-type NetworkLogger: Logger + {
-    endpoint String
-    logToNetwork: (message String)
-}
-
-type MultiLogger: FileLogger + NetworkLogger + {
-    // Combines both logging strategies
-}
-```
-
 ## Best Practices
 
-1. **Prefer composition over deep hierarchies**: Flat is better than nested
-2. **Use meaningful names**: Composed types should describe their purpose
-3. **Keep compositions focused**: Don't add unrelated functionality
-4. **Document composed behavior**: Explain what each composition adds
-5. **Be aware of name conflicts**: Last value wins
-6. **Use partial application for methods**: Enables powerful composition
-7. **Combine with pipes**: Create transformation chains
+1. **Be aware of name conflicts**: Last value wins
+2. **Use partial application for methods**: Enables powerful composition
+3. **Combine with pipes**: Create transformation chains
 
 ## Examples
 

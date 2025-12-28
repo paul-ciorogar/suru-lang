@@ -57,7 +57,7 @@ parseNumber: (input String) Result<Number, String> {
 
 process: (input String) Result<Number, String> {
     num: try parseNumber(input)
-    return Ok(num * 2)
+    return Ok(num)
 }
 ```
 
@@ -91,8 +91,8 @@ parseAndValidate: (input String) Either<Data, Error> {
 ### Custom Domain Types
 
 ```suru
-type AuthResult<T>: Authenticated T, Unauthorized String
-type DatabaseResult<T>: Found T, NotFound String
+type AuthResult<T>: Authenticated<T>, Unauthorized<String>
+type DatabaseResult<T>: Found<T>, NotFound<String>
 
 secureGetUser: (token String, id String) AuthResult<User> {
     session: try authenticate(token)  // Returns AuthResult<Session>
@@ -118,18 +118,6 @@ processRequest: (request String) Result<Response, Error> {
 }
 ```
 
-### Error Transformation in Pipes
-
-```suru
-getData: (id String) Result<Data, Error> {
-    id
-        | try fetchFromDatabase
-        | try transform
-        | try validate
-        | try enrichWithMetadata
-}
-```
-
 ## Error Handling Patterns
 
 ### Early Return on Error
@@ -146,59 +134,11 @@ complexOperation: (input Input) Result<Output, Error> {
 }
 ```
 
-### Error Conversion
-
-```suru
-// Convert between error types
-apiCall: (data Data) Result<Response, ApiError> {
-    validated: try validate(data)  // Returns Result<Data, ValidationError>
-        .mapErr((e) { return ApiError.ValidationFailed(e) })
-
-    response: try sendRequest(validated)
-
-    return Ok(response)
-}
-```
-
-### Fallback Values
-
-```suru
-getValueOrDefault: (id String) Value {
-    result: findValue(id)  // Returns Option<Value>
-
-    return match result {
-        Some: result.value
-        None: defaultValue
-    }
-}
-```
-
-### Error Accumulation
-
-```suru
-validateAll: (items List<Item>) Result<List<Item>, List<Error>> {
-    errors: []
-    validated: []
-
-    items.each((item) {
-        result: validateItem(item)
-        match result {
-            Ok: validated.add(result.value)
-            Error: errors.add(result.error)
-        }
-    })
-
-    return match errors.isEmpty() {
-        true: Ok(validated)
-        false: Error(errors)
-    }
-}
-```
 
 ## Best Practices
 
 1. **Use `Result` for operations that can fail**: Makes errors explicit
-2. **Use `Option` for optional values**: Clearer than null/nil
+2. **Use `Option` for optional values**
 3. **Leverage `try` for clean code**: Avoids error-handling boilerplate
 4. **Chain operations with pipes**: Readable error propagation
 5. **Document error conditions**: Help API users

@@ -57,8 +57,8 @@ Variables declared within functions are **mutable**:
 
 ```suru
 calculate: (x Number) Number {
-    result: x * 2     # Mutable variable
-    result: result + 10  # Can reassign
+    result: x.multiply(2)     # Mutable variable
+    result: result.add(10)  # Can reassign
     return result
 }
 ```
@@ -132,23 +132,6 @@ user: createUser("alice", 30)
 uppercased: text.trim().toUpper()
 ```
 
-### With Operators
-
-```suru
-# Arithmetic expressions (when implemented)
-sum: x + y
-difference: x - y
-
-# Boolean expressions
-isValid: x > 0 and y < 100
-shouldProcess: isActive or hasPermission
-notReady: not isComplete
-
-# Function calls
-count: calculate(x, y)
-result: process(data)
-```
-
 ## Reassignment
 
 ### In Functions (Mutable)
@@ -157,9 +140,9 @@ Variables within functions can be reassigned:
 
 ```suru
 process: () {
-    value: 10        # Initial value
-    value: value * 2   # Reassign to 20
-    value: value + 5   # Reassign to 25
+    value: 10                   # Initial value
+    value: value.multiply(2)    # Reassign to 20
+    value: value.add(5)         # Reassign to 25
 }
 ```
 
@@ -177,29 +160,6 @@ main: () {
 ```
 
 ## Pattern Examples
-
-### Swap Values
-
-```suru
-swap: (a, b) {
-    temp: a
-    a: b
-    b: temp
-    return (a, b)
-}
-```
-
-### Accumulator Pattern
-
-```suru
-sumList: (numbers List<Number>) Number {
-    total: 0
-    numbers.each((num) {
-        total: total + num
-    })
-    return total
-}
-```
 
 ### Conditional Assignment
 

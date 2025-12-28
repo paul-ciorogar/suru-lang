@@ -8,7 +8,11 @@ Suru programs are organized into modules. A module is a directory of Suru code f
 
 ## Module Declaration
 
-Module names must start with a letter and can contain numbers, dots, and underscores:
+All Suru source files must declare a module. There are two types of module declarations:
+
+### Main Modules
+
+Main module names must start with a letter and can contain numbers, and underscores:
 
 ```suru
 module Calculator
@@ -21,6 +25,28 @@ module math.geometry
 ```suru
 module app_v2.handlers
 ```
+
+### Submodules
+
+Submodules are internal modules within a module's directory. They are declared with a leading dot:
+
+```suru
+module .utils
+```
+
+```suru
+module .helpers
+```
+
+```suru
+module .validation
+```
+
+**Key characteristics:**
+- **File naming**: File names are standard (e.g., `utils.suru`), but the module declaration uses the dot (e.g., `module .utils`)
+- **Visibility**: Submodules are only visible within their parent module's directory hierarchy
+- **Not directly accessible**: External modules cannot import submodules directly
+- **Can be re-exported**: Main modules can selectively import and re-export items from submodules
 
 ## Imports
 
@@ -84,11 +110,7 @@ area: sqrt(value)
 
 ## Exports
 
-Exports specify what your module makes available to other modules.
-
-### Module-Level Exports
-
-If a file starts with a module declaration, exports define the public API:
+Exports specify what your module makes available to other modules. All modules (both main modules and submodules) use the same export syntax:
 
 ```suru
 module Calculator
@@ -109,12 +131,10 @@ subtract: (a Number, b Number) Number { return a - b }
 multiply: (a Number, b Number) Number { return a * b }  // Not exported
 ```
 
-### File-Level Exports
-
-If a file does not have a module declaration, exports are only available to files in the same directory:
-
+**Submodule exports:**
 ```suru
-// file: utils.suru (no module declaration)
+module .utils
+
 export {
     formatNumber
     validateInput
@@ -125,31 +145,37 @@ validateInput: (s String) Bool { /* ... */ }
 internalHelper: () { /* ... */ }  // Not exported
 ```
 
+Submodule exports are visible to:
+- The main module in the same directory
+- Other submodules in the same directory
+- Submodules in nested subdirectories
+
 ## Module Structure Example
 
 ```
 calculator/
-├── mod.suru              # Module root with module declaration
-├── operations.suru       # Basic operations
-├── advanced.suru         # Advanced functions
-└── utils.suru            # Internal utilities
+├── mod.suru              // Main module: "module Calculator"
+├── operations.suru       // Submodule: "module .operations"
+├── advanced.suru         // Submodule: "module .advanced"
+└── helpers/
+    └── validation.suru   // Nested submodule: "module .validation"
 ```
 
-**mod.suru:**
+**mod.suru** (Main module):
 ```suru
 module Calculator
 
 import {
-    {add, subtract}: operations
-    {power, sqrt}: advanced
+    {add, subtract}: operations    // Import from operations submodule
+    {power, sqrt}: advanced         // Import from advanced submodule
 }
 
 export {
     Calculator
-    add
-    subtract
-    power
-    sqrt
+    add           // Re-exported from operations submodule
+    subtract      // Re-exported from operations submodule
+    power         // Re-exported from advanced submodule
+    sqrt          // Re-exported from advanced submodule
 }
 
 type Calculator: {
@@ -159,8 +185,14 @@ type Calculator: {
 }
 ```
 
-**operations.suru:**
+**operations.suru** (Submodule):
 ```suru
+module .operations
+
+import {
+    {isValid}: helpers.validation  // Submodules can import from nested submodules
+}
+
 export {
     add
     subtract
@@ -175,21 +207,65 @@ subtract: (a Number, b Number) Number {
 }
 ```
 
-## Module Resolution
-
-### Local Modules
-
+**advanced.suru** (Submodule):
 ```suru
+module .advanced
+
 import {
-    {helper}: utils  # Looks for utils.suru in same directory
+    {multiply}: operations  // Sibling submodule import
+}
+
+export {
+    power
+    sqrt
+}
+
+power: (base Number, exp Number) Number {
+    // Implementation using multiply from operations
+}
+
+sqrt: (n Number) Number {
+    // Implementation
 }
 ```
 
-### Nested Modules
+## Module Resolution
+
+### Submodules (Same Directory)
+
+Import from submodules in the same directory by referencing them by name (without the dot):
 
 ```suru
 import {
-    math.geometry     # Looks for math/geometry module
+    {helper}: utils  // Looks for utils.suru containing "module .utils"
+}
+```
+
+```suru
+import {
+    {add, subtract}: operations  // Import specific items from .operations submodule
+}
+```
+
+### Nested Submodules
+
+Submodules can import from submodules in nested directories:
+
+```suru
+module .operations
+
+import {
+    {isValid}: helpers.validation  // Imports from helpers/validation.suru
+}
+```
+
+### External Modules
+
+External modules (outside the directory hierarchy) use standard module paths:
+
+```suru
+import {
+    math.geometry     // Looks for math/geometry module
 }
 ```
 
@@ -197,20 +273,75 @@ import {
 
 ```suru
 import {
-    io                # Standard library module
-    collections       # Standard library module
+    io                // Standard library module
+    collections       // Standard library module
+}
+```
+
+## Submodule Visibility
+
+Submodules are **internal to their parent module** and have restricted visibility:
+
+### Can Access Submodules:
+1. **Main module in same folder**: The module with a standard declaration (e.g., `module Calculator`) can import from submodules
+2. **Sibling submodules**: Submodules in the same directory can import from each other
+3. **Nested submodules**: Submodules in subdirectories can import from parent directory submodules
+
+### Cannot Access Submodules:
+- **External modules**: Modules outside the directory hierarchy cannot directly import submodules
+- To expose submodule functionality externally, the main module must import and re-export items
+
+### Example: Re-exporting Submodule Items
+
+```suru
+// mod.suru (Main module)
+module Calculator
+
+import {
+    {formatNumber, parseInput}: utils  // Import from .utils submodule
+}
+
+export {
+    calculate
+    formatNumber  // Re-export from submodule
+    parseInput    // Re-export from submodule
+}
+
+calculate: (expr String) Number {
+    input: parseInput(expr)
+    result: evaluate(input)
+    return result
+}
+```
+
+External modules can now use `formatNumber` and `parseInput` through the `Calculator` module:
+
+```suru
+// app.suru (External module)
+module App
+
+import {
+    {formatNumber}: Calculator  // Access re-exported item
+}
+
+main: () {
+    formatted: formatNumber(42.5)
+    print(formatted)
 }
 ```
 
 ## Best Practices
 
-1. **One module per directory**: Clear organization
-2. **Explicit exports**: Only export public API
-3. **Selective imports**: Import only what you need
-4. **Avoid import all (`*`)**: Prevents namespace pollution
-5. **Use aliases for clarity**: Rename imports when needed
-6. **Group related functionality**: Keep modules focused
-7. **Document public API**: Help module users
+1. **All files must have module declarations**: Use `module Name` for main modules or `module .name` for submodules
+2. **One module per directory**: Clear organization with a main module and optional submodules
+3. **Use submodules for internal organization**: Break complex modules into focused submodules
+4. **Explicit exports**: Only export public API from both main modules and submodules
+5. **Selective imports**: Import only what you need
+6. **Avoid import all (`*`)**: Prevents namespace pollution
+7. **Re-export thoughtfully**: Use the main module to curate the public API by selectively re-exporting submodule items
+8. **Use aliases for clarity**: Rename imports when needed
+9. **Group related functionality**: Keep modules and submodules focused
+10. **Document public API**: Help module users understand what's available
 
 ## Examples
 
@@ -256,7 +387,7 @@ import {
 }
 
 main: () {
-    result: add(multiply(2, 3), 4)  # (2 * 3) + 4 = 10
+    result: add(multiply(2, 3), 4)  // (2 * 3) + 4 = 10
     print(result.toString())
 }
 ```
@@ -294,7 +425,7 @@ validateUser: (name String, email String) Result<Bool, String> {
     // Validation logic
 }
 
-# Private helper (not exported)
+// Private helper (not exported)
 generateId: () UserId {
     // ID generation logic
 }

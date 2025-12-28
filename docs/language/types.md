@@ -94,7 +94,7 @@ type Identity<T>: (value T) T
 type UnaryOperator: (x Float64) Float64
 ```
 
-**Note:** `void` can be used to indicate a function returns nothing.
+**Note:** `void` must be used to indicate a function returns nothing.
 
 ### 7. Generic Types
 
@@ -130,10 +130,6 @@ type Comparable<T: Orderable>: {
 }
 ```
 
-## Generic Type Constraint Inference
-
-Suru uses **generic type constraint inference**, meaning types are compatible based on their inferred constraints from structure rather than explicit declarations. Two types are considered equivalent if they have the same shape, regardless of their names.
-
 ### Basic Compatibility
 
 ```suru
@@ -149,7 +145,7 @@ type Employee: {
 }
 
 // These are structurally equivalent
-checkAge: (p Person) Bool {
+checkAge: (p) Bool {
     return p.age.greaterThan(18)
 }
 
@@ -160,24 +156,6 @@ emp Employee: {
 
 // This works because Employee has same structure as Person
 isAdult: checkAge(emp)  // Valid - inferred constraint compatibility
-```
-
-### Compatibility with Functions
-
-Function types are also structurally typed:
-
-```suru
-type PersonProcessor: (p Person) String
-type EmployeeHandler: (e Employee) String
-
-// These function types are structurally equivalent
-formatPerson: (person Person) String {
-    return `{person.name} is {person.age} years old`
-}
-
-// Can assign to either function type
-processor PersonProcessor: formatPerson
-handler EmployeeHandler: formatPerson  // Same structure
 ```
 
 ### Duck Typing with Methods
@@ -443,7 +421,7 @@ balance: account.getBalance()  // OK: public method
 **`this` Usage:**
 - Access instance fields: `this.fieldName`
 - Call instance methods: `this.methodName(args)`
-- Access private members: `this._privateField`, `this._privateMethod()`
+- Access private members: `this.privateField`, `this.privateMethod()`
 - Modify instance state: `this.field: newValue`
 
 ## Examples

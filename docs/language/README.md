@@ -25,7 +25,7 @@ The Suru language prioritizes **interactive development**, transforming editors 
 Suru supports clear, readable syntax with minimal punctuation:
 
 - **Strong type system** with generics and constraints
-- **Module-based organization** for code organization
+- **Module-based organization** with submodules for internal code structure
 - **Pattern matching** for control flow
 - **Union and intersection types** for flexible type composition
 - **Method and function overloading** with return type differentiation
@@ -102,7 +102,7 @@ This approach **eliminates entire classes of memory-related bugs** while keeping
 
 ### Advanced Features
 
-- [**Modules**](modules.md) - Module system, imports, exports
+- [**Modules**](modules.md) - Module system, imports, exports, submodules
 - [**Composition**](composition.md) - Type/data/method composition with `+`
 - [**Advanced Topics**](advanced.md) - String interpolation, documentation syntax, currying
 
