@@ -5,6 +5,95 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### Examples
+
+### Note
+- Match statements execute for side effects (like function calls)
+- Match expressions produce values (for assignments, returns)
+- Both use identical syntax and parsing logic
+
+## [0.14.0] - 2025-12-28 - Match Statements and Match Expressions
+
+### Added
+- **Match expression** parsing for pattern matching control flow
+  - Pattern matching on types, values, and wildcards
+  - Match on identifiers: `Success`, `Error`, `Pending`
+  - Match on literals: numbers (`0`, `1`), strings (`"admin"`), booleans (`true`, `false`)
+  - Wildcard pattern: `_` for catch-all cases
+  - Nested matches: match expressions inside result expressions
+  - Match as expression: works in variables, returns, and pipes
+  - Complex subjects: function calls, method calls, property access, pipes
+  - Complex results: function calls, method calls, boolean expressions, pipes
+  - New AST node types: `Match`, `MatchSubject`, `MatchArms`, `MatchArm`, `MatchPattern`
+  - 28 comprehensive tests covering all patterns and edge cases
+- **Match statement** support for pattern matching as standalone control flow
+  - Works anywhere statements are allowed: program root, function bodies, blocks
+  - Wrapped in `ExprStmt` for statement context
+
+### Technical Details
+- Match is a primary expression (like literals)
+- Recursive parsing with depth tracking (default limit: 256)
+- First-child/next-sibling AST structure
+- Requires at least one arm
+- Pattern wrapper nodes for type safety
+- Implemented in separate module: `src/parser/match.rs`
+
+### Examples
+```suru
+// Match on types
+status: match result {
+    Success: "ok"
+    Error: "fail"
+    _: "unknown"
+}
+
+// Match on values
+message: match n {
+    0: "zero"
+    1: "one"
+    _: "other number"
+}
+
+// Nested match
+result: match outer {
+    Ok: match inner {
+        TypeA: "A"
+        _: "other"
+    }
+    Error: "error"
+}
+
+// Match in return
+check: () {
+    return match x {
+        0: "zero"
+        _: "other"
+    }
+}
+
+// Match as statement
+match status {
+    Success: print("success")
+    Error: exit()
+}
+
+// In function
+handleResult: (result Result) {
+    match result {
+        Ok: processSuccess()
+        Error: logError()
+    }
+}
+
+// Mixed with other statements
+x: 42
+match x {
+    0: print("zero")
+    _: print("other")
+}
+print("done")
+```
+
 ## [0.13.0] - 2025-12-28 - Placeholder & Try Operator
 
 ### Added

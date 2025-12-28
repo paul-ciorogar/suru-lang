@@ -36,6 +36,10 @@ impl<'a> Parser<'a> {
                 // Type declaration
                 return Ok(Some(self.parse_type_decl(depth + 1)?));
             }
+            TokenKind::Match => {
+                // Match statement
+                return Ok(Some(self.parse_match_stmt(depth + 1)?));
+            }
             TokenKind::Identifier => {
                 // Lookahead to distinguish function/variable/call
                 match self.peek_statement_type()? {
@@ -92,6 +96,35 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Some(expr_stmt_idx))
+    }
+
+    /// Helper: Parse match statement (match wrapped as ExprStmt)
+    fn parse_match_stmt(&mut self, depth: usize) -> Result<usize, ParseError> {
+        self.check_depth(depth)?;
+
+        // Consume 'match' keyword
+        self.consume(TokenKind::Match, "'match'")?;
+
+        // Parse match expression (reuses existing implementation)
+        let match_idx = self.parse_match_expression(depth + 1)?;
+
+        // Wrap in ExprStmt
+        let expr_stmt = AstNode::new(NodeType::ExprStmt);
+        let expr_stmt_idx = self.ast.add_node(expr_stmt);
+        self.ast.add_child(expr_stmt_idx, match_idx);
+
+        // Expect newline, EOF, or RBrace (end of block)
+        match self.peek_kind() {
+            TokenKind::Newline => self.advance(),
+            TokenKind::Eof | TokenKind::RBrace => {
+                // Let caller handle RBrace
+            }
+            _ => {
+                return Err(self.new_unexpected_token("newline, '}', or end of file"));
+            }
+        }
+
+        Ok(expr_stmt_idx)
     }
 
     /// Parse a variable declaration: identifier : expression
@@ -585,6 +618,42 @@ Program
       Param
         Identifier 'value'
     Block
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Match statement test
+    #[test]
+    fn test_match_stmt_basic() {
+        let ast = to_ast_string(
+            r#"
+            match status {
+                Success: print("success")
+                Error: exit()
+            }
+        "#,
+        )
+        .unwrap();
+        let expected = "\
+Program
+  ExprStmt
+    Match
+      MatchSubject
+        Identifier 'status'
+      MatchArms
+        MatchArm
+          MatchPattern
+            Identifier 'Success'
+          FunctionCall
+            Identifier 'print'
+            ArgList
+              LiteralString 'success'
+        MatchArm
+          MatchPattern
+            Identifier 'Error'
+          FunctionCall
+            Identifier 'exit'
+            ArgList
 ";
         assert_eq!(ast, expected);
     }

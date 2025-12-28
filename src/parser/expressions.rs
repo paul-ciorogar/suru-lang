@@ -118,6 +118,12 @@ impl<'a> Parser<'a> {
                 Ok(try_node_idx)
             }
 
+            // Match expression
+            TokenKind::Match => {
+                self.advance(); // Consume 'match'
+                self.parse_match_expression(depth + 1)
+            }
+
             // Primary expressions: literals
             TokenKind::True | TokenKind::False => {
                 let literal_node =

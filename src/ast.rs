@@ -38,6 +38,13 @@ pub enum NodeType {
     PropertyAccess, // Property access: receiver.property
     ArgList,        // Argument list for function/method calls
 
+    // Match expressions
+    Match,        // Match expression: match expr { arms }
+    MatchSubject, // Subject expression being matched
+    MatchArms,    // Container for all match arms
+    MatchArm,     // Single match arm: pattern : result
+    MatchPattern, // Pattern wrapper (identifier, literal, method call, or wildcard)
+
     // Function declaration
     FunctionDecl,   // Function declaration: name: () { ... }
     ParamList,      // Parameter list: (x Type, y Type, ...)

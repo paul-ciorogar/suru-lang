@@ -10,7 +10,7 @@ Suru uses pattern matching for control flow instead of if-else chains:
 
 ```suru
 processResult: (result Result) String {
-    match result {
+    return match result {
         Success: "Operation completed successfully"
         Error: "An error occurred"
         Pending: "Operation in progress"
@@ -23,7 +23,7 @@ processResult: (result Result) String {
 
 ```suru
 checkNumber: (n Number) String {
-    match n {
+    return match n {
         0: "zero"
         1: "one"
         _: "other number"
@@ -31,13 +31,22 @@ checkNumber: (n Number) String {
 }
 ```
 
-### Match with Method Calls
+### Match with function calls
 
 ```suru
 status: match user {
-    .equals(admin): "admin"
-    .equals(guest): "guest"
+    equals(admin, _): "admin"
+    equals(guest, _): "guest"
     _: "unknown user"
+}
+```
+
+### Match as statement
+
+```suru
+match status {
+    Success: print("success")
+    Error: exit()
 }
 ```
 
