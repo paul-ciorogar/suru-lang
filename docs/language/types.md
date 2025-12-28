@@ -429,14 +429,14 @@ balance: account.getBalance()  // OK: public method
 ### Complete Type Example
 
 ```suru
-# Define type
+// Define type
 type Person: {
     name String
     age Number
     greet: () String
 }
 
-# Constructor
+// Constructor
 Person: (name String, age Number) Person {
     return {
         name: name
@@ -447,10 +447,10 @@ Person: (name String, age Number) Person {
     }
 }
 
-# Create instance
+// Create instance
 alice: Person("Alice", 30)
 
-# Use instance
+// Use instance
 greeting: alice.greet()
 print(greeting)  // "Hello, I'm Alice, age 30"
 ```
@@ -468,7 +468,7 @@ type Circle: Point + {
     area: () Number
 }
 
-# Implement
+// Implement
 circle Circle: {
     x: 0
     y: 0
@@ -505,7 +505,7 @@ Stack<T>: () Stack<T> {
     }
 }
 
-# Use
+// Use
 numberStack: Stack<Number>()
 numberStack.push(1).push(2).push(3)
 top: numberStack.peek()  // Some(3)

@@ -730,7 +730,7 @@ src/parser/
 
 **Method Calls:**
 ```suru
-# Basic method calls
+// Basic method calls
 greeting: person.greet()
 result: person.greet('Alice', 42)
 upper: "hello".toUpper()
@@ -775,95 +775,95 @@ name: getUser().getName()
 ## Current Parser Capabilities
 The parser currently supports:
 ```suru
-# ========== Type Declarations ==========
+// ========== Type Declarations ==========
 
-# Unit types
+// Unit types
 type Success
 type Error
 
-# Type aliases
+// Type aliases
 type UserId: Number
 type Username: String
 
-# Union types
+// Union types
 type Status: Success, Error, Loading
 type Value: Int64, String, Bool
 
-# Function types
+// Function types
 type AddFunction: (a Number, b Number) Number
 type Predicate: (value String) Bool
 
-# Struct types
+// Struct types
 type Person: {
     name String
     age Number
     greet: () String
 }
 
-# Intersection types
+// Intersection types
 type Employee: Person + {
     salary Int64
 }
 
-# Generic types
+// Generic types
 type List<T>: {
     items Array
 }
 
 type Result<T, E>: Ok, Error
 
-# ========== Variable Declarations ==========
+// ========== Variable Declarations ==========
 
 x: 42
 name: "Alice"
 flag: true and false
 
-# ========== Method Calls & Property Access ==========
+// ========== Method Calls & Property Access ==========
 
-# Method calls
+// Method calls
 greeting: person.greet()
 result: calc.add(1, 2)
 upper: "hello".toUpper()
 
-# Property access
+// Property access
 age: person.age
 name: user.name
 
-# Method chaining
+// Method chaining
 result: numbers.add(6).add(7).set(0, 0)
 text: template.metadata.toString()
 
-# Integration
+// Integration
 isValid: value.isValid() and other.check()
 name: getUser().getName()
 
-# ========== Function Declarations ==========
+// ========== Function Declarations ==========
 
-# Function declarations with parameters and return types
+// Function declarations with parameters and return types
 add: (x Number, y Number) Number {
     return x
 }
 
-# Functions with inferred parameters
+// Functions with inferred parameters
 identity: (value) {
     return value
 }
 
-# Standalone function calls
+// Standalone function calls
 initialize()
 print("test")
 
-# Function calls in expressions
+// Function calls in expressions
 x: add(1, 2, 3)
 y: not test(true, false)
 
-# Return statements
+// Return statements
 getValue: () Number {
     result: 42
     return result
 }
 
-# Nested functions with parameters
+// Nested functions with parameters
 outer: (x Number) {
     inner: (y String) Number {
         return 1

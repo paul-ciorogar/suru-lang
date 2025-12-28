@@ -5,6 +5,7 @@ use crate::lexer::{Token, TokenKind};
 pub(super) fn get_precedence(token_kind: &TokenKind) -> Option<u8> {
     match token_kind {
         TokenKind::Or => Some(1),
+        TokenKind::Pipe => Some(1), // Same precedence as Or
         TokenKind::And => Some(2),
         TokenKind::Not => Some(3), // Unary operator
         TokenKind::Dot => Some(4), // Postfix operator (highest precedence)
@@ -102,6 +103,7 @@ mod tests {
     #[test]
     fn test_precedence_levels() {
         assert_eq!(get_precedence(&TokenKind::Or), Some(1));
+        assert_eq!(get_precedence(&TokenKind::Pipe), Some(1));
         assert_eq!(get_precedence(&TokenKind::And), Some(2));
         assert_eq!(get_precedence(&TokenKind::Not), Some(3));
         assert_eq!(get_precedence(&TokenKind::Dot), Some(4));

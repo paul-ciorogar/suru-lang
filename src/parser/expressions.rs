@@ -61,6 +61,7 @@ impl<'a> Parser<'a> {
             let op_node_type = match op_kind {
                 TokenKind::And => NodeType::And,
                 TokenKind::Or => NodeType::Or,
+                TokenKind::Pipe => NodeType::Pipe,
                 _ => unreachable!(),
             };
 
@@ -726,5 +727,306 @@ Program
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("Nested"));
+    }
+
+    // ========== PIPE OPERATOR TESTS ==========
+
+    // Category 1: Basic Pipe Operations
+
+    #[test]
+    fn test_simple_pipe() {
+        let ast = to_ast_string("x: value | transform\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'value'
+      Identifier 'transform'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_pipe_with_function_call() {
+        let ast = to_ast_string("x: value | print()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'value'
+      FunctionCall
+        Identifier 'print'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_pipe_with_literal() {
+        let ast = to_ast_string("x: 42 | toString()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      LiteralNumber '42'
+      FunctionCall
+        Identifier 'toString'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 2: Pipe Chaining
+
+    #[test]
+    fn test_pipe_chaining_two() {
+        let ast = to_ast_string("x: a | b | c\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'a'
+        Identifier 'b'
+      Identifier 'c'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_pipe_chaining_three() {
+        // Verify left-associative: ((value | f1) | f2) | f3
+        let ast_struct = to_ast("x: value | f1 | f2 | f3\n").unwrap();
+
+        let var_decl = ast_struct.nodes[0].first_child.unwrap();
+        let ident = ast_struct.nodes[var_decl].first_child.unwrap();
+        let pipe3 = ast_struct.nodes[ident].next_sibling.unwrap();
+
+        assert_eq!(ast_struct.nodes[pipe3].node_type, NodeType::Pipe);
+
+        let pipe2 = ast_struct.nodes[pipe3].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[pipe2].node_type, NodeType::Pipe);
+
+        let pipe1 = ast_struct.nodes[pipe2].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[pipe1].node_type, NodeType::Pipe);
+    }
+
+    #[test]
+    fn test_pipe_with_method_chain() {
+        let ast = to_ast_string("x: data | obj.process() | transform\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'data'
+        MethodCall
+          Identifier 'obj'
+          Identifier 'process'
+          ArgList
+      Identifier 'transform'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_pipe_with_function_args() {
+        let ast = to_ast_string("x: data | filter(active) | sort()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'data'
+        FunctionCall
+          Identifier 'filter'
+          ArgList
+            Identifier 'active'
+      FunctionCall
+        Identifier 'sort'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 3: Precedence Interactions
+
+    #[test]
+    fn test_pipe_precedence_with_and() {
+        // "a | b and c" should parse as "a | (b and c)"
+        let ast_struct = to_ast("x: a | b and c\n").unwrap();
+
+        let var_decl = ast_struct.nodes[0].first_child.unwrap();
+        let ident = ast_struct.nodes[var_decl].first_child.unwrap();
+        let pipe = ast_struct.nodes[ident].next_sibling.unwrap();
+
+        assert_eq!(ast_struct.nodes[pipe].node_type, NodeType::Pipe);
+
+        // Right side of pipe should be And
+        let left = ast_struct.nodes[pipe].first_child.unwrap();
+        let right = ast_struct.nodes[left].next_sibling.unwrap();
+        assert_eq!(ast_struct.nodes[right].node_type, NodeType::And);
+    }
+
+    #[test]
+    fn test_pipe_precedence_with_or() {
+        // "a or b | c" should parse as "(a or b) | c"
+        // Both have precedence 1, so left-to-right associativity applies
+        let ast_struct = to_ast("x: a or b | c\n").unwrap();
+
+        let var_decl = ast_struct.nodes[0].first_child.unwrap();
+        let ident = ast_struct.nodes[var_decl].first_child.unwrap();
+        let pipe = ast_struct.nodes[ident].next_sibling.unwrap();
+
+        assert_eq!(ast_struct.nodes[pipe].node_type, NodeType::Pipe);
+
+        // Left side should be Or
+        let or_node = ast_struct.nodes[pipe].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[or_node].node_type, NodeType::Or);
+    }
+
+    #[test]
+    fn test_pipe_with_not() {
+        // "not a | b" should parse as "(not a) | b"
+        let ast_struct = to_ast("x: not a | b\n").unwrap();
+
+        let var_decl = ast_struct.nodes[0].first_child.unwrap();
+        let ident = ast_struct.nodes[var_decl].first_child.unwrap();
+        let pipe = ast_struct.nodes[ident].next_sibling.unwrap();
+
+        assert_eq!(ast_struct.nodes[pipe].node_type, NodeType::Pipe);
+
+        // Left side should be Not
+        let not_node = ast_struct.nodes[pipe].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[not_node].node_type, NodeType::Not);
+    }
+
+    #[test]
+    fn test_pipe_with_method_call_precedence() {
+        // "obj.method() | func" - dot binds tighter than pipe
+        let ast = to_ast_string("x: obj.method() | func\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      MethodCall
+        Identifier 'obj'
+        Identifier 'method'
+        ArgList
+      Identifier 'func'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_pipe_in_boolean_expression() {
+        // Should parse as: ((value | (isValid and flag)) | check)
+        // Because 'and' has higher precedence (2) than 'pipe' (1)
+        let ast_struct = to_ast("x: value | isValid and flag | check\n").unwrap();
+
+        let var_decl = ast_struct.nodes[0].first_child.unwrap();
+        let ident = ast_struct.nodes[var_decl].first_child.unwrap();
+        let outer_pipe = ast_struct.nodes[ident].next_sibling.unwrap();
+
+        // Root should be Pipe
+        assert_eq!(ast_struct.nodes[outer_pipe].node_type, NodeType::Pipe);
+
+        // Left side should be another Pipe
+        let inner_pipe = ast_struct.nodes[outer_pipe].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[inner_pipe].node_type, NodeType::Pipe);
+
+        // The inner pipe's right child should be And
+        let value_node = ast_struct.nodes[inner_pipe].first_child.unwrap();
+        let and_node = ast_struct.nodes[value_node].next_sibling.unwrap();
+        assert_eq!(ast_struct.nodes[and_node].node_type, NodeType::And);
+    }
+
+    // Category 4: Complex Expressions
+
+    #[test]
+    fn test_pipe_complex_chain() {
+        let ast = to_ast_string("x: data | filter(active) | sort() | take(10)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Pipe
+          Identifier 'data'
+          FunctionCall
+            Identifier 'filter'
+            ArgList
+              Identifier 'active'
+        FunctionCall
+          Identifier 'sort'
+          ArgList
+      FunctionCall
+        Identifier 'take'
+        ArgList
+          LiteralNumber '10'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_pipe_with_string_method() {
+        let ast = to_ast_string("x: 'hello' | toUpper()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      LiteralString 'hello'
+      FunctionCall
+        Identifier 'toUpper'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_nested_function_calls_in_pipe() {
+        let ast = to_ast_string("x: getData() | process() | format()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        FunctionCall
+          Identifier 'getData'
+          ArgList
+        FunctionCall
+          Identifier 'process'
+          ArgList
+      FunctionCall
+        Identifier 'format'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 5: Edge Cases
+
+    #[test]
+    fn test_pipe_at_start_error() {
+        // Pipe needs a left operand
+        let result = to_ast("x: | func\n");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pipe_at_end_error() {
+        // Pipe needs a right operand
+        let result = to_ast("x: value |\n");
+        assert!(result.is_err());
     }
 }

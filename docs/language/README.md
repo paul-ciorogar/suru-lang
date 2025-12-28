@@ -137,7 +137,7 @@ add: (x, y) {
 ### Method-Based Iteration
 
 ```suru
-# No loop keywords - use methods
+// No loop keywords - use methods
 printStep: (step) {
     print(`Step {step}`)
 }

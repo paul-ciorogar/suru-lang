@@ -25,6 +25,9 @@ pub enum NodeType {
     And, // Binary and operation
     Or,  // Binary or operation
 
+    // Pipe operator
+    Pipe, // Pipe operation: left | right
+
     // Function call
     FunctionCall,   // Function call expression
     MethodCall,     // Method call: receiver.method(args)

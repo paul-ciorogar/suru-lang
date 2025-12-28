@@ -55,18 +55,18 @@ result: false or false   # false
 Used for composing types and structs:
 
 ```suru
-# Type composition
+// Type composition
 type Employee: Person + {
     salary Int64
     department String
 }
 
-# Data composition
+// Data composition
 aCircle Circle: aPoint + {
     radius: 500
 }
 
-# Method composition
+// Method composition
 type Shape: {
     area: + partial calculateArea(this)
 }
@@ -81,17 +81,17 @@ See [Composition](composition.md) for detailed usage.
 Pipes values from left to right, enabling chained transformations:
 
 ```suru
-# Basic pipe
+// Basic pipe
 result: value | transform
 
-# Multiple pipes
+// Multiple pipes
 processed: "Hello, world!"
     | trim()
     | toLower()
     | replace(_, "world", "you")
     | capitalize()
 
-# Pipe with arithmetic
+// Pipe with arithmetic
 output: 2_283 | subtract(_, 2) | print  # 2281 would be printed
 ```
 
@@ -113,13 +113,13 @@ Operators are evaluated in the following order (highest to lowest precedence):
 ### Precedence Examples
 
 ```suru
-# NOT has higher precedence than AND
+// NOT has higher precedence than AND
 result: not false and true      # (not false) and true = true
 
-# AND has higher precedence than OR
+// AND has higher precedence than OR
 result: true or false and false  # true or (false and false) = true
 
-# Dot (member access) has highest precedence
+// Dot (member access) has highest precedence
 value: obj.method() and check    # (obj.method()) and check
 ```
 
@@ -130,10 +130,10 @@ The pipe operator (`|`) enables functional-style composition:
 ### Basic Piping
 
 ```suru
-# Pipe to function
+// Pipe to function
 result: value | process
 
-# Equivalent to
+// Equivalent to
 result: process(value)
 ```
 
@@ -142,10 +142,10 @@ result: process(value)
 Use `_` indicates partial application:
 
 ```suru
-# Pipe as second argument
+// Pipe as second argument
 result: 10 | subtract(20, _)  # subtract(20, 10) = 10
 
-# Pipe as first argument (default)
+// Pipe as first argument (default)
 result: 10 | subtract(_, 5)   # subtract(10, 5) = 5
 ```
 
@@ -154,20 +154,20 @@ result: 10 | subtract(_, 5)   # subtract(10, 5) = 5
 Chain multiple transformations:
 
 ```suru
-# Text processing
+// Text processing
 processed: "  Hello World  "
     | trim()
     | toLower()
     | replace(_, "world", "Suru")
     | capitalize()
-# Result: "Hello suru"
+// Result: "Hello suru"
 
-# Number processing
+// Number processing
 final: 100
     | multiply(_, 2)
     | add(_, 50)
     | divide(_, 10)
-# Result: 25
+// Result: 25
 ```
 
 ### With Methods
@@ -204,7 +204,7 @@ See [Error Handling](error-handling.md#pipe-integration) for details.
 ### Boolean Logic
 
 ```suru
-# Complex boolean expressions
+// Complex boolean expressions
 isEligible: hasAccount and isVerified and not isBanned
 ```
 
@@ -229,14 +229,14 @@ type LabeledCircle: Circle + {
 ### Pipeline Patterns
 
 ```suru
-# Data transformation pipeline
+// Data transformation pipeline
 users
     | filterActive()
     | sortByName()
     | take(_, 10)
     | mapToDisplay()
 
-# Validation pipeline
+// Validation pipeline
 input
     | try validateFormat
     | try checkLength

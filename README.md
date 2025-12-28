@@ -82,11 +82,11 @@ sayHello(alice)
 
 ## Project Status
 
-**Current Version:** 0.11.0 (Parser Complete - Method Calls & Property Access)
+**Current Version:** 0.12.0 (Parser - Pipe Operator)
 
 **Implemented:**
 - Lexer - Complete tokenization
-- Parser - All type declarations, functions, expressions, method calls
+- Parser - All type declarations, functions, expressions, method calls, pipe operator
 - AST - First-child/next-sibling representation
 - CLI - Parse command with clap
 

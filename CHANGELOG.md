@@ -5,6 +5,37 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2025-12-28 - Pipe Expressions
+
+### Added
+- Pipe operator parsing (`|`) for functional composition
+- Basic piping: `value | transform`
+- Pipe chaining with left-associativity: `a | b | c` → `((a | b) | c)`
+- Pipes with function calls: `data | filter(active) | sort()`
+- Pipes with method calls: `obj.method() | func`
+- Complex pipeline chains: `data | filter(active) | sort() | take(10)`
+- New AST node type: `Pipe`
+- 17 comprehensive tests for pipe operator
+
+### Technical Details
+- Pipe has precedence level 1 (same as `or`)
+- Lower precedence than `and` (2), `not` (3), and `.` (4)
+- Left-associative for natural chaining
+- Parser creates AST nodes only; semantic transformation deferred to later phases
+- Placeholder (`_`) support intentionally deferred to future release
+
+### Examples
+```suru
+// Basic pipe
+result: value | transform
+
+// Chaining
+processed: data | filter(active) | sort() | take(10)
+
+// With methods
+output: obj.process() | validate() | format()
+```
+
 ## [0.11.0] - 2025-12-27 - Method Calls & Property Access
 
 ### Added

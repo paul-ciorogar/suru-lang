@@ -44,7 +44,7 @@ MAX_SIZE: 100        # File-scoped constant
 PI: 3.14159          # Cannot be reassigned
 
 main: () {
-    # Can use constants
+    // Can use constants
     area: PI * radius * radius
 }
 ```
@@ -68,11 +68,11 @@ calculate: (x Number) Number {
 Declarations end with a newline unless the next line has a continuation operator:
 
 ```suru
-# Single line declarations
+// Single line declarations
 x: 42
 y: 100
 
-# Multi-line with continuation
+// Multi-line with continuation
 result: calculateValue()
     | transform
     | validate
@@ -83,22 +83,22 @@ result: calculateValue()
 ### Basic Declarations
 
 ```suru
-# Numbers
+// Numbers
 count: 42
 price: 19.99
 hex: 0xFF
 binary: 0b1010
 
-# Strings
+// Strings
 name: "Alice"
 message: 'Hello, World!'
 interpolated: `Hello {name}!`
 
-# Booleans
+// Booleans
 isActive: true
 hasPermission: false
 
-# Collections
+// Collections
 numbers: [1, 2, 3, 4, 5]
 names: ["Alice", "Bob", "Charlie"]
 scores: ["math": 95.5, "science": 87.2]
@@ -107,13 +107,13 @@ scores: ["math": 95.5, "science": 87.2]
 ### Type Annotations
 
 ```suru
-# Explicit types
+// Explicit types
 id UserId: 12345
 username String: "alice"
 age Int64: 30
 balance Float64: 1000.50
 
-# Custom types
+// Custom types
 user User: {
     name: "Alice"
     age: 30
@@ -123,12 +123,12 @@ user User: {
 ### Function Results
 
 ```suru
-# Assign function results
+// Assign function results
 result: add(1, 2)
 message: greet("Alice")
 user: createUser("alice", 30)
 
-# Chain method calls
+// Chain method calls
 uppercased: text.trim().toUpper()
 ```
 
@@ -154,7 +154,7 @@ File-level declarations are constants and cannot be reassigned:
 CONFIG: "production"  # Constant
 
 main: () {
-    # CONFIG: "development"  # ERROR: Cannot reassign constant
+    // CONFIG: "development"  # ERROR: Cannot reassign constant
     localConfig: "development"  # OK: New local variable
 }
 ```

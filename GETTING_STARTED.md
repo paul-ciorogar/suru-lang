@@ -85,14 +85,14 @@ Program
 Let's write a program that demonstrates more Suru features. Create `example.suru`:
 
 ```suru
-# Define a Person type with fields and methods
+// Define a Person type with fields and methods
 type Person: {
     name String
     age Number
     greet: () String
 }
 
-# Create a Person constructor
+// Create a Person constructor
 Person: (name String, age Number) Person {
     return {
         name: name
@@ -103,18 +103,18 @@ Person: (name String, age Number) Person {
     }
 }
 
-# Create a function that uses Person
+// Create a function that uses Person
 introducePerson: (person Person) {
     message: person.greet()
     print(message)
 }
 
-# Main entry point
+// Main entry point
 main: () {
-    # Create a person
+    // Create a person
     alice: Person("Alice", 30)
 
-    # Call the introduction function
+    // Call the introduction function
     introducePerson(alice)
 }
 ```
