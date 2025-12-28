@@ -1,4 +1,5 @@
 use crate::lexer::{Token, TokenKind};
+use crate::string_storage::StringStorage;
 
 // Parse error
 #[derive(Debug, Clone)]
@@ -19,11 +20,14 @@ impl ParseError {
         }
     }
 
-    pub(super) fn unexpected_token(expected: &str, token: &Token, token_idx: usize, source: &str) -> Self {
+    pub(super) fn unexpected_token(expected: &str, token: &Token, token_idx: usize, storage: &StringStorage) -> Self {
         let found = match &token.kind {
             TokenKind::Eof => "end of file".to_string(),
             TokenKind::Newline => "newline".to_string(),
-            TokenKind::Identifier => format!("identifier '{}'", token.text(source)),
+            TokenKind::Identifier => {
+                let text = token.text(storage).unwrap_or("<unknown>");
+                format!("identifier '{}'", text)
+            }
             _ => format!("{:?}", token.kind),
         };
 

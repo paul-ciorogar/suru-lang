@@ -13,8 +13,8 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::Type, "'type'")?;
 
         // Parse type name
-        let name_token_idx = self.current;
-        let type_name_node = AstNode::new_terminal(NodeType::TypeName, name_token_idx);
+        let name_token = self.clone_current_token();
+        let type_name_node = AstNode::new_terminal(NodeType::TypeName, name_token);
         let type_name_idx = self.ast.add_node(type_name_node);
         self.consume(TokenKind::Identifier, "type name")?;
 
@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
                 self.advance(); // Consume ':'
                 self.skip_newlines();
 
-                match self.current_token().kind {
+                match self.peek_kind() {
                     TokenKind::Identifier => {
                         // Parse type expression (alias, union, or intersection)
                         let type_expr_idx = self.parse_type_expression(depth + 1)?;
@@ -77,20 +77,10 @@ impl<'a> Parser<'a> {
                         self.ast.add_child(type_body_idx, func_type_idx);
                         Ok(type_body_idx)
                     }
-                    _ => Err(ParseError::unexpected_token(
-                        "type body (identifier, '{', or '(')",
-                        self.current_token(),
-                        self.current,
-                        self.source,
-                    )),
+                    _ => Err(self.new_unexpected_token("type body (identifier, '{', or '(')")),
                 }
             }
-            _ => Err(ParseError::unexpected_token(
-                "':' or newline after type name",
-                self.current_token(),
-                self.current,
-                self.source,
-            )),
+            _ => Err(self.new_unexpected_token("':' or newline after type name")),
         }
     }
 
@@ -111,7 +101,7 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
 
             // Parse parameter name
-            let param_name_token = self.current;
+            let param_name_token = self.clone_current_token();
             self.consume(TokenKind::Identifier, "type parameter name")?;
 
             // Create TypeParam node
@@ -129,16 +119,12 @@ impl<'a> Parser<'a> {
                 self.skip_newlines();
 
                 // Parse constraint type
-                if self.current_token().kind != TokenKind::Identifier {
-                    return Err(ParseError::unexpected_token(
-                        "type constraint name",
-                        self.current_token(),
-                        self.current,
-                        self.source,
-                    ));
+                if self.peek_kind() != TokenKind::Identifier {
+                    return Err(self.new_unexpected_token("type constraint name"));
                 }
 
-                let constraint_node = AstNode::new_terminal(NodeType::TypeConstraint, self.current);
+                let constraint_node =
+                    AstNode::new_terminal(NodeType::TypeConstraint, self.clone_current_token());
                 let constraint_idx = self.ast.add_node(constraint_node);
                 self.advance(); // Consume constraint
                 self.ast.add_child(type_param_idx, constraint_idx);
@@ -158,12 +144,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 _ => {
-                    return Err(ParseError::unexpected_token(
-                        "',' or '>'",
-                        self.current_token(),
-                        self.current,
-                        self.source,
-                    ));
+                    return Err(self.new_unexpected_token("',' or '>'"));
                 }
             }
         }
@@ -196,16 +177,11 @@ impl<'a> Parser<'a> {
 
             // Check for EOF (error case - unclosed struct)
             if self.current_token().kind == TokenKind::Eof {
-                return Err(ParseError::unexpected_token(
-                    "'}'",
-                    self.current_token(),
-                    self.current,
-                    self.source,
-                ));
+                return Err(self.new_unexpected_token("'}'"));
             }
 
             // Parse member name
-            let member_name_token = self.current;
+            let member_name_token = self.clone_current_token();
             self.consume(TokenKind::Identifier, "field or method name")?;
 
             // Lookahead: field or method?
@@ -221,7 +197,8 @@ impl<'a> Parser<'a> {
                     self.ast.add_child(field_idx, name_idx);
 
                     // Add type annotation child
-                    let type_node = AstNode::new_terminal(NodeType::TypeAnnotation, self.current);
+                    let type_node =
+                        AstNode::new_terminal(NodeType::TypeAnnotation, self.clone_current_token());
                     let type_idx = self.ast.add_node(type_node);
                     self.advance(); // Consume type
                     self.ast.add_child(field_idx, type_idx);
@@ -234,13 +211,8 @@ impl<'a> Parser<'a> {
                     self.advance(); // Consume ':'
 
                     // Parse function type
-                    if self.current_token().kind != TokenKind::LParen {
-                        return Err(ParseError::unexpected_token(
-                            "'(' for method function type",
-                            self.current_token(),
-                            self.current,
-                            self.source,
-                        ));
+                    if self.peek_kind() != TokenKind::LParen {
+                        return Err(self.new_unexpected_token("'(' for method function type"));
                     }
 
                     let func_type_idx = self.parse_function_type(depth + 1)?;
@@ -261,12 +233,9 @@ impl<'a> Parser<'a> {
                     self.ast.add_child(struct_body_idx, method_idx);
                 }
                 _ => {
-                    return Err(ParseError::unexpected_token(
-                        "type annotation or ':' after field/method name",
-                        self.current_token(),
-                        self.current,
-                        self.source,
-                    ));
+                    return Err(
+                        self.new_unexpected_token("type annotation or ':' after field/method name")
+                    );
                 }
             }
         }
@@ -301,20 +270,17 @@ impl<'a> Parser<'a> {
             }
 
             // Parse: name Type
-            let param_name_token = self.current;
+            let param_name_token = self.clone_current_token();
             self.consume(TokenKind::Identifier, "parameter name")?;
 
             // Function type parameters must have types
             if self.current_token().kind != TokenKind::Identifier {
-                return Err(ParseError::unexpected_token(
-                    "type annotation for function type parameter",
-                    self.current_token(),
-                    self.current,
-                    self.source,
-                ));
+                return Err(
+                    self.new_unexpected_token("type annotation for function type parameter")
+                );
             }
 
-            let param_type_token = self.current;
+            let param_type_token = self.clone_current_token();
             self.advance(); // Consume type
 
             // Create StructField node for parameter (reuse pattern)
@@ -345,26 +311,17 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 _ => {
-                    return Err(ParseError::unexpected_token(
-                        "',' or ')'",
-                        self.current_token(),
-                        self.current,
-                        self.source,
-                    ));
+                    return Err(self.new_unexpected_token("',' or ')'"));
                 }
             }
         }
 
         // Parse return type
         if self.current_token().kind != TokenKind::Identifier {
-            return Err(ParseError::unexpected_token(
-                "type idetifier or 'void'",
-                self.current_token(),
-                self.current,
-                self.source,
-            ));
+            return Err(self.new_unexpected_token("type idetifier or 'void'"));
         }
-        let return_type_node = AstNode::new_terminal(NodeType::TypeAnnotation, self.current);
+        let return_type_node =
+            AstNode::new_terminal(NodeType::TypeAnnotation, self.clone_current_token());
         let return_type_idx = self.ast.add_node(return_type_node);
         self.advance(); // Consume return type
         self.ast.add_child(func_type_idx, return_type_idx);
@@ -380,7 +337,8 @@ impl<'a> Parser<'a> {
         match self.current_token().kind {
             TokenKind::Identifier => {
                 // Type reference
-                let type_node = AstNode::new_terminal(NodeType::TypeAnnotation, self.current);
+                let type_node =
+                    AstNode::new_terminal(NodeType::TypeAnnotation, self.clone_current_token());
                 let type_idx = self.ast.add_node(type_node);
                 self.advance(); // Consume identifier
                 Ok(type_idx)
@@ -389,12 +347,7 @@ impl<'a> Parser<'a> {
                 // Inline struct body (for intersections like: Person + { salary Int64 })
                 self.parse_struct_body(depth + 1)
             }
-            _ => Err(ParseError::unexpected_token(
-                "type name or '{'",
-                self.current_token(),
-                self.current,
-                self.source,
-            )),
+            _ => Err(self.new_unexpected_token("type name or '{'")),
         }
     }
 
@@ -457,16 +410,16 @@ mod tests {
     use crate::lexer::lex;
 
     fn to_ast(source: &str) -> Result<Ast, ParseError> {
-        let tokens = lex(source).unwrap();
         let limits = crate::limits::CompilerLimits::default();
-        parse(source, &tokens, limits)
+        let tokens = lex(source, &limits).unwrap();
+        parse(tokens, &limits)
     }
 
     fn to_ast_string(source: &str) -> Result<String, ParseError> {
-        let tokens = lex(source).unwrap();
         let limits = crate::limits::CompilerLimits::default();
-        let ast = parse(source, &tokens, limits)?;
-        Ok(ast.to_string(&tokens))
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits)?;
+        Ok(ast.to_string())
     }
 
     // Unit type tests

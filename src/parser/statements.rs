@@ -27,8 +27,7 @@ impl<'a> Parser<'a> {
         self.check_depth(depth)?;
         self.skip_newlines();
 
-        let token = self.current_token();
-        match &token.kind {
+        match self.peek_kind() {
             TokenKind::Return => {
                 // Return statement
                 return Ok(Some(self.parse_return_stmt(depth + 1)?));
@@ -48,67 +47,26 @@ impl<'a> Parser<'a> {
             }
             TokenKind::RBrace => Ok(None), // End of block
             TokenKind::Eof => Ok(None),
-            _ => Err(ParseError::unexpected_token(
-                "statement",
-                token,
-                self.current,
-                self.source,
-            )),
+            _ => Err(self.new_unexpected_token("statement")),
         }
     }
 
     /// Helper: Determine statement type by looking ahead after identifier
     /// Returns 'function', 'variable', or 'call'
     fn peek_statement_type(&self) -> Result<&'static str, ParseError> {
-        let next_idx = self.current + 1;
-        if next_idx < self.tokens.len() {
-            let next_token = &self.tokens[next_idx];
+        match self.peek_next_kind(1) {
+            TokenKind::Colon => {
+                match self.peek_next_kind(2) {
+                    TokenKind::LParen => Ok("function"), // Function declaration: ident : ()
 
-            match &next_token.kind {
-                TokenKind::Colon => {
-                    // Check token after colon (skip newlines)
-                    let mut after_colon_idx = next_idx + 1;
-                    while after_colon_idx < self.tokens.len()
-                        && self.tokens[after_colon_idx].kind == TokenKind::Newline
-                    {
-                        after_colon_idx += 1;
-                    }
-
-                    if after_colon_idx < self.tokens.len() {
-                        if self.tokens[after_colon_idx].kind == TokenKind::LParen {
-                            // Function declaration: ident : ()
-                            Ok("function")
-                        } else {
-                            // Variable declaration: ident : expr
-                            Ok("variable")
-                        }
-                    } else {
-                        Err(ParseError::unexpected_token(
-                            "expression or '('",
-                            self.current_token(),
-                            self.current,
-                            self.source,
-                        ))
-                    }
+                    _ => Ok("variable"), // Variable declaration: ident : expr
                 }
-                TokenKind::LParen => {
-                    // Standalone function call: ident()
-                    Ok("call")
-                }
-                _ => Err(ParseError::unexpected_token(
-                    "':' or '('",
-                    next_token,
-                    next_idx,
-                    self.source,
-                )),
             }
-        } else {
-            Err(ParseError::unexpected_token(
-                "':' or '('",
-                self.current_token(),
-                self.current,
-                self.source,
-            ))
+            TokenKind::LParen => {
+                // Standalone function call: ident()
+                Ok("call")
+            }
+            _ => Err(self.new_unexpected_token("':' or '('")),
         }
     }
 
@@ -123,18 +81,13 @@ impl<'a> Parser<'a> {
         self.ast.add_child(expr_stmt_idx, expr_idx);
 
         // Expect newline, EOF, or RBrace (end of block)
-        match &self.current_token().kind {
+        match self.peek_kind() {
             TokenKind::Newline => self.advance(),
             TokenKind::Eof | TokenKind::RBrace => {
                 // Let caller handle RBrace
             }
             _ => {
-                return Err(ParseError::unexpected_token(
-                    "newline, '}', or end of file",
-                    self.current_token(),
-                    self.current,
-                    self.source,
-                ));
+                return Err(self.new_unexpected_token("newline, '}', or end of file"));
             }
         }
 
@@ -145,37 +98,30 @@ impl<'a> Parser<'a> {
     fn parse_var_decl(&mut self, depth: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
-        // 1. Parse identifier token
-        let ident_token = self.current_token();
-        if ident_token.kind != TokenKind::Identifier {
-            return Err(ParseError::unexpected_token(
-                "identifier",
-                ident_token,
-                self.current,
-                self.source,
-            ));
+        // Parse identifier token
+        if self.peek_kind() != TokenKind::Identifier {
+            return Err(self.new_unexpected_token("identifier"));
         }
 
-        // 2. Create nodes
+        // Create nodes
         let var_decl_node = AstNode::new(NodeType::VarDecl);
         let var_decl_idx = self.ast.add_node(var_decl_node);
 
-        let ident_node = AstNode::new_terminal(NodeType::Identifier, self.current);
+        let ident_node = AstNode::new_terminal(NodeType::Identifier, self.clone_current_token());
         let ident_idx = self.ast.add_node(ident_node);
         self.ast.add_child(var_decl_idx, ident_idx);
 
         self.advance(); // consume identifier
 
-        // 3. Expect colon
+        // Expect colon
         self.consume(TokenKind::Colon, "':'")?;
 
-        // 4. Parse expression
+        // Parse expression
         let expr_idx = self.parse_expression(depth + 1, 0)?;
         self.ast.add_child(var_decl_idx, expr_idx);
 
-        // 5. Expect newline, EOF, or RBrace (end of block)
-        let token = self.current_token();
-        match &token.kind {
+        // Expect newline, EOF, or RBrace (end of block)
+        match self.peek_kind() {
             TokenKind::Newline => {
                 self.advance();
             }
@@ -183,12 +129,7 @@ impl<'a> Parser<'a> {
                 // EOF or RBrace is fine, don't consume (let caller handle RBrace)
             }
             _ => {
-                return Err(ParseError::unexpected_token(
-                    "newline, '}', or end of file",
-                    token,
-                    self.current,
-                    self.source,
-                ));
+                return Err(self.new_unexpected_token("newline, '}', or end of file"));
             }
         }
 
@@ -231,8 +172,7 @@ impl<'a> Parser<'a> {
         self.ast.add_child(return_stmt_idx, expr_idx);
 
         // Expect newline, EOF, or RBrace
-        let token = self.current_token();
-        match &token.kind {
+        match self.peek_kind() {
             TokenKind::Newline => {
                 self.advance();
             }
@@ -240,12 +180,8 @@ impl<'a> Parser<'a> {
                 // EOF or RBrace is fine, don't consume (let caller handle RBrace)
             }
             _ => {
-                return Err(ParseError::unexpected_token(
-                    "newline, '}', or end of file after return statement",
-                    token,
-                    self.current,
-                    self.source,
-                ));
+                return Err(self
+                    .new_unexpected_token("newline, '}', or end of file after return statement"));
             }
         }
 
@@ -274,13 +210,8 @@ impl<'a> Parser<'a> {
             }
 
             // Check for EOF (error case - unclosed block)
-            if self.current_token().kind == TokenKind::Eof {
-                return Err(ParseError::unexpected_token(
-                    "'}'",
-                    self.current_token(),
-                    self.current,
-                    self.source,
-                ));
+            if self.peek_kind_is(TokenKind::Eof) {
+                return Err(self.new_unexpected_token("'}'"));
             }
 
             // Parse statement (variable decl or expression statement)
@@ -297,14 +228,8 @@ impl<'a> Parser<'a> {
         self.check_depth(depth)?;
 
         // Expect identifier (parameter name)
-        let name_token = self.current_token();
-        if name_token.kind != TokenKind::Identifier {
-            return Err(ParseError::unexpected_token(
-                "parameter name",
-                name_token,
-                self.current,
-                self.source,
-            ));
+        if self.peek_kind() != TokenKind::Identifier {
+            return Err(self.new_unexpected_token("parameter name"));
         }
 
         // Create Param node
@@ -312,7 +237,7 @@ impl<'a> Parser<'a> {
         let param_idx = self.ast.add_node(param_node);
 
         // Create Identifier node for parameter name
-        let ident_node = AstNode::new_terminal(NodeType::Identifier, self.current);
+        let ident_node = AstNode::new_terminal(NodeType::Identifier, self.clone_current_token());
         let ident_idx = self.ast.add_node(ident_node);
         self.ast.add_child(param_idx, ident_idx);
         self.advance(); // Consume parameter name
@@ -321,7 +246,8 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
         if self.current_token().kind == TokenKind::Identifier {
             // This is a type annotation
-            let type_node = AstNode::new_terminal(NodeType::TypeAnnotation, self.current);
+            let type_node =
+                AstNode::new_terminal(NodeType::TypeAnnotation, self.clone_current_token());
             let type_idx = self.ast.add_node(type_node);
             self.ast.add_child(param_idx, type_idx);
             self.advance(); // Consume type name
@@ -360,8 +286,7 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
 
             // Check for closing paren or comma
-            let token = self.current_token();
-            match token.kind {
+            match self.peek_kind() {
                 TokenKind::RParen => {
                     self.advance(); // Consume ')'
                     break;
@@ -377,12 +302,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    return Err(ParseError::unexpected_token(
-                        "',' or ')'",
-                        token,
-                        self.current,
-                        self.source,
-                    ));
+                    return Err(self.new_unexpected_token("',' or ')'"));
                 }
             }
         }
@@ -395,17 +315,11 @@ impl<'a> Parser<'a> {
         self.check_depth(depth)?;
 
         // Parse identifier
-        let ident_token = self.current_token();
-        if ident_token.kind != TokenKind::Identifier {
-            return Err(ParseError::unexpected_token(
-                "identifier",
-                ident_token,
-                self.current,
-                self.source,
-            ));
+        if self.peek_kind() != TokenKind::Identifier {
+            return Err(self.new_unexpected_token("identifier"));
         }
 
-        let ident_node = AstNode::new_terminal(NodeType::Identifier, self.current);
+        let ident_node = AstNode::new_terminal(NodeType::Identifier, self.clone_current_token());
         let ident_idx = self.ast.add_node(ident_node);
         self.advance(); // Consume identifier
 
@@ -428,7 +342,8 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
         if self.current_token().kind == TokenKind::Identifier {
             // This is a return type annotation
-            let return_type_node = AstNode::new_terminal(NodeType::TypeAnnotation, self.current);
+            let return_type_node =
+                AstNode::new_terminal(NodeType::TypeAnnotation, self.clone_current_token());
             let return_type_idx = self.ast.add_node(return_type_node);
             self.ast.add_child(func_decl_idx, return_type_idx);
             self.advance(); // Consume return type
@@ -451,16 +366,16 @@ mod tests {
     use crate::lexer::lex;
 
     fn to_ast(source: &str) -> Result<Ast, ParseError> {
-        let tokens = lex(source).unwrap();
         let limits = crate::limits::CompilerLimits::default();
-        parse(source, &tokens, limits)
+        let tokens = lex(source, &limits).unwrap();
+        parse(tokens, &limits)
     }
 
     fn to_ast_string(source: &str) -> Result<String, ParseError> {
-        let tokens = lex(source).unwrap();
         let limits = crate::limits::CompilerLimits::default();
-        let ast = parse(source, &tokens, limits)?;
-        Ok(ast.to_string(&tokens))
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits)?;
+        Ok(ast.to_string())
     }
 
     // Variable declaration tests

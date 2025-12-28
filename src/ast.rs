@@ -1,10 +1,11 @@
 use crate::lexer::Token;
+use crate::string_storage::StringStorage;
 
 // AST with single vector storage using first-child/next-sibling tree
 #[derive(Debug)]
 pub struct Ast {
     pub nodes: Vec<AstNode>,
-    pub source: String,
+    pub string_storage: StringStorage,
     pub root: Option<usize>, // Index of root node (usually a Program node)
     limits: crate::limits::CompilerLimits,
 }
@@ -61,7 +62,7 @@ pub struct AstNode {
     pub node_type: NodeType,
 
     // Token information (for terminal nodes and position tracking)
-    pub token_idx: Option<usize>, // Index into token stream
+    pub token: Option<Token>, // Full token (not just index)
 
     // Tree structure using indices
     pub first_child: Option<usize>,
@@ -73,17 +74,17 @@ impl AstNode {
     pub fn new(node_type: NodeType) -> Self {
         Self {
             node_type,
-            token_idx: None,
+            token: None,
             first_child: None,
             next_sibling: None,
             parent: None,
         }
     }
 
-    pub fn new_terminal(node_type: NodeType, token_idx: usize) -> Self {
+    pub fn new_terminal(node_type: NodeType, token: Token) -> Self {
         Self {
             node_type,
-            token_idx: Some(token_idx),
+            token: Some(token),
             first_child: None,
             next_sibling: None,
             parent: None,
@@ -92,14 +93,10 @@ impl AstNode {
 }
 
 impl Ast {
-    pub fn new(source: String) -> Self {
-        Self::new_with_limits(source, crate::limits::CompilerLimits::default())
-    }
-
-    pub fn new_with_limits(source: String, limits: crate::limits::CompilerLimits) -> Self {
+    pub fn new(string_storage: StringStorage, limits: crate::limits::CompilerLimits) -> Self {
         Self {
             nodes: Vec::new(),
-            source,
+            string_storage,
             root: None,
             limits,
         }
@@ -139,31 +136,44 @@ impl Ast {
     }
 
     // Get node text from token
-    pub fn node_text(&self, node_idx: usize, tokens: &[Token]) -> Option<&str> {
-        if let Some(token_idx) = self.nodes[node_idx].token_idx {
-            Some(tokens[token_idx].text(&self.source))
+    pub fn node_text(&self, node_idx: usize) -> Option<&str> {
+        if let Some(ref token) = self.nodes[node_idx].token {
+            token.text(&self.string_storage)
         } else {
             None
         }
     }
 
     // Return the AST tree structure as a string
-    pub fn to_string(&self, tokens: &[Token]) -> String {
+    pub fn to_string(&self) -> String {
         if let Some(root_idx) = self.root {
-            self.tree_string_recursive(tokens, root_idx, 0)
+            self.tree_string_recursive(root_idx, 0)
         } else {
             String::new()
         }
     }
 
     // Helper to format tree recursively as string
-    fn tree_string_recursive(&self, tokens: &[Token], node_idx: usize, depth: usize) -> String {
+    fn tree_string_recursive(&self, node_idx: usize, depth: usize) -> String {
         let node = &self.nodes[node_idx];
         let indent = "  ".repeat(depth);
 
         let text = self
-            .node_text(node_idx, tokens)
+            .node_text(node_idx)
             .map(|s| format!(" '{}'", s))
+            .or_else(|| {
+                // Handle boolean keywords that aren't interned
+                if let Some(ref token) = node.token {
+                    use crate::lexer::TokenKind;
+                    match token.kind {
+                        TokenKind::True => Some(" 'true'".to_string()),
+                        TokenKind::False => Some(" 'false'".to_string()),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
             .unwrap_or_default();
 
         let mut result = format!("{}{:?}{}\n", indent, node.node_type, text);
@@ -172,7 +182,7 @@ impl Ast {
         if let Some(child_idx) = node.first_child {
             let mut current = child_idx;
             loop {
-                result.push_str(&self.tree_string_recursive(tokens, current, depth + 1));
+                result.push_str(&self.tree_string_recursive(current, depth + 1));
                 if let Some(next) = self.nodes[current].next_sibling {
                     current = next;
                 } else {

@@ -9,24 +9,19 @@ mod types;
 pub use error::ParseError;
 
 use crate::ast::{Ast, AstNode, NodeType};
-use crate::lexer::{Token, TokenKind};
+use crate::lexer::Tokens;
 
 // Parser structure
 pub struct Parser<'a> {
-    source: &'a str,
-    tokens: &'a Vec<Token>,
+    tokens: Tokens,
     current: usize,
     ast: Ast,
-    limits: crate::limits::CompilerLimits,
+    limits: &'a crate::limits::CompilerLimits,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(
-        source: &'a str,
-        tokens: &'a Vec<Token>,
-        limits: crate::limits::CompilerLimits,
-    ) -> Self {
-        let mut ast = Ast::new_with_limits(source.to_string(), limits.clone());
+    pub fn new(tokens: Tokens, limits: &'a crate::limits::CompilerLimits) -> Self {
+        let mut ast = Ast::new(tokens.string_storage.clone(), limits.clone());
 
         // Create the Program root node
         let program_node = AstNode::new(NodeType::Program);
@@ -34,7 +29,6 @@ impl<'a> Parser<'a> {
         ast.root = Some(root_idx);
 
         Self {
-            source,
             tokens,
             current: 0,
             ast,
@@ -50,11 +44,7 @@ impl<'a> Parser<'a> {
 }
 
 // Public API function
-pub fn parse(
-    source: &str,
-    tokens: &Vec<Token>,
-    limits: crate::limits::CompilerLimits,
-) -> Result<Ast, ParseError> {
-    let parser = Parser::new(source, tokens, limits);
+pub fn parse(tokens: Tokens, limits: &crate::limits::CompilerLimits) -> Result<Ast, ParseError> {
+    let parser = Parser::new(tokens, limits);
     parser.parse()
 }

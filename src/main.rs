@@ -4,6 +4,7 @@ pub mod codegen;
 pub mod lexer;
 pub mod limits;
 pub mod parser;
+pub mod string_storage;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -56,11 +57,11 @@ fn parse_command(args: cli::ParseArgs) -> Result<(), Box<dyn std::error::Error>>
     }
 
     // Lex and parse
-    let tokens = lexer::lex_with_limits(&source, limits.clone())?;
-    let ast = parser::parse(&source, &tokens, limits)?;
+    let tokens = lexer::lex(&source, &limits)?;
+    let ast = parser::parse(tokens, &limits)?;
 
     // Print AST tree
-    print!("{}", ast.to_string(&tokens));
+    print!("{}", ast.to_string());
 
     Ok(())
 }

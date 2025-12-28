@@ -27,7 +27,7 @@ impl<'a> Parser<'a> {
 
         // POSTFIX PHASE: Handle function calls and method calls
         loop {
-            match self.current_token().kind {
+            match self.peek_kind() {
                 // Function call: identifier(...)
                 TokenKind::LParen if self.ast.nodes[left_idx].node_type == NodeType::Identifier => {
                     left_idx = self.parse_function_call(depth, left_idx)?;
@@ -102,21 +102,24 @@ impl<'a> Parser<'a> {
 
             // Primary expressions: literals
             TokenKind::True | TokenKind::False => {
-                let literal_node = AstNode::new_terminal(NodeType::LiteralBoolean, self.current);
+                let literal_node =
+                    AstNode::new_terminal(NodeType::LiteralBoolean, self.clone_current_token());
                 let literal_node_idx = self.ast.add_node(literal_node);
                 self.advance();
                 Ok(literal_node_idx)
             }
 
             TokenKind::Number(_) => {
-                let literal_node = AstNode::new_terminal(NodeType::LiteralNumber, self.current);
+                let literal_node =
+                    AstNode::new_terminal(NodeType::LiteralNumber, self.clone_current_token());
                 let literal_node_idx = self.ast.add_node(literal_node);
                 self.advance();
                 Ok(literal_node_idx)
             }
 
             TokenKind::String(_) => {
-                let literal_node = AstNode::new_terminal(NodeType::LiteralString, self.current);
+                let literal_node =
+                    AstNode::new_terminal(NodeType::LiteralString, self.clone_current_token());
                 let literal_node_idx = self.ast.add_node(literal_node);
                 self.advance();
                 Ok(literal_node_idx)
@@ -124,18 +127,14 @@ impl<'a> Parser<'a> {
 
             // Identifiers (for function calls and variable references)
             TokenKind::Identifier => {
-                let ident_node = AstNode::new_terminal(NodeType::Identifier, self.current);
+                let ident_node =
+                    AstNode::new_terminal(NodeType::Identifier, self.clone_current_token());
                 let ident_node_idx = self.ast.add_node(ident_node);
                 self.advance();
                 Ok(ident_node_idx)
             }
 
-            _ => Err(ParseError::unexpected_token(
-                "expression (literal, identifier, or 'not')",
-                token,
-                self.current,
-                self.source,
-            )),
+            _ => Err(self.new_unexpected_token("expression (literal, identifier, or 'not')")),
         }
     }
 
@@ -209,8 +208,7 @@ impl<'a> Parser<'a> {
             self.ast.add_child(arg_list_idx, arg_idx);
 
             // Check for comma or closing paren
-            let token = self.current_token();
-            match token.kind {
+            match self.peek_kind() {
                 TokenKind::Comma => {
                     self.advance(); // Consume comma, continue to next argument
                 }
@@ -219,12 +217,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 _ => {
-                    return Err(ParseError::unexpected_token(
-                        "',' or ')'",
-                        token,
-                        self.current,
-                        self.source,
-                    ));
+                    return Err(self.new_unexpected_token("',' or ')'"));
                 }
             }
         }
@@ -235,24 +228,22 @@ impl<'a> Parser<'a> {
     /// Parse a method call: receiver.method(args) or receiver.property
     /// receiver_idx is the index of the already-parsed receiver expression
     /// Returns the MethodCall or PropertyAccess node index
-    fn parse_method_call(&mut self, depth: usize, receiver_idx: usize) -> Result<usize, ParseError> {
+    fn parse_method_call(
+        &mut self,
+        depth: usize,
+        receiver_idx: usize,
+    ) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
         // Consume '.'
         self.consume(TokenKind::Dot, ".")?;
 
         // Parse method/property name (must be identifier)
-        let token = self.current_token();
-        if token.kind != TokenKind::Identifier {
-            return Err(ParseError::unexpected_token(
-                "method or property name (identifier)",
-                token,
-                self.current,
-                self.source,
-            ));
+        if self.peek_kind() != TokenKind::Identifier {
+            return Err(self.new_unexpected_token("method or property name (identifier)"));
         }
 
-        let name_node = AstNode::new_terminal(NodeType::Identifier, self.current);
+        let name_node = AstNode::new_terminal(NodeType::Identifier, self.clone_current_token());
         let name_idx = self.ast.add_node(name_node);
         self.advance();
 
@@ -291,16 +282,16 @@ mod tests {
     use crate::lexer::lex;
 
     fn to_ast(source: &str) -> Result<Ast, ParseError> {
-        let tokens = lex(source).unwrap();
         let limits = crate::limits::CompilerLimits::default();
-        parse(source, &tokens, limits)
+        let tokens = lex(source, &limits).unwrap();
+        parse(tokens, &limits)
     }
 
     fn to_ast_string(source: &str) -> Result<String, ParseError> {
-        let tokens = lex(source).unwrap();
         let limits = crate::limits::CompilerLimits::default();
-        let ast = parse(source, &tokens, limits)?;
-        Ok(ast.to_string(&tokens))
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits)?;
+        Ok(ast.to_string())
     }
 
     // Boolean operator tests
@@ -502,8 +493,8 @@ Program
         };
 
         let source = "x: not not not not not not true\n"; // 6 nots (depth 6+)
-        let tokens = lex(source).unwrap();
-        let result = parse(source, &tokens, limits);
+        let tokens = lex(source, &limits).unwrap();
+        let result = parse(tokens, &limits);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -667,7 +658,10 @@ Program
 
         // Child should be MethodCall
         let operand_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
-        assert_eq!(ast_struct.nodes[operand_idx].node_type, NodeType::MethodCall);
+        assert_eq!(
+            ast_struct.nodes[operand_idx].node_type,
+            NodeType::MethodCall
+        );
     }
 
     #[test]

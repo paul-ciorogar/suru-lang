@@ -1,6 +1,8 @@
 use std::iter::Peekable;
 use std::str::CharIndices;
 
+use crate::string_storage::{StringId, StringStorage};
+
 // Token types
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,22 +67,43 @@ pub enum StringKind {
     Interpolated, // `...`
 }
 
+#[derive(Debug, Clone)]
+pub struct Tokens {
+    pub list: Vec<Token>,
+    pub string_storage: StringStorage,
+}
+
+impl Tokens {
+    pub fn new(tokens: Vec<Token>, storage: StringStorage) -> Self {
+        Self {
+            list: tokens,
+            string_storage: storage,
+        }
+    }
+
+    pub fn peek_kind(&self, index: usize) -> TokenKind {
+        match self.list.get(index) {
+            Some(token) => token.kind.clone(),
+            _ => TokenKind::Eof,
+        }
+    }
+
+    pub fn get(&self, index: usize) -> &Token {
+        self.list.get(index).unwrap_or(self.list.last().unwrap())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
-    pub start: usize,  // byte offset
-    pub end: usize,    // byte offset (exclusive)
-    pub line: usize,   // 1-indexed
-    pub column: usize, // 1-indexed
+    pub line: usize,                 // 1-indexed
+    pub column: usize,               // 1-indexed
+    pub string_id: Option<StringId>, // For identifiers and string literals
 }
 
 impl Token {
-    pub fn len(&self) -> usize {
-        self.end - self.start
-    }
-
-    pub fn text<'a>(&self, source: &'a str) -> &'a str {
-        &source[self.start..self.end]
+    pub fn text<'a>(&self, storage: &'a StringStorage) -> Option<&'a str> {
+        self.string_id.map(|id| storage.resolve(id))
     }
 }
 
@@ -106,24 +129,21 @@ impl std::error::Error for LexError {}
 
 // Lexer
 
-pub struct Lexer<'src> {
-    source: &'src str,
-    chars: Peekable<CharIndices<'src>>,
+pub struct Lexer<'a> {
+    source: &'a str,
+    chars: Peekable<CharIndices<'a>>,
     pos: usize,
     line: usize,
     column: usize,
-    limits: crate::limits::CompilerLimits,
+    limits: &'a crate::limits::CompilerLimits,
     token_count: usize,
+    string_storage: StringStorage,
 }
 
-impl<'src> Lexer<'src> {
-    pub fn new(source: &'src str) -> Result<Self, LexError> {
-        Self::new_with_limits(source, crate::limits::CompilerLimits::default())
-    }
-
-    pub fn new_with_limits(
-        source: &'src str,
-        limits: crate::limits::CompilerLimits,
+impl<'a> Lexer<'a> {
+    pub fn new(
+        source: &'a str,
+        limits: &'a crate::limits::CompilerLimits,
     ) -> Result<Self, LexError> {
         // Check input size limit
         if source.len() > limits.max_input_size {
@@ -147,6 +167,7 @@ impl<'src> Lexer<'src> {
             column: 1,
             limits,
             token_count: 0,
+            string_storage: StringStorage::new(),
         })
     }
 
@@ -232,106 +253,90 @@ impl<'src> Lexer<'src> {
 
         self.skip_whitespace();
 
-        let start_pos = self.pos;
         let start_line = self.line;
         let start_column = self.column;
 
-        let kind = match self.peek_char() {
-            None => TokenKind::Eof,
+        let (kind, string_id) = match self.peek_char() {
+            None => (TokenKind::Eof, None),
             Some('\n') => {
                 self.consume_char();
-                TokenKind::Newline
+                (TokenKind::Newline, None)
             }
-            Some('/') => self.lex_slash_or_comment()?,
-            Some(c) if c.is_ascii_digit() => self.lex_number()?,
+            Some('/') => (self.lex_slash_or_comment()?, None),
+            Some(c) if c.is_ascii_digit() => {
+                let start = self.pos;
+                let kind = self.lex_number()?;
+                let text = &self.source[start..self.pos];
+                let string_id = self.string_storage.intern(text);
+                (kind, Some(string_id))
+            }
             Some('_') => self.lex_underscore_or_ident()?,
             Some(c) if is_ident_start(c) => self.lex_ident_or_keyword()?,
-            Some('"') | Some('\'') => {
-                // String functions now return (kind, content_start, content_end)
-                let (kind, content_start, content_end) = self.lex_standard_string()?;
-                self.token_count += 1;
-                return Ok(Token {
-                    kind,
-                    start: content_start,  // Use content offsets
-                    end: content_end,
-                    line: start_line,
-                    column: start_column,
-                });
-            }
-            Some('`') => {
-                let (kind, content_start, content_end) = self.lex_interpolated_string()?;
-                self.token_count += 1;
-                return Ok(Token {
-                    kind,
-                    start: content_start,  // Use content offsets
-                    end: content_end,
-                    line: start_line,
-                    column: start_column,
-                });
-            }
+            Some('"') | Some('\'') => self.lex_standard_string()?,
+            Some('`') => self.lex_interpolated_string()?,
             Some(':') => {
                 self.consume_char();
-                TokenKind::Colon
+                (TokenKind::Colon, None)
             }
             Some(';') => {
                 self.consume_char();
-                TokenKind::Semicolon
+                (TokenKind::Semicolon, None)
             }
             Some(',') => {
                 self.consume_char();
-                TokenKind::Comma
+                (TokenKind::Comma, None)
             }
             Some('.') => {
                 self.consume_char();
-                TokenKind::Dot
+                (TokenKind::Dot, None)
             }
             Some('|') => {
                 self.consume_char();
-                TokenKind::Pipe
+                (TokenKind::Pipe, None)
             }
             Some('*') => {
                 self.consume_char();
-                TokenKind::Star
+                (TokenKind::Star, None)
             }
             Some('+') => {
                 self.consume_char();
-                TokenKind::Plus
+                (TokenKind::Plus, None)
             }
             Some('-') => {
                 self.consume_char();
-                TokenKind::Minus
+                (TokenKind::Minus, None)
             }
             Some('(') => {
                 self.consume_char();
-                TokenKind::LParen
+                (TokenKind::LParen, None)
             }
             Some(')') => {
                 self.consume_char();
-                TokenKind::RParen
+                (TokenKind::RParen, None)
             }
             Some('{') => {
                 self.consume_char();
-                TokenKind::LBrace
+                (TokenKind::LBrace, None)
             }
             Some('}') => {
                 self.consume_char();
-                TokenKind::RBrace
+                (TokenKind::RBrace, None)
             }
             Some('[') => {
                 self.consume_char();
-                TokenKind::LBracket
+                (TokenKind::LBracket, None)
             }
             Some(']') => {
                 self.consume_char();
-                TokenKind::RBracket
+                (TokenKind::RBracket, None)
             }
             Some('<') => {
                 self.consume_char();
-                TokenKind::Lt
+                (TokenKind::Lt, None)
             }
             Some('>') => {
                 self.consume_char();
-                TokenKind::Gt
+                (TokenKind::Gt, None)
             }
             Some(c) => {
                 self.consume_char();
@@ -344,10 +349,9 @@ impl<'src> Lexer<'src> {
 
         Ok(Token {
             kind,
-            start: start_pos,
-            end: self.pos,
             line: start_line,
             column: start_column,
+            string_id,
         })
     }
 
@@ -386,7 +390,7 @@ impl<'src> Lexer<'src> {
 
     // Identifier and keyword lexing
 
-    fn lex_ident_or_keyword(&mut self) -> Result<TokenKind, LexError> {
+    fn lex_ident_or_keyword(&mut self) -> Result<(TokenKind, Option<StringId>), LexError> {
         let start = self.pos;
 
         // Consume first character (already validated as ident start)
@@ -414,12 +418,14 @@ impl<'src> Lexer<'src> {
 
         // Keywords cannot start with uppercase
         if first_char.is_ascii_uppercase() {
-            return Ok(TokenKind::Identifier);
+            let string_id = self.string_storage.intern(text);
+            return Ok((TokenKind::Identifier, Some(string_id)));
         }
 
         // Length-based filtering: keywords are max 7 chars
         if text.len() > 7 {
-            return Ok(TokenKind::Identifier);
+            let string_id = self.string_storage.intern(text);
+            return Ok((TokenKind::Identifier, Some(string_id)));
         }
 
         // Match keywords
@@ -438,13 +444,19 @@ impl<'src> Lexer<'src> {
             "false" => TokenKind::False,
             "this" => TokenKind::This,
             "partial" => TokenKind::Partial,
-            _ => TokenKind::Identifier,
+            _ => {
+                // It's an identifier - intern it
+                let string_id = self.string_storage.intern(text);
+                return Ok((TokenKind::Identifier, Some(string_id)));
+            }
         };
 
-        Ok(kind)
+        // Keywords don't get interned
+        Ok((kind, None))
     }
 
-    fn lex_underscore_or_ident(&mut self) -> Result<TokenKind, LexError> {
+    fn lex_underscore_or_ident(&mut self) -> Result<(TokenKind, Option<StringId>), LexError> {
+        let start = self.pos;
         self.consume_char(); // consume '_'
 
         // Check if next char continues identifier (but not another underscore alone)
@@ -458,12 +470,14 @@ impl<'src> Lexer<'src> {
                         break;
                     }
                 }
-                return Ok(TokenKind::Identifier);
+                let text = &self.source[start..self.pos];
+                let string_id = self.string_storage.intern(text);
+                return Ok((TokenKind::Identifier, Some(string_id)));
             }
         }
 
-        // Standalone underscore
-        Ok(TokenKind::Underscore)
+        // Standalone underscore (keyword, not interned)
+        Ok((TokenKind::Underscore, None))
     }
 
     // Number lexing
@@ -571,7 +585,7 @@ impl<'src> Lexer<'src> {
 
     // String lexing
 
-    fn lex_standard_string(&mut self) -> Result<(TokenKind, usize, usize), LexError> {
+    fn lex_standard_string(&mut self) -> Result<(TokenKind, Option<StringId>), LexError> {
         let string_start = self.pos; // For length checking (includes quotes)
         let quote = self.consume_char().unwrap(); // " or '
         let content_start = self.pos; // Content starts after opening quote
@@ -603,12 +617,11 @@ impl<'src> Lexer<'src> {
                         )));
                     }
 
-                    // Return token kind with content offsets (no quotes)
-                    return Ok((
-                        TokenKind::String(StringKind::Standard),
-                        content_start,
-                        content_end,
-                    ));
+                    // Extract content (without quotes) and intern it
+                    let content = &self.source[content_start..content_end];
+                    let string_id = self.string_storage.intern(content);
+
+                    return Ok((TokenKind::String(StringKind::Standard), Some(string_id)));
                 }
                 Some(_) => {
                     self.consume_char();
@@ -617,7 +630,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    fn lex_interpolated_string(&mut self) -> Result<(TokenKind, usize, usize), LexError> {
+    fn lex_interpolated_string(&mut self) -> Result<(TokenKind, Option<StringId>), LexError> {
         let string_start = self.pos; // For length checking (includes backticks)
         self.consume_char(); // opening `
         let content_start = self.pos; // Content starts after opening backtick
@@ -640,12 +653,11 @@ impl<'src> Lexer<'src> {
                         )));
                     }
 
-                    // Return token kind with content offsets (no backticks)
-                    return Ok((
-                        TokenKind::String(StringKind::Interpolated),
-                        content_start,
-                        content_end,
-                    ));
+                    // Extract content (without backticks) and intern it
+                    let content = &self.source[content_start..content_end];
+                    let string_id = self.string_storage.intern(content);
+
+                    return Ok((TokenKind::String(StringKind::Interpolated), Some(string_id)));
                 }
                 Some('\\') => {
                     self.consume_char();
@@ -673,15 +685,8 @@ fn is_ident_continue(c: char) -> bool {
 
 // Public API
 
-pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
-    lex_with_limits(source, crate::limits::CompilerLimits::default())
-}
-
-pub fn lex_with_limits(
-    source: &str,
-    limits: crate::limits::CompilerLimits,
-) -> Result<Vec<Token>, LexError> {
-    let mut lexer = Lexer::new_with_limits(source, limits)?;
+pub fn lex(source: &str, limits: &crate::limits::CompilerLimits) -> Result<Tokens, LexError> {
+    let mut lexer = Lexer::new(source, limits)?;
     let mut tokens = Vec::new();
 
     loop {
@@ -693,7 +698,7 @@ pub fn lex_with_limits(
         }
     }
 
-    Ok(tokens)
+    Ok(Tokens::new(tokens, lexer.string_storage))
 }
 
 // Tests
@@ -703,145 +708,148 @@ mod tests {
     use super::*;
 
     // Helper
-    fn lex_single(source: &str) -> Result<Token, LexError> {
-        Lexer::new(source)?.next_token()
+    fn lex_single(source: &str) -> Result<(Token, StringStorage), LexError> {
+        let limits = crate::limits::CompilerLimits::default();
+        let mut lexer = Lexer::new(source, &limits)?;
+        let token = lexer.next_token()?;
+        Ok((token, lexer.string_storage))
     }
 
     #[test]
     fn test_keywords() {
         // Test all 14 keywords (lowercase)
-        assert_eq!(lex_single("module").unwrap().kind, TokenKind::Module);
-        assert_eq!(lex_single("import").unwrap().kind, TokenKind::Import);
-        assert_eq!(lex_single("export").unwrap().kind, TokenKind::Export);
-        assert_eq!(lex_single("return").unwrap().kind, TokenKind::Return);
-        assert_eq!(lex_single("match").unwrap().kind, TokenKind::Match);
-        assert_eq!(lex_single("type").unwrap().kind, TokenKind::Type);
-        assert_eq!(lex_single("try").unwrap().kind, TokenKind::Try);
-        assert_eq!(lex_single("and").unwrap().kind, TokenKind::And);
-        assert_eq!(lex_single("or").unwrap().kind, TokenKind::Or);
-        assert_eq!(lex_single("not").unwrap().kind, TokenKind::Not);
-        assert_eq!(lex_single("true").unwrap().kind, TokenKind::True);
-        assert_eq!(lex_single("false").unwrap().kind, TokenKind::False);
-        assert_eq!(lex_single("this").unwrap().kind, TokenKind::This);
-        assert_eq!(lex_single("partial").unwrap().kind, TokenKind::Partial);
+        assert_eq!(lex_single("module").unwrap().0.kind, TokenKind::Module);
+        assert_eq!(lex_single("import").unwrap().0.kind, TokenKind::Import);
+        assert_eq!(lex_single("export").unwrap().0.kind, TokenKind::Export);
+        assert_eq!(lex_single("return").unwrap().0.kind, TokenKind::Return);
+        assert_eq!(lex_single("match").unwrap().0.kind, TokenKind::Match);
+        assert_eq!(lex_single("type").unwrap().0.kind, TokenKind::Type);
+        assert_eq!(lex_single("try").unwrap().0.kind, TokenKind::Try);
+        assert_eq!(lex_single("and").unwrap().0.kind, TokenKind::And);
+        assert_eq!(lex_single("or").unwrap().0.kind, TokenKind::Or);
+        assert_eq!(lex_single("not").unwrap().0.kind, TokenKind::Not);
+        assert_eq!(lex_single("true").unwrap().0.kind, TokenKind::True);
+        assert_eq!(lex_single("false").unwrap().0.kind, TokenKind::False);
+        assert_eq!(lex_single("this").unwrap().0.kind, TokenKind::This);
+        assert_eq!(lex_single("partial").unwrap().0.kind, TokenKind::Partial);
 
         // Uppercase first letter should be identifiers
-        assert_eq!(lex_single("Module").unwrap().kind, TokenKind::Identifier);
-        assert_eq!(lex_single("MODULE").unwrap().kind, TokenKind::Identifier);
+        assert_eq!(lex_single("Module").unwrap().0.kind, TokenKind::Identifier);
+        assert_eq!(lex_single("MODULE").unwrap().0.kind, TokenKind::Identifier);
     }
 
     #[test]
     fn test_identifiers() {
-        assert_eq!(lex_single("foo").unwrap().kind, TokenKind::Identifier);
-        assert_eq!(lex_single("_bar").unwrap().kind, TokenKind::Identifier);
-        assert_eq!(lex_single("baz123").unwrap().kind, TokenKind::Identifier);
-        assert_eq!(lex_single("MyClass").unwrap().kind, TokenKind::Identifier);
+        assert_eq!(lex_single("foo").unwrap().0.kind, TokenKind::Identifier);
+        assert_eq!(lex_single("_bar").unwrap().0.kind, TokenKind::Identifier);
+        assert_eq!(lex_single("baz123").unwrap().0.kind, TokenKind::Identifier);
+        assert_eq!(lex_single("MyClass").unwrap().0.kind, TokenKind::Identifier);
     }
 
     #[test]
     fn test_underscore() {
-        assert_eq!(lex_single("_").unwrap().kind, TokenKind::Underscore);
+        assert_eq!(lex_single("_").unwrap().0.kind, TokenKind::Underscore);
     }
 
     #[test]
     fn test_numbers() {
         // Decimal
-        let tok = lex_single("42").unwrap();
+        let (tok, _storage) = lex_single("42").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Decimal));
 
-        let tok = lex_single("1_000_000").unwrap();
+        let (tok, _storage) = lex_single("1_000_000").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Decimal));
 
         // Binary
-        let tok = lex_single("0b1010").unwrap();
+        let (tok, _storage) = lex_single("0b1010").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Binary));
 
-        let tok = lex_single("0b1111_0000").unwrap();
+        let (tok, _storage) = lex_single("0b1111_0000").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Binary));
 
         // Octal
-        let tok = lex_single("0o755").unwrap();
+        let (tok, _storage) = lex_single("0o755").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Octal));
 
         // Hex
-        let tok = lex_single("0xFF").unwrap();
+        let (tok, _storage) = lex_single("0xFF").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Hex));
 
-        let tok = lex_single("0xDEAD_BEEF").unwrap();
+        let (tok, _storage) = lex_single("0xDEAD_BEEF").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Hex));
 
         // Float
-        let tok = lex_single("3.14").unwrap();
+        let (tok, _storage) = lex_single("3.14").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Float));
 
-        let tok = lex_single("1.5e10").unwrap();
+        let (tok, _storage) = lex_single("1.5e10").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Float));
 
-        let tok = lex_single("2.5e-3").unwrap();
+        let (tok, _storage) = lex_single("2.5e-3").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Float));
     }
 
     #[test]
     fn test_number_suffixes() {
-        let tok = lex_single("42i32").unwrap();
+        let (tok, _storage) = lex_single("42i32").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Decimal));
 
-        let tok = lex_single("100u64").unwrap();
+        let (tok, _storage) = lex_single("100u64").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Decimal));
 
-        let tok = lex_single("3.14f32").unwrap();
+        let (tok, _storage) = lex_single("3.14f32").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Float));
     }
 
     #[test]
     fn test_strings() {
-        let tok = lex_single(r#""hello""#).unwrap();
+        let (tok, _storage) = lex_single(r#""hello""#).unwrap();
         assert_eq!(tok.kind, TokenKind::String(StringKind::Standard));
 
-        let tok = lex_single("'world'").unwrap();
+        let (tok, _storage) = lex_single("'world'").unwrap();
         assert_eq!(tok.kind, TokenKind::String(StringKind::Standard));
 
-        let tok = lex_single("`interpolated`").unwrap();
+        let (tok, _storage) = lex_single("`interpolated`").unwrap();
         assert_eq!(tok.kind, TokenKind::String(StringKind::Interpolated));
     }
 
     #[test]
     fn test_string_escapes() {
-        let tok = lex_single(r#""hello\nworld""#).unwrap();
+        let (tok, _storage) = lex_single(r#""hello\nworld""#).unwrap();
         assert_eq!(tok.kind, TokenKind::String(StringKind::Standard));
 
-        let tok = lex_single(r#""quote: \"hi\"""#).unwrap();
+        let (tok, _storage) = lex_single(r#""quote: \"hi\"""#).unwrap();
         assert_eq!(tok.kind, TokenKind::String(StringKind::Standard));
     }
 
     #[test]
     fn test_operators() {
-        assert_eq!(lex_single(":").unwrap().kind, TokenKind::Colon);
-        assert_eq!(lex_single(";").unwrap().kind, TokenKind::Semicolon);
-        assert_eq!(lex_single(",").unwrap().kind, TokenKind::Comma);
-        assert_eq!(lex_single(".").unwrap().kind, TokenKind::Dot);
-        assert_eq!(lex_single("|").unwrap().kind, TokenKind::Pipe);
-        assert_eq!(lex_single("*").unwrap().kind, TokenKind::Star);
-        assert_eq!(lex_single("+").unwrap().kind, TokenKind::Plus);
-        assert_eq!(lex_single("-").unwrap().kind, TokenKind::Minus);
+        assert_eq!(lex_single(":").unwrap().0.kind, TokenKind::Colon);
+        assert_eq!(lex_single(";").unwrap().0.kind, TokenKind::Semicolon);
+        assert_eq!(lex_single(",").unwrap().0.kind, TokenKind::Comma);
+        assert_eq!(lex_single(".").unwrap().0.kind, TokenKind::Dot);
+        assert_eq!(lex_single("|").unwrap().0.kind, TokenKind::Pipe);
+        assert_eq!(lex_single("*").unwrap().0.kind, TokenKind::Star);
+        assert_eq!(lex_single("+").unwrap().0.kind, TokenKind::Plus);
+        assert_eq!(lex_single("-").unwrap().0.kind, TokenKind::Minus);
     }
 
     #[test]
     fn test_brackets() {
-        assert_eq!(lex_single("(").unwrap().kind, TokenKind::LParen);
-        assert_eq!(lex_single(")").unwrap().kind, TokenKind::RParen);
-        assert_eq!(lex_single("{").unwrap().kind, TokenKind::LBrace);
-        assert_eq!(lex_single("}").unwrap().kind, TokenKind::RBrace);
-        assert_eq!(lex_single("[").unwrap().kind, TokenKind::LBracket);
-        assert_eq!(lex_single("]").unwrap().kind, TokenKind::RBracket);
-        assert_eq!(lex_single("<").unwrap().kind, TokenKind::Lt);
-        assert_eq!(lex_single(">").unwrap().kind, TokenKind::Gt);
+        assert_eq!(lex_single("(").unwrap().0.kind, TokenKind::LParen);
+        assert_eq!(lex_single(")").unwrap().0.kind, TokenKind::RParen);
+        assert_eq!(lex_single("{").unwrap().0.kind, TokenKind::LBrace);
+        assert_eq!(lex_single("}").unwrap().0.kind, TokenKind::RBrace);
+        assert_eq!(lex_single("[").unwrap().0.kind, TokenKind::LBracket);
+        assert_eq!(lex_single("]").unwrap().0.kind, TokenKind::RBracket);
+        assert_eq!(lex_single("<").unwrap().0.kind, TokenKind::Lt);
+        assert_eq!(lex_single(">").unwrap().0.kind, TokenKind::Gt);
     }
 
     #[test]
     fn test_comments() {
         // Comment should be skipped, next token is the number
-        let tok = lex_single("// this is a comment\n42").unwrap();
+        let (tok, _storage) = lex_single("// this is a comment\n42").unwrap();
         assert_eq!(tok.kind, TokenKind::Number(NumberKind::Decimal));
     }
 
@@ -864,63 +872,69 @@ mod tests {
     fn test_string_content_excludes_quotes() {
         // Standard strings with double quotes
         let source = r#""hello""#;
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), "hello"); // Content only, no quotes
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some("hello")); // Content only, no quotes
 
         // Standard strings with single quotes
         let source = "'world'";
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), "world");
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some("world"));
 
         // Interpolated strings with backticks
         let source = "`test`";
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), "test");
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some("test"));
     }
 
     #[test]
     fn test_empty_strings_exclude_quotes() {
         let source = r#""""#;
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), ""); // Empty content, zero length
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some("")); // Empty content, zero length
 
         let source = "''";
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), "");
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some(""));
 
         let source = "``";
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), "");
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some(""));
     }
 
     #[test]
     fn test_string_with_escapes_excludes_quotes() {
         let source = r#""hello\nworld""#;
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), r"hello\nworld"); // Escapes preserved, quotes excluded
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some(r"hello\nworld")); // Escapes preserved, quotes excluded
 
         let source = r#""quote: \"hi\"""#;
-        let tok = lex_single(source).unwrap();
-        assert_eq!(tok.text(source), r#"quote: \"hi\""#);
+        let (tok, storage) = lex_single(source).unwrap();
+        assert_eq!(tok.text(&storage), Some(r#"quote: \"hi\""#));
     }
 }
 
 #[cfg(test)]
 mod integration_tests {
-    use super::*;
+    use crate::lexer::{self, LexError, NumberKind, TokenKind, Tokens};
+
+    // use super::*;
+    fn lex(source: &str) -> Result<Tokens, LexError> {
+        let limits = crate::limits::CompilerLimits::default();
+        lexer::lex(source, &limits)
+    }
 
     #[test]
     fn test_complete_statement() {
         let source = "module main import std return 42";
         let tokens = lex(source).unwrap();
 
-        assert_eq!(tokens[0].kind, TokenKind::Module);
-        assert_eq!(tokens[1].kind, TokenKind::Identifier);
-        assert_eq!(tokens[2].kind, TokenKind::Import);
-        assert_eq!(tokens[3].kind, TokenKind::Identifier);
-        assert_eq!(tokens[4].kind, TokenKind::Return);
-        assert_eq!(tokens[5].kind, TokenKind::Number(NumberKind::Decimal));
-        assert_eq!(tokens[6].kind, TokenKind::Eof);
+        assert_eq!(tokens.peek_kind(0), TokenKind::Module);
+        assert_eq!(tokens.peek_kind(1), TokenKind::Identifier);
+        assert_eq!(tokens.peek_kind(2), TokenKind::Import);
+        assert_eq!(tokens.peek_kind(3), TokenKind::Identifier);
+        assert_eq!(tokens.peek_kind(4), TokenKind::Return);
+        assert_eq!(tokens.peek_kind(5), TokenKind::Number(NumberKind::Decimal));
+        assert_eq!(tokens.peek_kind(6), TokenKind::Eof);
     }
 
     #[test]
@@ -928,13 +942,13 @@ mod integration_tests {
         let source = "module main\nreturn 42\n";
         let tokens = lex(source).unwrap();
 
-        assert_eq!(tokens[0].kind, TokenKind::Module);
-        assert_eq!(tokens[1].kind, TokenKind::Identifier);
-        assert_eq!(tokens[2].kind, TokenKind::Newline);
-        assert_eq!(tokens[3].kind, TokenKind::Return);
-        assert_eq!(tokens[4].kind, TokenKind::Number(NumberKind::Decimal));
-        assert_eq!(tokens[5].kind, TokenKind::Newline);
-        assert_eq!(tokens[6].kind, TokenKind::Eof);
+        assert_eq!(tokens.peek_kind(0), TokenKind::Module);
+        assert_eq!(tokens.peek_kind(1), TokenKind::Identifier);
+        assert_eq!(tokens.peek_kind(2), TokenKind::Newline);
+        assert_eq!(tokens.peek_kind(3), TokenKind::Return);
+        assert_eq!(tokens.peek_kind(4), TokenKind::Number(NumberKind::Decimal));
+        assert_eq!(tokens.peek_kind(5), TokenKind::Newline);
+        assert_eq!(tokens.peek_kind(6), TokenKind::Eof);
     }
 
     #[test]
@@ -942,16 +956,20 @@ mod integration_tests {
         let source = "foo bar\nbaz";
         let tokens = lex(source).unwrap();
 
-        assert_eq!(tokens[0].line, 1);
-        assert_eq!(tokens[0].column, 1);
+        let mut token = tokens.get(0);
+        assert_eq!(token.line, 1);
+        assert_eq!(token.column, 1);
 
-        assert_eq!(tokens[1].line, 1);
-        assert_eq!(tokens[1].column, 5);
+        token = tokens.get(1);
+        assert_eq!(token.line, 1);
+        assert_eq!(token.column, 5);
 
-        assert_eq!(tokens[2].line, 1); // newline
+        token = tokens.get(2);
+        assert_eq!(token.line, 1); // newline
 
-        assert_eq!(tokens[3].line, 2);
-        assert_eq!(tokens[3].column, 1);
+        token = tokens.get(3);
+        assert_eq!(token.line, 2);
+        assert_eq!(token.column, 1);
     }
 
     #[test]
@@ -966,23 +984,23 @@ mod integration_tests {
         let tokens = lex(source).unwrap();
 
         // Just verify it doesn't error and has expected structure
-        assert!(tokens.iter().any(|t| t.kind == TokenKind::Type));
-        assert!(tokens.iter().any(|t| t.kind == TokenKind::LBrace));
-        assert!(tokens.iter().any(|t| t.kind == TokenKind::RBrace));
-        assert!(tokens.iter().any(|t| t.kind == TokenKind::Colon));
+        assert!(tokens.list.iter().any(|t| t.kind == TokenKind::Type));
+        assert!(tokens.list.iter().any(|t| t.kind == TokenKind::LBrace));
+        assert!(tokens.list.iter().any(|t| t.kind == TokenKind::RBrace));
+        assert!(tokens.list.iter().any(|t| t.kind == TokenKind::Colon));
     }
 
     #[test]
     fn test_empty_source() {
         let tokens = lex("").unwrap();
-        assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].kind, TokenKind::Eof);
+        assert_eq!(tokens.list.len(), 1);
+        assert_eq!(tokens.peek_kind(0), TokenKind::Eof);
     }
 
     #[test]
     fn test_only_whitespace() {
         let tokens = lex("   \t  \n  ").unwrap();
-        assert_eq!(tokens[0].kind, TokenKind::Newline);
-        assert_eq!(tokens[1].kind, TokenKind::Eof);
+        assert_eq!(tokens.peek_kind(0), TokenKind::Newline);
+        assert_eq!(tokens.peek_kind(1), TokenKind::Eof);
     }
 }
