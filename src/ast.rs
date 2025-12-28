@@ -19,11 +19,15 @@ pub enum NodeType {
     LiteralBoolean, // Boolean literal (terminal)
     LiteralNumber,  // Number literal (terminal)
     LiteralString,  // String literal (terminal)
+    Placeholder,    // Placeholder _ for partial application (terminal)
 
     // Boolean operations
     Not, // Unary not operation
     And, // Binary and operation
     Or,  // Binary or operation
+
+    // Error handling
+    Try, // Unary try operation
 
     // Pipe operator
     Pipe, // Pipe operation: left | right
@@ -171,6 +175,7 @@ impl Ast {
                     match token.kind {
                         TokenKind::True => Some(" 'true'".to_string()),
                         TokenKind::False => Some(" 'false'".to_string()),
+                        TokenKind::Underscore => Some(" '_'".to_string()),
                         _ => None,
                     }
                 } else {

@@ -101,6 +101,23 @@ impl<'a> Parser<'a> {
                 Ok(not_node_idx)
             }
 
+            // Unary try operator
+            TokenKind::Try => {
+                self.advance(); // Consume 'try'
+
+                // Parse the operand recursively with 'try' precedence
+                let operand_idx = self.parse_expression(depth + 1, 3)?; // 3 is precedence of 'try'
+
+                // Create try node
+                let try_node = AstNode::new(NodeType::Try);
+                let try_node_idx = self.ast.add_node(try_node);
+
+                // Add operand as child
+                self.ast.add_child(try_node_idx, operand_idx);
+
+                Ok(try_node_idx)
+            }
+
             // Primary expressions: literals
             TokenKind::True | TokenKind::False => {
                 let literal_node =
@@ -126,6 +143,14 @@ impl<'a> Parser<'a> {
                 Ok(literal_node_idx)
             }
 
+            TokenKind::Underscore => {
+                let placeholder_node =
+                    AstNode::new_terminal(NodeType::Placeholder, self.clone_current_token());
+                let placeholder_node_idx = self.ast.add_node(placeholder_node);
+                self.advance();
+                Ok(placeholder_node_idx)
+            }
+
             // Identifiers (for function calls and variable references)
             TokenKind::Identifier => {
                 let ident_node =
@@ -135,7 +160,9 @@ impl<'a> Parser<'a> {
                 Ok(ident_node_idx)
             }
 
-            _ => Err(self.new_unexpected_token("expression (literal, identifier, or 'not')")),
+            _ => Err(self.new_unexpected_token(
+                "expression (literal, identifier, '_', 'not', or 'try')",
+            )),
         }
     }
 
@@ -312,6 +339,267 @@ mod tests {
         assert_eq!(ast.nodes[1].first_child, Some(2)); // VarDecl -> Identifier
         assert_eq!(ast.nodes[2].next_sibling, Some(4)); // Identifier -> Not
         assert_eq!(ast.nodes[4].first_child, Some(3)); // Not -> LiteralBoolean
+    }
+
+    #[test]
+    fn test_try_operator() {
+        let ast = to_ast("x: try getValue()\n").unwrap();
+
+        // Should have: Program, VarDecl, Identifier(x), Try, FunctionCall, Identifier(getValue), ArgList
+        assert_eq!(ast.nodes.len(), 7);
+        assert_eq!(ast.nodes[0].node_type, NodeType::Program);
+        assert_eq!(ast.nodes[1].node_type, NodeType::VarDecl);
+        assert_eq!(ast.nodes[2].node_type, NodeType::Identifier); // x
+
+        // Find Try node
+        let var_decl_idx = 1;
+        let ident_idx = ast.nodes[var_decl_idx].first_child.unwrap();
+        let try_idx = ast.nodes[ident_idx].next_sibling.unwrap();
+        assert_eq!(ast.nodes[try_idx].node_type, NodeType::Try);
+
+        // Try should have FunctionCall as child
+        let operand_idx = ast.nodes[try_idx].first_child.unwrap();
+        assert_eq!(ast.nodes[operand_idx].node_type, NodeType::FunctionCall);
+    }
+
+    #[test]
+    fn test_try_with_identifier() {
+        let ast = to_ast_string("x: try value\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_with_function_call_no_args() {
+        let ast = to_ast_string("x: try process()\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      FunctionCall
+        Identifier 'process'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_with_function_call_with_args() {
+        let ast = to_ast_string("x: try parseNumber('42')\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      FunctionCall
+        Identifier 'parseNumber'
+        ArgList
+          LiteralString '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_with_method_call() {
+        let ast = to_ast_string("x: try user.validate()\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      MethodCall
+        Identifier 'user'
+        Identifier 'validate'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_chaining() {
+        // "try try value" - chaining try operators
+        let ast = to_ast_string("x: try try getValue()\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      Try
+        FunctionCall
+          Identifier 'getValue'
+          ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_in_pipe() {
+        let ast = to_ast_string("x: value | try process\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'value'
+      Try
+        Identifier 'process'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_in_pipe_chain() {
+        let ast = to_ast_string("x: input | try parseJson | try validateRequest\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'input'
+        Try
+          Identifier 'parseJson'
+      Try
+        Identifier 'validateRequest'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_with_and_operator() {
+        // "try a and b" should parse as "(try a) and b"
+        let ast_struct = to_ast("x: try a and b\n").unwrap();
+
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be And (precedence 2)
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::And);
+
+        // And's left child should be Try (precedence 3 binds tighter)
+        let left_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Try);
+    }
+
+    #[test]
+    fn test_try_with_or_operator() {
+        // "try a or b" should parse as "(try a) or b"
+        let ast_struct = to_ast("x: try a or b\n").unwrap();
+
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be Or (precedence 1)
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::Or);
+
+        // Or's left child should be Try (precedence 3 binds tighter)
+        let left_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Try);
+    }
+
+    #[test]
+    fn test_not_try_combination() {
+        // "not try value" should parse as "not (try value)"
+        let ast = to_ast_string("x: not try getValue()\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Not
+      Try
+        FunctionCall
+          Identifier 'getValue'
+          ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_not_combination() {
+        // "try not value" should parse as "try (not value)"
+        let ast = to_ast_string("x: try not isValid\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      Not
+        Identifier 'isValid'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_in_complex_pipe() {
+        let ast = to_ast_string("x: data | try filter(active) | try sort() | try take(10)\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Pipe
+          Identifier 'data'
+          Try
+            FunctionCall
+              Identifier 'filter'
+              ArgList
+                Identifier 'active'
+        Try
+          FunctionCall
+            Identifier 'sort'
+            ArgList
+      Try
+        FunctionCall
+          Identifier 'take'
+          ArgList
+            LiteralNumber '10'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_error_try_without_operand() {
+        // "try" needs an operand
+        let result = to_ast("x: try\n");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // Should expect an expression
+        assert!(err.message.contains("expression"));
+    }
+
+    #[test]
+    fn test_try_with_literal() {
+        // Though semantically invalid, it should parse correctly
+        let ast = to_ast_string("x: try 42\n").unwrap();
+
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
     }
 
     #[test]
@@ -1028,5 +1316,238 @@ Program
         // Pipe needs a right operand
         let result = to_ast("x: value |\n");
         assert!(result.is_err());
+    }
+
+    // ========== PLACEHOLDER TESTS ==========
+
+    // Category 1: Basic placeholder in function arguments
+
+    #[test]
+    fn test_placeholder_first_arg() {
+        let ast = to_ast_string("x: add(_, 5)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'add'
+      ArgList
+        Placeholder '_'
+        LiteralNumber '5'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_second_arg() {
+        let ast = to_ast_string("x: subtract(10, _)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'subtract'
+      ArgList
+        LiteralNumber '10'
+        Placeholder '_'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_multiple_args() {
+        let ast = to_ast_string("x: func(_, 42, _)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'func'
+      ArgList
+        Placeholder '_'
+        LiteralNumber '42'
+        Placeholder '_'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_all_args() {
+        let ast = to_ast_string("x: func(_, _, _)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'func'
+      ArgList
+        Placeholder '_'
+        Placeholder '_'
+        Placeholder '_'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_only_arg() {
+        let ast = to_ast_string("x: transform(_)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'transform'
+      ArgList
+        Placeholder '_'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 2: Placeholder in method calls
+
+    #[test]
+    fn test_placeholder_in_method_call() {
+        let ast = to_ast_string("x: obj.method(_, 'test')\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      Identifier 'obj'
+      Identifier 'method'
+      ArgList
+        Placeholder '_'
+        LiteralString 'test'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_multiple_in_method() {
+        let ast = to_ast_string("x: obj.method(_, 'test', _)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      Identifier 'obj'
+      Identifier 'method'
+      ArgList
+        Placeholder '_'
+        LiteralString 'test'
+        Placeholder '_'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 3: Placeholder in pipes with function calls
+
+    #[test]
+    fn test_placeholder_in_pipe() {
+        let ast = to_ast_string("x: value | add(_, 5)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'value'
+      FunctionCall
+        Identifier 'add'
+        ArgList
+          Placeholder '_'
+          LiteralNumber '5'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_in_pipe_chain() {
+        let ast = to_ast_string("x: data | filter(_, active) | map(_, transform)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'data'
+        FunctionCall
+          Identifier 'filter'
+          ArgList
+            Placeholder '_'
+            Identifier 'active'
+      FunctionCall
+        Identifier 'map'
+        ArgList
+          Placeholder '_'
+          Identifier 'transform'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_in_processing_chain() {
+        let ast = to_ast_string("x: 100 | multiply(_, 2) | add(_, 50)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        LiteralNumber '100'
+        FunctionCall
+          Identifier 'multiply'
+          ArgList
+            Placeholder '_'
+            LiteralNumber '2'
+      FunctionCall
+        Identifier 'add'
+        ArgList
+          Placeholder '_'
+          LiteralNumber '50'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 4: Placeholder in pipes with method calls
+
+    #[test]
+    fn test_placeholder_in_pipe_with_method() {
+        let ast = to_ast_string("x: data | obj.transform(_, 100)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'data'
+      MethodCall
+        Identifier 'obj'
+        Identifier 'transform'
+        ArgList
+          Placeholder '_'
+          LiteralNumber '100'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_placeholder_in_method_pipe_chain() {
+        let ast = to_ast_string("x: data | obj.process(_) | finalize()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'data'
+        MethodCall
+          Identifier 'obj'
+          Identifier 'process'
+          ArgList
+            Placeholder '_'
+      FunctionCall
+        Identifier 'finalize'
+        ArgList
+";
+        assert_eq!(ast, expected);
     }
 }

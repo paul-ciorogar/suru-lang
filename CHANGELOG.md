@@ -5,6 +5,34 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2025-12-28 - Placeholder & Try Operator
+
+### Added
+- **Try operator** (`try`) for error handling expressions
+  - Unary prefix operator with precedence 3 (same as `not`)
+  - Works with expressions, function/method calls, pipes
+  - Chaining: `try try getValue()`, `input | try parse | try validate`
+  - New AST node: `Try`
+  - 17 tests
+
+- **Placeholder** (`_`) for partial application
+  - Terminal expression for function/method arguments
+  - Multiple placeholders: `func(_, 42, _)`
+  - In pipes: `100 | multiply(_, 2) | add(_, 50)`
+  - New AST node: `Placeholder`
+  - 12 tests
+
+### Examples
+```suru
+// Try operator
+result: try parseNumber(input)
+safe: input | try parse | try validate
+
+// Placeholder
+result: add(_, 5)
+chain: data | filter(_, active) | map(_, transform)
+```
+
 ## [0.12.0] - 2025-12-28 - Pipe Expressions
 
 ### Added
