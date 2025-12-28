@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bitflags = "2.4"
 clap = { version = "4.5", features = ["derive"] }
 inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 toml = "0.8"

@@ -5,12 +5,92 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### Examples
+## [0.15.0] - 2025-12-28 - Struct Initialization, Type Annotations, and `this` Keyword
 
-### Note
-- Match statements execute for side effects (like function calls)
-- Match expressions produce values (for assignments, returns)
-- Both use identical syntax and parsing logic
+### Added
+- **Struct initialization literals** for creating struct instances
+  - Empty structs: `{}`
+  - Field initialization: `{ name: "Paul", age: 30 }`
+  - Method implementation: `{ greet: () { return "Hello!" } }`
+  - Private members with `_` prefix: `{ _ secret: "password" }`
+  - Privacy stored as bitflags, not in identifier names
+  - New AST node types: `StructInit`, `StructInitField`, `StructInitMethod`
+  - Separate nodes for fields vs methods (better semantic clarity)
+- **Type annotations** for variable declarations
+  - Works with any expression: `count Int16: 42`
+  - Function call results: `name String: getName(person)`
+  - Boolean expressions: `result Bool: x and y`
+  - Struct literals: `user User: { name: "Paul" }`
+  - Pattern: `identifier [Type] : expression`
+  - Handled at statement level, not expression level
+- **`this` keyword** for self-reference in methods
+  - Separate node type (not Identifier) for better semantic analysis
+  - Property access: `this.name`
+  - Method calls: `this.getValue()`
+  - Works in struct literal methods and type declarations
+- **Privacy system** using bitflags
+  - NodeFlags bitflags struct (extensible to 8 flags)
+  - IS_PRIVATE flag for private members
+  - Privacy constructors: `new_private()`, `new_private_terminal()`
+  - Privacy markers in AST tree display: `[private]`
+  - Only 1 byte overhead per node
+
+### Technical Details
+- Added bitflags dependency (v2.4) for metadata flags
+- Extended AstNode with flags field (maintains uniform node size)
+- Privacy flag set on both container and identifier nodes
+- Type annotation lookahead in statement parser (handles optional types)
+- Struct literals parsed in limited contexts (var decls only for now)
+- Comma-separated or newline-separated struct members
+- Modular implementation in `src/parser/struct_init.rs`
+- 16 new tests (157 → 173 total)
+
+### Examples
+```suru
+// Type annotations
+count Int16: 42
+name String: getName(person)
+result Bool: x and y
+
+// Simple struct
+user: {
+    name: "Paul"
+    age: 30
+}
+
+// Struct with type annotation
+user User: {
+    username: "Paul"
+}
+
+// Struct with methods
+user: {
+    name: "Paul"
+    greet: () {
+        return `Hello, I'm {this.name}!`
+    }
+}
+
+// Privacy and this keyword
+user User: {
+    username: "Paul"              // Public field
+    _ passwordHash: "hash123"     // Private field
+
+    authenticate: (password) {    // Public method
+        return this.passwordHash.equals(password)
+    }
+
+    _ hashPassword: (pass) {      // Private method
+        return pass
+    }
+}
+```
+
+### Design Decisions
+- Privacy via bitflags (not name mangling) for clean AST and extensibility
+- Type annotations as general feature (not struct-specific)
+- Separate StructInitField and StructInitMethod node types
+- `this` as separate node type (better for later semantic analysis)
 
 ## [0.14.0] - 2025-12-28 - Match Statements and Match Expressions
 

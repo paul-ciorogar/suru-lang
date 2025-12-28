@@ -4,6 +4,7 @@ mod expressions;
 mod helpers;
 mod r#match;
 mod statements;
+mod struct_init;
 mod types;
 
 // Public exports

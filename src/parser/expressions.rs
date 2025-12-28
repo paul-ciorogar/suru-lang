@@ -157,6 +157,14 @@ impl<'a> Parser<'a> {
                 Ok(placeholder_node_idx)
             }
 
+            // this keyword
+            TokenKind::This => {
+                let this_node = AstNode::new_terminal(NodeType::This, self.clone_current_token());
+                let this_node_idx = self.ast.add_node(this_node);
+                self.advance();
+                Ok(this_node_idx)
+            }
+
             // Identifiers (for function calls and variable references)
             TokenKind::Identifier => {
                 let ident_node =
@@ -167,7 +175,7 @@ impl<'a> Parser<'a> {
             }
 
             _ => Err(self.new_unexpected_token(
-                "expression (literal, identifier, '_', 'not', or 'try')",
+                "expression (literal, identifier, '_', 'this', 'not', or 'try')",
             )),
         }
     }
@@ -1553,6 +1561,63 @@ Program
       FunctionCall
         Identifier 'finalize'
         ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Tests for 'this' keyword
+
+    #[test]
+    fn test_this_keyword() {
+        let ast = to_ast_string("x: this\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    This 'this'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_this_property_access() {
+        let ast = to_ast_string("x: this.name\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    PropertyAccess
+      This 'this'
+      Identifier 'name'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_this_method_call() {
+        let ast = to_ast_string("x: this.getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    MethodCall
+      This 'this'
+      Identifier 'getValue'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_this_in_expression() {
+        let ast = to_ast_string("x: this and true\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    And
+      This 'this'
+      LiteralBoolean 'true'
 ";
         assert_eq!(ast, expected);
     }

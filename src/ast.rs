@@ -1,5 +1,14 @@
 use crate::lexer::Token;
 use crate::string_storage::StringStorage;
+use bitflags::bitflags;
+
+bitflags! {
+    /// Flags for AST node metadata (privacy, mutability, etc.)
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct NodeFlags: u8 {
+        const IS_PRIVATE = 0b00000001;
+    }
+}
 
 // AST with single vector storage using first-child/next-sibling tree
 #[derive(Debug)]
@@ -68,6 +77,12 @@ pub enum NodeType {
     IntersectionType, // Type intersection using +
     FunctionType, // Function type signature
     FunctionTypeParams, // Function type parameter list
+
+    // Struct initialization
+    StructInit,       // Struct literal: { fields and methods }
+    StructInitField,  // Field initialization: name: value
+    StructInitMethod, // Method initialization: name: (params) { body }
+    This,             // The 'this' keyword (terminal)
 }
 
 // Uniform-size parse tree node using first-child/next-sibling representation
@@ -82,6 +97,9 @@ pub struct AstNode {
     pub first_child: Option<usize>,
     pub next_sibling: Option<usize>,
     pub parent: Option<usize>,
+
+    // Node metadata flags (privacy, mutability, etc.)
+    pub flags: NodeFlags,
 }
 
 impl AstNode {
@@ -92,6 +110,7 @@ impl AstNode {
             first_child: None,
             next_sibling: None,
             parent: None,
+            flags: NodeFlags::empty(),
         }
     }
 
@@ -102,6 +121,29 @@ impl AstNode {
             first_child: None,
             next_sibling: None,
             parent: None,
+            flags: NodeFlags::empty(),
+        }
+    }
+
+    pub fn new_private(node_type: NodeType) -> Self {
+        Self {
+            node_type,
+            token: None,
+            first_child: None,
+            next_sibling: None,
+            parent: None,
+            flags: NodeFlags::IS_PRIVATE,
+        }
+    }
+
+    pub fn new_private_terminal(node_type: NodeType, token: Token) -> Self {
+        Self {
+            node_type,
+            token: Some(token),
+            first_child: None,
+            next_sibling: None,
+            parent: None,
+            flags: NodeFlags::IS_PRIVATE,
         }
     }
 }
@@ -183,6 +225,7 @@ impl Ast {
                         TokenKind::True => Some(" 'true'".to_string()),
                         TokenKind::False => Some(" 'false'".to_string()),
                         TokenKind::Underscore => Some(" '_'".to_string()),
+                        TokenKind::This => Some(" 'this'".to_string()),
                         _ => None,
                     }
                 } else {
@@ -191,7 +234,14 @@ impl Ast {
             })
             .unwrap_or_default();
 
-        let mut result = format!("{}{:?}{}\n", indent, node.node_type, text);
+        // Add privacy marker if node is private
+        let privacy_marker = if node.flags.contains(NodeFlags::IS_PRIVATE) {
+            " [private]"
+        } else {
+            ""
+        };
+
+        let mut result = format!("{}{:?}{}{}\n", indent, node.node_type, text, privacy_marker);
 
         // Add children
         if let Some(child_idx) = node.first_child {

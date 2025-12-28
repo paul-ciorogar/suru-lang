@@ -57,13 +57,29 @@ impl<'a> Parser<'a> {
 
     /// Helper: Determine statement type by looking ahead after identifier
     /// Returns 'function', 'variable', or 'call'
+    /// Handles optional type annotations: ident [Type] : expr
     fn peek_statement_type(&self) -> Result<&'static str, ParseError> {
         match self.peek_next_kind(1) {
             TokenKind::Colon => {
+                // Pattern: ident : ...
                 match self.peek_next_kind(2) {
-                    TokenKind::LParen => Ok("function"), // Function declaration: ident : ()
-
-                    _ => Ok("variable"), // Variable declaration: ident : expr
+                    TokenKind::LParen => Ok("function"), // ident : ()
+                    _ => Ok("variable"),                 // ident : expr
+                }
+            }
+            TokenKind::Identifier => {
+                // Could be type annotation: ident Type : ...
+                // Check if there's a colon after the type
+                match self.peek_next_kind(2) {
+                    TokenKind::Colon => {
+                        // Pattern: ident Type : ...
+                        // Check what follows the colon
+                        match self.peek_next_kind(3) {
+                            TokenKind::LParen => Ok("function"), // ident Type : ()
+                            _ => Ok("variable"),                 // ident Type : expr
+                        }
+                    }
+                    _ => Err(self.new_unexpected_token("':' after type annotation")),
                 }
             }
             TokenKind::LParen => {
@@ -127,7 +143,8 @@ impl<'a> Parser<'a> {
         Ok(expr_stmt_idx)
     }
 
-    /// Parse a variable declaration: identifier : expression
+    /// Parse a variable declaration: identifier [Type] : expression
+    /// Supports optional type annotations and struct literals
     fn parse_var_decl(&mut self, depth: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
@@ -146,11 +163,36 @@ impl<'a> Parser<'a> {
 
         self.advance(); // consume identifier
 
+        // Check for optional type annotation
+        self.skip_newlines();
+        if self.peek_kind_is(TokenKind::Identifier) {
+            // Could be a type annotation - need to look ahead for ':'
+            let next_token_kind = self.peek_next_kind(1);
+            if next_token_kind == TokenKind::Colon {
+                // This is a type annotation: identifier TypeName : expr
+                let type_node =
+                    AstNode::new_terminal(NodeType::TypeAnnotation, self.clone_current_token());
+                let type_idx = self.ast.add_node(type_node);
+                self.ast.add_child(var_decl_idx, type_idx);
+                self.advance(); // consume type name
+            }
+        }
+
         // Expect colon
         self.consume(TokenKind::Colon, "':'")?;
 
-        // Parse expression
-        let expr_idx = self.parse_expression(depth + 1, 0)?;
+        // Skip newlines before expression
+        self.skip_newlines();
+
+        // Check if this is a struct literal or regular expression
+        let expr_idx = if self.peek_kind_is(TokenKind::LBrace) {
+            // Struct initialization literal
+            self.parse_struct_init(depth + 1)?
+        } else {
+            // Normal expression
+            self.parse_expression(depth + 1, 0)?
+        };
+
         self.ast.add_child(var_decl_idx, expr_idx);
 
         // Expect newline, EOF, or RBrace (end of block)
@@ -222,7 +264,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a block: { statements }
-    fn parse_block(&mut self, depth: usize) -> Result<usize, ParseError> {
+    pub(super) fn parse_block(&mut self, depth: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
         // Consume '{'
@@ -290,7 +332,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse parameter list: () or (name, name) or (name Type, name Type)
-    fn parse_param_list(&mut self, depth: usize) -> Result<usize, ParseError> {
+    pub(super) fn parse_param_list(&mut self, depth: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
         // Consume '('
@@ -654,6 +696,67 @@ Program
           FunctionCall
             Identifier 'exit'
             ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Tests for type annotations in var_decl
+
+    #[test]
+    fn test_var_decl_with_type_annotation_number() {
+        let ast = to_ast_string("count Int16: 42\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'count'
+    TypeAnnotation 'Int16'
+    LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_var_decl_with_type_annotation_function_call() {
+        let ast = to_ast_string("name String: getName()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'name'
+    TypeAnnotation 'String'
+    FunctionCall
+      Identifier 'getName'
+      ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_var_decl_with_type_annotation_expression() {
+        let ast = to_ast_string("result Bool: x and y\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'result'
+    TypeAnnotation 'Bool'
+    And
+      Identifier 'x'
+      Identifier 'y'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_var_decl_with_type_and_struct_literal() {
+        let ast = to_ast_string("user User: { name: \"Paul\" }\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'user'
+    TypeAnnotation 'User'
+    StructInit
+      StructInitField
+        Identifier 'name'
+        LiteralString 'Paul'
 ";
         assert_eq!(ast, expected);
     }
