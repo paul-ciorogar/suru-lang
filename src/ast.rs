@@ -35,6 +35,9 @@ pub enum NodeType {
     And, // Binary and operation
     Or,  // Binary or operation
 
+    // Arithmetic operations
+    Negate, // Unary negation operation (-)
+
     // Error handling
     Try, // Unary try operation
 

@@ -102,6 +102,23 @@ impl<'a> Parser<'a> {
                 Ok(not_node_idx)
             }
 
+            // Unary negation operator
+            TokenKind::Minus => {
+                self.advance(); // Consume '-'
+
+                // Parse the operand recursively with same precedence as 'not'
+                let operand_idx = self.parse_expression(depth + 1, 3)?; // 3 is precedence of unary operators
+
+                // Create negate node
+                let negate_node = AstNode::new(NodeType::Negate);
+                let negate_node_idx = self.ast.add_node(negate_node);
+
+                // Add operand as child
+                self.ast.add_child(negate_node_idx, operand_idx);
+
+                Ok(negate_node_idx)
+            }
+
             // Unary try operator
             TokenKind::Try => {
                 self.advance(); // Consume 'try'
@@ -199,7 +216,7 @@ impl<'a> Parser<'a> {
             TokenKind::LBrace => self.parse_struct_init(depth + 1),
 
             _ => Err(self.new_unexpected_token(
-                "expression (literal, identifier, '_', 'this', 'not', 'try', 'partial', '[', or '{')",
+                "expression (literal, identifier, '_', 'this', 'not', '-', 'try', 'partial', '[', or '{')",
             )),
         }
     }
@@ -1715,5 +1732,524 @@ Program
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("expression"));
+    }
+
+    // ========== UNARY NEGATION OPERATOR TESTS ==========
+
+    // Category 1: Basic negation on literals
+
+    #[test]
+    fn test_negate_number_literal() {
+        let ast = to_ast_string("x: -42\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_float_literal() {
+        let ast = to_ast_string("x: -3.14\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      LiteralNumber '3.14'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_hex_literal() {
+        let ast = to_ast_string("x: -0xFF\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      LiteralNumber '0xFF'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 2: Negation on identifiers and expressions
+
+    #[test]
+    fn test_negate_identifier() {
+        let ast = to_ast_string("x: -value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_function_call() {
+        let ast = to_ast_string("x: -getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      FunctionCall
+        Identifier 'getValue'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_function_call_with_args() {
+        let ast = to_ast_string("x: -add(1, 2)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      FunctionCall
+        Identifier 'add'
+        ArgList
+          LiteralNumber '1'
+          LiteralNumber '2'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_method_call() {
+        let ast = to_ast_string("x: -obj.getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      MethodCall
+        Identifier 'obj'
+        Identifier 'getValue'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_property_access() {
+        let ast = to_ast_string("x: -obj.value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      PropertyAccess
+        Identifier 'obj'
+        Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 3: Double and triple negation
+
+    #[test]
+    fn test_double_negation() {
+        let ast = to_ast_string("x: --42\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      Negate
+        LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_triple_negation() {
+        let ast = to_ast_string("x: ---value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      Negate
+        Negate
+          Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 4: Negation with boolean operators
+
+    #[test]
+    fn test_negate_with_and_operator() {
+        // "-a and b" should parse as "(-a) and b"
+        let ast_struct = to_ast("x: -a and b\n").unwrap();
+
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be And (precedence 2)
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::And);
+
+        // And's left child should be Negate (precedence 3 binds tighter)
+        let left_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Negate);
+    }
+
+    #[test]
+    fn test_negate_with_or_operator() {
+        // "-a or b" should parse as "(-a) or b"
+        let ast_struct = to_ast("x: -a or b\n").unwrap();
+
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be Or (precedence 1)
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::Or);
+
+        // Or's left child should be Negate (precedence 3 binds tighter)
+        let left_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Negate);
+    }
+
+    #[test]
+    fn test_negate_with_not_operator() {
+        // "not -value" should parse as "not (-value)"
+        let ast = to_ast_string("x: not -value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Not
+      Negate
+        Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_not_negate_combination() {
+        // "-not value" should parse as "-(not value)"
+        let ast = to_ast_string("x: -not value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      Not
+        Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 5: Negation in pipes
+
+    #[test]
+    fn test_negate_in_pipe() {
+        let ast = to_ast_string("x: value | -transform\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'value'
+      Negate
+        Identifier 'transform'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_before_pipe() {
+        // "-value | transform" should parse as "(-value) | transform"
+        let ast_struct = to_ast("x: -value | transform\n").unwrap();
+
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let pipe_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be Pipe
+        assert_eq!(ast_struct.nodes[pipe_idx].node_type, NodeType::Pipe);
+
+        // Pipe's left child should be Negate
+        let left_idx = ast_struct.nodes[pipe_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Negate);
+    }
+
+    #[test]
+    fn test_negate_in_pipe_chain() {
+        let ast = to_ast_string("x: -value | -process | -transform\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Negate
+          Identifier 'value'
+        Negate
+          Identifier 'process'
+      Negate
+        Identifier 'transform'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_function_in_pipe() {
+        let ast = to_ast_string("x: data | -getValue() | process\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Pipe
+        Identifier 'data'
+        Negate
+          FunctionCall
+            Identifier 'getValue'
+            ArgList
+      Identifier 'process'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 6: Negation with try and partial operators
+
+    #[test]
+    fn test_negate_with_try() {
+        // "try -value" should parse as "try (-value)"
+        let ast = to_ast_string("x: try -value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      Negate
+        Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_try_negate_combination() {
+        // "-try value" should parse as "-(try value)"
+        let ast = to_ast_string("x: -try getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      Try
+        FunctionCall
+          Identifier 'getValue'
+          ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_with_partial() {
+        // "partial -value" should parse as "partial (-value)"
+        let ast = to_ast_string("x: partial -value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Partial
+      Negate
+        Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_partial_negate_combination() {
+        // "-partial value" should parse as "-(partial value)"
+        let ast = to_ast_string("x: -partial getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      Partial
+        FunctionCall
+          Identifier 'getValue'
+          ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 7: Negation in function arguments
+
+    #[test]
+    fn test_negate_in_function_arg() {
+        let ast = to_ast_string("x: add(-5, 10)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'add'
+      ArgList
+        Negate
+          LiteralNumber '5'
+        LiteralNumber '10'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_multiple_args() {
+        let ast = to_ast_string("x: func(-a, -b, -c)\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    FunctionCall
+      Identifier 'func'
+      ArgList
+        Negate
+          Identifier 'a'
+        Negate
+          Identifier 'b'
+        Negate
+          Identifier 'c'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 8: Negation with composition operator
+
+    #[test]
+    fn test_negate_with_compose() {
+        // "-a + b" - composition has same precedence as pipe (1), lower than negate (3)
+        // Should parse as "(-a) + b"
+        let ast_struct = to_ast("x: -a + b\n").unwrap();
+
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let compose_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be Compose
+        assert_eq!(ast_struct.nodes[compose_idx].node_type, NodeType::Compose);
+
+        // Compose's left child should be Negate
+        let left_idx = ast_struct.nodes[compose_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Negate);
+    }
+
+    // Category 9: Edge cases
+
+    #[test]
+    fn test_error_negate_without_operand() {
+        // "-" needs an operand
+        let result = to_ast("x: -\n");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("expression"));
+    }
+
+    #[test]
+    fn test_negate_with_this() {
+        let ast = to_ast_string("x: -this.value\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      PropertyAccess
+        This 'this'
+        Identifier 'value'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_list_literal() {
+        // Negating a list literal (semantically questionable but should parse)
+        let ast = to_ast_string("x: -[1, 2, 3]\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      List
+        LiteralNumber '1'
+        LiteralNumber '2'
+        LiteralNumber '3'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_struct_literal() {
+        // Negating a struct literal (semantically questionable but should parse)
+        let ast = to_ast_string("x: -{value: 42}\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Negate
+      StructInit
+        StructInitField
+          Identifier 'value'
+          LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Category 10: Complex expressions with negation
+
+    #[test]
+    fn test_negate_complex_expression() {
+        let ast = to_ast_string("x: -a.getValue() and -b.process()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    And
+      Negate
+        MethodCall
+          Identifier 'a'
+          Identifier 'getValue'
+          ArgList
+      Negate
+        MethodCall
+          Identifier 'b'
+          Identifier 'process'
+          ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_negate_in_match_pattern() {
+        let ast = to_ast_string("result: match -value { 0: 'zero' }\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'result'
+    Match
+      MatchSubject
+        Negate
+          Identifier 'value'
+      MatchArms
+        MatchArm
+          MatchPattern
+            LiteralNumber '0'
+          LiteralString 'zero'
+";
+        assert_eq!(ast, expected);
     }
 }

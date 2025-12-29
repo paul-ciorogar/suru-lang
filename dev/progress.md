@@ -899,6 +899,76 @@ length: [1, 2, 3].length()
   - `src/ast.rs` - Added List node type
   - `src/parser/expressions.rs` - Added parse_list method (~1990 lines)
 
+### Milestone 18: Unary Negation Operator
+- **Date**: 2025-12-29
+- **Details**:
+  - Implemented unary negation operator (`-`) for all expressions
+  - Same precedence as `not` operator (precedence level 3)
+  - Works with literals, identifiers, function calls, method calls, and complex expressions
+  - Supports chaining: `--42`, `---value`
+  - Full integration with pipes, boolean operators, and other unary operators
+  - 35 comprehensive tests added (283 tests total, all passing)
+
+#### Syntax Support
+```suru
+// Basic negation
+x: -42
+y: -3.14
+z: -0xFF
+
+// Negation on expressions
+a: -getValue()
+b: -obj.method()
+c: -(x + y)
+
+// Double/triple negation
+d: --42
+e: ---value
+
+// With operators
+f: -a and b        // (-a) and b
+g: -a or b         // (-a) or b
+h: not -value      // not (-value)
+i: -not value      // -(not value)
+
+// In pipes
+j: -value | process
+k: data | -getValue()
+
+// In function arguments
+m: add(-5, 10)
+n: func(-a, -b, -c)
+
+// Complex expressions
+o: -a.getValue() and -b.process()
+```
+
+#### Implementation Details
+- **New AST Node** (src/ast.rs:39): `Negate` - Arithmetic operations section
+- **Parser Logic** (src/parser/expressions.rs:105-120): Handles `-` in `parse_primary_or_unary()`
+- **Precedence**: Unary negation has precedence 3 (same as `not`, `try`, `partial`)
+- **Test Coverage**: 35 tests across 10 categories:
+  1. Basic negation on literals (3 tests)
+  2. Negation on identifiers and expressions (5 tests)
+  3. Double and triple negation (2 tests)
+  4. Negation with boolean operators (4 tests)
+  5. Negation in pipes (4 tests)
+  6. Negation with try/partial (4 tests)
+  7. Negation in function arguments (2 tests)
+  8. Negation with composition (1 test)
+  9. Edge cases (3 tests)
+  10. Complex expressions (2 tests)
+
+#### Files Modified
+- `src/ast.rs` - Added `Negate` node type
+- `src/parser/expressions.rs` - Added negation parsing and 35 tests (~2256 lines)
+
+#### Key Design Decisions
+- **All expressions supported**: Not just literals - can negate any valid expression
+- **Same precedence as not**: Consistent with other unary operators
+- **Explicit AST node**: `Negate` node makes semantics clear for code generation
+- **Right associative**: Multiple negations parse correctly: `---x` → `Negate(Negate(Negate(x)))`
+
 ## Notes
 - All development is done inside Docker container to ensure consistent LLVM environment
 - LLVM 18 is explicitly used for latest features and stability
