@@ -118,6 +118,23 @@ impl<'a> Parser<'a> {
                 Ok(try_node_idx)
             }
 
+            // Unary partial operator
+            TokenKind::Partial => {
+                self.advance(); // Consume 'partial'
+
+                // Parse the operand recursively with 'partial' precedence
+                let operand_idx = self.parse_expression(depth + 1, 3)?; // 3 is precedence of 'partial'
+
+                // Create partial node
+                let partial_node = AstNode::new(NodeType::Partial);
+                let partial_node_idx = self.ast.add_node(partial_node);
+
+                // Add operand as child
+                self.ast.add_child(partial_node_idx, operand_idx);
+
+                Ok(partial_node_idx)
+            }
+
             // Match expression
             TokenKind::Match => {
                 self.advance(); // Consume 'match'
@@ -178,7 +195,7 @@ impl<'a> Parser<'a> {
             TokenKind::LBracket => self.parse_list(depth + 1),
 
             _ => Err(self.new_unexpected_token(
-                "expression (literal, identifier, '_', 'this', 'not', 'try', or '[')",
+                "expression (literal, identifier, '_', 'this', 'not', 'try', 'partial', or '[')",
             )),
         }
     }
@@ -1623,5 +1640,76 @@ Program
       LiteralBoolean 'true'
 ";
         assert_eq!(ast, expected);
+    }
+
+    // ========== PARTIAL OPERATOR TESTS ==========
+
+    #[test]
+    fn test_partial_with_function_call() {
+        let ast = to_ast_string("x: partial getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Partial
+      FunctionCall
+        Identifier 'getValue'
+        ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_partial_in_pipe() {
+        let ast = to_ast_string("x: value | partial process\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Pipe
+      Identifier 'value'
+      Partial
+        Identifier 'process'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_partial_with_and_operator() {
+        // "partial a and b" should parse as "(partial a) and b"
+        let ast_struct = to_ast("x: partial a and b\n").unwrap();
+        let var_decl_idx = ast_struct.nodes[0].first_child.unwrap();
+        let ident_idx = ast_struct.nodes[var_decl_idx].first_child.unwrap();
+        let expr_idx = ast_struct.nodes[ident_idx].next_sibling.unwrap();
+
+        // Top level should be And
+        assert_eq!(ast_struct.nodes[expr_idx].node_type, NodeType::And);
+        // And's left child should be Partial
+        let left_idx = ast_struct.nodes[expr_idx].first_child.unwrap();
+        assert_eq!(ast_struct.nodes[left_idx].node_type, NodeType::Partial);
+    }
+
+    #[test]
+    fn test_try_partial_combination() {
+        let ast = to_ast_string("x: try partial getValue()\n").unwrap();
+        let expected = "\
+Program
+  VarDecl
+    Identifier 'x'
+    Try
+      Partial
+        FunctionCall
+          Identifier 'getValue'
+          ArgList
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_error_partial_without_operand() {
+        let result = to_ast("x: partial\n");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("expression"));
     }
 }

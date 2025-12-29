@@ -5,6 +5,44 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2025-12-29 - Partial Keyword Support
+
+### Added
+- **`partial` keyword** for explicit partial application
+  - Unary prefix operator (precedence 3, same as `not` and `try`)
+  - Syntactic sugar to avoid writing many `_` placeholders
+  - Usage: `partial functionWithManyArguments(arg1)` instead of `func(_, _, _, _, _, _, _, _, _)`
+  - Works with function calls: `partial getValue()`
+  - Works with method calls: `partial obj.method(arg)`
+  - Composable in pipes: `data | partial filter(active)`
+  - New AST node type: `Partial`
+  - 5 essential tests (197 tests total)
+
+### Technical Details
+- Added `Partial` to `NodeType` enum in `src/ast.rs`
+- Parsing logic in `src/parser/expressions.rs` (follows `try` operator pattern)
+- Same precedence as other unary operators (3)
+- Right-to-left associativity
+- Accepts any expression as operand (semantic validation deferred)
+
+### Examples
+```suru
+// Avoid many underscores
+curry: partial functionWithManyArguments(2_283i32)
+
+// With method calls
+validator: partial user.validate()
+
+// In pipelines
+result: data | partial filter(active) | partial sort()
+
+// Composition with other operators
+checked: try partial getValue()
+```
+
+### Context
+The `partial` keyword complements the existing `_` placeholder syntax. While `_` is ideal for functions with few parameters (`add(_, 5)`), `partial` provides cleaner syntax when many arguments would require many placeholders.
+
 ## [0.16.0] - 2025-12-29 - List Literals
 
 ### Added

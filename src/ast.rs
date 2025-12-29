@@ -38,6 +38,9 @@ pub enum NodeType {
     // Error handling
     Try, // Unary try operation
 
+    // Partial application
+    Partial, // Unary partial application operation
+
     // Pipe operator
     Pipe, // Pipe operation: left | right
 
