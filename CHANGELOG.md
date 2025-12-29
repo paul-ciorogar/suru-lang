@@ -5,6 +5,29 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2025-12-29 - Composition Operator
+
+### Added
+- **Composition operator (`+`)** for data and method composition
+  - Binary infix operator (precedence 1, same as `|` and `or`)
+  - Left-associative: `a + b + c` → `(a + b) + c`
+  - Works in all expression contexts
+  - New AST node: `Compose`
+  - 18 comprehensive tests (215 total)
+- **Struct literals as expressions**
+  - Struct literals `{...}` now usable in any expression context
+  - Enables: `base + {extra: value}`
+
+### Examples
+```suru
+// Data composition
+user: {name: "Paul"} + {age: 30}
+enhanced: person + contact + location
+
+// With pipes
+result: getData() | transform + enhance
+```
+
 ## [0.17.0] - 2025-12-29 - Partial Keyword Support
 
 ### Added

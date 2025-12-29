@@ -62,6 +62,7 @@ impl<'a> Parser<'a> {
                 TokenKind::And => NodeType::And,
                 TokenKind::Or => NodeType::Or,
                 TokenKind::Pipe => NodeType::Pipe,
+                TokenKind::Plus => NodeType::Compose,
                 _ => unreachable!(),
             };
 
@@ -194,8 +195,11 @@ impl<'a> Parser<'a> {
             // List literal
             TokenKind::LBracket => self.parse_list(depth + 1),
 
+            // Struct literal
+            TokenKind::LBrace => self.parse_struct_init(depth + 1),
+
             _ => Err(self.new_unexpected_token(
-                "expression (literal, identifier, '_', 'this', 'not', 'try', 'partial', or '[')",
+                "expression (literal, identifier, '_', 'this', 'not', 'try', 'partial', '[', or '{')",
             )),
         }
     }

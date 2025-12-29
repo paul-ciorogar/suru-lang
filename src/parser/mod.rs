@@ -8,6 +8,10 @@ mod statements;
 mod struct_init;
 mod types;
 
+// Test modules
+#[cfg(test)]
+mod compose;
+
 // Public exports
 pub use error::ParseError;
 

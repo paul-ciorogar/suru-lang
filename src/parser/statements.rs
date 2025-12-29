@@ -184,14 +184,8 @@ impl<'a> Parser<'a> {
         // Skip newlines before expression
         self.skip_newlines();
 
-        // Check if this is a struct literal or regular expression
-        let expr_idx = if self.peek_kind_is(TokenKind::LBrace) {
-            // Struct initialization literal
-            self.parse_struct_init(depth + 1)?
-        } else {
-            // Normal expression
-            self.parse_expression(depth + 1, 0)?
-        };
+        // Parse the expression (which can include struct literals)
+        let expr_idx = self.parse_expression(depth + 1, 0)?;
 
         self.ast.add_child(var_decl_idx, expr_idx);
 

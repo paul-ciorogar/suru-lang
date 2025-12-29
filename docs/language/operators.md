@@ -68,7 +68,7 @@ aCircle Circle: aPoint + {
 
 // Method composition
 type Shape: {
-    area: + partial calculateArea(this)
+    area: partial calculateArea(this) + log
 }
 ```
 

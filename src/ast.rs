@@ -44,6 +44,9 @@ pub enum NodeType {
     // Pipe operator
     Pipe, // Pipe operation: left | right
 
+    // Composition operator
+    Compose, // Composition operation: left + right
+
     // List literal
     List, // List literal: [elem1, elem2, ...]
 

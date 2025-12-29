@@ -100,16 +100,16 @@ type Shape: Circle, Square
 type AreaFunction: (shape Shape) Number
 
 // Implementation of an area function
-area AreaFunction: (shape){
+area AreaFunction: (shape) Number {
     // some implementation
 }
 
-// Function reuse with partial application
+// Function reuse with composition
 aCircle Circle: aPoint + {
     radius: 500
 
-    // "Adding" a method by partially applying a function
-    area: + partial area(this)
+    // Adding a method 
+    area: + area(this)
 }
 
 // Usage
@@ -123,6 +123,7 @@ theArea: aCircle.area()
 validateEmail: (email String) Bool { /* ... */ }
 formatPhone: (phone String) String { /* ... */ }
 calculateTax: (amount Number, rate Number) Number { /* ... */ }
+log Log<T>: (value T) T { /* ... */ }
 
 // Compose methods into structs
 type User: {
@@ -130,8 +131,8 @@ type User: {
     phone String
 
     // Add validation methods via composition
-    isValidEmail: + partial validateEmail(this.email)
-    formattedPhone: + partial formatPhone(this.phone)
+    isValidEmail: + validateEmail(this.email)
+    formattedPhone: + formatPhone(this.phone)
 }
 
 type Invoice: {
@@ -139,7 +140,7 @@ type Invoice: {
     taxRate Number
 
     // Compose calculation method
-    total: + partial calculateTax(this.amount, this.taxRate)
+    total: + calculateTax(this.amount, this.taxRate) + log
 }
 ```
 
@@ -148,7 +149,7 @@ type Invoice: {
 ```suru
 type EnhancedCircle: Circle + {
     // Reuse area function but add logging
-    areaWithLog: + partial area(this) | + partial logResult(_)
+    areaWithLog: partial area(this) + logResult
 
     // Compose validation from another type
     validate: + Point.validateCoordinates
@@ -171,17 +172,14 @@ aCircle Circle: aPoint + {
     radius: 500
 
     // Chain multiple behaviors
-    area: + partial area(this)
-          | + partial validatePositive(_)
-          | + partial logCall("area", _)
-
-    // Override inherited behavior
-    move: + partial moveWithBounds(this, _, _)  // Last one wins
+    area: + area(this)
+          + validatePositive
+          + logCall("area", _)
 
     // Compose from multiple sources
-    describe: + partial formatShape(this)
-              | + partial addTimestamp(_)
-              | + partial toUppercase(_)
+    describe: + formatShape(this)
+              + addTimestamp
+              + toUppercase
 }
 
 // Usage
@@ -314,9 +312,9 @@ trim: (s String) String { return s.trim() }
 removeSpecial: (s String) String { /* ... */ }
 
 // Compose transformers
-normalizeText: + partial lowercase
-               | + partial trim
-               | + partial removeSpecial
+normalizeText:  + lowercase
+                + trim
+                + removeSpecial
 
 // Use composed function
 input: "  Hello WORLD!  "
