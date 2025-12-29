@@ -869,7 +869,35 @@ outer: (x Number) {
         return 1
     }
 }
+
+// ========== List Literals ==========
+
+// Empty and basic lists
+empty: []
+numbers: [1, 2, 3, 4, 5]
+names: ["Alice", "Bob", "Charlie"]
+mixed: [1, "text", true]
+
+// Trailing commas allowed
+items: [1, 2, 3,]
+
+// Lists with expressions
+computed: [a and b, getValue(), try process()]
+nested: [[1, 2], [3, 4]]
+
+// Method calls on lists
+length: [1, 2, 3].length()
 ```
+
+### Milestone 17: List Literals
+- **Date**: 2025-12-29
+- **Details**:
+  - Implemented list literal parsing: `[elem1, elem2, ...]`
+  - Empty lists, trailing commas, nested lists, and method calls supported
+  - 19 new tests added (192 tests total, all passing)
+- **Files Modified**:
+  - `src/ast.rs` - Added List node type
+  - `src/parser/expressions.rs` - Added parse_list method (~1990 lines)
 
 ## Notes
 - All development is done inside Docker container to ensure consistent LLVM environment

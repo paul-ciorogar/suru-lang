@@ -5,6 +5,30 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2025-12-29 - List Literals
+
+### Added
+- **List literal parsing** with square bracket syntax `[...]`
+  - Empty lists, trailing commas, and nested lists
+  - Any expression as elements: literals, identifiers, function/method calls
+  - Method chaining on list literals: `[1, 2, 3].length()`
+  - New AST node type: `List`
+  - New parser module: `src/parser/list.rs` (~420 lines)
+  - 19 comprehensive tests (192 tests total)
+
+### Examples
+```suru
+// Basic lists
+empty: []
+numbers: [1, 2, 3]
+mixed: [1, "text", true]
+
+// Nested and method calls
+nested: [[1, 2], [3, 4]]
+length: [1, 2, 3].length()
+computed: [getValue(), x | transform]
+```
+
 ## [0.15.0] - 2025-12-28 - Struct Initialization, Type Annotations, and `this` Keyword
 
 ### Added

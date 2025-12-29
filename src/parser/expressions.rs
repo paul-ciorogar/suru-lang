@@ -174,8 +174,11 @@ impl<'a> Parser<'a> {
                 Ok(ident_node_idx)
             }
 
+            // List literal
+            TokenKind::LBracket => self.parse_list(depth + 1),
+
             _ => Err(self.new_unexpected_token(
-                "expression (literal, identifier, '_', 'this', 'not', or 'try')",
+                "expression (literal, identifier, '_', 'this', 'not', 'try', or '[')",
             )),
         }
     }

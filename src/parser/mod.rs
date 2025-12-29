@@ -2,6 +2,7 @@
 mod error;
 mod expressions;
 mod helpers;
+mod list;
 mod r#match;
 mod statements;
 mod struct_init;

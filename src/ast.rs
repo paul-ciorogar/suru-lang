@@ -41,6 +41,9 @@ pub enum NodeType {
     // Pipe operator
     Pipe, // Pipe operation: left | right
 
+    // List literal
+    List, // List literal: [elem1, elem2, ...]
+
     // Function call
     FunctionCall,   // Function call expression
     MethodCall,     // Method call: receiver.method(args)
