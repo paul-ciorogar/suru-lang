@@ -28,6 +28,18 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
 
         match self.peek_kind() {
+            TokenKind::Module => {
+                // Module declaration
+                return Ok(Some(self.parse_module_decl(depth + 1)?));
+            }
+            TokenKind::Import => {
+                // Import statement
+                return Ok(Some(self.parse_import_stmt(depth + 1)?));
+            }
+            TokenKind::Export => {
+                // Export statement
+                return Ok(Some(self.parse_export_stmt(depth + 1)?));
+            }
             TokenKind::Return => {
                 // Return statement
                 return Ok(Some(self.parse_return_stmt(depth + 1)?));

@@ -5,6 +5,39 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2025-12-29 - Module System Parsing
+
+### Added
+- **Module declarations**: `module Calculator`, `module math.geometry`, `module .utils` (submodule)
+- **Import statements** with three forms:
+  - Full: `import { math }`
+  - Aliased: `import { m: math }`
+  - Selective: `import { {sin, cos}: math }`
+  - Star: `import { *: math }`
+- **Export statements**: `export { Calculator, add, subtract }`
+- Dotted module paths: `math.geometry`, `math.trigonometry`
+- Flexible separators: comma-separated or newline-separated lists
+- New AST nodes: `ModuleDecl`, `ModulePath`, `Import`, `ImportList`, `ImportItem`, `ImportAlias`, `ImportSelective`, `ImportSelector`, `Export`, `ExportList`
+- New parser module: `src/parser/module.rs` (~745 lines)
+- 37 comprehensive tests (252 total)
+
+### Examples
+```suru
+module Calculator
+
+import {
+    math
+    m: trigonometry
+    {sin, cos}: angles
+    *: io
+}
+
+export {
+    Calculator
+    add
+}
+```
+
 ## [0.18.0] - 2025-12-29 - Composition Operator
 
 ### Added

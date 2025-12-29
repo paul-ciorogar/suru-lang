@@ -4,6 +4,7 @@ mod expressions;
 mod helpers;
 mod list;
 mod r#match;
+mod module;
 mod statements;
 mod struct_init;
 mod types;

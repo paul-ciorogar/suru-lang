@@ -92,6 +92,18 @@ pub enum NodeType {
     StructInitField,  // Field initialization: name: value
     StructInitMethod, // Method initialization: name: (params) { body }
     This,             // The 'this' keyword (terminal)
+
+    // Module system
+    ModuleDecl,       // Module declaration: module Name or module .name
+    ModulePath,       // Module path/name (terminal - can be simple or dotted)
+    Import,           // Import statement container
+    ImportList,       // List of import items in {...}
+    ImportItem,       // Single import item (full, aliased, selective, or star)
+    ImportAlias,      // Alias in aliased import (terminal)
+    ImportSelective,  // Selective import list {...}
+    ImportSelector,   // Single selector in selective import (terminal)
+    Export,           // Export statement container
+    ExportList,       // List of exported identifiers
 }
 
 // Uniform-size parse tree node using first-child/next-sibling representation
@@ -235,6 +247,7 @@ impl Ast {
                         TokenKind::False => Some(" 'false'".to_string()),
                         TokenKind::Underscore => Some(" '_'".to_string()),
                         TokenKind::This => Some(" 'this'".to_string()),
+                        TokenKind::Star => Some(" '*'".to_string()),
                         _ => None,
                     }
                 } else {
