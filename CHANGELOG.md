@@ -5,6 +5,43 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-01-12 - Semantic Analyzer Foundation
+
+### Added
+- **Semantic analyzer skeleton** - Foundation for semantic analysis phase
+  - `SemanticError` struct with message and location tracking
+  - `SemanticAnalyzer` struct with AST traversal and error collection
+  - `analyze()` entry point returning `Result<Ast, Vec<SemanticError>>`
+  - Visitor pattern implementation for AST node traversal
+  - Automatic scope management for blocks
+  - Error collection (collects all errors, doesn't stop on first)
+  - Integration with existing ScopeStack infrastructure
+  - 3 integration tests (test_empty_program, test_analyzer_initialization, test_simple_program_with_declarations)
+
+### Technical Details
+- Implemented in `src/semantic/mod.rs` (builds on phases 1.1 and 1.2)
+- Visitor methods: `visit_node()`, `visit_children()`, `visit_program()`, `visit_block()`
+- Stub methods for future phases: `visit_var_decl()`, `visit_function_decl()`, `visit_type_decl()`
+- First-child/next-sibling AST traversal pattern
+- Scope entry/exit demonstrated in `visit_block()`
+- Error pattern follows ParseError design (message + line + column)
+- Implements `Display` and `Error` traits for SemanticError
+
+### Implementation Progress
+This completes **Phase 1.3** of the semantic analysis roadmap (todo.md):
+- ✅ Create SemanticAnalyzer struct with AST and scope stack
+- ✅ Implement analyze() entry point that traverses AST
+- ✅ Add helper methods for visiting different node types
+- ✅ Implement error collection (Vec<SemanticError>)
+- ✅ Write basic integration test (empty program)
+
+### Next Steps
+Phase 2 (Name Resolution) will implement:
+- Variable declaration resolution (2.1)
+- Variable reference resolution (2.2)
+- Function declaration resolution (2.3)
+- Function call resolution (2.4)
+
 ## [0.20.0] - 2025-12-29 - Unary Negation Operator
 
 ### Added

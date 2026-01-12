@@ -1,0 +1,863 @@
+use std::collections::HashMap;
+
+/// Represents a semantic analysis error
+#[derive(Debug, Clone, PartialEq)]
+pub struct SemanticError {
+    pub message: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+impl SemanticError {
+    pub fn new(message: String, line: usize, column: usize) -> Self {
+        SemanticError {
+            message,
+            line,
+            column,
+        }
+    }
+
+    pub fn from_token(message: String, token: &crate::lexer::Token) -> Self {
+        SemanticError {
+            message,
+            line: token.line,
+            column: token.column,
+        }
+    }
+}
+
+impl std::fmt::Display for SemanticError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Semantic error at {}:{}: {}",
+            self.line, self.column, self.message
+        )
+    }
+}
+
+impl std::error::Error for SemanticError {}
+
+/// Represents the kind of symbol in the symbol table
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    Variable,
+    Function,
+    Type,
+}
+
+/// Represents the kind of scope
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeKind {
+    Global,   // File-level scope
+    Module,   // Module scope
+    Function, // Function body scope
+    Block,    // Block scope (nested blocks, match arms)
+}
+
+/// Represents a symbol in the symbol table
+#[derive(Debug, Clone, PartialEq)]
+pub struct Symbol {
+    /// The name of the symbol
+    pub name: String,
+    /// The type of the symbol (if known). Will be None for untyped or type-inferred symbols
+    pub type_name: Option<String>,
+    /// The kind of symbol (variable, function, or type)
+    pub kind: SymbolKind,
+}
+
+impl Symbol {
+    /// Creates a new symbol
+    pub fn new(name: String, type_name: Option<String>, kind: SymbolKind) -> Self {
+        Symbol {
+            name,
+            type_name,
+            kind,
+        }
+    }
+}
+
+/// Represents a single scope in the scope hierarchy
+#[derive(Debug, Clone)]
+pub struct Scope {
+    /// The kind of this scope
+    pub kind: ScopeKind,
+    /// The symbol table for this scope
+    pub symbols: SymbolTable,
+    /// Index of parent scope (None for global scope)
+    pub parent: Option<usize>,
+}
+
+impl Scope {
+    /// Creates a new scope with the given kind and parent
+    pub fn new(kind: ScopeKind, parent: Option<usize>) -> Self {
+        Scope {
+            kind,
+            symbols: SymbolTable::new(),
+            parent,
+        }
+    }
+
+    /// Inserts a symbol into this scope's symbol table
+    /// Returns true if inserted, false if already exists
+    pub fn insert_symbol(&mut self, symbol: Symbol) -> bool {
+        self.symbols.insert(symbol)
+    }
+
+    /// Looks up a symbol in this scope only (does not check parent)
+    pub fn lookup_local(&self, name: &str) -> Option<&Symbol> {
+        self.symbols.lookup(name)
+    }
+}
+
+/// Symbol table for storing and looking up symbols in a scope
+#[derive(Debug, Clone)]
+pub struct SymbolTable {
+    /// Map from symbol name to symbol information
+    symbols: HashMap<String, Symbol>,
+}
+
+impl SymbolTable {
+    /// Creates a new empty symbol table
+    pub fn new() -> Self {
+        SymbolTable {
+            symbols: HashMap::new(),
+        }
+    }
+
+    /// Inserts a symbol into the table
+    /// Returns true if the symbol was newly inserted, false if it already existed
+    pub fn insert(&mut self, symbol: Symbol) -> bool {
+        let name = symbol.name.clone();
+        if self.symbols.contains_key(&name) {
+            false
+        } else {
+            self.symbols.insert(name, symbol);
+            true
+        }
+    }
+
+    /// Looks up a symbol by name
+    /// Returns Some(&Symbol) if found, None otherwise
+    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
+        self.symbols.get(name)
+    }
+
+    /// Checks if a symbol exists in the table
+    pub fn contains(&self, name: &str) -> bool {
+        self.symbols.contains_key(name)
+    }
+
+    /// Returns the number of symbols in the table
+    pub fn len(&self) -> usize {
+        self.symbols.len()
+    }
+
+    /// Returns true if the symbol table is empty
+    pub fn is_empty(&self) -> bool {
+        self.symbols.is_empty()
+    }
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Manages a stack of nested scopes
+#[derive(Debug)]
+pub struct ScopeStack {
+    /// Arena of all scopes (indexed by scope id)
+    scopes: Vec<Scope>,
+    /// Stack of current scope indices (top = current scope)
+    current_stack: Vec<usize>,
+}
+
+impl ScopeStack {
+    /// Creates a new scope stack with a global scope
+    pub fn new() -> Self {
+        let mut scopes = Vec::new();
+        let global_scope = Scope::new(ScopeKind::Global, None);
+        scopes.push(global_scope);
+
+        ScopeStack {
+            scopes,
+            current_stack: vec![0], // Start with global scope active
+        }
+    }
+
+    /// Enters a new scope of the given kind
+    /// Returns the index of the newly created scope
+    pub fn enter_scope(&mut self, kind: ScopeKind) -> usize {
+        let parent_idx = *self.current_stack.last().unwrap();
+        let new_scope = Scope::new(kind, Some(parent_idx));
+        let scope_idx = self.scopes.len();
+        self.scopes.push(new_scope);
+        self.current_stack.push(scope_idx);
+        scope_idx
+    }
+
+    /// Exits the current scope
+    /// Returns the index of the exited scope
+    /// Panics if trying to exit the global scope
+    pub fn exit_scope(&mut self) -> usize {
+        assert!(
+            self.current_stack.len() > 1,
+            "Cannot exit global scope"
+        );
+        self.current_stack.pop().unwrap()
+    }
+
+    /// Returns the index of the current scope
+    pub fn current_scope_index(&self) -> usize {
+        *self.current_stack.last().unwrap()
+    }
+
+    /// Returns a reference to the current scope
+    pub fn current_scope(&self) -> &Scope {
+        let idx = self.current_scope_index();
+        &self.scopes[idx]
+    }
+
+    /// Returns a mutable reference to the current scope
+    pub fn current_scope_mut(&mut self) -> &mut Scope {
+        let idx = self.current_scope_index();
+        &mut self.scopes[idx]
+    }
+
+    /// Inserts a symbol into the current scope
+    /// Returns true if inserted, false if already exists in current scope
+    pub fn insert(&mut self, symbol: Symbol) -> bool {
+        self.current_scope_mut().insert_symbol(symbol)
+    }
+
+    /// Looks up a symbol by searching the scope chain from current to global
+    /// Returns Some(&Symbol) if found, None otherwise
+    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
+        // Start from current scope and walk up parent chain
+        let mut current_idx = self.current_scope_index();
+        loop {
+            let scope = &self.scopes[current_idx];
+            if let Some(symbol) = scope.lookup_local(name) {
+                return Some(symbol);
+            }
+
+            // Move to parent scope
+            match scope.parent {
+                Some(parent_idx) => current_idx = parent_idx,
+                None => return None, // Reached global scope, not found
+            }
+        }
+    }
+
+    /// Returns true if a symbol exists in the current scope chain
+    pub fn contains(&self, name: &str) -> bool {
+        self.lookup(name).is_some()
+    }
+
+    /// Returns the current scope depth (0 = global, 1 = first nested scope, etc.)
+    pub fn depth(&self) -> usize {
+        self.current_stack.len() - 1
+    }
+}
+
+impl Default for ScopeStack {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Main semantic analyzer that traverses AST and performs semantic checks
+pub struct SemanticAnalyzer {
+    ast: crate::ast::Ast,
+    scopes: ScopeStack,
+    errors: Vec<SemanticError>,
+}
+
+impl SemanticAnalyzer {
+    /// Creates a new semantic analyzer with the given AST
+    pub fn new(ast: crate::ast::Ast) -> Self {
+        SemanticAnalyzer {
+            ast,
+            scopes: ScopeStack::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    /// Records a semantic error
+    fn record_error(&mut self, error: SemanticError) {
+        self.errors.push(error);
+    }
+
+    /// Performs semantic analysis on the AST
+    /// Returns Ok(Ast) if no errors, or Err(Vec<SemanticError>) if errors found
+    pub fn analyze(mut self) -> Result<crate::ast::Ast, Vec<SemanticError>> {
+        if let Some(root_idx) = self.ast.root {
+            self.visit_node(root_idx);
+        }
+
+        if self.errors.is_empty() {
+            Ok(self.ast)
+        } else {
+            Err(self.errors)
+        }
+    }
+
+    /// Visits a node and dispatches to appropriate visitor method
+    fn visit_node(&mut self, node_idx: usize) {
+        use crate::ast::NodeType;
+
+        let node = &self.ast.nodes[node_idx];
+
+        match node.node_type {
+            NodeType::Program => self.visit_program(node_idx),
+            NodeType::VarDecl => self.visit_var_decl(node_idx),
+            NodeType::FunctionDecl => self.visit_function_decl(node_idx),
+            NodeType::TypeDecl => self.visit_type_decl(node_idx),
+            NodeType::Block => self.visit_block(node_idx),
+            // For now, just visit children for all other node types
+            _ => self.visit_children(node_idx),
+        }
+    }
+
+    /// Visits all children of a node
+    fn visit_children(&mut self, node_idx: usize) {
+        if let Some(first_child_idx) = self.ast.nodes[node_idx].first_child {
+            let mut current = first_child_idx;
+            loop {
+                self.visit_node(current);
+
+                if let Some(next) = self.ast.nodes[current].next_sibling {
+                    current = next;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Visits Program node (root)
+    fn visit_program(&mut self, node_idx: usize) {
+        // Program node just contains declarations at global scope
+        self.visit_children(node_idx);
+    }
+
+    /// Visits variable declaration (stub for now)
+    fn visit_var_decl(&mut self, _node_idx: usize) {
+        // TODO: Implement in phase 2.1
+    }
+
+    /// Visits function declaration (stub for now)
+    fn visit_function_decl(&mut self, _node_idx: usize) {
+        // TODO: Implement in phase 2.3
+    }
+
+    /// Visits type declaration (stub for now)
+    fn visit_type_decl(&mut self, _node_idx: usize) {
+        // TODO: Implement in phase 3.2
+    }
+
+    /// Visits block statement
+    fn visit_block(&mut self, node_idx: usize) {
+        // Enter new block scope
+        self.scopes.enter_scope(ScopeKind::Block);
+
+        // Visit all statements in the block
+        self.visit_children(node_idx);
+
+        // Exit block scope
+        self.scopes.exit_scope();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_symbol_creation() {
+        let symbol = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+
+        assert_eq!(symbol.name, "x");
+        assert_eq!(symbol.type_name, Some("Number".to_string()));
+        assert_eq!(symbol.kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn test_symbol_without_type() {
+        let symbol = Symbol::new(
+            "y".to_string(),
+            None,
+            SymbolKind::Variable,
+        );
+
+        assert_eq!(symbol.name, "y");
+        assert_eq!(symbol.type_name, None);
+        assert_eq!(symbol.kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn test_symbol_table_insert_and_lookup() {
+        let mut table = SymbolTable::new();
+
+        let symbol = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+
+        assert!(table.insert(symbol.clone()));
+        assert_eq!(table.len(), 1);
+
+        let found = table.lookup("x");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), &symbol);
+    }
+
+    #[test]
+    fn test_symbol_table_duplicate_insert() {
+        let mut table = SymbolTable::new();
+
+        let symbol1 = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+
+        let symbol2 = Symbol::new(
+            "x".to_string(),
+            Some("String".to_string()),
+            SymbolKind::Variable,
+        );
+
+        assert!(table.insert(symbol1.clone()));
+        assert!(!table.insert(symbol2));
+        assert_eq!(table.len(), 1);
+
+        let found = table.lookup("x");
+        assert_eq!(found.unwrap().type_name, Some("Number".to_string()));
+    }
+
+    #[test]
+    fn test_symbol_table_lookup_nonexistent() {
+        let table = SymbolTable::new();
+
+        let found = table.lookup("nonexistent");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn test_symbol_table_contains() {
+        let mut table = SymbolTable::new();
+
+        let symbol = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+
+        assert!(!table.contains("x"));
+        table.insert(symbol);
+        assert!(table.contains("x"));
+    }
+
+    #[test]
+    fn test_symbol_table_multiple_symbols() {
+        let mut table = SymbolTable::new();
+
+        let var_symbol = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+
+        let func_symbol = Symbol::new(
+            "foo".to_string(),
+            Some("() -> Number".to_string()),
+            SymbolKind::Function,
+        );
+
+        let type_symbol = Symbol::new(
+            "MyType".to_string(),
+            None,
+            SymbolKind::Type,
+        );
+
+        assert!(table.insert(var_symbol));
+        assert!(table.insert(func_symbol));
+        assert!(table.insert(type_symbol));
+        assert_eq!(table.len(), 3);
+
+        assert!(table.contains("x"));
+        assert!(table.contains("foo"));
+        assert!(table.contains("MyType"));
+
+        assert_eq!(table.lookup("x").unwrap().kind, SymbolKind::Variable);
+        assert_eq!(table.lookup("foo").unwrap().kind, SymbolKind::Function);
+        assert_eq!(table.lookup("MyType").unwrap().kind, SymbolKind::Type);
+    }
+
+    #[test]
+    fn test_symbol_table_is_empty() {
+        let mut table = SymbolTable::new();
+
+        assert!(table.is_empty());
+
+        let symbol = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+
+        table.insert(symbol);
+        assert!(!table.is_empty());
+    }
+
+    // Helper function for scope tests
+    fn test_symbol(name: &str) -> Symbol {
+        Symbol::new(
+            name.to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        )
+    }
+
+    // ========== Basic Scope Operations ==========
+
+    #[test]
+    fn test_scope_creation() {
+        let scope = Scope::new(ScopeKind::Function, Some(0));
+        assert_eq!(scope.kind, ScopeKind::Function);
+        assert_eq!(scope.parent, Some(0));
+        assert!(scope.symbols.is_empty());
+    }
+
+    #[test]
+    fn test_scope_stack_initialization() {
+        let stack = ScopeStack::new();
+        assert_eq!(stack.depth(), 0);
+        assert_eq!(stack.current_scope().kind, ScopeKind::Global);
+        assert!(stack.current_scope().parent.is_none());
+    }
+
+    #[test]
+    fn test_scope_stack_enter_exit() {
+        let mut stack = ScopeStack::new();
+
+        // Enter function scope
+        let func_idx = stack.enter_scope(ScopeKind::Function);
+        assert_eq!(stack.depth(), 1);
+        assert_eq!(stack.current_scope().kind, ScopeKind::Function);
+        assert_eq!(stack.current_scope().parent, Some(0));
+
+        // Exit function scope
+        let exited_idx = stack.exit_scope();
+        assert_eq!(exited_idx, func_idx);
+        assert_eq!(stack.depth(), 0);
+        assert_eq!(stack.current_scope().kind, ScopeKind::Global);
+    }
+
+    #[test]
+    fn test_scope_stack_depth() {
+        let mut stack = ScopeStack::new();
+
+        assert_eq!(stack.depth(), 0);
+        stack.enter_scope(ScopeKind::Module);
+        assert_eq!(stack.depth(), 1);
+        stack.enter_scope(ScopeKind::Function);
+        assert_eq!(stack.depth(), 2);
+        stack.exit_scope();
+        assert_eq!(stack.depth(), 1);
+        stack.exit_scope();
+        assert_eq!(stack.depth(), 0);
+    }
+
+    // ========== Scope Nesting ==========
+
+    #[test]
+    fn test_nested_scopes() {
+        let mut stack = ScopeStack::new();
+
+        // Global -> Module -> Function -> Block
+        stack.enter_scope(ScopeKind::Module);
+        assert_eq!(stack.depth(), 1);
+
+        stack.enter_scope(ScopeKind::Function);
+        assert_eq!(stack.depth(), 2);
+
+        stack.enter_scope(ScopeKind::Block);
+        assert_eq!(stack.depth(), 3);
+
+        // Exit back to global
+        stack.exit_scope(); // Block
+        stack.exit_scope(); // Function
+        stack.exit_scope(); // Module
+        assert_eq!(stack.depth(), 0);
+    }
+
+    #[test]
+    fn test_scope_hierarchy() {
+        let mut stack = ScopeStack::new();
+
+        stack.enter_scope(ScopeKind::Module);
+        let module_idx = stack.current_scope_index();
+        assert_eq!(stack.current_scope().parent, Some(0)); // Parent is global
+
+        stack.enter_scope(ScopeKind::Function);
+        assert_eq!(stack.current_scope().parent, Some(module_idx));
+    }
+
+    #[test]
+    fn test_multiple_siblings() {
+        let mut stack = ScopeStack::new();
+
+        // Enter first child
+        stack.enter_scope(ScopeKind::Function);
+        let first_idx = stack.current_scope_index();
+
+        // Exit and enter second child
+        stack.exit_scope();
+        stack.enter_scope(ScopeKind::Function);
+        let second_idx = stack.current_scope_index();
+
+        // Both should have same parent but different indices
+        assert_ne!(first_idx, second_idx);
+        assert_eq!(stack.current_scope().parent, Some(0));
+    }
+
+    // ========== Symbol Resolution ==========
+
+    #[test]
+    fn test_lookup_in_current_scope() {
+        let mut stack = ScopeStack::new();
+
+        let symbol = test_symbol("x");
+        stack.insert(symbol.clone());
+
+        let found = stack.lookup("x");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), &symbol);
+    }
+
+    #[test]
+    fn test_lookup_in_parent_scope() {
+        let mut stack = ScopeStack::new();
+
+        // Insert in global scope
+        let symbol = test_symbol("x");
+        stack.insert(symbol.clone());
+
+        // Enter function scope
+        stack.enter_scope(ScopeKind::Function);
+
+        // Should find symbol from parent (global) scope
+        let found = stack.lookup("x");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), &symbol);
+    }
+
+    #[test]
+    fn test_lookup_through_chain() {
+        let mut stack = ScopeStack::new();
+
+        // Insert in global scope
+        let symbol = test_symbol("global_var");
+        stack.insert(symbol.clone());
+
+        // Create deep nesting
+        stack.enter_scope(ScopeKind::Module);
+        stack.enter_scope(ScopeKind::Function);
+        stack.enter_scope(ScopeKind::Block);
+
+        // Should find symbol from global scope
+        let found = stack.lookup("global_var");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), &symbol);
+    }
+
+    #[test]
+    fn test_lookup_not_found() {
+        let stack = ScopeStack::new();
+        let found = stack.lookup("nonexistent");
+        assert!(found.is_none());
+    }
+
+    // ========== Variable Shadowing ==========
+
+    #[test]
+    fn test_shadowing_inner_scope() {
+        let mut stack = ScopeStack::new();
+
+        // Outer variable
+        let outer = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+        stack.insert(outer.clone());
+
+        // Enter inner scope
+        stack.enter_scope(ScopeKind::Function);
+
+        // Shadow with different type
+        let inner = Symbol::new(
+            "x".to_string(),
+            Some("String".to_string()),
+            SymbolKind::Variable,
+        );
+        stack.insert(inner.clone());
+
+        // Lookup should find inner (shadowing)
+        let found = stack.lookup("x");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().type_name, Some("String".to_string()));
+
+        // Exit scope - should see outer again
+        stack.exit_scope();
+        let found = stack.lookup("x");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().type_name, Some("Number".to_string()));
+    }
+
+    #[test]
+    fn test_shadowing_multiple_levels() {
+        let mut stack = ScopeStack::new();
+
+        // Global: x as Number
+        let global_x = Symbol::new(
+            "x".to_string(),
+            Some("Number".to_string()),
+            SymbolKind::Variable,
+        );
+        stack.insert(global_x);
+
+        // Function: x as String
+        stack.enter_scope(ScopeKind::Function);
+        let func_x = Symbol::new(
+            "x".to_string(),
+            Some("String".to_string()),
+            SymbolKind::Variable,
+        );
+        stack.insert(func_x);
+
+        // Block: x as Bool
+        stack.enter_scope(ScopeKind::Block);
+        let block_x = Symbol::new(
+            "x".to_string(),
+            Some("Bool".to_string()),
+            SymbolKind::Variable,
+        );
+        stack.insert(block_x);
+
+        // Should find Bool (innermost)
+        assert_eq!(
+            stack.lookup("x").unwrap().type_name,
+            Some("Bool".to_string())
+        );
+
+        // Exit block - should find String
+        stack.exit_scope();
+        assert_eq!(
+            stack.lookup("x").unwrap().type_name,
+            Some("String".to_string())
+        );
+
+        // Exit function - should find Number
+        stack.exit_scope();
+        assert_eq!(
+            stack.lookup("x").unwrap().type_name,
+            Some("Number".to_string())
+        );
+    }
+
+    #[test]
+    fn test_no_shadowing_in_same_scope() {
+        let mut stack = ScopeStack::new();
+
+        let symbol1 = test_symbol("x");
+        assert!(stack.insert(symbol1));
+
+        let symbol2 = test_symbol("x");
+        assert!(!stack.insert(symbol2)); // Should fail - already exists
+    }
+
+    // ========== Edge Cases ==========
+
+    #[test]
+    #[should_panic(expected = "Cannot exit global scope")]
+    fn test_cannot_exit_global_scope() {
+        let mut stack = ScopeStack::new();
+        stack.exit_scope(); // Should panic
+    }
+
+    #[test]
+    fn test_scope_isolation() {
+        let mut stack = ScopeStack::new();
+
+        // Enter first child scope
+        stack.enter_scope(ScopeKind::Function);
+        let symbol_a = test_symbol("a");
+        stack.insert(symbol_a);
+
+        // Exit and enter sibling scope
+        stack.exit_scope();
+        stack.enter_scope(ScopeKind::Function);
+        let symbol_b = test_symbol("b");
+        stack.insert(symbol_b);
+
+        // Should not find 'a' (in sibling)
+        assert!(stack.lookup("a").is_none());
+        // Should find 'b' (in current)
+        assert!(stack.lookup("b").is_some());
+    }
+
+    // ========== Semantic Analyzer Tests ==========
+
+    use crate::lexer::lex;
+    use crate::parser::parse;
+
+    // Helper function
+    fn analyze_source(source: &str) -> Result<crate::ast::Ast, Vec<SemanticError>> {
+        let limits = crate::limits::CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let analyzer = SemanticAnalyzer::new(ast);
+        analyzer.analyze()
+    }
+
+    #[test]
+    fn test_empty_program() {
+        let result = analyze_source("");
+        assert!(result.is_ok(), "Empty program should analyze successfully");
+    }
+
+    #[test]
+    fn test_analyzer_initialization() {
+        let limits = crate::limits::CompilerLimits::default();
+        let tokens = lex("", &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let analyzer = SemanticAnalyzer::new(ast);
+
+        // Should initialize with global scope
+        assert_eq!(analyzer.scopes.depth(), 0);
+        assert!(analyzer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_simple_program_with_declarations() {
+        // Test that analyzer can traverse a simple program without crashing
+        let source = r#"
+            x: Number = 42
+            foo: () { }
+        "#;
+
+        let result = analyze_source(source);
+        // Should succeed (no semantic checks implemented yet, just traversal)
+        assert!(result.is_ok());
+    }
+}
