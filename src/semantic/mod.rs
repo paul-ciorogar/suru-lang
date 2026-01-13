@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+mod name_resolution;
+
 /// Represents a semantic analysis error
 #[derive(Debug, Clone, PartialEq)]
 pub struct SemanticError {
@@ -137,6 +139,14 @@ impl SymbolTable {
         }
     }
 
+    /// Inserts or replaces a symbol in the table
+    /// Always succeeds, overwriting any existing symbol with the same name
+    /// Used for variable redeclaration support
+    pub fn insert_or_replace(&mut self, symbol: Symbol) {
+        let name = symbol.name.clone();
+        self.symbols.insert(name, symbol);
+    }
+
     /// Looks up a symbol by name
     /// Returns Some(&Symbol) if found, None otherwise
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
@@ -202,10 +212,7 @@ impl ScopeStack {
     /// Returns the index of the exited scope
     /// Panics if trying to exit the global scope
     pub fn exit_scope(&mut self) -> usize {
-        assert!(
-            self.current_stack.len() > 1,
-            "Cannot exit global scope"
-        );
+        assert!(self.current_stack.len() > 1, "Cannot exit global scope");
         self.current_stack.pop().unwrap()
     }
 
@@ -316,6 +323,8 @@ impl SemanticAnalyzer {
             NodeType::FunctionDecl => self.visit_function_decl(node_idx),
             NodeType::TypeDecl => self.visit_type_decl(node_idx),
             NodeType::Block => self.visit_block(node_idx),
+            NodeType::Identifier => self.visit_identifier(node_idx),
+            NodeType::FunctionCall => self.visit_function_call(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }
@@ -343,15 +352,7 @@ impl SemanticAnalyzer {
         self.visit_children(node_idx);
     }
 
-    /// Visits variable declaration (stub for now)
-    fn visit_var_decl(&mut self, _node_idx: usize) {
-        // TODO: Implement in phase 2.1
-    }
-
-    /// Visits function declaration (stub for now)
-    fn visit_function_decl(&mut self, _node_idx: usize) {
-        // TODO: Implement in phase 2.3
-    }
+    // Variable declaration and function declaration visitors are implemented in name_resolution.rs
 
     /// Visits type declaration (stub for now)
     fn visit_type_decl(&mut self, _node_idx: usize) {
@@ -390,11 +391,7 @@ mod tests {
 
     #[test]
     fn test_symbol_without_type() {
-        let symbol = Symbol::new(
-            "y".to_string(),
-            None,
-            SymbolKind::Variable,
-        );
+        let symbol = Symbol::new("y".to_string(), None, SymbolKind::Variable);
 
         assert_eq!(symbol.name, "y");
         assert_eq!(symbol.type_name, None);
@@ -482,11 +479,7 @@ mod tests {
             SymbolKind::Function,
         );
 
-        let type_symbol = Symbol::new(
-            "MyType".to_string(),
-            None,
-            SymbolKind::Type,
-        );
+        let type_symbol = Symbol::new("MyType".to_string(), None, SymbolKind::Type);
 
         assert!(table.insert(var_symbol));
         assert!(table.insert(func_symbol));
@@ -852,12 +845,12 @@ mod tests {
     fn test_simple_program_with_declarations() {
         // Test that analyzer can traverse a simple program without crashing
         let source = r#"
-            x: Number = 42
+            x Number: 42
             foo: () { }
         "#;
 
         let result = analyze_source(source);
-        // Should succeed (no semantic checks implemented yet, just traversal)
+        // Should succeed with semantic analysis implemented
         assert!(result.is_ok());
     }
 }

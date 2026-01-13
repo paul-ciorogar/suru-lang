@@ -6,47 +6,47 @@
 - [x] Create `src/semantic/mod.rs` module
 - [x] Define `Symbol` struct (name, type, kind: variable/function/type)
 - [x] Define `SymbolTable` struct with HashMap storage
-- [ ] Implement basic insert/lookup methods
-- [ ] Write tests for symbol insertion and retrieval
+- [x] Implement basic insert/lookup methods
+- [x] Write tests for symbol insertion and retrieval
 
 ### 1.2 Scope Management
-- [ ] Define `Scope` struct (parent scope, symbol table, scope kind)
-- [ ] Define `ScopeKind` enum (Global, Module, Function, Block)
-- [ ] Implement `ScopeStack` for managing nested scopes
-- [ ] Add `enter_scope()` and `exit_scope()` methods
-- [ ] Write tests for scope nesting and variable shadowing
+- [x] Define `Scope` struct (parent scope, symbol table, scope kind)
+- [x] Define `ScopeKind` enum (Global, Module, Function, Block)
+- [x] Implement `ScopeStack` for managing nested scopes
+- [x] Add `enter_scope()` and `exit_scope()` methods
+- [x] Write tests for scope nesting and variable shadowing
 
 ### 1.3 Semantic Analyzer Skeleton
-- [ ] Create `SemanticAnalyzer` struct with AST and scope stack
-- [ ] Implement `analyze()` entry point that traverses AST
-- [ ] Add helper methods for visiting different node types
-- [ ] Implement error collection (Vec<SemanticError>)
-- [ ] Write basic integration test (empty program)
+- [x] Create `SemanticAnalyzer` struct with AST and scope stack
+- [x] Implement `analyze()` entry point that traverses AST
+- [x] Add helper methods for visiting different node types
+- [x] Implement error collection (Vec<SemanticError>)
+- [x] Write basic integration test (empty program)
 
 ## Phase 2: Name Resolution
 
 ### 2.1 Variable Declaration Resolution
-- [ ] Implement resolution for variable declarations
-- [ ] Check for duplicate declarations in same scope
-- [ ] Add variable to current scope's symbol table
-- [ ] Write tests for valid/invalid variable declarations
+- [x] Implement resolution for variable declarations
+- [x] Check for duplicate declarations in same scope (NOTE: Variables allow redeclaration)
+- [x] Add variable to current scope's symbol table
+- [x] Write tests for valid/invalid variable declarations
 
 ### 2.2 Variable Reference Resolution
-- [ ] Implement identifier lookup in scope chain
-- [ ] Report error for undefined variables
-- [ ] Write tests for variable references (valid/undefined)
-- [ ] Test variable shadowing across scopes
+- [x] Implement identifier lookup in scope chain
+- [x] Report error for undefined variables
+- [x] Write tests for variable references (valid/undefined)
+- [x] Test variable shadowing across scopes
 
 ### 2.3 Function Declaration Resolution
-- [ ] Implement function declaration registration
-- [ ] Check for duplicate function names
-- [ ] Store function signature in symbol table
-- [ ] Write tests for function declarations
+- [x] Implement function declaration registration
+- [x] Check for duplicate function names
+- [x] Store function signature in symbol table
+- [x] Write tests for function declarations
 
 ### 2.4 Function Call Resolution
-- [ ] Implement function name lookup for calls
-- [ ] Report error for calls to undefined functions
-- [ ] Write tests for valid/invalid function calls
+- [x] Implement function name lookup for calls
+- [x] Report error for calls to undefined functions
+- [x] Write tests for valid/invalid function calls
 
 ## Phase 3: Type System Foundation
 
@@ -309,6 +309,8 @@
 - Write tests for each task before moving to the next
 - Keep commits small and focused on individual tasks
 - Update progress.md after completing each phase
+
+- consider a function signature structure? may be better for comparison and type inference instead of a string, maybe also a varaiable signature struct also.
 
 ## Current Status
 

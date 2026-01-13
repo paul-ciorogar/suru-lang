@@ -5,6 +5,86 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-01-13 - Name Resolution
+
+### Added
+- **Name resolution for variables and functions** - Complete Phase 2 semantic analysis
+  - Variable declaration resolution with redeclaration support
+  - Variable reference resolution with scope chain lookup
+  - Function declaration resolution with signature tracking
+  - Function call resolution with kind validation
+  - Context-aware identifier resolution (distinguishes declarations from references)
+  - Support for variable shadowing across scopes
+  - Recursive function support (function visible to its own body)
+  - 19 comprehensive semantic analysis tests (329 total tests)
+
+### Technical Details
+- **New module**: `src/semantic/name_resolution.rs` (~520 lines)
+  - `visit_var_decl()` - Registers variables in current scope
+  - `visit_identifier()` - Resolves variable references in scope chain
+  - `visit_function_decl()` - Registers functions with parameter handling
+  - `visit_function_call()` - Validates function calls and resolves arguments
+  - `build_function_signature()` - Constructs signature strings like `"(Number, String) -> Bool"`
+- **Enhanced SymbolTable**: Added `insert_or_replace()` method for variable redeclaration support
+- **Dispatcher updates**: Added `Identifier` and `FunctionCall` to `visit_node()` dispatcher
+- Error messages: Simple and direct with precise location tracking
+  - "Variable 'x' is not defined"
+  - "Function 'foo' is not defined"
+  - "Duplicate declaration of function 'bar'"
+  - "'x' is not a function"
+
+### Language Semantics
+- **Variable redeclaration allowed**: The `:` operator acts as both declaration and reassignment
+  ```suru
+  x Number: 42
+  x String: "hello"  // Valid - replaces previous declaration
+  ```
+- **Function redeclaration prohibited**: Duplicate function names produce errors
+  ```suru
+  foo: () { }
+  foo: () { }  // Error: Duplicate declaration of function 'foo'
+  ```
+- **Scope chain resolution**: Variables and functions resolved from innermost to outermost scope
+- **Variable shadowing**: Inner scopes can shadow outer scope variables
+  ```suru
+  x: 42
+  foo: () {
+      x String: "shadowed"  // Different variable, shadows outer x
+  }
+  ```
+
+### Examples
+```suru
+// Variable declaration and reference
+x Number: 42
+y: x  // Valid reference
+
+// Function declaration and call
+add: (a Number, b Number) Number {
+    result: a  // Parameters in scope
+}
+sum: add(5, 10)  // Valid call
+
+// Recursive functions
+factorial: (n Number) Number {
+    result: factorial(n)  // Function visible to itself
+}
+
+// Nested scopes
+outer: () {
+    x: 1
+    inner: () {
+        y: x  // Outer variable visible
+    }
+}
+```
+
+### Next Steps
+Phase 3 (Type System Foundation) will implement:
+- Internal type representation (3.1)
+- Type declaration processing (3.2)
+- Built-in types registration (3.3)
+
 ## [0.21.0] - 2026-01-12 - Semantic Analyzer Foundation
 
 ### Added
@@ -26,14 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scope entry/exit demonstrated in `visit_block()`
 - Error pattern follows ParseError design (message + line + column)
 - Implements `Display` and `Error` traits for SemanticError
-
-### Implementation Progress
-This completes **Phase 1.3** of the semantic analysis roadmap (todo.md):
-- ✅ Create SemanticAnalyzer struct with AST and scope stack
-- ✅ Implement analyze() entry point that traverses AST
-- ✅ Add helper methods for visiting different node types
-- ✅ Implement error collection (Vec<SemanticError>)
-- ✅ Write basic integration test (empty program)
 
 ### Next Steps
 Phase 2 (Name Resolution) will implement:
