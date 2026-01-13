@@ -1,6 +1,15 @@
 use std::collections::HashMap;
 
 mod name_resolution;
+mod type_resolution;
+mod types;
+
+pub use types::{
+    Type, TypeId, TypeRegistry,
+    IntSize, UIntSize, FloatSize,
+    StructType, StructField, StructMethod,
+    FunctionType, FunctionParam,
+};
 
 /// Represents a semantic analysis error
 #[derive(Debug, Clone, PartialEq)]
@@ -279,15 +288,20 @@ impl Default for ScopeStack {
 pub struct SemanticAnalyzer {
     ast: crate::ast::Ast,
     scopes: ScopeStack,
+    type_registry: TypeRegistry,
     errors: Vec<SemanticError>,
 }
 
 impl SemanticAnalyzer {
     /// Creates a new semantic analyzer with the given AST
     pub fn new(ast: crate::ast::Ast) -> Self {
+        let mut type_registry = TypeRegistry::new();
+        Self::register_builtin_types(&mut type_registry);
+
         SemanticAnalyzer {
             ast,
             scopes: ScopeStack::new(),
+            type_registry,
             errors: Vec::new(),
         }
     }
@@ -295,6 +309,109 @@ impl SemanticAnalyzer {
     /// Records a semantic error
     fn record_error(&mut self, error: SemanticError) {
         self.errors.push(error);
+    }
+
+    /// Registers all built-in types in the type registry
+    fn register_builtin_types(registry: &mut TypeRegistry) {
+        // Primitive types
+        registry.intern(Type::Unit);
+        registry.intern(Type::Number);
+        registry.intern(Type::String);
+        registry.intern(Type::Bool);
+
+        // Sized integers
+        registry.intern(Type::Int(IntSize::I8));
+        registry.intern(Type::Int(IntSize::I16));
+        registry.intern(Type::Int(IntSize::I32));
+        registry.intern(Type::Int(IntSize::I64));
+
+        // Sized unsigned integers
+        registry.intern(Type::UInt(UIntSize::U8));
+        registry.intern(Type::UInt(UIntSize::U16));
+        registry.intern(Type::UInt(UIntSize::U32));
+        registry.intern(Type::UInt(UIntSize::U64));
+
+        // Floats
+        registry.intern(Type::Float(FloatSize::F32));
+        registry.intern(Type::Float(FloatSize::F64));
+    }
+
+    /// Checks if a given name is a built-in type
+    fn is_builtin_type(name: &str) -> bool {
+        matches!(
+            name,
+            "Unit" | "Number" | "String" | "Bool" |
+            "Int8" | "Int16" | "Int32" | "Int64" |
+            "UInt8" | "UInt16" | "UInt32" | "UInt64" |
+            "Float32" | "Float64"
+        )
+    }
+
+    /// Checks if a type with the given name exists (built-in or user-defined)
+    fn type_exists(&self, name: &str) -> bool {
+        // Check built-in types first
+        if Self::is_builtin_type(name) {
+            return true;
+        }
+
+        // Check symbol table for user-defined types
+        if let Some(symbol) = self.scopes.lookup(name) {
+            return symbol.kind == SymbolKind::Type;
+        }
+
+        false
+    }
+
+    /// Looks up the TypeId for a given type name
+    /// Returns an error if the type doesn't exist
+    fn lookup_type_id(&mut self, name: &str) -> Result<TypeId, SemanticError> {
+        // For built-in types, construct the Type and intern it
+        // (Will return existing TypeId due to interning)
+        let ty = match name {
+            "Unit" => Type::Unit,
+            "Number" => Type::Number,
+            "String" => Type::String,
+            "Bool" => Type::Bool,
+            "Int8" => Type::Int(IntSize::I8),
+            "Int16" => Type::Int(IntSize::I16),
+            "Int32" => Type::Int(IntSize::I32),
+            "Int64" => Type::Int(IntSize::I64),
+            "UInt8" => Type::UInt(UIntSize::U8),
+            "UInt16" => Type::UInt(UIntSize::U16),
+            "UInt32" => Type::UInt(UIntSize::U32),
+            "UInt64" => Type::UInt(UIntSize::U64),
+            "Float32" => Type::Float(FloatSize::F32),
+            "Float64" => Type::Float(FloatSize::F64),
+            _ => {
+                // Look up user-defined type in symbol table
+                if let Some(symbol) = self.scopes.lookup(name) {
+                    if symbol.kind == SymbolKind::Type {
+                        // Extract TypeId from symbol.type_name
+                        // Format is "TypeId(N)" where N is the index
+                        if let Some(type_str) = &symbol.type_name {
+                            if let Some(id_str) = type_str
+                                .strip_prefix("TypeId(")
+                                .and_then(|s| s.strip_suffix(")"))
+                            {
+                                if let Ok(id) = id_str.parse::<usize>() {
+                                    return Ok(TypeId::new(id));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Type not found
+                return Err(SemanticError::new(
+                    format!("Internal error: Type '{}' not found in registry", name),
+                    0,
+                    0,
+                ));
+            }
+        };
+
+        // For built-in types, intern and return
+        Ok(self.type_registry.intern(ty))
     }
 
     /// Performs semantic analysis on the AST
@@ -353,11 +470,7 @@ impl SemanticAnalyzer {
     }
 
     // Variable declaration and function declaration visitors are implemented in name_resolution.rs
-
-    /// Visits type declaration (stub for now)
-    fn visit_type_decl(&mut self, _node_idx: usize) {
-        // TODO: Implement in phase 3.2
-    }
+    // Type declaration visitor is implemented in type_resolution.rs
 
     /// Visits block statement
     fn visit_block(&mut self, node_idx: usize) {

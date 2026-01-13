@@ -5,6 +5,36 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-01-13 - Type Declaration Processing
+
+### Added
+- **Type declaration processing** - Complete Phase 3.2 semantic analysis
+  - Type aliases with transparent aliasing (`type UserId: Number`)
+  - Unit types (`type Success`)
+  - Union types (`type Status: Success, Error`)
+  - Struct types with field validation (`type Person: { name String }`)
+  - Intersection types with validation (`type Admin: Person + { role String }`)
+  - Built-in types: Number, String, Bool, Int8-Int64, UInt8-UInt64, Float32-Float64
+  - TypeRegistry integration for type interning
+  - 37 new tests (408 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/type_resolution.rs` with visitor methods for each type form
+- **Enhanced SemanticAnalyzer**: Added `TypeRegistry` field and helper methods
+- **Type validation**: All type references validated, no forward references allowed
+- **Deferred features**: Generic types (Phase 8), function types and struct methods (Phase 5)
+
+### Examples
+```suru
+type UserId: Number              // Type alias
+type Success                     // Unit type
+type Result: Success, Error      // Union type
+type User: { id UserId }         // Struct type
+type Admin: User + { role String }  // Intersection type
+```
+
+---
+
 ## [0.22.0] - 2026-01-13 - Name Resolution
 
 ### Added

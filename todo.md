@@ -51,23 +51,23 @@
 ## Phase 3: Type System Foundation
 
 ### 3.1 Internal Type Representation
-- [ ] Create `src/semantic/types.rs` module
-- [ ] Define `Type` enum (Unit, Number, String, Bool, Function, Struct, etc.)
-- [ ] Define `TypeId` for efficient type comparisons
-- [ ] Implement type interning/caching system
-- [ ] Write tests for type creation and equality
+- [x] Create `src/semantic/types.rs` module
+- [x] Define `Type` enum (Unit, Number, String, Bool, Function, Struct, etc.)
+- [x] Define `TypeId` for efficient type comparisons
+- [x] Implement type interning/caching system
+- [x] Write tests for type creation and equality
 
 ### 3.2 Type Declaration Processing
-- [ ] Implement type alias resolution
-- [ ] Implement unit type registration
-- [ ] Implement union type registration
-- [ ] Implement struct type registration
-- [ ] Write tests for each type declaration form
+- [x] Implement type alias resolution
+- [x] Implement unit type registration
+- [x] Implement union type registration
+- [x] Implement struct type registration
+- [x] Write tests for each type declaration form
 
 ### 3.3 Built-in Types
-- [ ] Register built-in types (Number, String, Bool, Int8-Int64, UInt8-UInt64, Float32, Float64)
-- [ ] Create type registry for built-in types
-- [ ] Write tests for built-in type lookup
+- [x] Register built-in types (Number, String, Bool, Int8-Int64, UInt8-UInt64, Float32, Float64)
+- [x] Create type registry for built-in types
+- [x] Write tests for built-in type lookup
 
 ## Phase 4: Basic Type Checking
 
@@ -312,8 +312,4 @@
 
 - consider a function signature structure? may be better for comparison and type inference instead of a string, maybe also a varaiable signature struct also.
 
-## Current Status
-
-- **Phase 1:** Not started
-- **Parser:** Complete (283 tests passing)
-- **AST:** Complete with first-child/next-sibling representation
+test_intersection_invalid_left_type is valid
