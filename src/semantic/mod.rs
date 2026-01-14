@@ -3,6 +3,7 @@ use std::collections::HashMap;
 mod name_resolution;
 mod type_resolution;
 mod type_inference;
+mod expression_type_inference;
 mod unification;
 mod types;
 
@@ -510,6 +511,10 @@ impl SemanticAnalyzer {
             NodeType::LiteralString => self.visit_literal_string(node_idx),
             NodeType::LiteralBoolean => self.visit_literal_boolean(node_idx),
             NodeType::List => self.visit_list(node_idx),
+            // Type inference for operators (Phase 4.2)
+            NodeType::And | NodeType::Or => self.visit_binary_bool_op(node_idx),
+            NodeType::Not => self.visit_not(node_idx),
+            NodeType::Negate => self.visit_negate(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

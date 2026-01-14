@@ -88,16 +88,16 @@
   - [x] Phase 3: Substitution application to all nodes
 
 ### 4.2 Expression Type Checking
-- [ ] Implement type checking for binary operators (and, or)
-- [ ] Implement type checking for unary operators (not, negate)
-- [ ] Report type errors for incompatible operations
-- [ ] Write tests for expression type checking
+- [x] Implement type checking for binary operators (and, or)
+- [x] Implement type checking for unary operators (not, negate)
+- [x] Report type errors for incompatible operations
+- [x] Write tests for expression type checking
 
 ### 4.3 Variable Declaration Type Checking
-- [ ] Implement type annotation validation
-- [ ] Check initializer expression matches declared type
-- [ ] Infer type from initializer if not annotated
-- [ ] Write tests for variable type checking
+- [x] Implement type annotation validation
+- [x] Check initializer expression matches declared type
+- [x] Infer type from initializer if not annotated
+- [x] Write tests for variable type checking
 
 ### 4.4 Assignment Type Checking
 - [ ] Check assigned value matches variable type
