@@ -136,6 +136,39 @@ impl TypeId {
     }
 }
 
+// ========== TypeVarId (for Hindley-Milner inference) ==========
+
+/// Unique identifier for type variables in Hindley-Milner type inference
+///
+/// Type variables represent unknown types during inference. Each type variable
+/// has a unique numeric identifier. When the inference algorithm solves constraints,
+/// it creates a substitution mapping TypeVarIds to concrete types.
+///
+/// # Example
+///
+/// ```text
+/// // During inference:
+/// let x = [];  // x has type Array('a) where 'a is TypeVarId(0)
+///
+/// // After unification with context:
+/// x.push(42);  // 'a unifies with Number
+/// // Final type: Array(Number)
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypeVarId(pub u32);
+
+impl TypeVarId {
+    /// Creates a new type variable identifier
+    pub fn new(id: u32) -> Self {
+        TypeVarId(id)
+    }
+
+    /// Gets the raw numeric ID
+    pub fn id(&self) -> u32 {
+        self.0
+    }
+}
+
 // ========== Type Enum ==========
 
 /// Internal representation of types in the Suru type system
@@ -160,6 +193,12 @@ pub enum Type {
     UInt(UIntSize),
     /// Sized floating point
     Float(FloatSize),
+
+    // Inference types
+    /// Type variable for Hindley-Milner inference
+    /// Represents an unknown type that will be determined through unification
+    /// Example: 'a, 'b, 'c (displayed as '0, '1, '2 internally)
+    Var(TypeVarId),
 
     // Composite types
     /// Struct type with fields and methods
@@ -274,6 +313,12 @@ impl TypeRegistry {
         &self.types[type_id.0]
     }
 
+    /// Alias for get() - resolves a TypeId to its Type
+    /// Used by inference code for consistency with academic terminology
+    pub fn resolve(&self, type_id: TypeId) -> &Type {
+        self.get(type_id)
+    }
+
     /// Returns the number of unique types in the registry
     pub fn len(&self) -> usize {
         self.types.len()
@@ -288,6 +333,129 @@ impl TypeRegistry {
 impl Default for TypeRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ========== Constraint System (Hindley-Milner) ==========
+
+/// Type equality constraint for Hindley-Milner inference
+///
+/// Represents a constraint that two types must be equal. During type inference,
+/// the analyzer collects constraints as it traverses the AST. The unification
+/// algorithm then solves these constraints to find a substitution.
+///
+/// # Example
+///
+/// ```text
+/// // Source: x: 42
+/// // Generates constraint: type_of(x) = Number
+/// Constraint {
+///     left: type_of(x),   // TypeId for x's type variable
+///     right: Number,      // TypeId for Number type
+///     source: node_idx,   // AST node for error reporting
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Constraint {
+    /// Left side of equality
+    pub left: TypeId,
+    /// Right side of equality
+    pub right: TypeId,
+    /// Source AST node (for error reporting)
+    pub source: usize,
+}
+
+impl Constraint {
+    /// Creates a new type equality constraint
+    pub fn new(left: TypeId, right: TypeId, source: usize) -> Self {
+        Constraint {
+            left,
+            right,
+            source,
+        }
+    }
+}
+
+// ========== Substitution (Hindley-Milner) ==========
+
+/// Type substitution for Hindley-Milner inference
+///
+/// A substitution maps type variables to types, representing the solution to
+/// a set of constraints. The substitution is built incrementally during unification.
+///
+/// # Example
+///
+/// ```text
+/// // After unifying constraints:
+/// // 'a = Number, 'b = String
+/// Substitution {
+///     map: { '0 -> Number, '1 -> String }
+/// }
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct Substitution {
+    /// Map from type variable to type
+    map: HashMap<TypeVarId, TypeId>,
+}
+
+impl Substitution {
+    /// Creates a new empty substitution
+    pub fn new() -> Self {
+        Substitution {
+            map: HashMap::new(),
+        }
+    }
+
+    /// Inserts a binding from type variable to type
+    pub fn insert(&mut self, var: TypeVarId, ty: TypeId) {
+        self.map.insert(var, ty);
+    }
+
+    /// Looks up what a type variable maps to
+    pub fn lookup(&self, var: TypeVarId) -> Option<TypeId> {
+        self.map.get(&var).copied()
+    }
+
+    /// Applies substitution to a type, following chains of type variables
+    ///
+    /// If the type is a type variable with a binding, recursively applies
+    /// the substitution to resolve it to a concrete type.
+    pub fn apply(&self, ty: TypeId, registry: &TypeRegistry) -> TypeId {
+        let resolved_type = registry.resolve(ty);
+        match resolved_type {
+            Type::Var(var_id) => {
+                // If this type variable has a substitution, apply it
+                if let Some(substituted) = self.lookup(*var_id) {
+                    // Recursively apply in case substitution contains more vars
+                    self.apply(substituted, registry)
+                } else {
+                    ty // No substitution, return original
+                }
+            }
+            // For primitive types, return as-is
+            _ => ty,
+        }
+    }
+
+    /// Composes two substitutions: self ∘ other
+    ///
+    /// Applies self to all types in other, then merges the maps.
+    /// This is used when combining substitutions from multiple unifications.
+    pub fn compose(&mut self, other: &Substitution, registry: &TypeRegistry) {
+        for (var, ty) in &other.map {
+            let new_ty = self.apply(*ty, registry);
+            self.map.insert(*var, new_ty);
+        }
+    }
+
+    /// Returns true if the substitution is empty
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Returns the number of bindings in the substitution
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 }
 

@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 mod name_resolution;
 mod type_resolution;
+mod type_inference;
+mod unification;
 mod types;
 
 pub use types::{
@@ -9,6 +11,8 @@ pub use types::{
     IntSize, UIntSize, FloatSize,
     StructType, StructField, StructMethod,
     FunctionType, FunctionParam,
+    // Hindley-Milner type inference
+    TypeVarId, Constraint, Substitution,
 };
 
 /// Represents a semantic analysis error
@@ -290,6 +294,16 @@ pub struct SemanticAnalyzer {
     scopes: ScopeStack,
     type_registry: TypeRegistry,
     errors: Vec<SemanticError>,
+
+    // Hindley-Milner type inference infrastructure
+    /// Maps AST nodes to their inferred types
+    node_types: HashMap<usize, TypeId>,
+    /// Collected type constraints
+    constraints: Vec<Constraint>,
+    /// Current substitution (solution to constraints)
+    substitution: Substitution,
+    /// Counter for generating fresh type variables
+    next_type_var: u32,
 }
 
 impl SemanticAnalyzer {
@@ -303,12 +317,46 @@ impl SemanticAnalyzer {
             scopes: ScopeStack::new(),
             type_registry,
             errors: Vec::new(),
+            // Initialize Hindley-Milner infrastructure
+            node_types: HashMap::new(),
+            constraints: Vec::new(),
+            substitution: Substitution::new(),
+            next_type_var: 0,
         }
     }
 
     /// Records a semantic error
     fn record_error(&mut self, error: SemanticError) {
         self.errors.push(error);
+    }
+
+    // ========== Hindley-Milner Helper Methods ==========
+
+    /// Generates a fresh type variable for inference
+    ///
+    /// Each call returns a unique type variable (e.g., '0, '1, '2, ...)
+    /// Used when the type of an expression is unknown and must be inferred.
+    fn fresh_type_var(&mut self) -> TypeId {
+        let var_id = TypeVarId::new(self.next_type_var);
+        self.next_type_var += 1;
+        self.type_registry.intern(Type::Var(var_id))
+    }
+
+    /// Records the inferred type for an AST node
+    fn set_node_type(&mut self, node_idx: usize, type_id: TypeId) {
+        self.node_types.insert(node_idx, type_id);
+    }
+
+    /// Gets the inferred type for an AST node (if any)
+    pub fn get_node_type(&self, node_idx: usize) -> Option<TypeId> {
+        self.node_types.get(&node_idx).copied()
+    }
+
+    /// Adds a type equality constraint
+    ///
+    /// Constraints are collected during AST traversal and solved via unification.
+    fn add_constraint(&mut self, left: TypeId, right: TypeId, source: usize) {
+        self.constraints.push(Constraint::new(left, right, source));
     }
 
     /// Registers all built-in types in the type registry
@@ -416,9 +464,24 @@ impl SemanticAnalyzer {
 
     /// Performs semantic analysis on the AST
     /// Returns Ok(Ast) if no errors, or Err(Vec<SemanticError>) if errors found
+    ///
+    /// # Algorithm (Hindley-Milner)
+    ///
+    /// 1. **Constraint Collection**: Traverse AST and collect type constraints
+    /// 2. **Unification**: Solve constraints to find type substitution
+    /// 3. **Substitution Application**: Apply final types to all nodes
     pub fn analyze(mut self) -> Result<crate::ast::Ast, Vec<SemanticError>> {
         if let Some(root_idx) = self.ast.root {
+            // Phase 1: Collect constraints by traversing AST
             self.visit_node(root_idx);
+
+            // Phase 2: Solve constraints via unification
+            if let Err(errors) = self.solve_constraints() {
+                self.errors.extend(errors);
+            }
+
+            // Phase 3: Apply final substitution to all node types
+            self.apply_substitution();
         }
 
         if self.errors.is_empty() {
@@ -442,6 +505,11 @@ impl SemanticAnalyzer {
             NodeType::Block => self.visit_block(node_idx),
             NodeType::Identifier => self.visit_identifier(node_idx),
             NodeType::FunctionCall => self.visit_function_call(node_idx),
+            // Type inference for literals (Hindley-Milner)
+            NodeType::LiteralNumber => self.visit_literal_number(node_idx),
+            NodeType::LiteralString => self.visit_literal_string(node_idx),
+            NodeType::LiteralBoolean => self.visit_literal_boolean(node_idx),
+            NodeType::List => self.visit_list(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

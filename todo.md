@@ -71,12 +71,21 @@
 
 ## Phase 4: Basic Type Checking
 
-### 4.1 Literal Type Inference
-- [ ] Implement type inference for number literals
-- [ ] Implement type inference for string literals
-- [ ] Implement type inference for boolean literals
-- [ ] Implement type inference for list literals
-- [ ] Write tests for literal type inference
+### 4.1 Literal Type Inference (Phase 4.1a - Hindley-Milner Foundation)
+- [x] Implement type inference for number literals
+- [x] Implement type inference for string literals
+- [x] Implement type inference for boolean literals
+- [x] Implement type inference for list literals (empty lists; non-empty deferred to 4.1b)
+- [x] Write tests for literal type inference
+- [x] Implement Hindley-Milner type system infrastructure
+  - [x] Type variables (`Type::Var(TypeVarId)`) for unknowns
+  - [x] Constraint system for collecting type equalities
+  - [x] Unification algorithm with occurs check
+  - [x] Substitution mechanism for type variable bindings
+- [x] Three-phase analysis algorithm
+  - [x] Phase 1: Constraint collection via AST traversal
+  - [x] Phase 2: Constraint solving via unification
+  - [x] Phase 3: Substitution application to all nodes
 
 ### 4.2 Expression Type Checking
 - [ ] Implement type checking for binary operators (and, or)
@@ -310,6 +319,19 @@
 - Keep commits small and focused on individual tasks
 - Update progress.md after completing each phase
 
-- consider a function signature structure? may be better for comparison and type inference instead of a string, maybe also a varaiable signature struct also.
+### Phase 4.1a Implementation Notes (2026-01-13)
 
-test_intersection_invalid_left_type is valid
+Implemented Hindley-Milner type inference with:
+- **Incremental approach**: Split into 4.1a (foundation), 4.1b (expressions), 4.1c (functions)
+- **Type representation**: Using `Type::Var(TypeVarId)` instead of string-based type variables
+- **Function signatures**: Currently stored as strings; will transition to `FunctionType` struct in Phase 4.1c when implementing function inference
+- **Testing**: All 144 semantic tests passing, including 18 new tests for unification and type inference
+
+### Future Considerations
+
+- Function signature structure: Consider migrating from string representation to structured `FunctionType` for better type inference and comparison (Phase 5)
+- Variable signature struct: May be beneficial for complex type tracking (Phase 8+)
+
+### Test Notes
+
+- test_intersection_invalid_left_type is valid

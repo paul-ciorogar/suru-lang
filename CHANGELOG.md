@@ -5,6 +5,75 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-01-13 - Hindley-Milner Type Inference Foundation
+
+### Added
+- **Hindley-Milner type inference foundation** - Complete Phase 4.1a semantic analysis
+  - Type variables (`Type::Var(TypeVarId)`) for representing unknowns during inference
+  - Constraint system for collecting type equality constraints
+  - Unification algorithm with occurs check to solve constraints
+  - Substitution mechanism for mapping type variables to concrete types
+  - Literal type inference:
+    - Number literals → `Number` type
+    - String literals → `String` type
+    - Boolean literals → `Bool` type
+    - Empty lists → `Array('a)` where 'a is a fresh type variable
+  - Three-phase analysis: constraint collection, unification, substitution application
+
+### Technical Details
+- **New type system components** in `src/semantic/types.rs`:
+  - `TypeVarId` struct for unique type variable identifiers
+  - `Type::Var(TypeVarId)` variant for inference type variables
+  - `Constraint` struct representing type equality constraints
+  - `Substitution` struct for storing type variable bindings
+- **New module**: `src/semantic/unification.rs` 
+  - `unify()` - Core unification algorithm handling all type forms
+  - `occurs_check()` - Prevents infinite types like `'a = Array('a)`
+  - Support for primitives, arrays, functions, options, results, unions, intersections
+- **New module**: `src/semantic/type_inference.rs` 
+  - `visit_list()` - Creates `Array('a)` with fresh type variable
+  - `solve_constraints()` - Unifies all collected constraints
+  - `apply_substitution()` - Replaces type variables with concrete types
+- **Enhanced SemanticAnalyzer** in `src/semantic/mod.rs`:
+  - Added `node_types: HashMap<usize, TypeId>` for tracking inferred types
+  - Added `constraints: Vec<Constraint>` for constraint collection
+  - Added `substitution: Substitution` for unification results
+  - Added `next_type_var: u32` counter for generating fresh type variables
+  - Helper methods: `fresh_type_var()`, `set_node_type()`, `get_node_type()`, `add_constraint()`
+- **Updated analyze() method**: Now runs three-phase HM algorithm
+  1. Constraint collection via AST traversal
+  2. Constraint solving via unification
+  3. Final substitution application to all nodes
+
+### Algorithm Details
+The implementation follows the classic Hindley-Milner algorithm:
+1. **Type Variable Generation**: Assigns fresh type variables to unknowns
+2. **Constraint Collection**: Walks AST generating equality constraints
+3. **Unification**: Solves constraints via Robinson's unification algorithm
+4. **Substitution**: Maps type variables to concrete types
+
+Occurs check prevents infinite types, ensuring type soundness.
+
+### Future Phases
+This foundation enables:
+- **Phase 4.1b**: Binary/unary operators, non-empty lists, variable references
+- **Phase 4.1c**: Function inference, generalization, let-polymorphism
+
+### Examples
+```suru
+// Literal type inference
+x: 42          // Inferred: Number
+s: "hello"     // Inferred: String
+flag: true     // Inferred: Bool
+xs: []         // Inferred: Array('a) where 'a is type variable
+
+// Future (Phase 4.1b+):
+// nums: [1, 2, 3]        // Will infer: Array(Number)
+// identity: (x) { x }    // Will infer: ∀a. (a) -> a
+```
+
+---
+
 ## [0.23.0] - 2026-01-13 - Type Declaration Processing
 
 ### Added
