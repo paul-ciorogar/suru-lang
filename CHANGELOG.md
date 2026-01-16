@@ -5,10 +5,67 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-01-16 - Assignment Type Checking
+
+### Added
+- **Assignment type checking**
+  - Constant immutability at file level: Variables declared at module/global scope are constants
+  - Constant redeclaration errors: `Cannot redeclare constant 'x'`
+  - Variable reassignment in mutable scopes (functions/blocks)
+  - Type checking for reassignments: Reassigned values must match original variable type
+  - Shadowing support: Inner scopes can shadow outer variables with any type
+  - Scope-aware type tracking via `variable_types` map
+
+### Technical Details
+- **New module**: `src/semantic/assignment_type_checking.rs`
+  - Added `variable_types: HashMap<(usize, String), TypeId>` for tracking variable types per scope
+  - Added `is_in_mutable_scope()` to ScopeStack for detecting function/block contexts
+  - Added `lookup_variable_type()` helper for scope chain lookup
+  - Added `record_variable_type()` helper for recording declarations
+  - Checks if variable exists in current scope before inserting
+  - Generates constraint for type matching on reassignment
+  - Records variable type on new declarations
+
+### Scope Semantics
+```
+File/Module scope (immutable):
+  x: 42           // Constant declaration
+  x: 99           // Error: Cannot redeclare constant 'x'
+
+Function/Block scope (mutable):
+  foo: () {
+      x: 42       // Variable declaration
+      x: 99       // OK: Reassignment with same type
+      x: "text"   // Error: Type mismatch (String vs Number)
+  }
+
+Shadowing (always allowed):
+  x: 42           // Outer constant
+  foo: () {
+      x: "text"   // OK: Shadows outer, different type allowed
+  }
+
+  value: 100
+  outer: () {
+    value: "shadowed"        // OK: Shadows file-level constant
+    inner: () {
+        value: true          // OK: Shadows outer function variable
+    }
+  }
+```
+
+### Design Decisions
+- **File-level immutability**
+- **Mutable function scopes**: Enables practical imperative code within functions
+- **Shadowing allowed**: Provides flexibility without breaking type safety
+- **Constraint-based checking**: Leverages existing Hindley-Milner unification
+
+---
+
 ## [0.26.0] - 2026-01-14 - Variable Declaration Type Checking
 
 ### Added
-- **Variable declaration type checking** - Complete Phase 4.3 semantic analysis
+- **Variable declaration type checking**
   - Type annotation validation: Verifies declared types exist (e.g., `x Number: 42`)
   - Initializer type checking: Ensures initializer matches declared type
   - Type inference without annotation: Infers type from initializer (e.g., `x: 42` → Number)
@@ -17,7 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Without annotation: variable gets inferred type
   - Support for all built-in types: Number, String, Bool, Int8-64, UInt8-64, Float32-64
   - Error reporting for undefined types and type mismatches
-  - 15 comprehensive variable type checking tests (457 total tests passing)
 
 ### Technical Details
 - **Updated**: `src/semantic/name_resolution.rs`
@@ -76,11 +132,6 @@ x String: "hello"         // x is now String (replaces previous)
 - **Constraint-based**: Leverages existing Hindley-Milner unification
 - **Built-in types only**: User-defined types in annotations not yet supported
 
-### Next Steps
-Phase 4.4 (Assignment Type Checking) will implement:
-- Type checking for assignment statements
-- Ensuring assigned values match variable types
-
 ---
 
 ## [0.25.0] - 2026-01-14 - Expression Type Checking
@@ -100,7 +151,6 @@ Phase 4.4 (Assignment Type Checking) will implement:
     - Uses universal `Number` type (consistent with Phase 4.1a)
     - Type errors for non-numeric operands
   - Full integration with Hindley-Milner constraint system
-  - 15 comprehensive operator type checking tests (442 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/expression_type_inference.rs` (~260 lines)

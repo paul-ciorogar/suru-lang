@@ -6,6 +6,7 @@ mod type_inference;
 mod expression_type_inference;
 mod unification;
 mod types;
+mod assignment_type_checking;
 
 pub use types::{
     Type, TypeId, TypeRegistry,
@@ -281,6 +282,18 @@ impl ScopeStack {
     pub fn depth(&self) -> usize {
         self.current_stack.len() - 1
     }
+
+    /// Returns true if current scope is inside a function or block (mutable context)
+    /// Variables declared in mutable scopes can be reassigned.
+    pub fn is_in_mutable_scope(&self) -> bool {
+        for &scope_idx in &self.current_stack {
+            match self.scopes[scope_idx].kind {
+                ScopeKind::Function | ScopeKind::Block => return true,
+                _ => {}
+            }
+        }
+        false
+    }
 }
 
 impl Default for ScopeStack {
@@ -305,6 +318,10 @@ pub struct SemanticAnalyzer {
     substitution: Substitution,
     /// Counter for generating fresh type variables
     next_type_var: u32,
+
+    // Assignment type checking (Phase 4.4)
+    /// Maps (scope_index, variable_name) to their TypeId for reassignment checking
+    variable_types: HashMap<(usize, String), TypeId>,
 }
 
 impl SemanticAnalyzer {
@@ -323,6 +340,8 @@ impl SemanticAnalyzer {
             constraints: Vec::new(),
             substitution: Substitution::new(),
             next_type_var: 0,
+            // Initialize assignment type checking
+            variable_types: HashMap::new(),
         }
     }
 
@@ -358,6 +377,31 @@ impl SemanticAnalyzer {
     /// Constraints are collected during AST traversal and solved via unification.
     fn add_constraint(&mut self, left: TypeId, right: TypeId, source: usize) {
         self.constraints.push(Constraint::new(left, right, source));
+    }
+
+    // ========== Assignment Type Checking Helper Methods ==========
+
+    /// Looks up a variable's declared type by searching the scope chain
+    ///
+    /// Used for reassignment type checking. Returns the TypeId of the variable
+    /// if it was previously declared, or None if not found.
+    fn lookup_variable_type(&self, name: &str) -> Option<TypeId> {
+        let mut scope_idx = self.scopes.current_scope_index();
+        loop {
+            if let Some(&type_id) = self.variable_types.get(&(scope_idx, name.to_string())) {
+                return Some(type_id);
+            }
+            match self.scopes.scopes[scope_idx].parent {
+                Some(parent_idx) => scope_idx = parent_idx,
+                None => return None,
+            }
+        }
+    }
+
+    /// Records a variable's type for future reassignment checking
+    fn record_variable_type(&mut self, name: &str, type_id: TypeId) {
+        let scope_idx = self.scopes.current_scope_index();
+        self.variable_types.insert((scope_idx, name.to_string()), type_id);
     }
 
     /// Registers all built-in types in the type registry

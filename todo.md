@@ -100,9 +100,9 @@
 - [x] Write tests for variable type checking
 
 ### 4.4 Assignment Type Checking
-- [ ] Check assigned value matches variable type
-- [ ] Report type mismatch errors
-- [ ] Write tests for assignment type checking
+- [x] Check assigned value matches variable type
+- [x] Report type mismatch errors
+- [x] Write tests for assignment type checking
 
 ## Phase 5: Function Type Checking
 

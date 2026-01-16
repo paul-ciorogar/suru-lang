@@ -38,8 +38,35 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Insert/update symbol in current scope (allow redeclaration)
-        let symbol = Symbol::new(name, type_name.clone(), SymbolKind::Variable);
+        // Assignment type checking (Phase 4.4)
+        // Check if variable already exists in CURRENT scope (not outer scopes)
+        // This must happen BEFORE inserting the new symbol!
+        let exists_in_current_scope = self.scopes.current_scope()
+            .lookup_local(&name)
+            .filter(|s| s.kind == SymbolKind::Variable)
+            .is_some();
+
+        // Get existing type BEFORE replacing the symbol (for reassignment checking)
+        let existing_type_id: Option<TypeId> = if exists_in_current_scope && self.scopes.is_in_mutable_scope() {
+            self.lookup_variable_type(&name)
+        } else {
+            None // New declaration (including shadowing)
+        };
+
+        // Check for constant redeclaration at file level
+        if exists_in_current_scope && !self.scopes.is_in_mutable_scope() {
+            // Global/Module scope: constants cannot be redeclared
+            let token = self.ast.nodes[ident_idx].token.as_ref().unwrap();
+            self.record_error(SemanticError::from_token(
+                format!("Cannot redeclare constant '{}'", name),
+                token,
+            ));
+            return; // Stop processing this declaration
+        }
+        // Note: If variable exists in OUTER scope only, this is shadowing (allowed)
+
+        // Insert/update symbol in current scope
+        let symbol = Symbol::new(name.clone(), type_name.clone(), SymbolKind::Variable);
         self.scopes
             .current_scope_mut()
             .symbols
@@ -66,16 +93,27 @@ impl SemanticAnalyzer {
 
             // 3. Get inferred type from initializer
             if let Some(init_type) = self.get_node_type(expr_idx) {
-                // 4. Generate constraint or use inferred type
-                if let Some(declared_type) = declared_type_id {
+                // 4. Determine final type (from annotation or inference)
+                let final_type = if let Some(declared_type) = declared_type_id {
                     // With annotation: constrain init_type = declared_type
                     self.add_constraint(init_type, declared_type, expr_idx);
-                    // Variable has declared type
-                    self.set_node_type(node_idx, declared_type);
+                    declared_type
                 } else {
-                    // No annotation: variable has inferred type
-                    self.set_node_type(node_idx, init_type);
+                    // No annotation: use inferred type
+                    init_type
+                };
+
+                // 5. Assignment type checking (Phase 4.4)
+                if let Some(existing_type) = existing_type_id {
+                    // This is a reassignment: constrain value to match existing variable type
+                    self.add_constraint(init_type, existing_type, expr_idx);
+                } else {
+                    // This is a new declaration: record the variable's type
+                    self.record_variable_type(&name, final_type);
                 }
+
+                // Set node type for the declaration
+                self.set_node_type(node_idx, final_type);
             }
         }
     }
@@ -349,11 +387,17 @@ mod tests {
     }
 
     #[test]
-    fn test_var_decl_redeclaration() {
-        // Variable redeclaration should be allowed (replaces previous)
+    fn test_var_decl_redeclaration_at_file_level() {
+        // Variable redeclaration at file level should fail (constants cannot be redeclared)
         let source = "x Number: 42\nx String: \"hello\"";
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Variable redeclaration should be allowed");
+        assert!(result.is_err(), "Constant redeclaration should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors[0].message.contains("Cannot redeclare constant"),
+            "Expected 'Cannot redeclare constant' error, got: {}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -689,51 +733,49 @@ mod variable_type_tests {
         assert_eq!(ty, Type::Number);
     }
 
-    // ========== Group 3: Variable Redeclaration ==========
+    // ========== Group 3: Constant Redeclaration (Phase 4.4) ==========
+    // File-level variables are constants and cannot be redeclared
 
     #[test]
-    fn test_var_redecl_same_type() {
+    fn test_constant_redecl_same_type_fails() {
+        // Constants cannot be redeclared even with same type
         let source = "x Number: 42\nx Number: 99";
-        // Only tests that analysis completes without error
         let limits = CompilerLimits::default();
         let tokens = lex(source, &limits).unwrap();
         let ast = parse(tokens, &limits).unwrap();
-        let mut analyzer = SemanticAnalyzer::new(ast);
-        if let Some(root) = analyzer.ast.root {
-            analyzer.visit_node(root);
-            let result = analyzer.solve_constraints();
-            assert!(result.is_ok(), "Same type redeclaration should succeed");
-        }
+        let analyzer = SemanticAnalyzer::new(ast);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Constant redeclaration should fail");
+        let errors = result.unwrap_err();
+        assert!(errors[0].message.contains("Cannot redeclare constant"));
     }
 
     #[test]
-    fn test_var_redecl_different_type() {
+    fn test_constant_redecl_different_type_fails() {
+        // Constants cannot be redeclared with different type
         let source = "x Number: 42\nx String: \"hello\"";
-        // Redeclaration allowed with different type
         let limits = CompilerLimits::default();
         let tokens = lex(source, &limits).unwrap();
         let ast = parse(tokens, &limits).unwrap();
-        let mut analyzer = SemanticAnalyzer::new(ast);
-        if let Some(root) = analyzer.ast.root {
-            analyzer.visit_node(root);
-            let result = analyzer.solve_constraints();
-            assert!(result.is_ok(), "Different type redeclaration should succeed");
-        }
+        let analyzer = SemanticAnalyzer::new(ast);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Constant redeclaration should fail");
+        let errors = result.unwrap_err();
+        assert!(errors[0].message.contains("Cannot redeclare constant"));
     }
 
     #[test]
-    fn test_var_redecl_annotation_to_inferred() {
+    fn test_constant_redecl_annotation_to_inferred_fails() {
+        // Constants cannot be redeclared even from annotated to inferred
         let source = "x Number: 42\nx: \"hello\"";
-        // Redeclaration from annotation to inferred
         let limits = CompilerLimits::default();
         let tokens = lex(source, &limits).unwrap();
         let ast = parse(tokens, &limits).unwrap();
-        let mut analyzer = SemanticAnalyzer::new(ast);
-        if let Some(root) = analyzer.ast.root {
-            analyzer.visit_node(root);
-            let result = analyzer.solve_constraints();
-            assert!(result.is_ok(), "Annotation to inferred redeclaration should succeed");
-        }
+        let analyzer = SemanticAnalyzer::new(ast);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Constant redeclaration should fail");
+        let errors = result.unwrap_err();
+        assert!(errors[0].message.contains("Cannot redeclare constant"));
     }
 
     // ========== Group 4: Sized Integer Types ==========
