@@ -5,6 +5,67 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-01-19 - Function Signature Analysis
+
+### Added
+- **Function signature analysis** - Complete Phase 5.1 semantic analysis
+  - Structured `FunctionType` construction from function declarations
+  - Parameter type resolution with `FunctionParam` entries
+  - Return type resolution from annotations
+  - `Type::Unknown` for untyped parameters (enables future inference)
+  - `Type::Unknown` for missing return types (enables future inference)
+  - TypeId storage in Symbol via new `type_id` field
+  - Backward compatibility: String signatures preserved alongside structured types
+  - 11 new tests (482 total tests passing)
+
+### Technical Details
+- **Extended Symbol struct** in `src/semantic/mod.rs`:
+  - Added `type_id: Option<TypeId>` field for structured type storage
+  - Added `with_type_id()` builder method for fluent construction
+- **New method** in `src/semantic/name_resolution.rs`:
+  - `build_function_type()` creates `FunctionType` with proper `TypeId` references
+  - Resolves type annotations via `lookup_type_id()`
+  - Uses `Type::Unknown` for untyped/missing types
+- **Updated `visit_function_decl()`**: Now builds and stores structured function type
+- **Test module**: `function_signature_tests` with comprehensive coverage
+
+### Function Type Construction
+```
+// Input function declaration
+add: (x Number, y Number) Number { }
+
+// Resulting FunctionType
+FunctionType {
+    params: [
+        FunctionParam { name: "x", type_id: <Number> },
+        FunctionParam { name: "y", type_id: <Number> },
+    ],
+    return_type: <Number>
+}
+
+// Untyped parameters get Unknown
+identity: (x) { }
+// → FunctionParam { name: "x", type_id: <Unknown> }
+
+// Missing return type gets Unknown
+doSomething: () { }
+// → return_type: <Unknown>
+```
+
+### Design Decisions
+- **Additive change**: New `type_id` field added without breaking existing code
+- **String signature preserved**: `type_name` still contains signature string for display
+- **Unknown for inference**: Untyped elements use `Type::Unknown` for future Hindley-Milner inference
+- **User-defined types supported**: Type annotations resolve through symbol table lookup
+
+### Next Steps
+Phase 5.2-5.4 will implement:
+- Function body analysis with parameter scoping (5.2)
+- Return type validation (5.3)
+- Function call type checking (5.4)
+
+---
+
 ## [0.27.0] - 2026-01-16 - Assignment Type Checking
 
 ### Added

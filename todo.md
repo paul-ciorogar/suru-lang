@@ -107,10 +107,10 @@
 ## Phase 5: Function Type Checking
 
 ### 5.1 Function Signature Analysis
-- [ ] Build function type from parameters and return type
-- [ ] Handle inferred parameter types (mark as Unknown initially)
-- [ ] Store function type in symbol table
-- [ ] Write tests for function signature construction
+- [x] Build function type from parameters and return type
+- [x] Handle inferred parameter types (mark as Unknown initially)
+- [x] Store function type in symbol table
+- [x] Write tests for function signature construction
 
 ### 5.2 Function Body Analysis
 - [ ] Analyze function body in new scope

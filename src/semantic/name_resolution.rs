@@ -6,7 +6,7 @@
 // - Function declaration resolution
 // - Function call resolution
 
-use super::{SemanticAnalyzer, SemanticError, Symbol, SymbolKind, TypeId};
+use super::{SemanticAnalyzer, SemanticError, Symbol, SymbolKind, TypeId, FunctionType, FunctionParam, Type};
 use crate::ast::NodeType;
 
 impl SemanticAnalyzer {
@@ -230,6 +230,83 @@ impl SemanticAnalyzer {
         format!("({}){}", param_types.join(", "), return_type)
     }
 
+    /// Builds a FunctionType from function declaration (Phase 5.1)
+    /// Returns TypeId for the interned function type
+    /// Parameters without type annotations get Type::Unknown for later inference
+    /// Return type without annotation gets Type::Unknown for later inference
+    fn build_function_type(&mut self, func_decl_idx: usize) -> TypeId {
+        // Get ParamList (second child after function name)
+        let ident_idx = self.ast.nodes[func_decl_idx].first_child.unwrap();
+        let param_list_idx = self.ast.nodes[ident_idx].next_sibling.unwrap();
+
+        // Build parameter list with TypeIds
+        let mut params = Vec::new();
+        if let Some(first_param_idx) = self.ast.nodes[param_list_idx].first_child {
+            let mut current_param_idx = first_param_idx;
+            loop {
+                if let Some(param_ident_idx) = self.ast.nodes[current_param_idx].first_child {
+                    // Get parameter name
+                    let param_name = self.ast.node_text(param_ident_idx)
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+
+                    // Get type: annotation or Unknown for inference
+                    let type_id = if let Some(type_ann_idx) = self.ast.nodes[param_ident_idx].next_sibling {
+                        if self.ast.nodes[type_ann_idx].node_type == NodeType::TypeAnnotation {
+                            if let Some(type_name) = self.ast.node_text(type_ann_idx).map(|s| s.to_string()) {
+                                // Lookup type, use Unknown if not found (error recorded elsewhere)
+                                self.lookup_type_id(&type_name).unwrap_or_else(|_| {
+                                    self.type_registry.intern(Type::Unknown)
+                                })
+                            } else {
+                                self.type_registry.intern(Type::Unknown)
+                            }
+                        } else {
+                            self.type_registry.intern(Type::Unknown)
+                        }
+                    } else {
+                        // No type annotation - inferred parameter
+                        self.type_registry.intern(Type::Unknown)
+                    };
+
+                    params.push(FunctionParam {
+                        name: param_name,
+                        type_id,
+                    });
+                }
+
+                if let Some(next) = self.ast.nodes[current_param_idx].next_sibling {
+                    current_param_idx = next;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Get return type (after ParamList, if TypeAnnotation exists)
+        let return_type = if let Some(after_params_idx) = self.ast.nodes[param_list_idx].next_sibling {
+            if self.ast.nodes[after_params_idx].node_type == NodeType::TypeAnnotation {
+                if let Some(type_name) = self.ast.node_text(after_params_idx).map(|s| s.to_string()) {
+                    self.lookup_type_id(&type_name).unwrap_or_else(|_| {
+                        self.type_registry.intern(Type::Unknown)
+                    })
+                } else {
+                    self.type_registry.intern(Type::Unknown)
+                }
+            } else {
+                // No return type annotation - to be inferred
+                self.type_registry.intern(Type::Unknown)
+            }
+        } else {
+            // No return type annotation - to be inferred
+            self.type_registry.intern(Type::Unknown)
+        };
+
+        // Create and intern the function type
+        let func_type = FunctionType { params, return_type };
+        self.type_registry.intern(Type::Function(func_type))
+    }
+
     /// Visits function declaration
     /// Registers function in current scope and adds parameters to function scope
     pub(super) fn visit_function_decl(&mut self, node_idx: usize) {
@@ -242,8 +319,11 @@ impl SemanticAnalyzer {
         };
         let name = name.to_string();
 
-        // Build function signature
+        // Build function signature string (for backward compatibility)
         let signature = self.build_function_signature(node_idx);
+
+        // Build structured function type (Phase 5.1)
+        let func_type_id = self.build_function_type(node_idx);
 
         // Check for duplicate in current scope
         if self.scopes.current_scope().lookup_local(&name).is_some() {
@@ -256,8 +336,9 @@ impl SemanticAnalyzer {
             return;
         }
 
-        // Insert function symbol in current scope
-        let symbol = Symbol::new(name.clone(), Some(signature), SymbolKind::Function);
+        // Insert function symbol in current scope with structured type
+        let symbol = Symbol::new(name.clone(), Some(signature), SymbolKind::Function)
+            .with_type_id(func_type_id);
         self.scopes.insert(symbol);
 
         // Enter function scope
@@ -826,5 +907,276 @@ mod variable_type_tests {
             let ty = analyzer.type_registry.resolve(type_id);
             assert_eq!(ty, &Type::Float(FloatSize::F32));
         }
+    }
+}
+
+/// Tests for function signature analysis (Phase 5.1)
+#[cfg(test)]
+mod function_signature_tests {
+    use crate::lexer::lex;
+    use crate::limits::CompilerLimits;
+    use crate::parser::parse;
+    use crate::semantic::{SemanticAnalyzer, SymbolKind, Type, FunctionType};
+
+    /// Helper to get function type from analyzed source
+    fn get_function_type(source: &str, func_name: &str) -> Option<FunctionType> {
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).ok()?;
+        let ast = parse(tokens, &limits).ok()?;
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup(func_name)?;
+        let type_id = symbol.type_id?;
+        let ty = analyzer.type_registry.resolve(type_id).clone();
+
+        match ty {
+            Type::Function(ft) => Some(ft),
+            _ => None,
+        }
+    }
+
+    /// Helper to check if a TypeId resolves to Unknown
+    fn is_unknown_type(analyzer: &SemanticAnalyzer, type_id: crate::semantic::TypeId) -> bool {
+        matches!(analyzer.type_registry.resolve(type_id), Type::Unknown)
+    }
+
+    /// Helper to check if a TypeId resolves to a specific type name
+    fn type_resolves_to(analyzer: &SemanticAnalyzer, type_id: crate::semantic::TypeId, expected: &Type) -> bool {
+        analyzer.type_registry.resolve(type_id) == expected
+    }
+
+    // ========== Group 1: Basic Function Types ==========
+
+    #[test]
+    fn test_function_no_params_no_return() {
+        let ft = get_function_type("foo: () { }", "foo").unwrap();
+        assert!(ft.params.is_empty(), "Expected no parameters");
+    }
+
+    #[test]
+    fn test_function_single_typed_param() {
+        let source = "greet: (name String) { }";
+        let ft = get_function_type(source, "greet").unwrap();
+
+        assert_eq!(ft.params.len(), 1);
+        assert_eq!(ft.params[0].name, "name");
+    }
+
+    #[test]
+    fn test_function_multiple_typed_params() {
+        let source = "add: (x Number, y Number) { }";
+        let ft = get_function_type(source, "add").unwrap();
+
+        assert_eq!(ft.params.len(), 2);
+        assert_eq!(ft.params[0].name, "x");
+        assert_eq!(ft.params[1].name, "y");
+    }
+
+    // ========== Group 2: Untyped Parameters ==========
+
+    #[test]
+    fn test_function_untyped_param_marked_unknown() {
+        let source = "identity: (x) { }";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup("identity").unwrap();
+        let type_id = symbol.type_id.unwrap();
+        let ty = analyzer.type_registry.resolve(type_id).clone();
+
+        if let Type::Function(ft) = ty {
+            assert_eq!(ft.params.len(), 1);
+            assert_eq!(ft.params[0].name, "x");
+            // Parameter should be Unknown for inference
+            assert!(is_unknown_type(&analyzer, ft.params[0].type_id));
+        } else {
+            panic!("Expected Function type");
+        }
+    }
+
+    #[test]
+    fn test_function_mixed_typed_untyped_params() {
+        let source = "mixed: (x Number, y) { }";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup("mixed").unwrap();
+        let type_id = symbol.type_id.unwrap();
+        let ty = analyzer.type_registry.resolve(type_id).clone();
+
+        if let Type::Function(ft) = ty {
+            assert_eq!(ft.params.len(), 2);
+            assert_eq!(ft.params[0].name, "x");
+            assert_eq!(ft.params[1].name, "y");
+            // First param should be Number
+            assert!(type_resolves_to(&analyzer, ft.params[0].type_id, &Type::Number));
+            // Second param should be Unknown
+            assert!(is_unknown_type(&analyzer, ft.params[1].type_id));
+        } else {
+            panic!("Expected Function type");
+        }
+    }
+
+    // ========== Group 3: Return Types ==========
+
+    #[test]
+    fn test_function_with_return_type() {
+        let source = "getNum: () Number { }";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup("getNum").unwrap();
+        let type_id = symbol.type_id.unwrap();
+        let ty = analyzer.type_registry.resolve(type_id).clone();
+
+        if let Type::Function(ft) = ty {
+            assert!(ft.params.is_empty());
+            // Return type should be Number
+            assert!(type_resolves_to(&analyzer, ft.return_type, &Type::Number));
+        } else {
+            panic!("Expected Function type");
+        }
+    }
+
+    #[test]
+    fn test_function_no_return_type_marked_unknown() {
+        let source = "doSomething: () { }";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup("doSomething").unwrap();
+        let type_id = symbol.type_id.unwrap();
+        let ty = analyzer.type_registry.resolve(type_id).clone();
+
+        if let Type::Function(ft) = ty {
+            // Return type should be Unknown for inference
+            assert!(is_unknown_type(&analyzer, ft.return_type));
+        } else {
+            panic!("Expected Function type");
+        }
+    }
+
+    // ========== Group 4: Complex Function Signatures ==========
+
+    #[test]
+    fn test_function_full_signature() {
+        let source = "compute: (a Number, b String, c Bool) Number { }";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup("compute").unwrap();
+        let type_id = symbol.type_id.unwrap();
+        let ty = analyzer.type_registry.resolve(type_id).clone();
+
+        if let Type::Function(ft) = ty {
+            assert_eq!(ft.params.len(), 3);
+            assert_eq!(ft.params[0].name, "a");
+            assert_eq!(ft.params[1].name, "b");
+            assert_eq!(ft.params[2].name, "c");
+            assert!(type_resolves_to(&analyzer, ft.params[0].type_id, &Type::Number));
+            assert!(type_resolves_to(&analyzer, ft.params[1].type_id, &Type::String));
+            assert!(type_resolves_to(&analyzer, ft.params[2].type_id, &Type::Bool));
+            assert!(type_resolves_to(&analyzer, ft.return_type, &Type::Number));
+        } else {
+            panic!("Expected Function type");
+        }
+    }
+
+    // ========== Group 5: User-Defined Types ==========
+
+    #[test]
+    fn test_function_with_user_defined_type() {
+        let source = r#"
+            type UserId: Number
+            getUser: (id UserId) String { }
+        "#;
+        let ft = get_function_type(source, "getUser").unwrap();
+
+        assert_eq!(ft.params.len(), 1);
+        assert_eq!(ft.params[0].name, "id");
+        // Type should be resolved (not Unknown)
+    }
+
+    // ========== Group 6: Backward Compatibility ==========
+
+    #[test]
+    fn test_string_signature_still_present() {
+        let source = "add: (x Number, y Number) Number { }";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let symbol = analyzer.scopes.lookup("add").unwrap();
+
+        // String signature should still be present
+        assert!(symbol.type_name.is_some());
+        let sig = symbol.type_name.as_ref().unwrap();
+        assert!(sig.contains("Number"), "Signature should contain 'Number': {}", sig);
+
+        // TypeId should also be present
+        assert!(symbol.type_id.is_some());
+        assert_eq!(symbol.kind, SymbolKind::Function);
+    }
+
+    // ========== Group 7: Edge Cases ==========
+
+    #[test]
+    fn test_nested_function_has_type() {
+        let source = r#"
+            outer: () {
+                inner: (x Number) Bool { }
+            }
+        "#;
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        // Outer function should have type
+        let outer_symbol = analyzer.scopes.lookup("outer").unwrap();
+        assert!(outer_symbol.type_id.is_some());
     }
 }

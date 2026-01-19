@@ -77,10 +77,14 @@ pub enum ScopeKind {
 pub struct Symbol {
     /// The name of the symbol
     pub name: String,
-    /// The type of the symbol (if known). Will be None for untyped or type-inferred symbols
+    /// The type of the symbol as a string (if known). Will be None for untyped or type-inferred symbols
+    /// For functions, contains signature like "(Number, String) -> Bool"
     pub type_name: Option<String>,
     /// The kind of symbol (variable, function, or type)
     pub kind: SymbolKind,
+    /// The structured type ID for type checking (Phase 5.1+)
+    /// For functions, contains the interned FunctionType
+    pub type_id: Option<TypeId>,
 }
 
 impl Symbol {
@@ -90,7 +94,14 @@ impl Symbol {
             name,
             type_name,
             kind,
+            type_id: None,
         }
+    }
+
+    /// Builder method to set the structured type ID
+    pub fn with_type_id(mut self, type_id: TypeId) -> Self {
+        self.type_id = Some(type_id);
+        self
     }
 }
 
