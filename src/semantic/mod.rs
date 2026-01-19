@@ -7,6 +7,7 @@ mod expression_type_inference;
 mod unification;
 mod types;
 mod assignment_type_checking;
+mod function_body_analysis;
 
 pub use types::{
     Type, TypeId, TypeRegistry,
@@ -333,6 +334,15 @@ pub struct SemanticAnalyzer {
     // Assignment type checking (Phase 4.4)
     /// Maps (scope_index, variable_name) to their TypeId for reassignment checking
     variable_types: HashMap<(usize, String), TypeId>,
+
+    // Return type tracking (Phase 5.2)
+    /// Tracks return statement types for each function
+    /// Key: AST node index of FunctionDecl
+    /// Value: Vec of (return_node_idx, Option<TypeId>) pairs
+    function_returns: HashMap<usize, Vec<(usize, Option<TypeId>)>>,
+
+    /// Stack of current function declaration indices (for nested functions)
+    current_function_stack: Vec<usize>,
 }
 
 impl SemanticAnalyzer {
@@ -353,6 +363,9 @@ impl SemanticAnalyzer {
             next_type_var: 0,
             // Initialize assignment type checking
             variable_types: HashMap::new(),
+            // Initialize return type tracking (Phase 5.2)
+            function_returns: HashMap::new(),
+            current_function_stack: Vec::new(),
         }
     }
 
@@ -413,6 +426,49 @@ impl SemanticAnalyzer {
     fn record_variable_type(&mut self, name: &str, type_id: TypeId) {
         let scope_idx = self.scopes.current_scope_index();
         self.variable_types.insert((scope_idx, name.to_string()), type_id);
+    }
+
+    // ========== Function Context Helper Methods (Phase 5.2) ==========
+
+    /// Enters a function context for return type tracking
+    ///
+    /// Pushes the function declaration index onto the stack and initializes
+    /// an empty returns vector for this function.
+    fn enter_function_context(&mut self, func_decl_idx: usize) {
+        self.current_function_stack.push(func_decl_idx);
+        self.function_returns.insert(func_decl_idx, Vec::new());
+    }
+
+    /// Exits the current function context
+    ///
+    /// Pops the function declaration index from the stack.
+    fn exit_function_context(&mut self) {
+        self.current_function_stack.pop();
+    }
+
+    /// Returns the current function declaration index, if inside a function
+    fn current_function(&self) -> Option<usize> {
+        self.current_function_stack.last().copied()
+    }
+
+    /// Records a return statement and its type for the current function
+    ///
+    /// Called when visiting a ReturnStmt to track all return types
+    /// for later validation in Phase 5.3.
+    fn record_return(&mut self, return_node_idx: usize, type_id: Option<TypeId>) {
+        if let Some(func_idx) = self.current_function() {
+            if let Some(returns) = self.function_returns.get_mut(&func_idx) {
+                returns.push((return_node_idx, type_id));
+            }
+        }
+    }
+
+    /// Gets the recorded return statements for a function
+    ///
+    /// Returns a slice of (return_node_idx, Option<TypeId>) pairs for
+    /// all return statements in the given function.
+    pub fn get_function_returns(&self, func_decl_idx: usize) -> Option<&Vec<(usize, Option<TypeId>)>> {
+        self.function_returns.get(&func_decl_idx)
     }
 
     /// Registers all built-in types in the type registry
@@ -570,6 +626,8 @@ impl SemanticAnalyzer {
             NodeType::And | NodeType::Or => self.visit_binary_bool_op(node_idx),
             NodeType::Not => self.visit_not(node_idx),
             NodeType::Negate => self.visit_negate(node_idx),
+            // Function body analysis (Phase 5.2)
+            NodeType::ReturnStmt => self.visit_return_stmt(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

@@ -113,10 +113,10 @@
 - [x] Write tests for function signature construction
 
 ### 5.2 Function Body Analysis
-- [ ] Analyze function body in new scope
-- [ ] Add parameters to function scope
-- [ ] Track return statement types
-- [ ] Write tests for function body analysis
+- [x] Analyze function body in new scope
+- [x] Add parameters to function scope
+- [x] Track return statement types
+- [x] Write tests for function body analysis
 
 ### 5.3 Return Type Validation
 - [ ] Check all return statements match declared return type

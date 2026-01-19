@@ -341,6 +341,9 @@ impl SemanticAnalyzer {
             .with_type_id(func_type_id);
         self.scopes.insert(symbol);
 
+        // Enter function context for return type tracking (Phase 5.2)
+        self.enter_function_context(node_idx);
+
         // Enter function scope
         self.scopes.enter_scope(super::ScopeKind::Function);
 
@@ -402,6 +405,9 @@ impl SemanticAnalyzer {
 
         // Exit function scope
         self.scopes.exit_scope();
+
+        // Exit function context (Phase 5.2)
+        self.exit_function_context();
     }
 
     /// Visits function call

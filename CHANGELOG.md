@@ -5,6 +5,31 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-01-19 - Function Body Analysis
+
+### Added
+- **Function body analysis** - Complete Phase 5.2 semantic analysis
+  - `Type::Void` variant for functions with no return value
+  - Function context tracking with `current_function_stack` for nested functions
+  - Return statement type inference and recording via `function_returns` map
+  - Error detection for return statements outside functions
+  - 18 new tests (499 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/function_body_analysis.rs` with `visit_return_stmt()`
+- **New fields** in `SemanticAnalyzer`: `function_returns`, `current_function_stack`
+- **New helpers**: `enter_function_context()`, `exit_function_context()`, `current_function()`, `record_return()`, `get_function_returns()`
+- **Updated** `visit_function_decl()` to track function context
+
+### Examples
+```suru
+foo: () { return 42 }      // Records Number type
+bar: () { return }         // Records Void type
+return 42                  // Error: outside function
+```
+
+---
+
 ## [0.28.0] - 2026-01-19 - Function Signature Analysis
 
 ### Added

@@ -181,6 +181,8 @@ pub enum Type {
     // Primitive types
     /// Unit type (empty type)
     Unit,
+    /// Void type (for functions with no return value)
+    Void,
     /// Universal numeric type
     Number,
     /// String type
