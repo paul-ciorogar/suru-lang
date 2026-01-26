@@ -119,10 +119,10 @@
 - [x] Write tests for function body analysis
 
 ### 5.3 Return Type Validation
-- [ ] Check all return statements match declared return type
-- [ ] Infer return type if not declared
-- [ ] Check all paths return a value (if return type specified)
-- [ ] Write tests for return type checking
+- [x] Check all return statements match declared return type
+- [x] Infer return type if not declared
+- [x] Check all paths return a value (if return type specified)
+- [x] Write tests for return type checking
 
 ### 5.4 Function Call Type Checking
 - [ ] Check argument count matches parameter count

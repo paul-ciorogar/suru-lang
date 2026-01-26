@@ -8,6 +8,7 @@ mod unification;
 mod types;
 mod assignment_type_checking;
 mod function_body_analysis;
+mod return_type_validation;
 
 pub use types::{
     Type, TypeId, TypeRegistry,

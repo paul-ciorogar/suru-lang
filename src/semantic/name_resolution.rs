@@ -403,6 +403,9 @@ impl SemanticAnalyzer {
             self.visit_children(block_idx);
         }
 
+        // Validate return types (Phase 5.3)
+        self.validate_function_returns(node_idx, func_type_id);
+
         // Exit function scope
         self.scopes.exit_scope();
 
@@ -691,10 +694,11 @@ mod tests {
         let source = r#"
             factorial: (n Number) Number {
                 result: factorial(n)
+                return result
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Recursive function call should succeed");
+        assert!(result.is_ok(), "Recursive function call should succeed: {:?}", result.err());
     }
 }
 

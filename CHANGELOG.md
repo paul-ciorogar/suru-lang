@@ -5,6 +5,93 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-01-26 - Return Type Validation
+
+### Added
+- **Return type validation** - Complete Phase 5.3 semantic analysis
+  - Return type matching: All return statements validated against declared return type
+  - Return type inference: Functions without return annotation infer type from returns
+  - Missing return detection: Functions with declared return type must have returns
+  - Void return handling: Bare `return` in non-void functions produces error
+  - Nested function isolation: Each function tracks returns independently
+  - 26 new tests (520 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/return_type_validation.rs`
+  - `validate_function_returns()` - Core validation method
+  - `function_has_body_statements()` - Checks for empty function stubs
+  - `get_function_name()` - Extracts function name for error messages
+- **Integration**: Called from `visit_function_decl()` after body analysis
+- **Constraint-based**: Uses Hindley-Milner unification for type checking
+  - Declared type: `add_constraint(return_type, declared_type)`
+  - Inferred type: All returns constrained to equal each other
+
+### Validation Cases
+```
+1. Declared return type (e.g., Number):
+   - Each return value must match declared type
+   - Bare 'return' produces error
+   - Missing returns produce error
+
+2. No return annotation (Unknown):
+   - Infer type from actual returns
+   - Multiple returns must be consistent
+
+3. Void return type:
+   - Only bare 'return' allowed
+   - Return with value produces error
+```
+
+### Examples
+```suru
+// Valid - matching return type
+getNum: () Number {
+    return 42
+}
+
+// Error - type mismatch
+getNum: () Number {
+    return "hello"  // Type mismatch: String vs Number
+}
+
+// Error - bare return in non-void function
+getNum: () Number {
+    return  // Cannot use bare 'return' in function with return type
+}
+
+// Error - missing return
+getNum: () Number {
+    x: 42  // Function must have at least one return statement
+}
+
+// Valid - inferred return type
+getValue: () {
+    return 42  // Return type inferred as Number
+}
+
+// Error - inconsistent inferred returns
+getValue: () {
+    return 42
+    return "text"  // Type mismatch: String vs Number
+}
+
+// Valid - nested functions have separate return types
+outer: () Number {
+    inner: () String {
+        return "hello"
+    }
+    return 42
+}
+```
+
+### Next Steps
+Phase 5.4 (Function Call Type Checking) will implement:
+- Argument count validation
+- Argument type checking
+- Call expression result type
+
+---
+
 ## [0.29.0] - 2026-01-19 - Function Body Analysis
 
 ### Added
