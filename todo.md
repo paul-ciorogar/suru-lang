@@ -125,10 +125,10 @@
 - [x] Write tests for return type checking
 
 ### 5.4 Function Call Type Checking
-- [ ] Check argument count matches parameter count
-- [ ] Check argument types match parameter types
-- [ ] Determine call expression result type
-- [ ] Write tests for function call type checking
+- [x] Check argument count matches parameter count
+- [x] Check argument types match parameter types
+- [x] Determine call expression result type
+- [x] Write tests for function call type checking
 
 ## Phase 6: Module System
 

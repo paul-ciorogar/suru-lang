@@ -9,6 +9,7 @@ mod types;
 mod assignment_type_checking;
 mod function_body_analysis;
 mod return_type_validation;
+mod function_call_type_checking;
 
 pub use types::{
     Type, TypeId, TypeRegistry,

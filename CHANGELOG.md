@@ -5,6 +5,85 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-01-26 - Function Call Type Checking
+
+### Added
+- **Function call type checking** - Complete Phase 5.4 semantic analysis
+  - Argument count validation: Error if argument count doesn't match parameter count
+  - Argument type checking: Constraints added for each argument against parameter type
+  - Return type propagation: Function call nodes get the function's return type
+  - Variable reference type tracking: Identifiers now have their types set from scope
+  - 27 new tests (547 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/function_call_type_checking.rs`
+  - `type_check_function_call()` - Core validation method
+  - `count_call_arguments()` - Counts arguments in ArgList
+- **Updated** `visit_identifier()` in `name_resolution.rs`:
+  - Now sets node type for identifier references based on variable's type
+  - Enables type checking for variable arguments in function calls
+- **Integration**: Called from `visit_function_call()` after visiting arguments
+- **Constraint-based**: Uses Hindley-Milner unification for type checking
+
+### Validation Cases
+```
+1. Argument count mismatch:
+   - Error: "Function 'foo' expects N argument(s) but got M"
+
+2. Argument type mismatch:
+   - Constraint added: arg_type = param_type
+   - Unification reports type mismatch errors
+
+3. Unknown parameter types:
+   - Parameters with Type::Unknown skip type checking
+   - Allows type inference from actual arguments
+```
+
+### Examples
+```suru
+// Valid - correct argument count and types
+add: (x Number, y Number) Number { return 1 }
+z: add(42, 99)
+
+// Error - too few arguments
+z: add(42)  // Function 'add' expects 2 argument(s) but got 1
+
+// Error - too many arguments
+z: add(1, 2, 3)  // Function 'add' expects 2 argument(s) but got 3
+
+// Error - type mismatch
+z: add(42, "hello")  // Type mismatch: String vs Number
+
+// Valid - variable argument
+n: 42
+z: add(n, 10)
+
+// Error - variable type mismatch
+s: "hello"
+z: add(s, 10)  // Type mismatch: String vs Number
+
+// Valid - untyped parameter accepts any type
+identity: (x) { return x }
+z: identity(42)
+z: identity("hello")
+```
+
+### Phase 5 Complete
+This completes Phase 5 (Function Type Checking):
+- 5.1 Function Signature Analysis ✓
+- 5.2 Function Body Analysis ✓
+- 5.3 Return Type Validation ✓
+- 5.4 Function Call Type Checking ✓
+
+### Next Steps
+Phase 6 (Module System) will implement:
+- Module declaration processing
+- Import statement resolution
+- Export statement validation
+- Module path resolution
+
+---
+
 ## [0.30.0] - 2026-01-26 - Return Type Validation
 
 ### Added

@@ -175,6 +175,11 @@ impl SemanticAnalyzer {
             let error =
                 SemanticError::from_token(format!("Variable '{}' is not defined", name), token);
             self.record_error(error);
+        } else {
+            // Set the node type from the variable's type (Phase 5.4)
+            if let Some(var_type) = self.lookup_variable_type(name) {
+                self.set_node_type(node_idx, var_type);
+            }
         }
     }
 
@@ -448,6 +453,9 @@ impl SemanticAnalyzer {
         if let Some(arg_list_idx) = self.ast.nodes[ident_idx].next_sibling {
             self.visit_children(arg_list_idx);
         }
+
+        // Type check function call (Phase 5.4)
+        self.type_check_function_call(node_idx);
     }
 }
 
