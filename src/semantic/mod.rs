@@ -10,6 +10,7 @@ mod assignment_type_checking;
 mod function_body_analysis;
 mod return_type_validation;
 mod function_call_type_checking;
+mod module_resolution;
 
 pub use types::{
     Type, TypeId, TypeRegistry,
@@ -64,6 +65,7 @@ pub enum SymbolKind {
     Variable,
     Function,
     Type,
+    Module,
 }
 
 /// Represents the kind of scope
@@ -345,6 +347,13 @@ pub struct SemanticAnalyzer {
 
     /// Stack of current function declaration indices (for nested functions)
     current_function_stack: Vec<usize>,
+
+    // Module tracking (Phase 6.1)
+    /// Current module name (None if not in a module)
+    current_module: Option<String>,
+
+    /// Whether current module is a submodule
+    is_submodule: bool,
 }
 
 impl SemanticAnalyzer {
@@ -368,6 +377,9 @@ impl SemanticAnalyzer {
             // Initialize return type tracking (Phase 5.2)
             function_returns: HashMap::new(),
             current_function_stack: Vec::new(),
+            // Initialize module tracking (Phase 6.1)
+            current_module: None,
+            is_submodule: false,
         }
     }
 
@@ -630,6 +642,8 @@ impl SemanticAnalyzer {
             NodeType::Negate => self.visit_negate(node_idx),
             // Function body analysis (Phase 5.2)
             NodeType::ReturnStmt => self.visit_return_stmt(node_idx),
+            // Module declaration (Phase 6.1)
+            NodeType::ModuleDecl => self.visit_module_decl(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

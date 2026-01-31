@@ -133,11 +133,11 @@
 ## Phase 6: Module System
 
 ### 6.1 Module Declaration Processing
-- [ ] Register module declarations
-- [ ] Support main modules (`module Name`)
-- [ ] Support submodules (`module .name`)
-- [ ] Create module symbol tables
-- [ ] Write tests for module registration
+- [x] Register module declarations
+- [x] Support main modules (`module Name`)
+- [x] Support submodules (`module .name`)
+- [x] Create module symbol tables
+- [x] Write tests for module registration
 
 ### 6.2 Import Statement Resolution
 - [ ] Implement full module import resolution

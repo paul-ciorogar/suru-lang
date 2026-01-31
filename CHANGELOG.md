@@ -5,6 +5,82 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-01-31 - Module Declaration Processing
+
+### Added
+- **Module declaration processing** - Complete Phase 6.1 semantic analysis
+  - Main module registration: `module Calculator`, `module math.geometry`
+  - Submodule support: `module .utils` (dot-prefixed names)
+  - Module symbol table entries with `SymbolKind::Module`
+  - Module scope creation for subsequent declarations
+  - One-module-per-file validation
+  - 17 new tests (564 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/module_resolution.rs`
+  - `visit_module_decl()` - Core visitor method for module declarations
+  - Extracts module path from `ModulePath` child node
+  - Distinguishes main modules from submodules via leading dot
+  - Strips leading dot from submodule names for storage
+  - Registers module symbol with type info ("module" or "submodule")
+  - Enters `ScopeKind::Module` for subsequent declarations
+- **New SymbolKind variant**: `SymbolKind::Module` for module symbols
+- **New SemanticAnalyzer fields**:
+  - `current_module: Option<String>` - Current module name (None if not in a module)
+  - `is_submodule: bool` - Whether current module is a submodule
+- **Updated dispatcher**: Added `NodeType::ModuleDecl` to `visit_node()`
+
+### Module Types
+```
+Main module:
+  module Calculator        → name: "Calculator", type: "module"
+  module math.geometry     → name: "math.geometry", type: "module"
+
+Submodule:
+  module .utils            → name: "utils", type: "submodule"
+  module .helpers          → name: "helpers", type: "submodule"
+```
+
+### Examples
+```suru
+// Main module with declarations
+module Calculator
+
+type CalcResult: Number
+version: 1
+
+add: (x Number, y Number) Number {
+    return x
+}
+
+// Submodule
+module .utils
+
+helper: () { }
+```
+
+### Error Cases
+```suru
+// Multiple modules (error)
+module First
+module Second  // Error: Only one module declaration allowed per file
+
+// Multiple modules with code between (error)
+module First
+x: 42
+module Second  // Error: Only one module declaration allowed per file
+```
+
+### Phase 6 Progress
+This begins Phase 6 (Module System):
+- 6.1 Module Declaration Processing ✓
+- 6.2 Import Statement Resolution (next)
+- 6.3 Export Statement Validation
+- 6.4 Submodule Visibility Rules
+- 6.5 Module Path Resolution
+
+---
+
 ## [0.31.0] - 2026-01-26 - Function Call Type Checking
 
 ### Added
