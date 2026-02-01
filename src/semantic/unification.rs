@@ -32,7 +32,12 @@ impl SemanticAnalyzer {
     /// 3. If either is a type variable, bind it (with occurs check)
     /// 4. If both are compound types, recursively unify components
     /// 5. Otherwise, fail with type mismatch error
-    pub(super) fn unify(&mut self, t1: TypeId, t2: TypeId, source: usize) -> Result<(), SemanticError> {
+    pub(super) fn unify(
+        &mut self,
+        t1: TypeId,
+        t2: TypeId,
+        source: usize,
+    ) -> Result<(), SemanticError> {
         // Apply current substitution to both types first
         let t1 = self.substitution.apply(t1, &self.type_registry);
         let t2 = self.substitution.apply(t2, &self.type_registry);
@@ -59,7 +64,7 @@ impl SemanticAnalyzer {
                 if self.occurs_check(*var, t2) {
                     Err(self.make_error(
                         format!("Infinite type: type variable '{}' occurs in type", var.id()),
-                        source
+                        source,
                     ))
                 } else {
                     self.substitution.insert(*var, t2);
@@ -72,7 +77,7 @@ impl SemanticAnalyzer {
                 if self.occurs_check(*var, t1) {
                     Err(self.make_error(
                         format!("Infinite type: type variable '{}' occurs in type", var.id()),
-                        source
+                        source,
                     ))
                 } else {
                     self.substitution.insert(*var, t1);
@@ -81,14 +86,12 @@ impl SemanticAnalyzer {
             }
 
             // ========== Primitive Types ==========
-
-            (Type::Unit, Type::Unit) |
-            (Type::Number, Type::Number) |
-            (Type::String, Type::String) |
-            (Type::Bool, Type::Bool) => Ok(()),
+            (Type::Unit, Type::Unit)
+            | (Type::Number, Type::Number)
+            | (Type::String, Type::String)
+            | (Type::Bool, Type::Bool) => Ok(()),
 
             // ========== Sized Types ==========
-
             (Type::Int(s1), Type::Int(s2)) if s1 == s2 => Ok(()),
             (Type::UInt(s1), Type::UInt(s2)) if s1 == s2 => Ok(()),
             (Type::Float(s1), Type::Float(s2)) if s1 == s2 => Ok(()),
@@ -96,14 +99,10 @@ impl SemanticAnalyzer {
             // ========== Collection Types ==========
 
             // Array-Array: unify element types
-            (Type::Array(elem1), Type::Array(elem2)) => {
-                self.unify(*elem1, *elem2, source)
-            }
+            (Type::Array(elem1), Type::Array(elem2)) => self.unify(*elem1, *elem2, source),
 
             // Option-Option: unify inner types
-            (Type::Option(inner1), Type::Option(inner2)) => {
-                self.unify(*inner1, *inner2, source)
-            }
+            (Type::Option(inner1), Type::Option(inner2)) => self.unify(*inner1, *inner2, source),
 
             // Result-Result: unify both Ok and Err types
             (Type::Result(ok1, err1), Type::Result(ok2, err2)) => {
@@ -112,7 +111,6 @@ impl SemanticAnalyzer {
             }
 
             // ========== Function Types ==========
-
             (Type::Function(f1), Type::Function(f2)) => {
                 // Check parameter count matches
                 if f1.params.len() != f2.params.len() {
@@ -122,7 +120,7 @@ impl SemanticAnalyzer {
                             f1.params.len(),
                             f2.params.len()
                         ),
-                        source
+                        source,
                     ));
                 }
 
@@ -136,27 +134,17 @@ impl SemanticAnalyzer {
             }
 
             // ========== Union and Intersection ==========
-
-            // Note: For Phase 4.1a, we don't handle union/intersection unification
-            // This will be added in Phase 4.1c when we add polymorphism
-            (Type::Union(_), Type::Union(_)) |
-            (Type::Intersection(_, _), Type::Intersection(_, _)) => {
-                Err(self.make_error(
-                    "Union/intersection type unification not yet implemented".to_string(),
-                    source
-                ))
-            }
+            (Type::Union(_), Type::Union(_))
+            | (Type::Intersection(_, _), Type::Intersection(_, _)) => Err(self.make_error(
+                "Union/intersection type unification not yet implemented".to_string(),
+                source,
+            )),
 
             // ========== Struct Types ==========
-
-            // Note: Struct unification requires structural typing rules
-            // Deferred to Phase 4.1c
-            (Type::Struct(_), Type::Struct(_)) => {
-                Err(self.make_error(
-                    "Struct type unification not yet implemented".to_string(),
-                    source
-                ))
-            }
+            (Type::Struct(_), Type::Struct(_)) => Err(self.make_error(
+                "Struct type unification not yet implemented".to_string(),
+                source,
+            )),
 
             // ========== Special Types ==========
 
@@ -167,13 +155,9 @@ impl SemanticAnalyzer {
             (Type::Error, _) | (_, Type::Error) => Ok(()),
 
             // ========== Type Mismatch ==========
-
             _ => Err(self.make_error(
-                format!(
-                    "Type mismatch: cannot unify {:?} with {:?}",
-                    type1, type2
-                ),
-                source
+                format!("Type mismatch: cannot unify {:?} with {:?}", type1, type2),
+                source,
             )),
         }
     }
@@ -201,24 +185,28 @@ impl SemanticAnalyzer {
             // For compound types, recursively check components
             Type::Array(elem) => self.occurs_check(var, *elem),
             Type::Option(inner) => self.occurs_check(var, *inner),
-            Type::Result(ok, err) => {
-                self.occurs_check(var, *ok) || self.occurs_check(var, *err)
-            }
+            Type::Result(ok, err) => self.occurs_check(var, *ok) || self.occurs_check(var, *err),
             Type::Function(func) => {
                 // Check parameters and return type
-                func.params.iter().any(|p| self.occurs_check(var, p.type_id))
+                func.params
+                    .iter()
+                    .any(|p| self.occurs_check(var, p.type_id))
                     || self.occurs_check(var, func.return_type)
             }
-            Type::Union(types) => {
-                types.iter().any(|t| self.occurs_check(var, *t))
-            }
+            Type::Union(types) => types.iter().any(|t| self.occurs_check(var, *t)),
             Type::Intersection(left, right) => {
                 self.occurs_check(var, *left) || self.occurs_check(var, *right)
             }
             Type::Struct(struct_type) => {
                 // Check fields and methods
-                struct_type.fields.iter().any(|f| self.occurs_check(var, f.type_id))
-                    || struct_type.methods.iter().any(|m| self.occurs_check(var, m.function_type))
+                struct_type
+                    .fields
+                    .iter()
+                    .any(|f| self.occurs_check(var, f.type_id))
+                    || struct_type
+                        .methods
+                        .iter()
+                        .any(|m| self.occurs_check(var, m.function_type))
             }
 
             // Primitives and type variables don't contain the variable

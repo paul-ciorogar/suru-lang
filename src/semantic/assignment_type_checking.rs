@@ -1,4 +1,4 @@
-// Assignment type checking tests (Phase 4.4)
+// Assignment type checking tests
 //
 // This module tests:
 // - Constant redeclaration errors at file level
@@ -66,7 +66,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Shadowing constant in function should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Shadowing constant in function should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -79,7 +83,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Shadowing constant with same type should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Shadowing constant with same type should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -94,7 +102,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Nested function shadowing should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Nested function shadowing should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -109,7 +121,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Nested function shadowing with different type should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Nested function shadowing with different type should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     // ========== Reassignment Tests (Same Scope) ==========
@@ -124,7 +140,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Reassigning with same type should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Reassigning with same type should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -157,7 +177,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Reassigning inferred bool with bool should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Reassigning inferred bool with bool should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -170,7 +194,10 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Reassigning inferred bool with number should fail");
+        assert!(
+            result.is_err(),
+            "Reassigning inferred bool with number should fail"
+        );
         let errors = result.unwrap_err();
         assert!(!errors.is_empty());
         assert!(
@@ -190,7 +217,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Reassigning annotated number with number should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Reassigning annotated number with number should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -203,7 +234,10 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Reassigning annotated number with string should fail");
+        assert!(
+            result.is_err(),
+            "Reassigning annotated number with string should fail"
+        );
         let errors = result.unwrap_err();
         assert!(!errors.is_empty());
         assert!(
@@ -226,7 +260,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Multiple reassignments should succeed: {:?}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Multiple reassignments should succeed: {:?}",
+            result.unwrap_err()
+        );
     }
 
     #[test]
@@ -240,6 +278,9 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Third reassignment should fail due to type mismatch");
+        assert!(
+            result.is_err(),
+            "Third reassignment should fail due to type mismatch"
+        );
     }
 }

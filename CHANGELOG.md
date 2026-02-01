@@ -5,10 +5,107 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-02-01 - Struct Type Definition
+
+### Added
+- **Struct type definition processing**
+  - Struct method parsing and type construction
+  - Function type building from method signatures
+  - Parameter type validation for method parameters
+  - Return type validation for method return types
+  - Support for methods with no parameters, single parameter, and multiple parameters
+  - Mixed fields and methods in same struct
+  - User-defined type references in method signatures
+  - 14 new tests (578 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/struct_type_definition.rs`
+  - `process_struct_type_definition()` - Main entry point for struct body processing
+  - `process_struct_field_definition()` - Handles struct fields (name Type)
+  - `process_struct_method()` - Handles struct methods (name: (params) ReturnType)
+  - `process_function_type_definition()` - Builds FunctionType from AST
+  - `process_function_type_params()` - Extracts parameters from FunctionTypeParams
+- **Updated** `src/semantic/type_resolution.rs`:
+  - Delegates struct processing to new module
+  - Removed duplicate field processing code
+- **Type construction flow**:
+  1. Iterate StructBody children
+  2. Process StructField nodes → Vec<StructField>
+  3. Process StructMethod nodes → build FunctionType → Vec<StructMethod>
+  4. Create and intern StructType with both fields and methods
+
+### Method Type Construction
+```
+// Input struct declaration
+type Calculator: {
+    add: (x Number, y Number) Number
+}
+
+// Resulting StructType
+StructType {
+    fields: [],
+    methods: [
+        StructMethod {
+            name: "add",
+            function_type: FunctionType {
+                params: [
+                    FunctionParam { name: "x", type_id: <Number> },
+                    FunctionParam { name: "y", type_id: <Number> },
+                ],
+                return_type: <Number>
+            }
+        }
+    ]
+}
+```
+
+### Examples
+```suru
+// Method with no parameters
+type Greeter: {
+    greet: () String
+}
+
+// Method with multiple parameters
+type Calculator: {
+    add: (x Number, y Number) Number
+    subtract: (x Number, y Number) Number
+}
+
+// Mixed fields and methods
+type Person: {
+    name String
+    age Number
+    greet: () String
+}
+
+// User-defined types in methods
+type Point: { x Number }
+type Factory: {
+    createPoint: () Point
+    process: (p Point) Number
+}
+```
+
+### Error Cases
+```suru
+// Undefined parameter type
+type Foo: {
+    bar: (x UndefinedType) Number  // Error: Type 'UndefinedType' is not defined
+}
+
+// Undefined return type
+type Foo: {
+    bar: (x Number) UndefinedType  // Error: Type 'UndefinedType' is not defined
+}
+```
+
+---
+
 ## [0.32.0] - 2026-01-31 - Module Declaration Processing
 
 ### Added
-- **Module declaration processing** - Complete Phase 6.1 semantic analysis
+- **Module declaration processing**
   - Main module registration: `module Calculator`, `module math.geometry`
   - Submodule support: `module .utils` (dot-prefixed names)
   - Module symbol table entries with `SymbolKind::Module`
@@ -71,20 +168,12 @@ x: 42
 module Second  // Error: Only one module declaration allowed per file
 ```
 
-### Phase 6 Progress
-This begins Phase 6 (Module System):
-- 6.1 Module Declaration Processing ✓
-- 6.2 Import Statement Resolution (next)
-- 6.3 Export Statement Validation
-- 6.4 Submodule Visibility Rules
-- 6.5 Module Path Resolution
-
 ---
 
 ## [0.31.0] - 2026-01-26 - Function Call Type Checking
 
 ### Added
-- **Function call type checking** - Complete Phase 5.4 semantic analysis
+- **Function call type checking**
   - Argument count validation: Error if argument count doesn't match parameter count
   - Argument type checking: Constraints added for each argument against parameter type
   - Return type propagation: Function call nodes get the function's return type
@@ -144,26 +233,12 @@ z: identity(42)
 z: identity("hello")
 ```
 
-### Phase 5 Complete
-This completes Phase 5 (Function Type Checking):
-- 5.1 Function Signature Analysis ✓
-- 5.2 Function Body Analysis ✓
-- 5.3 Return Type Validation ✓
-- 5.4 Function Call Type Checking ✓
-
-### Next Steps
-Phase 6 (Module System) will implement:
-- Module declaration processing
-- Import statement resolution
-- Export statement validation
-- Module path resolution
-
 ---
 
 ## [0.30.0] - 2026-01-26 - Return Type Validation
 
 ### Added
-- **Return type validation** - Complete Phase 5.3 semantic analysis
+- **Return type validation**
   - Return type matching: All return statements validated against declared return type
   - Return type inference: Functions without return annotation infer type from returns
   - Missing return detection: Functions with declared return type must have returns
@@ -239,18 +314,12 @@ outer: () Number {
 }
 ```
 
-### Next Steps
-Phase 5.4 (Function Call Type Checking) will implement:
-- Argument count validation
-- Argument type checking
-- Call expression result type
-
 ---
 
 ## [0.29.0] - 2026-01-19 - Function Body Analysis
 
 ### Added
-- **Function body analysis** - Complete Phase 5.2 semantic analysis
+- **Function body analysis**
   - `Type::Void` variant for functions with no return value
   - Function context tracking with `current_function_stack` for nested functions
   - Return statement type inference and recording via `function_returns` map
@@ -275,7 +344,7 @@ return 42                  // Error: outside function
 ## [0.28.0] - 2026-01-19 - Function Signature Analysis
 
 ### Added
-- **Function signature analysis** - Complete Phase 5.1 semantic analysis
+- **Function signature analysis**
   - Structured `FunctionType` construction from function declarations
   - Parameter type resolution with `FunctionParam` entries
   - Return type resolution from annotations
@@ -324,12 +393,6 @@ doSomething: () { }
 - **String signature preserved**: `type_name` still contains signature string for display
 - **Unknown for inference**: Untyped elements use `Type::Unknown` for future Hindley-Milner inference
 - **User-defined types supported**: Type annotations resolve through symbol table lookup
-
-### Next Steps
-Phase 5.2-5.4 will implement:
-- Function body analysis with parameter scoping (5.2)
-- Return type validation (5.3)
-- Function call type checking (5.4)
 
 ---
 
@@ -465,7 +528,7 @@ x String: "hello"         // x is now String (replaces previous)
 ## [0.25.0] - 2026-01-14 - Expression Type Checking
 
 ### Added
-- **Operator type checking** - Complete Phase 4.2 semantic analysis
+- **Operator type checking**
   - Binary boolean operators (`and`, `or`):
     - Both operands must be `Bool` → result is `Bool`
     - Generates constraints for operand types
@@ -476,7 +539,7 @@ x String: "hello"         // x is now String (replaces previous)
     - Type errors for non-boolean operands
   - Unary negate operator (`-`):
     - Operand must be `Number` → result is `Number`
-    - Uses universal `Number` type (consistent with Phase 4.1a)
+    - Uses universal `Number` type
     - Type errors for non-numeric operands
   - Full integration with Hindley-Milner constraint system
 
@@ -535,22 +598,16 @@ invalid4: "text" or false      // Error: Type mismatch (String vs Bool)
 
 ### Design Decisions
 - **Constraint-based approach**: Integrates naturally with Hindley-Milner system
-- **Universal Number type**: Defers specific numeric types (Int8-64, etc.) to Phase 4.1c
+- **Universal Number type**: Defers specific numeric types (Int8-64, etc.)
 - **Separate module**: Keeps `type_inference.rs` focused on literals
 - **Type variable support**: Operators work with inferred types through unification
-
-### Next Steps
-Phase 4.3 (Variable Declaration Type Checking) will implement:
-- Type annotation validation
-- Initializer expression type checking
-- Type inference from initializers
 
 ---
 
 ## [0.24.0] - 2026-01-13 - Hindley-Milner Type Inference Foundation
 
 ### Added
-- **Hindley-Milner type inference foundation** - Complete Phase 4.1a semantic analysis
+- **Hindley-Milner type inference foundation**
   - Type variables (`Type::Var(TypeVarId)`) for representing unknowns during inference
   - Constraint system for collecting type equality constraints
   - Unification algorithm with occurs check to solve constraints
@@ -596,10 +653,6 @@ The implementation follows the classic Hindley-Milner algorithm:
 
 Occurs check prevents infinite types, ensuring type soundness.
 
-### Future Phases
-This foundation enables:
-- **Phase 4.1b**: Binary/unary operators, non-empty lists, variable references
-- **Phase 4.1c**: Function inference, generalization, let-polymorphism
 
 ### Examples
 ```suru
@@ -609,7 +662,7 @@ s: "hello"     // Inferred: String
 flag: true     // Inferred: Bool
 xs: []         // Inferred: Array('a) where 'a is type variable
 
-// Future (Phase 4.1b+):
+// Future
 // nums: [1, 2, 3]        // Will infer: Array(Number)
 // identity: (x) { x }    // Will infer: ∀a. (a) -> a
 ```
@@ -619,7 +672,7 @@ xs: []         // Inferred: Array('a) where 'a is type variable
 ## [0.23.0] - 2026-01-13 - Type Declaration Processing
 
 ### Added
-- **Type declaration processing** - Complete Phase 3.2 semantic analysis
+- **Type declaration processing**
   - Type aliases with transparent aliasing (`type UserId: Number`)
   - Unit types (`type Success`)
   - Union types (`type Status: Success, Error`)
@@ -633,7 +686,7 @@ xs: []         // Inferred: Array('a) where 'a is type variable
 - **New module**: `src/semantic/type_resolution.rs` with visitor methods for each type form
 - **Enhanced SemanticAnalyzer**: Added `TypeRegistry` field and helper methods
 - **Type validation**: All type references validated, no forward references allowed
-- **Deferred features**: Generic types (Phase 8), function types and struct methods (Phase 5)
+- **Deferred features**: Generic types, function types and struct methods
 
 ### Examples
 ```suru
@@ -649,7 +702,7 @@ type Admin: User + { role String }  // Intersection type
 ## [0.22.0] - 2026-01-13 - Name Resolution
 
 ### Added
-- **Name resolution for variables and functions** - Complete Phase 2 semantic analysis
+- **Name resolution for variables and functions**
   - Variable declaration resolution with redeclaration support
   - Variable reference resolution with scope chain lookup
   - Function declaration resolution with signature tracking
@@ -720,12 +773,6 @@ outer: () {
 }
 ```
 
-### Next Steps
-Phase 3 (Type System Foundation) will implement:
-- Internal type representation (3.1)
-- Type declaration processing (3.2)
-- Built-in types registration (3.3)
-
 ## [0.21.0] - 2026-01-12 - Semantic Analyzer Foundation
 
 ### Added
@@ -747,13 +794,6 @@ Phase 3 (Type System Foundation) will implement:
 - Scope entry/exit demonstrated in `visit_block()`
 - Error pattern follows ParseError design (message + line + column)
 - Implements `Display` and `Error` traits for SemanticError
-
-### Next Steps
-Phase 2 (Name Resolution) will implement:
-- Variable declaration resolution (2.1)
-- Variable reference resolution (2.2)
-- Function declaration resolution (2.3)
-- Function call resolution (2.4)
 
 ## [0.20.0] - 2025-12-29 - Unary Negation Operator
 

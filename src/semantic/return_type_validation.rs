@@ -1,4 +1,4 @@
-// Return type validation implementation for Phase 5.3
+// Return type validation implementation
 //
 // This module implements validation of function return types:
 // - Check all return statements match declared return type
@@ -117,13 +117,20 @@ impl SemanticAnalyzer {
                         let return_type = self.type_registry.resolve(*return_type_id);
                         if matches!(return_type, Type::Void) {
                             // Bare return in non-void function
-                            self.record_error(self.make_error(
-                                "Cannot use bare 'return' in a function with a return type".to_string(),
-                                *return_node_idx,
-                            ));
+                            self.record_error(
+                                self.make_error(
+                                    "Cannot use bare 'return' in a function with a return type"
+                                        .to_string(),
+                                    *return_node_idx,
+                                ),
+                            );
                         } else {
                             // Add constraint: return type = declared return type
-                            self.add_constraint(*return_type_id, declared_return_type, *return_node_idx);
+                            self.add_constraint(
+                                *return_type_id,
+                                declared_return_type,
+                                *return_node_idx,
+                            );
                         }
                     }
                     // Skip returns without type info (e.g., variable references not yet tracked)
@@ -186,7 +193,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Matching return type should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Matching return type should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -215,7 +226,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Multiple returns of same type should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Multiple returns of same type should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -227,7 +242,10 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Multiple returns of different types should fail");
+        assert!(
+            result.is_err(),
+            "Multiple returns of different types should fail"
+        );
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.message.contains("Type mismatch")),
@@ -246,7 +264,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Void return in inferred function should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Void return in inferred function should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -261,7 +283,11 @@ mod tests {
         "#;
         let result = analyze_source(source);
         // This should succeed - function is inferred as returning void
-        assert!(result.is_ok(), "Void return in inferred function should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Void return in inferred function should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -272,7 +298,10 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Bare return in non-void function should fail");
+        assert!(
+            result.is_err(),
+            "Bare return in non-void function should fail"
+        );
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.message.contains("bare 'return'")),
@@ -291,10 +320,15 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Missing return in non-void function should fail");
+        assert!(
+            result.is_err(),
+            "Missing return in non-void function should fail"
+        );
         let errors = result.unwrap_err();
         assert!(
-            errors.iter().any(|e| e.message.contains("must have at least one return")),
+            errors
+                .iter()
+                .any(|e| e.message.contains("must have at least one return")),
             "Expected missing return error, got: {:?}",
             errors
         );
@@ -310,15 +344,14 @@ mod tests {
         let result = analyze_source(source);
         // Function with no return type annotation and no returns is ok
         // (implicitly void or unit)
-        assert!(result.is_ok(), "No return in inferred function should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "No return in inferred function should succeed: {:?}",
+            result.err()
+        );
     }
 
     // ========== Group 4: Type Inference ==========
-    //
-    // Note: Full return type inference (where the FunctionType's return_type gets
-    // updated) requires Phase 4.1c (let-polymorphism with type variables).
-    // Currently, validation ensures return types are consistent but doesn't
-    // update the FunctionType stored in the symbol table.
 
     #[test]
     fn test_infer_function_accepts_consistent_returns() {
@@ -329,7 +362,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Function with inferred return type should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Function with inferred return type should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -342,7 +379,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Multiple consistent returns should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Multiple consistent returns should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -377,7 +418,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Nested functions should have separate return types: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Nested functions should have separate return types: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -404,9 +449,6 @@ mod tests {
 
     #[test]
     fn test_return_variable() {
-        // Note: Variable reference type tracking is not fully implemented yet.
-        // Returns with variable references are allowed but not type-checked.
-        // Full variable type tracking will be implemented in a future phase.
         let source = r#"
             getValue: () Number {
                 x: 42
@@ -415,7 +457,11 @@ mod tests {
         "#;
         let result = analyze_source(source);
         // Should succeed - variable returns are allowed, type not validated yet
-        assert!(result.is_ok(), "Return with variable should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Return with variable should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -426,7 +472,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Return with expression should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Return with expression should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -437,7 +487,10 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Return expression type mismatch should fail");
+        assert!(
+            result.is_err(),
+            "Return expression type mismatch should fail"
+        );
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.message.contains("Type mismatch")),
@@ -456,7 +509,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "String return type should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "String return type should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -480,7 +537,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Bool return type should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Bool return type should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-// Function body analysis implementation for Phase 5.2
+// Function body analysis implementation
 //
 // This module implements visitor methods for:
 // - Return statement type tracking
@@ -10,7 +10,7 @@ impl SemanticAnalyzer {
     ///
     /// Analyzes the return statement's expression (if any) and records
     /// the return type for the current function. This information is used
-    /// in Phase 5.3 for return type validation.
+    /// for return type validation.
     ///
     /// # Errors
     /// - Reports an error if return statement is outside a function
@@ -92,7 +92,9 @@ mod tests {
         assert!(result.is_err(), "Return outside function should fail");
         let errors = result.unwrap_err();
         assert!(
-            errors[0].message.contains("Return statement outside of function"),
+            errors[0]
+                .message
+                .contains("Return statement outside of function"),
             "Expected 'outside of function' error, got: {}",
             errors[0].message
         );
@@ -104,7 +106,11 @@ mod tests {
         let result = analyze_source(source);
         assert!(result.is_err(), "Void return outside function should fail");
         let errors = result.unwrap_err();
-        assert!(errors[0].message.contains("Return statement outside of function"));
+        assert!(
+            errors[0]
+                .message
+                .contains("Return statement outside of function")
+        );
     }
 
     // ========== Group 2: Return Inside Function ==========
@@ -117,7 +123,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Return in function should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Return in function should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -128,7 +138,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Void return in function should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Void return in function should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -139,7 +153,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Return with expression should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Return with expression should succeed: {:?}",
+            result.err()
+        );
     }
 
     // ========== Group 3: Return Type Tracking ==========
@@ -237,7 +255,10 @@ mod tests {
 
         // Check outer function returns
         let outer_returns = analyzer.get_function_returns(outer_func_idx);
-        assert!(outer_returns.is_some(), "Outer function returns should be recorded");
+        assert!(
+            outer_returns.is_some(),
+            "Outer function returns should be recorded"
+        );
         let outer_returns = outer_returns.unwrap();
         assert_eq!(outer_returns.len(), 1, "Outer should have one return");
 
@@ -345,7 +366,10 @@ mod tests {
 
         // Check that the return node has Void type set
         let return_type = analyzer.get_node_type(return_node_idx);
-        assert!(return_type.is_some(), "Void return node should have type set");
+        assert!(
+            return_type.is_some(),
+            "Void return node should have type set"
+        );
         let ty = analyzer.type_registry.resolve(return_type.unwrap());
         assert_eq!(ty, &Type::Void);
     }
@@ -367,7 +391,10 @@ mod tests {
         let returns = analyzer.get_function_returns(func_idx);
         assert!(returns.is_some(), "Function should have returns entry");
         let returns = returns.unwrap();
-        assert!(returns.is_empty(), "Function without returns should have empty vec");
+        assert!(
+            returns.is_empty(),
+            "Function without returns should have empty vec"
+        );
     }
 
     // ========== Group 8: Return with Variable Reference ==========
@@ -381,7 +408,11 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Return with variable reference should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Return with variable reference should succeed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -392,7 +423,10 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Return with undefined variable should fail");
+        assert!(
+            result.is_err(),
+            "Return with undefined variable should fail"
+        );
         let errors = result.unwrap_err();
         assert!(errors[0].message.contains("not defined"));
     }

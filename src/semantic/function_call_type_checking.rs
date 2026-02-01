@@ -1,4 +1,4 @@
-// Function call type checking implementation for Phase 5.4
+// Function call type checking implementation
 //
 // This module implements type checking for function calls:
 // - Check argument count matches parameter count
@@ -412,7 +412,10 @@ mod tests {
             z: double(true and false)
         "#;
         let result = analyze_source(source);
-        assert!(result.is_err(), "Bool expression for Number param should fail");
+        assert!(
+            result.is_err(),
+            "Bool expression for Number param should fail"
+        );
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.message.contains("Type mismatch")),

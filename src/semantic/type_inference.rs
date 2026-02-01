@@ -6,27 +6,12 @@
 //! 3. Solve constraints via unification
 //! 4. Apply final substitution to get concrete types
 //!
-//! # Current Implementation (Phase 4.1a)
 //!
-//! This phase implements literal type inference:
-//! - Number literals → Number type
-//! - String literals → String type
-//! - Boolean literals → Bool type
-//! - Empty lists → Array('a) where 'a is a fresh type variable
-//!
-//! # Future Phases
-//!
-//! - Phase 4.1b: Binary/unary operators, non-empty lists
-//! - Phase 4.1c: Functions, generalization, let-polymorphism
 
 use super::{SemanticAnalyzer, SemanticError, Type};
 
 impl SemanticAnalyzer {
     /// Infers type for number literal
-    ///
-    /// All number literals are typed as the universal Number type.
-    /// Context-sensitive narrowing to Int32, Float64, etc. is deferred
-    /// to Phase 4.1b (bidirectional inference).
     pub(super) fn visit_literal_number(&mut self, node_idx: usize) {
         let number_type = self.type_registry.intern(Type::Number);
         self.set_node_type(node_idx, number_type);
@@ -45,18 +30,6 @@ impl SemanticAnalyzer {
     }
 
     /// Infers type for list literal
-    ///
-    /// # Current Implementation (Phase 4.1a)
-    ///
-    /// - Empty lists: `[]` → `Array('a)` where 'a is a fresh type variable
-    /// - Non-empty lists: `[1, 2, 3]` → `Array('a)` (constraint collection deferred)
-    ///
-    /// # Future (Phase 4.1b)
-    ///
-    /// Non-empty lists will:
-    /// 1. Infer types for all elements
-    /// 2. Add constraints that all elements have the same type
-    /// 3. Unify to find the common element type
     pub(super) fn visit_list(&mut self, node_idx: usize) {
         // Create Array('a) where 'a is a fresh type variable
         let elem_var = self.fresh_type_var();
@@ -64,9 +37,8 @@ impl SemanticAnalyzer {
         self.set_node_type(node_idx, array_type);
 
         // For non-empty lists, we need to collect element type constraints
-        // This is deferred to Phase 4.1b
         if self.ast.nodes[node_idx].first_child.is_some() {
-            // TODO Phase 4.1b: Walk children and add constraints
+            // TODO: Walk children and add constraints
             // For now, list elements are not type-checked
         }
     }
@@ -126,8 +98,8 @@ impl SemanticAnalyzer {
 mod tests {
     use super::*;
     use crate::lexer::lex;
-    use crate::parser::parse;
     use crate::limits::CompilerLimits;
+    use crate::parser::parse;
 
     /// Helper to analyze source and get type of first literal in variable declaration
     fn analyze_literal(source: &str) -> Result<Type, String> {
@@ -137,15 +109,9 @@ mod tests {
 
         // Get root and first literal before moving ast into analyzer
         let root_idx = ast.root.ok_or("No root")?;
-        let decl_idx = ast.nodes[root_idx]
-            .first_child
-            .ok_or("No declaration")?;
-        let ident_idx = ast.nodes[decl_idx]
-            .first_child
-            .ok_or("No identifier")?;
-        let literal_idx = ast.nodes[ident_idx]
-            .next_sibling
-            .ok_or("No literal")?;
+        let decl_idx = ast.nodes[root_idx].first_child.ok_or("No declaration")?;
+        let ident_idx = ast.nodes[decl_idx].first_child.ok_or("No identifier")?;
+        let literal_idx = ast.nodes[ident_idx].next_sibling.ok_or("No literal")?;
 
         let mut analyzer = SemanticAnalyzer::new(ast);
 
@@ -154,7 +120,9 @@ mod tests {
         // or visit manually
         if let Some(root) = analyzer.ast.root {
             analyzer.visit_node(root);
-            analyzer.solve_constraints().map_err(|e| format!("{:?}", e))?;
+            analyzer
+                .solve_constraints()
+                .map_err(|e| format!("{:?}", e))?;
             analyzer.apply_substitution();
         }
 
@@ -217,8 +185,6 @@ mod tests {
 
     #[test]
     fn test_non_empty_list() {
-        // Note: In Phase 4.1a, non-empty lists get Array('a) but
-        // element type constraints are not collected yet
         let ty = analyze_literal("xs: [1, 2, 3]").unwrap();
         match ty {
             Type::Array(_) => {

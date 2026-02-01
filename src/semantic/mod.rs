@@ -1,24 +1,34 @@
 use std::collections::HashMap;
 
-mod name_resolution;
-mod type_resolution;
-mod type_inference;
-mod expression_type_inference;
-mod unification;
-mod types;
 mod assignment_type_checking;
+mod expression_type_inference;
 mod function_body_analysis;
-mod return_type_validation;
 mod function_call_type_checking;
 mod module_resolution;
+mod name_resolution;
+mod return_type_validation;
+mod struct_type_definition;
+mod type_inference;
+mod type_resolution;
+mod types;
+mod unification;
 
 pub use types::{
-    Type, TypeId, TypeRegistry,
-    IntSize, UIntSize, FloatSize,
-    StructType, StructField, StructMethod,
-    FunctionType, FunctionParam,
+    Constraint,
+    FloatSize,
+    FunctionParam,
+    FunctionType,
+    IntSize,
+    StructField,
+    StructMethod,
+    StructType,
+    Substitution,
+    Type,
+    TypeId,
+    TypeRegistry,
     // Hindley-Milner type inference
-    TypeVarId, Constraint, Substitution,
+    TypeVarId,
+    UIntSize,
 };
 
 /// Represents a semantic analysis error
@@ -87,7 +97,7 @@ pub struct Symbol {
     pub type_name: Option<String>,
     /// The kind of symbol (variable, function, or type)
     pub kind: SymbolKind,
-    /// The structured type ID for type checking (Phase 5.1+)
+    /// The structured type ID for type checking
     /// For functions, contains the interned FunctionType
     pub type_id: Option<TypeId>,
 }
@@ -335,11 +345,11 @@ pub struct SemanticAnalyzer {
     /// Counter for generating fresh type variables
     next_type_var: u32,
 
-    // Assignment type checking (Phase 4.4)
+    // Assignment type checking
     /// Maps (scope_index, variable_name) to their TypeId for reassignment checking
     variable_types: HashMap<(usize, String), TypeId>,
 
-    // Return type tracking (Phase 5.2)
+    // Return type tracking
     /// Tracks return statement types for each function
     /// Key: AST node index of FunctionDecl
     /// Value: Vec of (return_node_idx, Option<TypeId>) pairs
@@ -348,7 +358,7 @@ pub struct SemanticAnalyzer {
     /// Stack of current function declaration indices (for nested functions)
     current_function_stack: Vec<usize>,
 
-    // Module tracking (Phase 6.1)
+    // Module tracking
     /// Current module name (None if not in a module)
     current_module: Option<String>,
 
@@ -374,10 +384,10 @@ impl SemanticAnalyzer {
             next_type_var: 0,
             // Initialize assignment type checking
             variable_types: HashMap::new(),
-            // Initialize return type tracking (Phase 5.2)
+            // Initialize return type tracking
             function_returns: HashMap::new(),
             current_function_stack: Vec::new(),
-            // Initialize module tracking (Phase 6.1)
+            // Initialize module tracking
             current_module: None,
             is_submodule: false,
         }
@@ -439,10 +449,11 @@ impl SemanticAnalyzer {
     /// Records a variable's type for future reassignment checking
     fn record_variable_type(&mut self, name: &str, type_id: TypeId) {
         let scope_idx = self.scopes.current_scope_index();
-        self.variable_types.insert((scope_idx, name.to_string()), type_id);
+        self.variable_types
+            .insert((scope_idx, name.to_string()), type_id);
     }
 
-    // ========== Function Context Helper Methods (Phase 5.2) ==========
+    // ========== Function Context Helper Methods ==========
 
     /// Enters a function context for return type tracking
     ///
@@ -468,7 +479,6 @@ impl SemanticAnalyzer {
     /// Records a return statement and its type for the current function
     ///
     /// Called when visiting a ReturnStmt to track all return types
-    /// for later validation in Phase 5.3.
     fn record_return(&mut self, return_node_idx: usize, type_id: Option<TypeId>) {
         if let Some(func_idx) = self.current_function() {
             if let Some(returns) = self.function_returns.get_mut(&func_idx) {
@@ -481,7 +491,10 @@ impl SemanticAnalyzer {
     ///
     /// Returns a slice of (return_node_idx, Option<TypeId>) pairs for
     /// all return statements in the given function.
-    pub fn get_function_returns(&self, func_decl_idx: usize) -> Option<&Vec<(usize, Option<TypeId>)>> {
+    pub fn get_function_returns(
+        &self,
+        func_decl_idx: usize,
+    ) -> Option<&Vec<(usize, Option<TypeId>)>> {
         self.function_returns.get(&func_decl_idx)
     }
 
@@ -514,10 +527,20 @@ impl SemanticAnalyzer {
     fn is_builtin_type(name: &str) -> bool {
         matches!(
             name,
-            "Unit" | "Number" | "String" | "Bool" |
-            "Int8" | "Int16" | "Int32" | "Int64" |
-            "UInt8" | "UInt16" | "UInt32" | "UInt64" |
-            "Float32" | "Float64"
+            "Unit"
+                | "Number"
+                | "String"
+                | "Bool"
+                | "Int8"
+                | "Int16"
+                | "Int32"
+                | "Int64"
+                | "UInt8"
+                | "UInt16"
+                | "UInt32"
+                | "UInt64"
+                | "Float32"
+                | "Float64"
         )
     }
 
@@ -636,13 +659,13 @@ impl SemanticAnalyzer {
             NodeType::LiteralString => self.visit_literal_string(node_idx),
             NodeType::LiteralBoolean => self.visit_literal_boolean(node_idx),
             NodeType::List => self.visit_list(node_idx),
-            // Type inference for operators (Phase 4.2)
+            // Type inference for operators
             NodeType::And | NodeType::Or => self.visit_binary_bool_op(node_idx),
             NodeType::Not => self.visit_not(node_idx),
             NodeType::Negate => self.visit_negate(node_idx),
-            // Function body analysis (Phase 5.2)
+            // Function body analysis
             NodeType::ReturnStmt => self.visit_return_stmt(node_idx),
-            // Module declaration (Phase 6.1)
+            // Module declaration
             NodeType::ModuleDecl => self.visit_module_decl(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),

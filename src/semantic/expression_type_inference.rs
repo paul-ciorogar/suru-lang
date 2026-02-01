@@ -1,4 +1,4 @@
-//! Expression type inference - Phase 4.2
+//! Expression type inference
 //!
 //! Type checking for operators:
 //! - Binary boolean operators (and, or): Both operands Bool → result Bool
@@ -74,9 +74,6 @@ impl SemanticAnalyzer {
     ///
     /// Type rule: e : Number → (-e) : Number
     ///
-    /// Currently uses universal Number type consistent with Phase 4.1a.
-    /// Support for specific numeric types (Int8-64, UInt8-64, Float32/64)
-    /// will be added in Phase 4.1c when bidirectional inference is implemented.
     pub(super) fn visit_negate(&mut self, node_idx: usize) {
         // Get operand
         let operand_idx = self.ast.nodes[node_idx]
@@ -102,17 +99,17 @@ impl SemanticAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::SemanticError;
-    use crate::limits::CompilerLimits;
+    use super::*;
     use crate::lexer::lex;
+    use crate::limits::CompilerLimits;
     use crate::parser::parse;
 
     /// Helper to analyze expression and return its type or errors
     fn analyze_expression(source: &str) -> Result<Type, Vec<SemanticError>> {
         let limits = CompilerLimits::default();
-        let tokens = lex(source, &limits)
-            .map_err(|e| vec![SemanticError::new(format!("{:?}", e), 0, 0)])?;
+        let tokens =
+            lex(source, &limits).map_err(|e| vec![SemanticError::new(format!("{:?}", e), 0, 0)])?;
         let ast = parse(tokens, &limits)
             .map_err(|e| vec![SemanticError::new(format!("{:?}", e), 0, 0)])?;
 
@@ -122,25 +119,13 @@ mod tests {
             .ok_or(vec![SemanticError::new("No root".to_string(), 0, 0)])?;
         let decl_idx = ast.nodes[root_idx]
             .first_child
-            .ok_or(vec![SemanticError::new(
-                "No declaration".to_string(),
-                0,
-                0,
-            )])?;
+            .ok_or(vec![SemanticError::new("No declaration".to_string(), 0, 0)])?;
         let ident_idx = ast.nodes[decl_idx]
             .first_child
-            .ok_or(vec![SemanticError::new(
-                "No identifier".to_string(),
-                0,
-                0,
-            )])?;
+            .ok_or(vec![SemanticError::new("No identifier".to_string(), 0, 0)])?;
         let expr_idx = ast.nodes[ident_idx]
             .next_sibling
-            .ok_or(vec![SemanticError::new(
-                "No expression".to_string(),
-                0,
-                0,
-            )])?;
+            .ok_or(vec![SemanticError::new("No expression".to_string(), 0, 0)])?;
 
         let mut analyzer = SemanticAnalyzer::new(ast);
 
@@ -151,9 +136,9 @@ mod tests {
             analyzer.apply_substitution();
         }
 
-        let type_id = analyzer.get_node_type(expr_idx).ok_or(vec![
-            SemanticError::new("No type".to_string(), 0, 0),
-        ])?;
+        let type_id = analyzer
+            .get_node_type(expr_idx)
+            .ok_or(vec![SemanticError::new("No type".to_string(), 0, 0)])?;
         let ty = analyzer.type_registry.resolve(type_id);
         Ok(ty.clone())
     }

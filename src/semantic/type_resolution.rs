@@ -1,6 +1,6 @@
 //! Type declaration processing for semantic analysis
 //!
-//! This module implements Phase 3.2: Type Declaration Processing for the Suru
+//! This module implements type declaration processing for the Suru
 //! semantic analyzer. It handles registration and validation of:
 //! - Unit types (e.g., `type Success`)
 //! - Type aliases (e.g., `type UserId: Number`)
@@ -8,9 +8,7 @@
 //! - Struct types (e.g., `type Person: { name String, age Number }`)
 //! - Intersection types (e.g., `type Admin: Person + Manager`)
 
-use super::{
-    SemanticAnalyzer, SemanticError, Symbol, SymbolKind, StructField, StructType, Type, TypeId,
-};
+use super::{SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type, TypeId};
 use crate::ast::NodeType;
 
 impl SemanticAnalyzer {
@@ -37,7 +35,7 @@ impl SemanticAnalyzer {
         };
         let type_name = type_name.to_string();
 
-        // Check if next child is TypeParams (skip if present - defer to Phase 8)
+        // Check if next child is TypeParams
         let current_child = self.ast.nodes[type_name_idx].next_sibling;
 
         if let Some(child_idx) = current_child {
@@ -65,7 +63,12 @@ impl SemanticAnalyzer {
         // PHASE 2: VALIDATE
 
         // Check for duplicate type declaration in current scope
-        if self.scopes.current_scope().lookup_local(&type_name).is_some() {
+        if self
+            .scopes
+            .current_scope()
+            .lookup_local(&type_name)
+            .is_some()
+        {
             let token = self.ast.nodes[type_name_idx].token.as_ref().unwrap();
             let error = SemanticError::from_token(
                 format!("Duplicate declaration of type '{}'", type_name),
@@ -123,7 +126,6 @@ impl SemanticAnalyzer {
                     self.process_intersection_type(child_idx)
                 }
                 NodeType::FunctionType => {
-                    // Function type not yet supported (Phase 5)
                     let token = self.ast.nodes[child_idx]
                         .token
                         .as_ref()
@@ -223,107 +225,11 @@ impl SemanticAnalyzer {
     }
 
     /// Processes a struct type declaration
+    ///
+    /// Delegates to the struct_type_definition module which handles both
+    /// fields and methods.
     fn process_struct_type(&mut self, struct_body_idx: usize) -> Result<TypeId, SemanticError> {
-        let mut fields = Vec::new();
-        let methods = Vec::new();
-
-        // Iterate through struct members
-        let mut current_child = self.ast.nodes[struct_body_idx].first_child;
-
-        while let Some(child_idx) = current_child {
-            match self.ast.nodes[child_idx].node_type {
-                NodeType::StructField => {
-                    // Process field: name Type
-                    let field = self.process_struct_field(child_idx)?;
-                    fields.push(field);
-                }
-                NodeType::StructMethod => {
-                    // Struct methods not yet supported (Phase 5)
-                    let token = self.ast.nodes[child_idx].token.as_ref().unwrap();
-                    return Err(SemanticError::from_token(
-                        "Struct methods not yet supported".to_string(),
-                        token,
-                    ));
-                }
-                _ => {
-                    let token = self.ast.nodes[child_idx].token.as_ref().unwrap();
-                    return Err(SemanticError::from_token(
-                        "Unexpected node in struct body".to_string(),
-                        token,
-                    ));
-                }
-            }
-
-            current_child = self.ast.nodes[child_idx].next_sibling;
-        }
-
-        // Create struct type
-        let struct_type = StructType { fields, methods };
-        Ok(self.type_registry.intern(Type::Struct(struct_type)))
-    }
-
-    /// Processes a single struct field
-    fn process_struct_field(&mut self, field_idx: usize) -> Result<StructField, SemanticError> {
-        // First child is field name (Identifier)
-        let Some(name_idx) = self.ast.nodes[field_idx].first_child else {
-            let token = self.ast.nodes[field_idx].token.as_ref().unwrap();
-            return Err(SemanticError::from_token(
-                "Struct field missing name".to_string(),
-                token,
-            ));
-        };
-
-        let Some(field_name) = self.ast.node_text(name_idx) else {
-            let token = self.ast.nodes[name_idx].token.as_ref().unwrap();
-            return Err(SemanticError::from_token(
-                "Struct field missing name".to_string(),
-                token,
-            ));
-        };
-        let field_name = field_name.to_string(); // Convert to owned String
-
-        // Second child is type annotation (TypeAnnotation)
-        let Some(type_idx) = self.ast.nodes[name_idx].next_sibling else {
-            let token = self.ast.nodes[name_idx].token.as_ref().unwrap();
-            return Err(SemanticError::from_token(
-                format!("Struct field '{}' missing type annotation", field_name),
-                token,
-            ));
-        };
-
-        if self.ast.nodes[type_idx].node_type != NodeType::TypeAnnotation {
-            let token = self.ast.nodes[type_idx].token.as_ref().unwrap();
-            return Err(SemanticError::from_token(
-                format!("Expected type annotation for field '{}'", field_name),
-                token,
-            ));
-        }
-
-        let Some(type_name) = self.ast.node_text(type_idx) else {
-            let token = self.ast.nodes[type_idx].token.as_ref().unwrap();
-            return Err(SemanticError::from_token(
-                format!("Field '{}' missing type", field_name),
-                token,
-            ));
-        };
-        let type_name = type_name.to_string(); // Convert to owned String
-
-        // Validate type exists
-        if !self.type_exists(&type_name) {
-            let token = self.ast.nodes[type_idx].token.as_ref().unwrap();
-            return Err(SemanticError::from_token(
-                format!("Type '{}' is not defined", type_name),
-                token,
-            ));
-        }
-
-        // Get TypeId
-        let type_id = self.lookup_type_id(&type_name)?;
-
-        Ok(StructField {
-            name: field_name,
-            type_id,
-        })
+        self.process_struct_type_definition(struct_body_idx)
     }
 
     /// Processes an intersection type declaration
@@ -371,7 +277,10 @@ impl SemanticAnalyzer {
     }
 
     /// Processes one operand of an intersection type
-    fn process_intersection_operand(&mut self, operand_idx: usize) -> Result<TypeId, SemanticError> {
+    fn process_intersection_operand(
+        &mut self,
+        operand_idx: usize,
+    ) -> Result<TypeId, SemanticError> {
         match self.ast.nodes[operand_idx].node_type {
             NodeType::TypeAnnotation => {
                 // Simple type reference
@@ -687,7 +596,11 @@ mod tests {
         let result = analyze_source("type List<T>: { items Array }\n");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors[0].message.contains("Generic types not yet supported"));
+        assert!(
+            errors[0]
+                .message
+                .contains("Generic types not yet supported")
+        );
     }
 
     #[test]
@@ -695,7 +608,11 @@ mod tests {
         let result = analyze_source("type Container<T: Number>: { value T }\n");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors[0].message.contains("Generic types not yet supported"));
+        assert!(
+            errors[0]
+                .message
+                .contains("Generic types not yet supported")
+        );
     }
 
     // ========== Integration Tests ==========

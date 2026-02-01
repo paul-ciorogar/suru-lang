@@ -1,4 +1,4 @@
-// Module declaration resolution for Phase 6.1
+// Module declaration resolution
 //
 // This module implements:
 // - Module declaration registration
@@ -6,7 +6,7 @@
 // - Submodule handling (module .name)
 // - Module symbol table creation
 
-use super::{SemanticAnalyzer, SemanticError, Symbol, SymbolKind, ScopeKind};
+use super::{ScopeKind, SemanticAnalyzer, SemanticError, Symbol, SymbolKind};
 
 impl SemanticAnalyzer {
     /// Visits module declaration
@@ -78,7 +78,13 @@ mod tests {
     }
 
     /// Helper to get module info after analysis
-    fn analyze_and_get_module(source: &str) -> (Option<String>, bool, Result<crate::ast::Ast, Vec<SemanticError>>) {
+    fn analyze_and_get_module(
+        source: &str,
+    ) -> (
+        Option<String>,
+        bool,
+        Result<crate::ast::Ast, Vec<SemanticError>>,
+    ) {
         let limits = CompilerLimits::default();
         let tokens = lex(source, &limits).unwrap();
         let ast = parse(tokens, &limits).unwrap();
@@ -218,7 +224,11 @@ module Second
         let result = analyze_source(source);
         assert!(result.is_err(), "Multiple module declarations should fail");
         let errors = result.unwrap_err();
-        assert!(errors[0].message.contains("Only one module declaration allowed"));
+        assert!(
+            errors[0]
+                .message
+                .contains("Only one module declaration allowed")
+        );
     }
 
     #[test]
@@ -232,7 +242,11 @@ module Second
         let result = analyze_source(source);
         assert!(result.is_err(), "Second module declaration should fail");
         let errors = result.unwrap_err();
-        assert!(errors[0].message.contains("Only one module declaration allowed"));
+        assert!(
+            errors[0]
+                .message
+                .contains("Only one module declaration allowed")
+        );
     }
 
     // ========== Symbol Table Tests ==========
@@ -310,6 +324,9 @@ x: 42
 
         // Variable x should be in the module scope
         let symbol = analyzer.scopes.lookup("x");
-        assert!(symbol.is_some(), "Variable should be visible in module scope");
+        assert!(
+            symbol.is_some(),
+            "Variable should be visible in module scope"
+        );
     }
 }

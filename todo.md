@@ -130,143 +130,144 @@
 - [x] Determine call expression result type
 - [x] Write tests for function call type checking
 
-## Phase 6: Module System
 
-### 6.1 Module Declaration Processing
-- [x] Register module declarations
-- [x] Support main modules (`module Name`)
-- [x] Support submodules (`module .name`)
-- [x] Create module symbol tables
-- [x] Write tests for module registration
+## Phase 6: Struct Types
 
-### 6.2 Import Statement Resolution
-- [ ] Implement full module import resolution
-- [ ] Implement selective import resolution
-- [ ] Implement star import resolution
-- [ ] Implement import alias handling
-- [ ] Write tests for import resolution
+### 6.1 Struct Type Definition
+- [x] Parse struct field types from type declarations
+- [x] Parse struct method signatures
+- [x] Build internal struct type representation
+- [x] Write tests for struct type construction
 
-### 6.3 Export Statement Validation
-- [ ] Validate exported symbols exist
-- [ ] Build export lists for modules
-- [ ] Check for duplicate exports
-- [ ] Write tests for export validation
-
-### 6.4 Submodule Visibility Rules
-- [ ] Implement submodule scoping rules
-- [ ] Restrict submodule visibility to parent hierarchy
-- [ ] Check submodule access permissions
-- [ ] Write tests for submodule visibility
-
-### 6.5 Module Path Resolution
-- [ ] Implement dotted module path resolution
-- [ ] Handle nested module lookups
-- [ ] Report errors for undefined modules
-- [ ] Write tests for module path resolution
-
-## Phase 7: Struct Types
-
-### 7.1 Struct Type Definition
-- [ ] Parse struct field types from type declarations
-- [ ] Parse struct method signatures
-- [ ] Build internal struct type representation
-- [ ] Write tests for struct type construction
-
-### 7.2 Struct Initialization Type Checking
+### 6.2 Struct Initialization Type Checking
 - [ ] Check struct literal field types
 - [ ] Check struct literal method signatures
 - [ ] Validate required fields are present
 - [ ] Write tests for struct initialization
 
-### 7.3 Struct Privacy Enforcement
+### 6.3 Struct Privacy Enforcement
 - [ ] Track private fields/methods (using NodeFlags)
 - [ ] Enforce privacy rules for field access
 - [ ] Enforce privacy rules for method calls
 - [ ] Write tests for privacy enforcement
 
-### 7.4 Property Access Type Checking
+### 6.4 Property Access Type Checking
 - [ ] Check field exists on struct type
 - [ ] Determine property access result type
 - [ ] Check privacy rules for property access
 - [ ] Write tests for property access
 
-### 7.5 Method Call Type Checking
+### 6.5 Method Call Type Checking
 - [ ] Check method exists on struct type
 - [ ] Validate method call arguments
 - [ ] Determine method call result type
 - [ ] Handle `this` keyword in method bodies
 - [ ] Write tests for method calls
 
-## Phase 8: Advanced Type Features
+## Phase 7: Advanced Type Features
 
-### 8.1 Union Type Support
+### 7.1 Union Type Support
 - [ ] Implement union type checking
 - [ ] Check value matches one of union alternatives
 - [ ] Write tests for union types
 
-### 8.2 Intersection Type Support (Composition)
+### 7.2 Intersection Type Support (Composition)
 - [ ] Implement intersection type construction
 - [ ] Merge struct fields/methods for intersections
 - [ ] Check composition operator type compatibility
 - [ ] Write tests for intersection types
 
-### 8.3 Function Type Checking
+### 7.3 Function Type Checking
 - [ ] Validate function type declarations
 - [ ] Check function values match function types
 - [ ] Write tests for function types
 
-### 8.4 Generic Type Parameters
+### 7.4 Generic Type Parameters
 - [ ] Implement generic type parameter tracking
 - [ ] Implement type parameter substitution
 - [ ] Implement generic constraints checking
 - [ ] Write tests for generic types
 
-### 8.5 Structural Type Compatibility
+### 7.5 Structural Type Compatibility
 - [ ] Implement structural subtyping rules
 - [ ] Check struct compatibility based on fields/methods
 - [ ] Write tests for structural typing
 
-## Phase 9: Control Flow and Pattern Matching
+## Phase 8: Control Flow and Pattern Matching
 
-### 9.1 Match Expression Type Checking
+### 8.1 Match Expression Type Checking
 - [ ] Check match subject type
 - [ ] Check all arms return compatible types
 - [ ] Determine match expression result type
 - [ ] Write tests for match expressions
 
-### 9.2 Match Pattern Validation
+### 8.2 Match Pattern Validation
 - [ ] Validate patterns against subject type
 - [ ] Check pattern exhaustiveness
 - [ ] Report unreachable patterns
 - [ ] Write tests for pattern matching
 
-### 9.3 Match Arm Type Checking
+### 8.3 Match Arm Type Checking
 - [ ] Check each arm body type
 - [ ] Ensure all arms have compatible types
 - [ ] Write tests for match arm types
 
-## Phase 10: Advanced Features
+## Phase 9: Advanced Features
 
-### 10.1 Pipe Operator Type Checking
+### 9.1 Pipe Operator Type Checking
 - [ ] Check left side produces value
 - [ ] Check right side accepts value
 - [ ] Chain types through pipe sequence
 - [ ] Write tests for pipe operator
 
-### 10.2 Try Operator Type Checking
+### 9.2 Try Operator Type Checking
 - [ ] Implement error handling type checking
 - [ ] Check try operator on appropriate types
 - [ ] Write tests for try operator
 
-### 10.3 Partial Application
+### 9.3 Partial Application
 - [ ] Validate placeholder usage
 - [ ] Construct partial function types
 - [ ] Write tests for partial application
 
-### 10.4 This Keyword Validation
+### 9.4 This Keyword Validation
 - [ ] Check `this` only used in method context
 - [ ] Resolve `this` to correct struct type
 - [ ] Write tests for `this` keyword
+
+## Phase 10: Module System
+
+### 10.1 Module Declaration Processing
+- [x] Register module declarations
+- [x] Support main modules (`module Name`)
+- [x] Support submodules (`module .name`)
+- [x] Create module symbol tables
+- [x] Write tests for module registration
+
+### 10.2 Import Statement Resolution
+- [ ] Implement full module import resolution
+- [ ] Implement selective import resolution
+- [ ] Implement star import resolution
+- [ ] Implement import alias handling
+- [ ] Write tests for import resolution
+
+### 10.3 Export Statement Validation
+- [ ] Validate exported symbols exist
+- [ ] Build export lists for modules
+- [ ] Check for duplicate exports
+- [ ] Write tests for export validation
+
+### 10.4 Submodule Visibility Rules
+- [ ] Implement submodule scoping rules
+- [ ] Restrict submodule visibility to parent hierarchy
+- [ ] Check submodule access permissions
+- [ ] Write tests for submodule visibility
+
+### 10.5 Module Path Resolution
+- [ ] Implement dotted module path resolution
+- [ ] Handle nested module lookups
+- [ ] Report errors for undefined modules
+- [ ] Write tests for module path resolution
 
 ## Phase 11: Error Reporting
 

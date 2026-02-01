@@ -1,4 +1,4 @@
-// Name resolution implementation for Phase 2
+// Name resolution implementation
 //
 // This module implements visitor methods for:
 // - Variable declaration resolution
@@ -6,7 +6,9 @@
 // - Function declaration resolution
 // - Function call resolution
 
-use super::{SemanticAnalyzer, SemanticError, Symbol, SymbolKind, TypeId, FunctionType, FunctionParam, Type};
+use super::{
+    FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type, TypeId,
+};
 use crate::ast::NodeType;
 
 impl SemanticAnalyzer {
@@ -38,20 +40,23 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Assignment type checking (Phase 4.4)
+        // Assignment type checking
         // Check if variable already exists in CURRENT scope (not outer scopes)
         // This must happen BEFORE inserting the new symbol!
-        let exists_in_current_scope = self.scopes.current_scope()
+        let exists_in_current_scope = self
+            .scopes
+            .current_scope()
             .lookup_local(&name)
             .filter(|s| s.kind == SymbolKind::Variable)
             .is_some();
 
         // Get existing type BEFORE replacing the symbol (for reassignment checking)
-        let existing_type_id: Option<TypeId> = if exists_in_current_scope && self.scopes.is_in_mutable_scope() {
-            self.lookup_variable_type(&name)
-        } else {
-            None // New declaration (including shadowing)
-        };
+        let existing_type_id: Option<TypeId> =
+            if exists_in_current_scope && self.scopes.is_in_mutable_scope() {
+                self.lookup_variable_type(&name)
+            } else {
+                None // New declaration (including shadowing)
+            };
 
         // Check for constant redeclaration at file level
         if exists_in_current_scope && !self.scopes.is_in_mutable_scope() {
@@ -72,7 +77,7 @@ impl SemanticAnalyzer {
             .symbols
             .insert_or_replace(symbol);
 
-        // Type checking (Phase 4.3)
+        // Type checking
 
         // 1. Resolve type annotation if present
         let declared_type_id: Option<TypeId> = if let Some(ref type_name_str) = type_name {
@@ -80,7 +85,7 @@ impl SemanticAnalyzer {
                 Ok(type_id) => Some(type_id),
                 Err(error) => {
                     self.record_error(error);
-                    None  // Continue even on error
+                    None // Continue even on error
                 }
             }
         } else {
@@ -103,7 +108,7 @@ impl SemanticAnalyzer {
                     init_type
                 };
 
-                // 5. Assignment type checking (Phase 4.4)
+                // 5. Assignment type checking
                 if let Some(existing_type) = existing_type_id {
                     // This is a reassignment: constrain value to match existing variable type
                     self.add_constraint(init_type, existing_type, expr_idx);
@@ -176,7 +181,7 @@ impl SemanticAnalyzer {
                 SemanticError::from_token(format!("Variable '{}' is not defined", name), token);
             self.record_error(error);
         } else {
-            // Set the node type from the variable's type (Phase 5.4)
+            // Set the node type from the variable's type
             if let Some(var_type) = self.lookup_variable_type(name) {
                 self.set_node_type(node_idx, var_type);
             }
@@ -235,7 +240,7 @@ impl SemanticAnalyzer {
         format!("({}){}", param_types.join(", "), return_type)
     }
 
-    /// Builds a FunctionType from function declaration (Phase 5.1)
+    /// Builds a FunctionType from function declaration
     /// Returns TypeId for the interned function type
     /// Parameters without type annotations get Type::Unknown for later inference
     /// Return type without annotation gets Type::Unknown for later inference
@@ -251,18 +256,23 @@ impl SemanticAnalyzer {
             loop {
                 if let Some(param_ident_idx) = self.ast.nodes[current_param_idx].first_child {
                     // Get parameter name
-                    let param_name = self.ast.node_text(param_ident_idx)
+                    let param_name = self
+                        .ast
+                        .node_text(param_ident_idx)
                         .map(|s| s.to_string())
                         .unwrap_or_default();
 
                     // Get type: annotation or Unknown for inference
-                    let type_id = if let Some(type_ann_idx) = self.ast.nodes[param_ident_idx].next_sibling {
+                    let type_id = if let Some(type_ann_idx) =
+                        self.ast.nodes[param_ident_idx].next_sibling
+                    {
                         if self.ast.nodes[type_ann_idx].node_type == NodeType::TypeAnnotation {
-                            if let Some(type_name) = self.ast.node_text(type_ann_idx).map(|s| s.to_string()) {
+                            if let Some(type_name) =
+                                self.ast.node_text(type_ann_idx).map(|s| s.to_string())
+                            {
                                 // Lookup type, use Unknown if not found (error recorded elsewhere)
-                                self.lookup_type_id(&type_name).unwrap_or_else(|_| {
-                                    self.type_registry.intern(Type::Unknown)
-                                })
+                                self.lookup_type_id(&type_name)
+                                    .unwrap_or_else(|_| self.type_registry.intern(Type::Unknown))
                             } else {
                                 self.type_registry.intern(Type::Unknown)
                             }
@@ -289,12 +299,14 @@ impl SemanticAnalyzer {
         }
 
         // Get return type (after ParamList, if TypeAnnotation exists)
-        let return_type = if let Some(after_params_idx) = self.ast.nodes[param_list_idx].next_sibling {
+        let return_type = if let Some(after_params_idx) =
+            self.ast.nodes[param_list_idx].next_sibling
+        {
             if self.ast.nodes[after_params_idx].node_type == NodeType::TypeAnnotation {
-                if let Some(type_name) = self.ast.node_text(after_params_idx).map(|s| s.to_string()) {
-                    self.lookup_type_id(&type_name).unwrap_or_else(|_| {
-                        self.type_registry.intern(Type::Unknown)
-                    })
+                if let Some(type_name) = self.ast.node_text(after_params_idx).map(|s| s.to_string())
+                {
+                    self.lookup_type_id(&type_name)
+                        .unwrap_or_else(|_| self.type_registry.intern(Type::Unknown))
                 } else {
                     self.type_registry.intern(Type::Unknown)
                 }
@@ -308,7 +320,10 @@ impl SemanticAnalyzer {
         };
 
         // Create and intern the function type
-        let func_type = FunctionType { params, return_type };
+        let func_type = FunctionType {
+            params,
+            return_type,
+        };
         self.type_registry.intern(Type::Function(func_type))
     }
 
@@ -327,7 +342,7 @@ impl SemanticAnalyzer {
         // Build function signature string (for backward compatibility)
         let signature = self.build_function_signature(node_idx);
 
-        // Build structured function type (Phase 5.1)
+        // Build structured function type
         let func_type_id = self.build_function_type(node_idx);
 
         // Check for duplicate in current scope
@@ -346,7 +361,7 @@ impl SemanticAnalyzer {
             .with_type_id(func_type_id);
         self.scopes.insert(symbol);
 
-        // Enter function context for return type tracking (Phase 5.2)
+        // Enter function context for return type tracking
         self.enter_function_context(node_idx);
 
         // Enter function scope
@@ -408,13 +423,13 @@ impl SemanticAnalyzer {
             self.visit_children(block_idx);
         }
 
-        // Validate return types (Phase 5.3)
+        // Validate return types
         self.validate_function_returns(node_idx, func_type_id);
 
         // Exit function scope
         self.scopes.exit_scope();
 
-        // Exit function context (Phase 5.2)
+        // Exit function context
         self.exit_function_context();
     }
 
@@ -454,7 +469,7 @@ impl SemanticAnalyzer {
             self.visit_children(arg_list_idx);
         }
 
-        // Type check function call (Phase 5.4)
+        // Type check function call
         self.type_check_function_call(node_idx);
     }
 }
@@ -706,24 +721,28 @@ mod tests {
             }
         "#;
         let result = analyze_source(source);
-        assert!(result.is_ok(), "Recursive function call should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Recursive function call should succeed: {:?}",
+            result.err()
+        );
     }
 }
 
-/// Tests for variable declaration type checking (Phase 4.3)
+/// Tests for variable declaration type checking
 #[cfg(test)]
 mod variable_type_tests {
     use super::*;
-    use crate::limits::CompilerLimits;
     use crate::lexer::lex;
+    use crate::limits::CompilerLimits;
     use crate::parser::parse;
-    use crate::semantic::{Type, IntSize, FloatSize};
+    use crate::semantic::{FloatSize, IntSize, Type};
 
     /// Helper to analyze variable declaration and return its type
     fn analyze_var_decl(source: &str) -> Result<Type, Vec<SemanticError>> {
         let limits = CompilerLimits::default();
-        let tokens = lex(source, &limits)
-            .map_err(|e| vec![SemanticError::new(format!("{:?}", e), 0, 0)])?;
+        let tokens =
+            lex(source, &limits).map_err(|e| vec![SemanticError::new(format!("{:?}", e), 0, 0)])?;
         let ast = parse(tokens, &limits)
             .map_err(|e| vec![SemanticError::new(format!("{:?}", e), 0, 0)])?;
 
@@ -733,11 +752,7 @@ mod variable_type_tests {
             .ok_or(vec![SemanticError::new("No root".to_string(), 0, 0)])?;
         let decl_idx = ast.nodes[root_idx]
             .first_child
-            .ok_or(vec![SemanticError::new(
-                "No declaration".to_string(),
-                0,
-                0,
-            )])?;
+            .ok_or(vec![SemanticError::new("No declaration".to_string(), 0, 0)])?;
 
         let mut analyzer = SemanticAnalyzer::new(ast);
 
@@ -748,9 +763,9 @@ mod variable_type_tests {
             analyzer.apply_substitution();
         }
 
-        let type_id = analyzer.get_node_type(decl_idx).ok_or(vec![
-            SemanticError::new("No type".to_string(), 0, 0),
-        ])?;
+        let type_id = analyzer
+            .get_node_type(decl_idx)
+            .ok_or(vec![SemanticError::new("No type".to_string(), 0, 0)])?;
         let ty = analyzer.type_registry.resolve(type_id);
         Ok(ty.clone())
     }
@@ -832,7 +847,7 @@ mod variable_type_tests {
         assert_eq!(ty, Type::Number);
     }
 
-    // ========== Group 3: Constant Redeclaration (Phase 4.4) ==========
+    // ========== Group 3: Constant Redeclaration ==========
     // File-level variables are constants and cannot be redeclared
 
     #[test]
@@ -928,13 +943,13 @@ mod variable_type_tests {
     }
 }
 
-/// Tests for function signature analysis (Phase 5.1)
+/// Tests for function signature analysis
 #[cfg(test)]
 mod function_signature_tests {
     use crate::lexer::lex;
     use crate::limits::CompilerLimits;
     use crate::parser::parse;
-    use crate::semantic::{SemanticAnalyzer, SymbolKind, Type, FunctionType};
+    use crate::semantic::{FunctionType, SemanticAnalyzer, SymbolKind, Type};
 
     /// Helper to get function type from analyzed source
     fn get_function_type(source: &str, func_name: &str) -> Option<FunctionType> {
@@ -963,7 +978,11 @@ mod function_signature_tests {
     }
 
     /// Helper to check if a TypeId resolves to a specific type name
-    fn type_resolves_to(analyzer: &SemanticAnalyzer, type_id: crate::semantic::TypeId, expected: &Type) -> bool {
+    fn type_resolves_to(
+        analyzer: &SemanticAnalyzer,
+        type_id: crate::semantic::TypeId,
+        expected: &Type,
+    ) -> bool {
         analyzer.type_registry.resolve(type_id) == expected
     }
 
@@ -1043,7 +1062,11 @@ mod function_signature_tests {
             assert_eq!(ft.params[0].name, "x");
             assert_eq!(ft.params[1].name, "y");
             // First param should be Number
-            assert!(type_resolves_to(&analyzer, ft.params[0].type_id, &Type::Number));
+            assert!(type_resolves_to(
+                &analyzer,
+                ft.params[0].type_id,
+                &Type::Number
+            ));
             // Second param should be Unknown
             assert!(is_unknown_type(&analyzer, ft.params[1].type_id));
         } else {
@@ -1125,9 +1148,21 @@ mod function_signature_tests {
             assert_eq!(ft.params[0].name, "a");
             assert_eq!(ft.params[1].name, "b");
             assert_eq!(ft.params[2].name, "c");
-            assert!(type_resolves_to(&analyzer, ft.params[0].type_id, &Type::Number));
-            assert!(type_resolves_to(&analyzer, ft.params[1].type_id, &Type::String));
-            assert!(type_resolves_to(&analyzer, ft.params[2].type_id, &Type::Bool));
+            assert!(type_resolves_to(
+                &analyzer,
+                ft.params[0].type_id,
+                &Type::Number
+            ));
+            assert!(type_resolves_to(
+                &analyzer,
+                ft.params[1].type_id,
+                &Type::String
+            ));
+            assert!(type_resolves_to(
+                &analyzer,
+                ft.params[2].type_id,
+                &Type::Bool
+            ));
             assert!(type_resolves_to(&analyzer, ft.return_type, &Type::Number));
         } else {
             panic!("Expected Function type");
@@ -1168,7 +1203,11 @@ mod function_signature_tests {
         // String signature should still be present
         assert!(symbol.type_name.is_some());
         let sig = symbol.type_name.as_ref().unwrap();
-        assert!(sig.contains("Number"), "Signature should contain 'Number': {}", sig);
+        assert!(
+            sig.contains("Number"),
+            "Signature should contain 'Number': {}",
+            sig
+        );
 
         // TypeId should also be present
         assert!(symbol.type_id.is_some());
