@@ -76,6 +76,8 @@ pub struct StructField {
     pub name: String,
     /// Field type
     pub type_id: TypeId,
+    /// Whether this field is private (only accessible within the struct)
+    pub is_private: bool,
 }
 
 /// Method in a struct type
@@ -85,6 +87,8 @@ pub struct StructMethod {
     pub name: String,
     /// Method type (must be a Function type)
     pub function_type: TypeId,
+    /// Whether this method is private (only accessible within the struct)
+    pub is_private: bool,
 }
 
 /// Complete struct type definition
@@ -694,10 +698,12 @@ mod tests {
                 StructField {
                     name: "name".to_string(),
                     type_id: str,
+                    is_private: false,
                 },
                 StructField {
                     name: "age".to_string(),
                     type_id: num,
+                    is_private: false,
                 },
             ],
             methods: vec![],
@@ -717,6 +723,7 @@ mod tests {
             fields: vec![StructField {
                 name: "x".to_string(),
                 type_id: num,
+                is_private: false,
             }],
             methods: vec![],
         };
@@ -742,10 +749,12 @@ mod tests {
                 StructField {
                     name: "a".to_string(),
                     type_id: num,
+                    is_private: false,
                 },
                 StructField {
                     name: "b".to_string(),
                     type_id: str,
+                    is_private: false,
                 },
             ],
             methods: vec![],
@@ -756,10 +765,12 @@ mod tests {
                 StructField {
                     name: "b".to_string(),
                     type_id: str,
+                    is_private: false,
                 },
                 StructField {
                     name: "a".to_string(),
                     type_id: num,
+                    is_private: false,
                 },
             ],
             methods: vec![],
@@ -789,10 +800,12 @@ mod tests {
             fields: vec![StructField {
                 name: "x".to_string(),
                 type_id: num,
+                is_private: false,
             }],
             methods: vec![StructMethod {
                 name: "reset".to_string(),
                 function_type: func_id,
+                is_private: false,
             }],
         };
 
@@ -909,10 +922,12 @@ mod tests {
                 StructField {
                     name: "value".to_string(),
                     type_id: num,
+                    is_private: false,
                 },
                 StructField {
                     name: "next".to_string(),
                     type_id: node_id,
+                    is_private: false,
                 },
             ],
             methods: vec![],
@@ -1136,10 +1151,12 @@ mod tests {
                 StructField {
                     name: "name".to_string(),
                     type_id: str,
+                    is_private: false,
                 },
                 StructField {
                     name: "age".to_string(),
                     type_id: num,
+                    is_private: false,
                 },
             ],
             methods: vec![],
@@ -1151,6 +1168,7 @@ mod tests {
             fields: vec![StructField {
                 name: "reports".to_string(),
                 type_id: registry.intern(Type::Array(person_id)),
+                is_private: false,
             }],
             methods: vec![],
         };

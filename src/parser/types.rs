@@ -238,6 +238,12 @@ impl<'a> Parser<'a> {
                     );
                 }
             }
+
+            // Skip optional comma between members
+            self.skip_newlines();
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance();
+            }
         }
 
         Ok(struct_body_idx)
@@ -583,6 +589,78 @@ Program
     TypeName 'Empty'
     TypeBody
       StructBody
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_struct_fields_comma_separated() {
+        let ast = to_ast_string("type Point: {x Number, y Number}\n").unwrap();
+
+        let expected = "\
+Program
+  TypeDecl
+    TypeName 'Point'
+    TypeBody
+      StructBody
+        StructField
+          Identifier 'x'
+          TypeAnnotation 'Number'
+        StructField
+          Identifier 'y'
+          TypeAnnotation 'Number'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_struct_fields_mixed_separators() {
+        let ast =
+            to_ast_string("type Person: {\n    name String,\n    age Number\n}\n").unwrap();
+
+        let expected = "\
+Program
+  TypeDecl
+    TypeName 'Person'
+    TypeBody
+      StructBody
+        StructField
+          Identifier 'name'
+          TypeAnnotation 'String'
+        StructField
+          Identifier 'age'
+          TypeAnnotation 'Number'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_struct_mixed_members_comma_separated() {
+        let ast = to_ast_string(
+            "type Calculator: {value Number, add: (x Number, y Number) Number}\n",
+        )
+        .unwrap();
+
+        let expected = "\
+Program
+  TypeDecl
+    TypeName 'Calculator'
+    TypeBody
+      StructBody
+        StructField
+          Identifier 'value'
+          TypeAnnotation 'Number'
+        StructMethod
+          Identifier 'add'
+          FunctionType
+            FunctionTypeParams
+              StructField
+                Identifier 'x'
+                TypeAnnotation 'Number'
+              StructField
+                Identifier 'y'
+                TypeAnnotation 'Number'
+            TypeAnnotation 'Number'
 ";
         assert_eq!(ast, expected);
     }

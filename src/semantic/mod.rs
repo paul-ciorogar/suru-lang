@@ -8,6 +8,7 @@ mod module_resolution;
 mod name_resolution;
 mod return_type_validation;
 mod struct_init_type_checking;
+mod struct_privacy;
 mod struct_type_definition;
 mod type_inference;
 mod type_resolution;
@@ -670,6 +671,9 @@ impl SemanticAnalyzer {
             NodeType::ModuleDecl => self.visit_module_decl(node_idx),
             // Struct initialization
             NodeType::StructInit => self.visit_struct_init(node_idx),
+            // Property access and method call (privacy enforcement)
+            NodeType::PropertyAccess => self.visit_property_access(node_idx),
+            NodeType::MethodCall => self.visit_method_call(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

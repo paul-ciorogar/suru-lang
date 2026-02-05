@@ -25,7 +25,7 @@ use super::{
     FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, StructField, StructMethod,
     StructType, Type, TypeId,
 };
-use crate::ast::NodeType;
+use crate::ast::{NodeFlags, NodeType};
 
 impl SemanticAnalyzer {
     /// Visits a struct initialization literal
@@ -101,6 +101,11 @@ impl SemanticAnalyzer {
     ///   <Expression>  (value)
     /// ```
     fn process_struct_init_field(&mut self, field_idx: usize) -> Option<StructField> {
+        // Check privacy flag on the StructInitField node
+        let is_private = self.ast.nodes[field_idx]
+            .flags
+            .contains(NodeFlags::IS_PRIVATE);
+
         // First child is field name (Identifier)
         let name_idx = self.ast.nodes[field_idx].first_child?;
 
@@ -118,6 +123,7 @@ impl SemanticAnalyzer {
         Some(StructField {
             name: field_name,
             type_id,
+            is_private,
         })
     }
 
@@ -134,6 +140,11 @@ impl SemanticAnalyzer {
     ///     Block
     /// ```
     fn process_struct_init_method(&mut self, method_idx: usize) -> Option<StructMethod> {
+        // Check privacy flag on the StructInitMethod node
+        let is_private = self.ast.nodes[method_idx]
+            .flags
+            .contains(NodeFlags::IS_PRIVATE);
+
         // First child is method name (Identifier)
         let name_idx = self.ast.nodes[method_idx].first_child?;
 
@@ -166,6 +177,7 @@ impl SemanticAnalyzer {
         Some(StructMethod {
             name: method_name,
             function_type: function_type_id,
+            is_private,
         })
     }
 

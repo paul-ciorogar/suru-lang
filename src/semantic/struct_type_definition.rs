@@ -134,6 +134,7 @@ impl SemanticAnalyzer {
         Ok(StructField {
             name: field_name,
             type_id,
+            is_private: false,
         })
     }
 
@@ -192,6 +193,7 @@ impl SemanticAnalyzer {
         Ok(StructMethod {
             name: method_name,
             function_type: function_type_id,
+            is_private: false,
         })
     }
 

@@ -5,6 +5,61 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-02-05 - Struct Privacy Enforcement
+
+### Added
+- **Struct privacy enforcement**
+  - Privacy tracking: `is_private` field on `StructField` and `StructMethod` in type system
+  - Privacy propagation from AST `NodeFlags::IS_PRIVATE` during struct init processing
+  - Property access privacy enforcement: `Cannot access private field 'X'`
+  - Method call privacy enforcement: `Cannot access private method 'X'`
+  - Privacy helper methods: `is_field_private()`, `is_method_private()`
+  - Basic `visit_property_access` and `visit_method_call` visitors (privacy-only; full type checking in 6.4/6.5)
+  - Comma-separated members in struct type definitions (parser enhancement)
+  - 13 new tests (605 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/struct_privacy.rs`
+  - `is_field_private()` - Checks if a struct field is private by name
+  - `is_method_private()` - Checks if a struct method is private by name
+  - `visit_property_access()` - Visits receiver, resolves type, checks field privacy
+  - `visit_method_call()` - Visits receiver, resolves type, checks method privacy
+- **Updated** `src/semantic/types.rs`: Added `is_private: bool` to `StructField` and `StructMethod`
+- **Updated** `src/semantic/struct_init_type_checking.rs`: Reads `NodeFlags::IS_PRIVATE` from AST nodes
+- **Updated** `src/semantic/mod.rs`: Registered `PropertyAccess` and `MethodCall` in visitor dispatch
+- **Updated** `src/parser/types.rs`: Added optional comma separator between struct body members
+
+### Privacy Design
+- Type definitions are interfaces — they do NOT have private members
+- Only struct initializations can mark fields/methods as private using `_` prefix
+- Private members are tracked in the type system via `is_private: bool`
+- External access to private members produces semantic errors
+
+### Examples
+```suru
+// Private fields and methods in struct init
+user: {
+    name: "Paul"
+    _ password: "secret"
+    greet: () String { return "hello" }
+    _ validate: () Bool { return true }
+}
+
+// Public access OK
+x: user.name           // OK
+x: user.greet()        // OK
+
+// Private access blocked
+x: user.password       // Error: Cannot access private field 'password'
+x: user.validate()     // Error: Cannot access private method 'validate'
+
+// Private extras with typed struct (structural subtyping)
+type Person: { name String }
+p Person: { name: "Paul", _ secret: "password" }  // OK
+```
+
+---
+
 ## [0.34.0] - 2026-02-05 - Struct Initialization Type Checking
 
 ### Added
