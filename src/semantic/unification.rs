@@ -141,10 +141,46 @@ impl SemanticAnalyzer {
             )),
 
             // ========== Struct Types ==========
-            (Type::Struct(_), Type::Struct(_)) => Err(self.make_error(
-                "Struct type unification not yet implemented".to_string(),
-                source,
-            )),
+            (Type::Struct(s1), Type::Struct(s2)) => {
+                // Check all required fields from s2 exist in s1
+                for expected_field in &s2.fields {
+                    match s1.fields.iter().find(|f| f.name == expected_field.name) {
+                        None => {
+                            return Err(self.make_error(
+                                format!("Missing field '{}' in struct literal", expected_field.name),
+                                source,
+                            ));
+                        }
+                        Some(actual_field) => {
+                            // Unify field types
+                            self.unify(actual_field.type_id, expected_field.type_id, source)?;
+                        }
+                    }
+                }
+
+                // Check all required methods from s2 exist in s1
+                for expected_method in &s2.methods {
+                    match s1.methods.iter().find(|m| m.name == expected_method.name) {
+                        None => {
+                            return Err(self.make_error(
+                                format!("Missing method '{}' in struct literal", expected_method.name),
+                                source,
+                            ));
+                        }
+                        Some(actual_method) => {
+                            // Unify method signatures (function types)
+                            self.unify(
+                                actual_method.function_type,
+                                expected_method.function_type,
+                                source,
+                            )?;
+                        }
+                    }
+                }
+
+                // Extra fields in s1 are allowed (structural subtyping)
+                Ok(())
+            }
 
             // ========== Special Types ==========
 

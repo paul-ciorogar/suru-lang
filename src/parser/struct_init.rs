@@ -143,6 +143,9 @@ impl<'a> Parser<'a> {
         };
         let method_idx = self.ast.add_node(method_node);
 
+        // Clone name_token for use in FunctionDecl (needed for both StructInitMethod name and FunctionDecl name)
+        let func_name_token = name_token.clone();
+
         // Add name as first child (with privacy flag if needed)
         let name_node = if is_private {
             AstNode::new_private_terminal(NodeType::Identifier, name_token)
@@ -160,7 +163,12 @@ impl<'a> Parser<'a> {
         let func_decl = AstNode::new(NodeType::FunctionDecl);
         let func_decl_idx = self.ast.add_node(func_decl);
 
-        // Add params as first child of function
+        // Add function name as first child (for AST consistency with regular FunctionDecl)
+        let func_name_node = AstNode::new_terminal(NodeType::Identifier, func_name_token);
+        let func_name_idx = self.ast.add_node(func_name_node);
+        self.ast.add_child(func_decl_idx, func_name_idx);
+
+        // Add params as second child of function
         self.ast.add_child(func_decl_idx, param_list_idx);
 
         // Check for optional return type
@@ -253,6 +261,7 @@ Program
       StructInitMethod
         Identifier 'greet'
         FunctionDecl
+          Identifier 'greet'
           ParamList
           Block
             ReturnStmt
@@ -287,6 +296,7 @@ Program
       StructInitMethod [private]
         Identifier 'internal' [private]
         FunctionDecl
+          Identifier 'internal'
           ParamList
           Block
             ReturnStmt
@@ -315,6 +325,7 @@ Program
       StructInitMethod
         Identifier 'greet'
         FunctionDecl
+          Identifier 'greet'
           ParamList
           Block
             ReturnStmt

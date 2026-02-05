@@ -5,6 +5,48 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-02-05 - Struct Initialization Type Checking
+
+### Added
+- **Struct initialization type checking**
+  - Field type validation against declared struct type
+  - Method signature validation (parameter types and return type)
+  - Missing field/method detection
+  - Structural subtyping: extra fields in literal allowed
+  - Nested struct literal support
+  - Struct-to-struct unification in Hindley-Milner system
+  - 14 new tests (592 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/struct_init_type_checking.rs`
+  - `visit_struct_init()` - Infers struct type from field/method initializations
+  - `build_function_type_from_decl()` - Constructs FunctionType from method FunctionDecl
+- **Updated** `src/semantic/unification.rs`: Struct-to-struct unification (field/method existence and type checking)
+- **Updated** `src/parser/struct_init.rs`: Added function name Identifier to FunctionDecl for AST consistency
+
+### Examples
+```suru
+// Valid struct initialization
+type Point: { x Number, y Number }
+p Point: { x: 10, y: 20 }
+
+// Missing field → Error: Missing field 'y' in struct literal
+p Point: { x: 10 }
+
+// Field type mismatch → Error: Type mismatch
+p Point: { x: "hello" }
+
+// Extra fields allowed (structural subtyping)
+p Point: { x: 10, y: 20, z: 30 }  // OK
+
+// Method signature validation
+type Greeter: { greet: () String }
+g Greeter: { greet: () String { return "hello" } }  // OK
+g Greeter: { greet: () Number { return 42 } }        // Error
+```
+
+---
+
 ## [0.33.0] - 2026-02-01 - Struct Type Definition
 
 ### Added
@@ -787,7 +829,7 @@ outer: () {
   - 3 integration tests (test_empty_program, test_analyzer_initialization, test_simple_program_with_declarations)
 
 ### Technical Details
-- Implemented in `src/semantic/mod.rs` (builds on phases 1.1 and 1.2)
+- Implemented in `src/semantic/mod.rs` 
 - Visitor methods: `visit_node()`, `visit_children()`, `visit_program()`, `visit_block()`
 - Stub methods for future phases: `visit_var_decl()`, `visit_function_decl()`, `visit_type_decl()`
 - First-child/next-sibling AST traversal pattern

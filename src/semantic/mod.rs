@@ -7,6 +7,7 @@ mod function_call_type_checking;
 mod module_resolution;
 mod name_resolution;
 mod return_type_validation;
+mod struct_init_type_checking;
 mod struct_type_definition;
 mod type_inference;
 mod type_resolution;
@@ -667,6 +668,8 @@ impl SemanticAnalyzer {
             NodeType::ReturnStmt => self.visit_return_stmt(node_idx),
             // Module declaration
             NodeType::ModuleDecl => self.visit_module_decl(node_idx),
+            // Struct initialization
+            NodeType::StructInit => self.visit_struct_init(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }
