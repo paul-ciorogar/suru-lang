@@ -4,6 +4,7 @@ mod assignment_type_checking;
 mod expression_type_inference;
 mod function_body_analysis;
 mod function_call_type_checking;
+mod method_call_type_checking;
 mod module_resolution;
 mod name_resolution;
 mod property_access_type_checking;
@@ -367,6 +368,10 @@ pub struct SemanticAnalyzer {
 
     /// Whether current module is a submodule
     is_submodule: bool,
+
+    // Struct method context
+    /// Current struct type for 'this' keyword resolution in method bodies
+    current_struct_type: Option<TypeId>,
 }
 
 impl SemanticAnalyzer {
@@ -393,6 +398,8 @@ impl SemanticAnalyzer {
             // Initialize module tracking
             current_module: None,
             is_submodule: false,
+            // Initialize struct method context
+            current_struct_type: None,
         }
     }
 
@@ -672,9 +679,11 @@ impl SemanticAnalyzer {
             NodeType::ModuleDecl => self.visit_module_decl(node_idx),
             // Struct initialization
             NodeType::StructInit => self.visit_struct_init(node_idx),
-            // Property access and method call (privacy enforcement)
+            // Property access and method call type checking
             NodeType::PropertyAccess => self.visit_property_access(node_idx),
             NodeType::MethodCall => self.visit_method_call(node_idx),
+            // this keyword resolution
+            NodeType::This => self.visit_this(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

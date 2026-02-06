@@ -89,7 +89,7 @@ impl SemanticAnalyzer {
     }
 
     /// Counts the number of arguments in an ArgList node
-    fn count_call_arguments(&self, arg_list_idx: Option<usize>) -> usize {
+    pub(super) fn count_call_arguments(&self, arg_list_idx: Option<usize>) -> usize {
         let Some(arg_list_idx) = arg_list_idx else {
             return 0;
         };

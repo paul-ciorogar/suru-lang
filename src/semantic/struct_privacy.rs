@@ -136,57 +136,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Visits a method call node and enforces privacy
-    ///
-    /// AST structure:
-    /// ```text
-    /// MethodCall
-    ///   <Receiver Expression>
-    ///   Identifier 'methodName'
-    ///   ArgList
-    /// ```
-    pub(super) fn visit_method_call(&mut self, node_idx: usize) {
-        // First child is the receiver expression
-        let Some(receiver_idx) = self.ast.nodes[node_idx].first_child else {
-            return;
-        };
-
-        // Visit receiver to resolve its type
-        self.visit_node(receiver_idx);
-
-        // Second child is the method name
-        let Some(name_idx) = self.ast.nodes[receiver_idx].next_sibling else {
-            return;
-        };
-
-        let Some(method_name) = self.ast.node_text(name_idx) else {
-            return;
-        };
-        let method_name = method_name.to_string();
-
-        // Get the receiver's type
-        let Some(receiver_type_id) = self.get_node_type(receiver_idx) else {
-            // Visit remaining children (ArgList) even if type unknown
-            if let Some(arg_list_idx) = self.ast.nodes[name_idx].next_sibling {
-                self.visit_children(arg_list_idx);
-            }
-            return;
-        };
-
-        // Check if the method is private
-        if let Some(true) = self.is_method_private(receiver_type_id, &method_name) {
-            let token = self.ast.nodes[name_idx].token.as_ref().unwrap();
-            self.record_error(SemanticError::from_token(
-                format!("Cannot access private method '{}'", method_name),
-                token,
-            ));
-        }
-
-        // Visit arguments
-        if let Some(arg_list_idx) = self.ast.nodes[name_idx].next_sibling {
-            self.visit_children(arg_list_idx);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -292,34 +241,6 @@ mod tests {
                 .any(|e| e.message.contains("Cannot access private field 'host'")),
             "Error should mention private field: {:?}",
             errors
-        );
-    }
-
-    // ========== Privacy Enforcement: Method Calls ==========
-
-    #[test]
-    fn test_private_method_call_error() {
-        let source = "obj: {\n    greet: () String { return \"hello\" }\n    _ validate: () Bool { return true }\n}\nx: obj.validate()\n";
-        let result = analyze_source(source);
-        assert!(result.is_err(), "Calling private method should fail");
-        let errors = result.unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("Cannot access private method 'validate'")),
-            "Error should mention private method: {:?}",
-            errors
-        );
-    }
-
-    #[test]
-    fn test_public_method_call_allowed() {
-        let source = "obj: {\n    greet: () String { return \"hello\" }\n    _ validate: () Bool { return true }\n}\nx: obj.greet()\n";
-        let result = analyze_source(source);
-        assert!(
-            result.is_ok(),
-            "Calling public method should succeed: {:?}",
-            result.err()
         );
     }
 

@@ -5,6 +5,39 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-02-06 - Method Call Type Checking
+
+### Added
+- **Method call type checking**
+  - Method existence validation on struct types
+  - Argument count and type validation against method signature
+  - Return type propagation to call expression
+  - Non-struct receiver detection
+  - Integration with existing privacy enforcement
+  - `lookup_struct_method_type()` helper
+- **`this` keyword support**
+  - Resolves to enclosing struct type inside method bodies
+  - Error when used outside method context
+  - Property access on `this` validates field existence
+- **Two-pass struct initialization** for correct `this` resolution
+  - Pass 1: collect field values + method signatures (no body visit)
+  - Pass 2: visit method bodies with real struct type set
+
+### Technical Details
+- **New module**: `src/semantic/method_call_type_checking.rs` - `visit_method_call()`, `visit_this()`, `lookup_struct_method_type()`
+- **Updated** `src/semantic/mod.rs`: added module, `current_struct_type` field, `NodeType::This` dispatch
+- **Updated** `src/semantic/struct_privacy.rs`: removed old privacy-only `visit_method_call()` (replaced by new module)
+- **Updated** `src/semantic/struct_init_type_checking.rs`: two-pass refactor (`collect_struct_init_signatures()`, `process_struct_init_method_signature()`)
+- **Updated** `src/semantic/function_call_type_checking.rs`: made `count_call_arguments()` `pub(super)`
+
+### Error Messages
+- `"Method 'X' does not exist on struct type"`
+- `"Method 'X' expects N argument(s) but got M"`
+- `"Cannot call method 'X' on non-struct type"`
+- `"'this' can only be used inside a method body"`
+
+---
+
 ## [0.36.0] - 2026-02-06 - Property Access Type Checking
 
 ### Added
@@ -16,12 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Chained property access: `outer.inner.value` resolves types through the chain
   - Integration with existing privacy enforcement
   - `lookup_struct_field_type()` helper for field type lookup
-  - 16 new tests (624 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/property_access_type_checking.rs`
   - `lookup_struct_field_type()` - Looks up a field's TypeId on a struct type (mirrors `is_field_private` pattern)
-  - 16 tests covering field existence, type propagation, non-struct errors, chaining, and edge cases
 - **Updated** `src/semantic/struct_privacy.rs`:
   - Rewrote `visit_property_access()` to add field existence checking and type propagation
   - Uses `matches!()` to check type discriminant before mutable calls (avoids borrow conflicts)
@@ -71,7 +102,6 @@ y: x.name    // Error: Cannot access property 'name' on non-struct type
   - Privacy helper methods: `is_field_private()`, `is_method_private()`
   - Basic `visit_property_access` and `visit_method_call` visitors (privacy-only; full type checking in 6.4/6.5)
   - Comma-separated members in struct type definitions (parser enhancement)
-  - 13 new tests (605 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/struct_privacy.rs`
@@ -125,7 +155,6 @@ p Person: { name: "Paul", _ secret: "password" }  // OK
   - Structural subtyping: extra fields in literal allowed
   - Nested struct literal support
   - Struct-to-struct unification in Hindley-Milner system
-  - 14 new tests (592 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/struct_init_type_checking.rs`
@@ -168,7 +197,6 @@ g Greeter: { greet: () Number { return 42 } }        // Error
   - Support for methods with no parameters, single parameter, and multiple parameters
   - Mixed fields and methods in same struct
   - User-defined type references in method signatures
-  - 14 new tests (578 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/struct_type_definition.rs`
@@ -263,7 +291,6 @@ type Foo: {
   - Module symbol table entries with `SymbolKind::Module`
   - Module scope creation for subsequent declarations
   - One-module-per-file validation
-  - 17 new tests (564 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/module_resolution.rs`
@@ -330,7 +357,6 @@ module Second  // Error: Only one module declaration allowed per file
   - Argument type checking: Constraints added for each argument against parameter type
   - Return type propagation: Function call nodes get the function's return type
   - Variable reference type tracking: Identifiers now have their types set from scope
-  - 27 new tests (547 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/function_call_type_checking.rs`
@@ -396,7 +422,6 @@ z: identity("hello")
   - Missing return detection: Functions with declared return type must have returns
   - Void return handling: Bare `return` in non-void functions produces error
   - Nested function isolation: Each function tracks returns independently
-  - 26 new tests (520 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/return_type_validation.rs`
@@ -476,7 +501,6 @@ outer: () Number {
   - Function context tracking with `current_function_stack` for nested functions
   - Return statement type inference and recording via `function_returns` map
   - Error detection for return statements outside functions
-  - 18 new tests (499 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/function_body_analysis.rs` with `visit_return_stmt()`
@@ -504,7 +528,6 @@ return 42                  // Error: outside function
   - `Type::Unknown` for missing return types (enables future inference)
   - TypeId storage in Symbol via new `type_id` field
   - Backward compatibility: String signatures preserved alongside structured types
-  - 11 new tests (482 total tests passing)
 
 ### Technical Details
 - **Extended Symbol struct** in `src/semantic/mod.rs`:
@@ -515,7 +538,6 @@ return 42                  // Error: outside function
   - Resolves type annotations via `lookup_type_id()`
   - Uses `Type::Unknown` for untyped/missing types
 - **Updated `visit_function_decl()`**: Now builds and stores structured function type
-- **Test module**: `function_signature_tests` with comprehensive coverage
 
 ### Function Type Construction
 ```
@@ -625,7 +647,6 @@ Shadowing (always allowed):
   - Resolves type annotation to TypeId before checking
   - Visits initializer expression to infer its type
   - Generates constraint or assigns inferred type
-  - New test module `variable_type_tests` with 15 tests
 - **Type checking flow**:
   1. Resolve type annotation (if present) to TypeId
   2. Visit initializer expression to infer its type
@@ -832,7 +853,6 @@ xs: []         // Inferred: Array('a) where 'a is type variable
   - Intersection types with validation (`type Admin: Person + { role String }`)
   - Built-in types: Number, String, Bool, Int8-Int64, UInt8-UInt64, Float32-Float64
   - TypeRegistry integration for type interning
-  - 37 new tests (408 total tests passing)
 
 ### Technical Details
 - **New module**: `src/semantic/type_resolution.rs` with visitor methods for each type form
@@ -862,7 +882,6 @@ type Admin: User + { role String }  // Intersection type
   - Context-aware identifier resolution (distinguishes declarations from references)
   - Support for variable shadowing across scopes
   - Recursive function support (function visible to its own body)
-  - 19 comprehensive semantic analysis tests (329 total tests)
 
 ### Technical Details
 - **New module**: `src/semantic/name_resolution.rs` (~520 lines)
@@ -936,7 +955,6 @@ outer: () {
   - Automatic scope management for blocks
   - Error collection (collects all errors, doesn't stop on first)
   - Integration with existing ScopeStack infrastructure
-  - 3 integration tests (test_empty_program, test_analyzer_initialization, test_simple_program_with_declarations)
 
 ### Technical Details
 - Implemented in `src/semantic/mod.rs` 
@@ -956,7 +974,6 @@ outer: () {
   - Supports chaining: `--42`, `---value`
   - Integration with all operators: `not -value`, `-a and b`, `data | -getValue()`
   - New AST node type: `Negate`
-  - 35 comprehensive tests (283 total)
 
 ### Examples
 ```suru
@@ -988,7 +1005,6 @@ d: add(-5, 10)
 - Flexible separators: comma-separated or newline-separated lists
 - New AST nodes: `ModuleDecl`, `ModulePath`, `Import`, `ImportList`, `ImportItem`, `ImportAlias`, `ImportSelective`, `ImportSelector`, `Export`, `ExportList`
 - New parser module: `src/parser/module.rs` (~745 lines)
-- 37 comprehensive tests (252 total)
 
 ### Examples
 ```suru
@@ -1015,7 +1031,6 @@ export {
   - Left-associative: `a + b + c` → `(a + b) + c`
   - Works in all expression contexts
   - New AST node: `Compose`
-  - 18 comprehensive tests (215 total)
 - **Struct literals as expressions**
   - Struct literals `{...}` now usable in any expression context
   - Enables: `base + {extra: value}`
@@ -1041,7 +1056,6 @@ result: getData() | transform + enhance
   - Works with method calls: `partial obj.method(arg)`
   - Composable in pipes: `data | partial filter(active)`
   - New AST node type: `Partial`
-  - 5 essential tests (197 tests total)
 
 ### Technical Details
 - Added `Partial` to `NodeType` enum in `src/ast.rs`
@@ -1077,7 +1091,6 @@ The `partial` keyword complements the existing `_` placeholder syntax. While `_`
   - Method chaining on list literals: `[1, 2, 3].length()`
   - New AST node type: `List`
   - New parser module: `src/parser/list.rs` (~420 lines)
-  - 19 comprehensive tests (192 tests total)
 
 ### Examples
 ```suru
@@ -1130,7 +1143,6 @@ computed: [getValue(), x | transform]
 - Struct literals parsed in limited contexts (var decls only for now)
 - Comma-separated or newline-separated struct members
 - Modular implementation in `src/parser/struct_init.rs`
-- 16 new tests (157 → 173 total)
 
 ### Examples
 ```suru
@@ -1192,7 +1204,6 @@ user User: {
   - Complex subjects: function calls, method calls, property access, pipes
   - Complex results: function calls, method calls, boolean expressions, pipes
   - New AST node types: `Match`, `MatchSubject`, `MatchArms`, `MatchArm`, `MatchPattern`
-  - 28 comprehensive tests covering all patterns and edge cases
 - **Match statement** support for pattern matching as standalone control flow
   - Works anywhere statements are allowed: program root, function bodies, blocks
   - Wrapped in `ExprStmt` for statement context
@@ -1269,14 +1280,12 @@ print("done")
   - Works with expressions, function/method calls, pipes
   - Chaining: `try try getValue()`, `input | try parse | try validate`
   - New AST node: `Try`
-  - 17 tests
 
 - **Placeholder** (`_`) for partial application
   - Terminal expression for function/method arguments
   - Multiple placeholders: `func(_, 42, _)`
   - In pipes: `100 | multiply(_, 2) | add(_, 50)`
   - New AST node: `Placeholder`
-  - 12 tests
 
 ### Examples
 ```suru
@@ -1299,7 +1308,6 @@ chain: data | filter(_, active) | map(_, transform)
 - Pipes with method calls: `obj.method() | func`
 - Complex pipeline chains: `data | filter(active) | sort() | take(10)`
 - New AST node type: `Pipe`
-- 17 comprehensive tests for pipe operator
 
 ### Technical Details
 - Pipe has precedence level 1 (same as `or`)
@@ -1328,7 +1336,6 @@ output: obj.process() | validate() | format()
 - Method chaining support (`numbers.add(6).add(7).set(0, 0)`)
 - Works on any expression including literals (`"hello".toUpper()`, `42.toString()`)
 - New AST node types: `MethodCall`, `PropertyAccess`, `ArgList`
-- 14 comprehensive tests for method calls and property access
 
 ### Technical Details
 - Dot operator has highest precedence (4)
@@ -1346,9 +1353,9 @@ output: obj.process() | validate() | format()
 - `parser/mod.rs` - Parser struct, public API, module coordination
 - `parser/error.rs` - ParseError type with Display/Error implementations
 - `parser/helpers.rs` - Operator precedence, token navigation utilities
-- `parser/expressions.rs` - Expression parsing (~60 tests)
-- `parser/types.rs` - Type declaration parsing (~70 tests)
-- `parser/statements.rs` - Statement parsing (~60 tests)
+- `parser/expressions.rs` - Expression parsing 
+- `parser/types.rs` - Type declaration parsing 
+- `parser/statements.rs` - Statement parsing 
 
 ### Improved
 - Better code organization and maintainability
@@ -1365,7 +1372,6 @@ output: obj.process() | validate() | format()
 - Struct types with fields and methods
 - Intersection types with `+` operator
 - Generic types with constraints (`type List<T>`, `type Comparable<T: Orderable>`)
-- 51 tests covering all type declaration forms
 
 ### Technical Details
 - Unified TypeDecl node for all forms
@@ -1382,7 +1388,6 @@ output: obj.process() | validate() | format()
 - Support for typed parameters (`x Number`)
 - Support for inferred parameters (`value`)
 - Mixed parameter types in same function
-- 18 comprehensive tests
 
 ### Examples
 ```suru
@@ -1403,7 +1408,6 @@ identity: (value) {
 - Standalone function calls as statements
 - 2-token lookahead for disambiguation
 - New AST nodes: `FunctionDecl`, `ParamList`, `Block`, `ExprStmt`
-- 22 comprehensive tests
 
 ### Examples
 ```suru

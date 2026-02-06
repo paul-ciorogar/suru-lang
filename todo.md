@@ -158,11 +158,11 @@
 - [x] Write tests for property access
 
 ### 6.5 Method Call Type Checking
-- [ ] Check method exists on struct type
-- [ ] Validate method call arguments
-- [ ] Determine method call result type
-- [ ] Handle `this` keyword in method bodies
-- [ ] Write tests for method calls
+- [x] Check method exists on struct type
+- [x] Validate method call arguments
+- [x] Determine method call result type
+- [x] Handle `this` keyword in method bodies
+- [x] Write tests for method calls
 
 ## Phase 7: Advanced Type Features
 

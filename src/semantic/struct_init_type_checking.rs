@@ -44,27 +44,45 @@ impl SemanticAnalyzer {
     ///     FunctionDecl  (implementation)
     /// ```
     pub(super) fn visit_struct_init(&mut self, node_idx: usize) {
-        // Collect fields and methods from children
-        let (fields, methods) = self.collect_struct_init_members(node_idx);
+        // Two-pass approach for proper 'this' keyword support:
+        // Pass 1: Collect field values and method signatures (without visiting method bodies)
+        // Pass 2: Visit method bodies with 'this' set to the real struct type
+
+        // Pass 1: Collect signatures
+        let (fields, methods, method_func_decls) =
+            self.collect_struct_init_signatures(node_idx);
 
         // Build inferred StructType
         let struct_type = StructType { fields, methods };
         let type_id = self.type_registry.intern(Type::Struct(struct_type));
 
+        // Pass 2: Visit method bodies with 'this' context set to the real struct type
+        let previous_struct_type = self.current_struct_type;
+        self.current_struct_type = Some(type_id);
+
+        for func_decl_idx in method_func_decls {
+            self.visit_function_decl(func_decl_idx);
+        }
+
+        // Restore previous struct type context (handles nested structs)
+        self.current_struct_type = previous_struct_type;
+
         // Set the node type for use by parent context
         self.set_node_type(node_idx, type_id);
     }
 
-    /// Collects fields and methods from a struct init's children
+    /// Collects field types and method signatures from a struct init's children
     ///
-    /// Iterates through all children of the StructInit node,
-    /// dispatching to appropriate handlers for fields and methods.
-    fn collect_struct_init_members(
+    /// This is Pass 1: it visits field value expressions to infer their types and
+    /// builds method signatures from FunctionDecl nodes, but does NOT visit method
+    /// bodies. Returns the list of method FunctionDecl indices for Pass 2.
+    fn collect_struct_init_signatures(
         &mut self,
         struct_init_idx: usize,
-    ) -> (Vec<StructField>, Vec<StructMethod>) {
+    ) -> (Vec<StructField>, Vec<StructMethod>, Vec<usize>) {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+        let mut method_func_decls = Vec::new();
 
         let mut current_child = self.ast.nodes[struct_init_idx].first_child;
 
@@ -76,8 +94,11 @@ impl SemanticAnalyzer {
                     }
                 }
                 NodeType::StructInitMethod => {
-                    if let Some(method) = self.process_struct_init_method(child_idx) {
+                    if let Some((method, func_decl_idx)) =
+                        self.process_struct_init_method_signature(child_idx)
+                    {
                         methods.push(method);
+                        method_func_decls.push(func_decl_idx);
                     }
                 }
                 _ => {
@@ -89,7 +110,7 @@ impl SemanticAnalyzer {
             current_child = self.ast.nodes[child_idx].next_sibling;
         }
 
-        (fields, methods)
+        (fields, methods, method_func_decls)
     }
 
     /// Processes a single field initialization in a struct literal
@@ -127,7 +148,11 @@ impl SemanticAnalyzer {
         })
     }
 
-    /// Processes a single method initialization in a struct literal
+    /// Processes a single method initialization's signature in a struct literal
+    ///
+    /// Builds the method signature (StructMethod) and returns the FunctionDecl index
+    /// for later body analysis. Does NOT visit the method body - that happens in Pass 2
+    /// after the struct type is built, so 'this' can resolve to the real struct type.
     ///
     /// AST structure:
     /// ```text
@@ -139,7 +164,10 @@ impl SemanticAnalyzer {
     ///     TypeAnnotation (return type, optional)
     ///     Block
     /// ```
-    fn process_struct_init_method(&mut self, method_idx: usize) -> Option<StructMethod> {
+    fn process_struct_init_method_signature(
+        &mut self,
+        method_idx: usize,
+    ) -> Option<(StructMethod, usize)> {
         // Check privacy flag on the StructInitMethod node
         let is_private = self.ast.nodes[method_idx]
             .flags
@@ -167,18 +195,16 @@ impl SemanticAnalyzer {
             return None;
         }
 
-        // Build the function type from the FunctionDecl
-        // This reuses the existing build_function_type_from_decl method
+        // Build the function type from the FunctionDecl (signature only, no body visit)
         let function_type_id = self.build_function_type_from_decl(func_decl_idx);
 
-        // Visit the function declaration to analyze its body
-        self.visit_function_decl(func_decl_idx);
-
-        Some(StructMethod {
+        let method = StructMethod {
             name: method_name,
             function_type: function_type_id,
             is_private,
-        })
+        };
+
+        Some((method, func_decl_idx))
     }
 
     /// Builds a FunctionType from a FunctionDecl node
