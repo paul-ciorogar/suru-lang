@@ -5,6 +5,61 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-02-06 - Property Access Type Checking
+
+### Added
+- **Property access type checking**
+  - Field existence validation: Error if field does not exist on struct type
+  - Result type propagation: `receiver.field` gets the field's declared type
+  - Non-struct receiver detection: Error if accessing property on non-struct type (Number, String, Bool)
+  - Inference type handling: Skips checks for unresolved type variables (`Var`, `Unknown`)
+  - Chained property access: `outer.inner.value` resolves types through the chain
+  - Integration with existing privacy enforcement
+  - `lookup_struct_field_type()` helper for field type lookup
+  - 16 new tests (624 total tests passing)
+
+### Technical Details
+- **New module**: `src/semantic/property_access_type_checking.rs`
+  - `lookup_struct_field_type()` - Looks up a field's TypeId on a struct type (mirrors `is_field_private` pattern)
+  - 16 tests covering field existence, type propagation, non-struct errors, chaining, and edge cases
+- **Updated** `src/semantic/struct_privacy.rs`:
+  - Rewrote `visit_property_access()` to add field existence checking and type propagation
+  - Uses `matches!()` to check type discriminant before mutable calls (avoids borrow conflicts)
+  - Three-way dispatch: struct type → field check, inference type → skip, other → error
+- **Updated** `src/semantic/mod.rs`: Registered `property_access_type_checking` module
+
+### Error Messages
+- `"Field 'X' does not exist on struct type"` - Field not found on struct
+- `"Cannot access property 'X' on non-struct type"` - Receiver is not a struct
+- `"Cannot access private field 'X'"` - Field is private (preserved from 6.3)
+
+### Examples
+```suru
+// Valid property access
+p: { name: "Paul", age: 42 }
+x: p.name    // x gets type String
+y: p.age     // y gets type Number
+
+// Chained access
+outer: { inner: { value: 42 } }
+x: outer.inner.value  // Resolves through chain
+
+// Typed struct access
+type Person: { name String, age Number }
+p Person: { name: "Paul", age: 30 }
+x: p.name    // x gets type String
+
+// Error: field doesn't exist
+p: { name: "Paul" }
+x: p.email   // Error: Field 'email' does not exist on struct type
+
+// Error: non-struct receiver
+x: 42
+y: x.name    // Error: Cannot access property 'name' on non-struct type
+```
+
+---
+
 ## [0.35.0] - 2026-02-05 - Struct Privacy Enforcement
 
 ### Added

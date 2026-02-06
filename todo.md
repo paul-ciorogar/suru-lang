@@ -140,22 +140,22 @@
 - [x] Write tests for struct type construction
 
 ### 6.2 Struct Initialization Type Checking
-- [ ] Check struct literal field types
-- [ ] Check struct literal method signatures
-- [ ] Validate required fields are present
-- [ ] Write tests for struct initialization
+- [x] Check struct literal field types
+- [x] Check struct literal method signatures
+- [x] Validate required fields are present
+- [x] Write tests for struct initialization
 
 ### 6.3 Struct Privacy Enforcement
-- [ ] Track private fields/methods (using NodeFlags)
-- [ ] Enforce privacy rules for field access
-- [ ] Enforce privacy rules for method calls
-- [ ] Write tests for privacy enforcement
+- [x] Track private fields/methods (using NodeFlags)
+- [x] Enforce privacy rules for field access
+- [x] Enforce privacy rules for method calls
+- [x] Write tests for privacy enforcement
 
 ### 6.4 Property Access Type Checking
-- [ ] Check field exists on struct type
-- [ ] Determine property access result type
-- [ ] Check privacy rules for property access
-- [ ] Write tests for property access
+- [x] Check field exists on struct type
+- [x] Determine property access result type
+- [x] Check privacy rules for property access
+- [x] Write tests for property access
 
 ### 6.5 Method Call Type Checking
 - [ ] Check method exists on struct type

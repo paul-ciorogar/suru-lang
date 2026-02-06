@@ -6,6 +6,7 @@ mod function_body_analysis;
 mod function_call_type_checking;
 mod module_resolution;
 mod name_resolution;
+mod property_access_type_checking;
 mod return_type_validation;
 mod struct_init_type_checking;
 mod struct_privacy;

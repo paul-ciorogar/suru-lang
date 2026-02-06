@@ -55,7 +55,8 @@ impl SemanticAnalyzer {
         None
     }
 
-    /// Visits a property access node and enforces privacy
+    /// Visits a property access node, checks field existence, enforces privacy,
+    /// and propagates the field's type to the PropertyAccess node.
     ///
     /// AST structure:
     /// ```text
@@ -84,14 +85,52 @@ impl SemanticAnalyzer {
 
         // Get the receiver's type
         let Some(receiver_type_id) = self.get_node_type(receiver_idx) else {
-            return;
+            return; // Type unknown - skip checks (will be resolved during inference)
         };
 
-        // Check if the field is private
-        if let Some(true) = self.is_field_private(receiver_type_id, &property_name) {
+        // Check receiver type category before calling mutable methods
+        let is_struct = matches!(self.type_registry.resolve(receiver_type_id), Type::Struct(_));
+        let is_inference_type = matches!(
+            self.type_registry.resolve(receiver_type_id),
+            Type::Var(_) | Type::Unknown
+        );
+
+        if is_struct {
+            // Check field existence and get its type
+            if let Some(field_type_id) =
+                self.lookup_struct_field_type(receiver_type_id, &property_name)
+            {
+                // Field exists - check privacy
+                if let Some(true) = self.is_field_private(receiver_type_id, &property_name) {
+                    let token = self.ast.nodes[name_idx].token.as_ref().unwrap();
+                    self.record_error(SemanticError::from_token(
+                        format!("Cannot access private field '{}'", property_name),
+                        token,
+                    ));
+                }
+                // Set the PropertyAccess node's type to the field's type
+                self.set_node_type(node_idx, field_type_id);
+            } else {
+                // Field does not exist on this struct
+                let token = self.ast.nodes[name_idx].token.as_ref().unwrap();
+                self.record_error(SemanticError::from_token(
+                    format!(
+                        "Field '{}' does not exist on struct type",
+                        property_name
+                    ),
+                    token,
+                ));
+            }
+        } else if is_inference_type {
+            // Type not yet known - skip checks, will be resolved during inference
+        } else {
+            // Not a struct type - cannot access properties
             let token = self.ast.nodes[name_idx].token.as_ref().unwrap();
             self.record_error(SemanticError::from_token(
-                format!("Cannot access private field '{}'", property_name),
+                format!(
+                    "Cannot access property '{}' on non-struct type",
+                    property_name
+                ),
                 token,
             ));
         }
