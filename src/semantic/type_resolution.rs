@@ -81,7 +81,7 @@ impl SemanticAnalyzer {
         // PHASE 3: PROCESS TYPE BODY AND REGISTER
 
         // Determine type form based on TypeBody children
-        let type_id = match self.process_type_body(type_body_idx) {
+        let type_id = match self.process_type_body(type_body_idx, &type_name) {
             Ok(id) => id,
             Err(error) => {
                 self.record_error(error);
@@ -94,19 +94,26 @@ impl SemanticAnalyzer {
             type_name.clone(),
             Some(format!("TypeId({})", type_id.index())), // Store TypeId reference
             SymbolKind::Type,
-        );
+        )
+        .with_type_id(type_id);
         self.scopes.insert(symbol);
     }
 
     /// Processes the body of a type declaration and returns its TypeId
-    fn process_type_body(&mut self, type_body_idx: usize) -> Result<TypeId, SemanticError> {
+    fn process_type_body(
+        &mut self,
+        type_body_idx: usize,
+        type_name: &str,
+    ) -> Result<TypeId, SemanticError> {
         // Check what's inside TypeBody
         let first_child = self.ast.nodes[type_body_idx].first_child;
 
         match first_child {
             None => {
-                // Unit type - empty TypeBody
-                Ok(self.type_registry.intern(Type::Unit))
+                // Named unit type - empty TypeBody (e.g., type Success)
+                Ok(self
+                    .type_registry
+                    .intern(Type::NamedUnit(type_name.to_string())))
             }
             Some(child_idx) => match self.ast.nodes[child_idx].node_type {
                 NodeType::TypeAnnotation => {

@@ -133,10 +133,51 @@ impl SemanticAnalyzer {
                 self.unify(f1.return_type, f2.return_type, source)
             }
 
-            // ========== Union and Intersection ==========
-            (Type::Union(_), Type::Union(_))
-            | (Type::Intersection(_, _), Type::Intersection(_, _)) => Err(self.make_error(
-                "Union/intersection type unification not yet implemented".to_string(),
+            // ========== Named Unit Types ==========
+            (Type::NamedUnit(n1), Type::NamedUnit(n2)) => {
+                if n1 == n2 {
+                    Ok(())
+                } else {
+                    Err(self.make_error(
+                        format!("Type mismatch: cannot unify {:?} with {:?}", type1, type2),
+                        source,
+                    ))
+                }
+            }
+
+            // ========== Union Types ==========
+
+            // Concrete type vs Union: check if concrete type is one of the alternatives
+            (_, Type::Union(alternatives)) => {
+                if alternatives.iter().any(|alt| *alt == t1) {
+                    Ok(())
+                } else {
+                    Err(self.make_error(
+                        format!(
+                            "Type mismatch: type is not a member of the union type"
+                        ),
+                        source,
+                    ))
+                }
+            }
+
+            // Union vs Concrete: symmetric case
+            (Type::Union(alternatives), _) => {
+                if alternatives.iter().any(|alt| *alt == t2) {
+                    Ok(())
+                } else {
+                    Err(self.make_error(
+                        format!(
+                            "Type mismatch: type is not a member of the union type"
+                        ),
+                        source,
+                    ))
+                }
+            }
+
+            // ========== Intersection Types ==========
+            (Type::Intersection(_, _), Type::Intersection(_, _)) => Err(self.make_error(
+                "Intersection type unification not yet implemented".to_string(),
                 source,
             )),
 

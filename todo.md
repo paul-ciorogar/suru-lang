@@ -167,14 +167,15 @@
 ## Phase 7: Advanced Type Features
 
 ### 7.1 Union Type Support
-- [ ] Implement union type checking
-- [ ] Check value matches one of union alternatives
-- [ ] Write tests for union types
+- [x] Implement union type checking
+- [x] Check value matches one of union alternatives
+- [x] Write tests for union types
 
 ### 7.2 Intersection Type Support (Composition)
 - [ ] Implement intersection type construction
 - [ ] Merge struct fields/methods for intersections
 - [ ] Check composition operator type compatibility
+- [ ] Check privacy overwiting (public not overwritten by private and private not overwritten by public)
 - [ ] Write tests for intersection types
 
 ### 7.3 Function Type Checking

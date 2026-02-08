@@ -16,6 +16,7 @@ mod type_inference;
 mod type_resolution;
 mod types;
 mod unification;
+mod union_type_checking;
 
 pub use types::{
     Constraint,

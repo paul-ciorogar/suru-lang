@@ -185,6 +185,9 @@ pub enum Type {
     // Primitive types
     /// Unit type (empty type)
     Unit,
+    /// Named unit type (e.g., type Success, type Error)
+    /// Each named unit type is distinct, unlike anonymous Unit
+    NamedUnit(String),
     /// Void type (for functions with no return value)
     Void,
     /// Universal numeric type

@@ -7,7 +7,8 @@
 // - Function call resolution
 
 use super::{
-    FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type, TypeId,
+    FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type,
+    TypeId,
 };
 use crate::ast::NodeType;
 
@@ -175,15 +176,34 @@ impl SemanticAnalyzer {
         };
 
         // Look up in scope chain
-        if self.scopes.lookup(name).is_none() {
-            let token = self.ast.nodes[node_idx].token.as_ref().unwrap();
-            let error =
-                SemanticError::from_token(format!("Variable '{}' is not defined", name), token);
-            self.record_error(error);
-        } else {
-            // Set the node type from the variable's type
-            if let Some(var_type) = self.lookup_variable_type(name) {
-                self.set_node_type(node_idx, var_type);
+        // Extract symbol info before mutable borrows
+        let symbol_info = self
+            .scopes
+            .lookup(name)
+            .map(|s| (s.kind, s.type_id));
+
+        match symbol_info {
+            None => {
+                let token = self.ast.nodes[node_idx].token.as_ref().unwrap();
+                let error = SemanticError::from_token(
+                    format!("Variable '{}' is not defined", name),
+                    token,
+                );
+                self.record_error(error);
+            }
+            Some((kind, type_id)) => {
+                // Set the node type from the variable's type
+                if let Some(var_type) = self.lookup_variable_type(name) {
+                    self.set_node_type(node_idx, var_type);
+                } else if kind == SymbolKind::Type {
+                    // Named unit types can be used as values (e.g., x: Success)
+                    if let Some(type_id) = type_id {
+                        let ty = self.type_registry.resolve(type_id).clone();
+                        if matches!(ty, Type::NamedUnit(_)) {
+                            self.set_node_type(node_idx, type_id);
+                        }
+                    }
+                }
             }
         }
     }

@@ -5,6 +5,32 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-02-07 - Union Type Checking
+
+### Added
+- **Union type checking** - values are validated against union type alternatives
+  - Concrete type vs union: checks value's type is one of the union's alternatives
+  - Union annotation on variables: `x Status: Success` validates `Success` is in `Status`
+  - Union with built-in types: `type Value: Number, String` accepts `42` and `"hello"`
+  - Function parameters and return types with union types
+- **Named unit types** (`Type::NamedUnit(String)`) - each named unit type is now distinct
+  - Previously all unit types (`type Success`, `type Error`) collapsed to the same `Type::Unit`
+  - Now `Success` and `Error` are distinguishable types with unique TypeIds
+  - Named unit types can be used as value expressions: `x: Success`
+- **Union unification** in Hindley-Milner type inference
+  - `NamedUnit` vs `NamedUnit`: same name unifies, different names error
+  - Concrete vs `Union`: membership check against alternatives
+  - Symmetric: works in both constraint directions
+
+### Technical Details
+- **Updated** `src/semantic/types.rs`: Added `NamedUnit(String)` variant to `Type` enum
+- **Updated** `src/semantic/type_resolution.rs`: Unit type declarations produce `NamedUnit(name)` instead of `Unit`; type symbols now store `type_id` directly
+- **Updated** `src/semantic/unification.rs`: Replaced placeholder error with `NamedUnit`, concrete-vs-union, and union-vs-concrete match arms
+- **Updated** `src/semantic/name_resolution.rs`: `visit_identifier()` resolves `NamedUnit` type symbols as values
+- **New module**: `src/semantic/union_type_checking.rs` - 16 tests
+
+---
+
 ## [0.37.0] - 2026-02-06 - Method Call Type Checking
 
 ### Added
@@ -30,12 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Updated** `src/semantic/struct_init_type_checking.rs`: two-pass refactor (`collect_struct_init_signatures()`, `process_struct_init_method_signature()`)
 - **Updated** `src/semantic/function_call_type_checking.rs`: made `count_call_arguments()` `pub(super)`
 
-### Error Messages
-- `"Method 'X' does not exist on struct type"`
-- `"Method 'X' expects N argument(s) but got M"`
-- `"Cannot call method 'X' on non-struct type"`
-- `"'this' can only be used inside a method body"`
-
 ---
 
 ## [0.36.0] - 2026-02-06 - Property Access Type Checking
@@ -58,11 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Uses `matches!()` to check type discriminant before mutable calls (avoids borrow conflicts)
   - Three-way dispatch: struct type → field check, inference type → skip, other → error
 - **Updated** `src/semantic/mod.rs`: Registered `property_access_type_checking` module
-
-### Error Messages
-- `"Field 'X' does not exist on struct type"` - Field not found on struct
-- `"Cannot access property 'X' on non-struct type"` - Receiver is not a struct
-- `"Cannot access private field 'X'"` - Field is private (preserved from 6.3)
 
 ### Examples
 ```suru
