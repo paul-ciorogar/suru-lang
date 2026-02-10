@@ -133,15 +133,8 @@ impl SemanticAnalyzer {
                     self.process_intersection_type(child_idx)
                 }
                 NodeType::FunctionType => {
-                    let token = self.ast.nodes[child_idx]
-                        .token
-                        .as_ref()
-                        .or_else(|| self.ast.nodes[type_body_idx].token.as_ref())
-                        .unwrap();
-                    Err(SemanticError::from_token(
-                        "Function types not yet supported".to_string(),
-                        token,
-                    ))
+                    // Function type declaration: type AddFn: (a Number, b Number) Number
+                    self.process_function_type_definition(child_idx)
                 }
                 _ => {
                     let token = self.ast.nodes[child_idx]

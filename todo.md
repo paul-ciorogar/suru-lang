@@ -179,9 +179,9 @@
 - [x] Write tests for intersection types
 
 ### 7.3 Function Type Checking
-- [ ] Validate function type declarations
-- [ ] Check function values match function types
-- [ ] Write tests for function types
+- [x] Validate function type declarations
+- [x] Check function values match function types
+- [x] Write tests for function types
 
 ### 7.4 Generic Type Parameters
 - [ ] Implement generic type parameter tracking

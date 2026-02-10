@@ -208,7 +208,7 @@ impl SemanticAnalyzer {
     ///       TypeAnnotation 'ParamType'
     ///   TypeAnnotation 'ReturnType'
     /// ```
-    fn process_function_type_definition(
+    pub(super) fn process_function_type_definition(
         &mut self,
         func_type_idx: usize,
     ) -> Result<TypeId, SemanticError> {

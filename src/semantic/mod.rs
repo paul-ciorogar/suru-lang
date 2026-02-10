@@ -18,6 +18,7 @@ mod type_resolution;
 mod types;
 mod unification;
 mod union_type_checking;
+mod function_type_checking;
 
 pub use types::{
     Constraint,

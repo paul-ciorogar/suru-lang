@@ -203,6 +203,11 @@ impl SemanticAnalyzer {
                             self.set_node_type(node_idx, type_id);
                         }
                     }
+                } else if kind == SymbolKind::Function {
+                    // Function names used as values expose their FunctionType
+                    if let Some(func_type_id) = type_id {
+                        self.set_node_type(node_idx, func_type_id);
+                    }
                 }
             }
         }

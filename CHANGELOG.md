@@ -5,6 +5,18 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-02-10 - Function Type Checking
+
+### Added
+- **Function type declarations** - `type AddFn: (a Number, b Number) Number` now validated and registered
+- **Function values match function types** - `myAdd AddFn: add` checks param types, param count, and return type via unification
+- **New module**: `src/semantic/function_type_checking.rs` - 14 tests covering declarations, error cases, and function-as-value assignment
+
+### Technical Details
+- Exposed `process_function_type_definition()` as `pub(super)` in `struct_type_definition.rs` (already used for struct methods)
+- Replaced "Function types not yet supported" error in `type_resolution.rs` with real processing
+- Added `SymbolKind::Function` handling in `visit_identifier` so function names used as values expose their `FunctionType`
+
 ## [0.39.0] - 2026-02-08 - Intersection Type Checking
 
 ### Added
