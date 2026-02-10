@@ -5,6 +5,27 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-02-08 - Intersection Type Checking
+
+### Added
+- **Intersection type merging** - `type Employee: Person + { salary Number }` merges all fields/methods into a single struct type
+  - Chained intersections: `A + B + C` merges all component struct fields
+  - Inline struct intersections: `Person + { salary Number }`
+  - Duplicate fields with same type allowed (deduplicated)
+  - Conflict detection: different types or privacy on same field name produce errors
+- **Property access and method calls** work on intersection types automatically (merged struct)
+- **Struct init validation** against intersection types (all merged fields required)
+
+### Changed
+- **Removed** `Type::Intersection(TypeId, TypeId)` variant from `Type` enum — intersections now resolve to `Type::Struct` at declaration time
+- **Rewritten** `process_intersection_type()` in `type_resolution.rs` to merge structs instead of storing binary tree
+- **Cleaned up** `unification.rs`: removed intersection stub and occurs_check case
+
+### Technical Details
+- **New module**: `src/semantic/intersection_type_checking.rs` - merge helper + 21 tests
+- **Updated** `src/semantic/type_resolution.rs`: both operands validated as struct types, merged via `merge_struct_types()`
+- **Updated** `src/semantic/types.rs`: removed `Intersection` variant and related interning tests
+
 ## [0.38.0] - 2026-02-07 - Union Type Checking
 
 ### Added

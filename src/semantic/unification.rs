@@ -175,12 +175,6 @@ impl SemanticAnalyzer {
                 }
             }
 
-            // ========== Intersection Types ==========
-            (Type::Intersection(_, _), Type::Intersection(_, _)) => Err(self.make_error(
-                "Intersection type unification not yet implemented".to_string(),
-                source,
-            )),
-
             // ========== Struct Types ==========
             (Type::Struct(s1), Type::Struct(s2)) => {
                 // Check all required fields from s2 exist in s1
@@ -271,9 +265,6 @@ impl SemanticAnalyzer {
                     || self.occurs_check(var, func.return_type)
             }
             Type::Union(types) => types.iter().any(|t| self.occurs_check(var, *t)),
-            Type::Intersection(left, right) => {
-                self.occurs_check(var, *left) || self.occurs_check(var, *right)
-            }
             Type::Struct(struct_type) => {
                 // Check fields and methods
                 struct_type

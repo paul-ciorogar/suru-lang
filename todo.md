@@ -172,11 +172,11 @@
 - [x] Write tests for union types
 
 ### 7.2 Intersection Type Support (Composition)
-- [ ] Implement intersection type construction
-- [ ] Merge struct fields/methods for intersections
-- [ ] Check composition operator type compatibility
-- [ ] Check privacy overwiting (public not overwritten by private and private not overwritten by public)
-- [ ] Write tests for intersection types
+- [x] Implement intersection type construction
+- [x] Merge struct fields/methods for intersections
+- [x] Check composition operator type compatibility
+- [x] Check privacy overwriting (public not overwritten by private and private not overwritten by public)
+- [x] Write tests for intersection types
 
 ### 7.3 Function Type Checking
 - [ ] Validate function type declarations

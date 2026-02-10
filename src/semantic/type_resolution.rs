@@ -239,7 +239,8 @@ impl SemanticAnalyzer {
         self.process_struct_type_definition(struct_body_idx)
     }
 
-    /// Processes an intersection type declaration
+    /// Processes an intersection type declaration by merging component structs
+    /// into a single `Type::Struct` with all fields and methods combined.
     fn process_intersection_type(
         &mut self,
         intersection_idx: usize,
@@ -267,9 +268,9 @@ impl SemanticAnalyzer {
         // Process right type
         let right_type_id = self.process_intersection_operand(right_idx)?;
 
-        // VALIDATION: Left-hand type must be a struct type or intersection
+        // VALIDATION: Left-hand type must be a struct type
         let left_type = self.type_registry.get(left_type_id);
-        if !matches!(left_type, Type::Struct(_) | Type::Intersection(_, _)) {
+        if !matches!(left_type, Type::Struct(_)) {
             let token = self.ast.nodes[left_idx].token.as_ref().unwrap();
             return Err(SemanticError::from_token(
                 "Left side of intersection must be a struct type".to_string(),
@@ -277,10 +278,30 @@ impl SemanticAnalyzer {
             ));
         }
 
-        // Create intersection type
-        Ok(self
-            .type_registry
-            .intern(Type::Intersection(left_type_id, right_type_id)))
+        // VALIDATION: Right-hand type must be a struct type
+        let right_type = self.type_registry.get(right_type_id);
+        if !matches!(right_type, Type::Struct(_)) {
+            let token = self.ast.nodes[right_idx].token.as_ref().unwrap();
+            return Err(SemanticError::from_token(
+                "Right side of intersection must be a struct type".to_string(),
+                token,
+            ));
+        }
+
+        // Clone the struct types to avoid borrow conflicts
+        let left_struct = match self.type_registry.get(left_type_id).clone() {
+            Type::Struct(s) => s,
+            _ => unreachable!(),
+        };
+        let right_struct = match self.type_registry.get(right_type_id).clone() {
+            Type::Struct(s) => s,
+            _ => unreachable!(),
+        };
+
+        // Merge fields and methods, checking for conflicts
+        let merged = self.merge_struct_types(&left_struct, &right_struct, intersection_idx)?;
+
+        Ok(self.type_registry.intern(Type::Struct(merged)))
     }
 
     /// Processes one operand of an intersection type

@@ -4,6 +4,7 @@ mod assignment_type_checking;
 mod expression_type_inference;
 mod function_body_analysis;
 mod function_call_type_checking;
+mod intersection_type_checking;
 mod method_call_type_checking;
 mod module_resolution;
 mod name_resolution;

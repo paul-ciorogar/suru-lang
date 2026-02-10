@@ -214,8 +214,6 @@ pub enum Type {
     Struct(StructType),
     /// Union type (A, B, C)
     Union(Vec<TypeId>),
-    /// Intersection type (A + B) - binary, chains for A+B+C
-    Intersection(TypeId, TypeId),
 
     // Function types
     /// Function type with parameters and return type
@@ -623,58 +621,7 @@ mod tests {
         assert_eq!(union1, union2);
     }
 
-    // ========== Test Group 3: Intersections ==========
-
-    #[test]
-    fn test_intern_intersection() {
-        let mut registry = TypeRegistry::new();
-
-        let num = registry.intern(Type::Number);
-        let str = registry.intern(Type::String);
-
-        let inter1 = registry.intern(Type::Intersection(num, str));
-        let inter2 = registry.intern(Type::Intersection(num, str));
-
-        assert_eq!(inter1, inter2);
-    }
-
-    #[test]
-    fn test_intern_intersection_chained() {
-        // Simulates: A + B + C (parsed as (A + B) + C)
-        let mut registry = TypeRegistry::new();
-
-        let a = registry.intern(Type::Number);
-        let b = registry.intern(Type::String);
-        let c = registry.intern(Type::Bool);
-
-        let ab = registry.intern(Type::Intersection(a, b));
-        let abc = registry.intern(Type::Intersection(ab, c));
-
-        // Verify structure
-        match registry.get(abc) {
-            Type::Intersection(left, right) => {
-                assert_eq!(*left, ab);
-                assert_eq!(*right, c);
-            }
-            _ => panic!("Expected intersection"),
-        }
-    }
-
-    #[test]
-    fn test_intern_intersection_different_order() {
-        let mut registry = TypeRegistry::new();
-
-        let a = registry.intern(Type::Number);
-        let b = registry.intern(Type::String);
-
-        let ab = registry.intern(Type::Intersection(a, b));
-        let ba = registry.intern(Type::Intersection(b, a));
-
-        // Different order = different intersection
-        assert_ne!(ab, ba);
-    }
-
-    // ========== Test Group 4: Structs ==========
+    // ========== Test Group 3: Structs ==========
 
     #[test]
     fn test_intern_empty_struct() {
@@ -1166,19 +1113,28 @@ mod tests {
         };
         let person_id = registry.intern(Type::Struct(person));
 
-        // Manager struct (will be intersected with Person)
-        let manager_extra = StructType {
-            fields: vec![StructField {
-                name: "reports".to_string(),
-                type_id: registry.intern(Type::Array(person_id)),
-                is_private: false,
-            }],
+        // Manager = Person + { reports Array } (merged struct)
+        let manager = StructType {
+            fields: vec![
+                StructField {
+                    name: "name".to_string(),
+                    type_id: str,
+                    is_private: false,
+                },
+                StructField {
+                    name: "age".to_string(),
+                    type_id: num,
+                    is_private: false,
+                },
+                StructField {
+                    name: "reports".to_string(),
+                    type_id: registry.intern(Type::Array(person_id)),
+                    is_private: false,
+                },
+            ],
             methods: vec![],
         };
-        let manager_extra_id = registry.intern(Type::Struct(manager_extra));
-
-        // Manager = Person + ManagerExtra
-        let manager = registry.intern(Type::Intersection(person_id, manager_extra_id));
+        let manager_id = registry.intern(Type::Struct(manager));
 
         // Result union
         let success = registry.intern(Type::Unit);
@@ -1186,9 +1142,9 @@ mod tests {
         let result = registry.intern(Type::Union(vec![success, error]));
 
         // Verify all types are distinct and retrievable
-        assert_ne!(person_id, manager);
+        assert_ne!(person_id, manager_id);
         assert_ne!(person_id, result);
-        assert!(matches!(registry.get(manager), Type::Intersection(_, _)));
+        assert!(matches!(registry.get(manager_id), Type::Struct(_)));
         assert!(matches!(registry.get(result), Type::Union(_)));
     }
 }
