@@ -35,28 +35,79 @@ impl SemanticAnalyzer {
         };
         let type_name = type_name.to_string();
 
-        // Check if next child is TypeParams
-        let current_child = self.ast.nodes[type_name_idx].next_sibling;
+        // Check if next child is TypeParams (generic type declaration)
+        let next_child = self.ast.nodes[type_name_idx].next_sibling;
+        let mut has_type_params = false;
+        let mut type_body_sibling = next_child;
 
-        if let Some(child_idx) = current_child {
+        if let Some(child_idx) = next_child {
             if self.ast.nodes[child_idx].node_type == NodeType::TypeParams {
-                // Generic types not yet supported
-                let token = self.ast.nodes[type_name_idx].token.as_ref().unwrap();
-                let error = SemanticError::from_token(
-                    format!("Generic types not yet supported (type '{}')", type_name),
-                    token,
-                );
-                self.record_error(error);
-                return;
+                has_type_params = true;
+
+                // Extract type parameters
+                match self.extract_type_params(child_idx) {
+                    Ok(params) => {
+                        self.current_type_params = params;
+                    }
+                    Err(error) => {
+                        self.record_error(error);
+                        return;
+                    }
+                }
+
+                // TypeBody is the next sibling after TypeParams
+                type_body_sibling = self.ast.nodes[child_idx].next_sibling;
             }
         }
 
-        // Get TypeBody (should be next sibling after name)
-        let Some(type_body_idx) = current_child else {
+        // Get TypeBody
+        let Some(type_body_idx) = type_body_sibling else {
+            // For generic phantom types (e.g., `type Phantom<T>`), there may be
+            // no TypeBody. Handle as unit type if we have type params.
+            if has_type_params {
+                // Check for duplicate before registering
+                if self
+                    .scopes
+                    .current_scope()
+                    .lookup_local(&type_name)
+                    .is_some()
+                {
+                    let token = self.ast.nodes[type_name_idx].token.as_ref().unwrap();
+                    let error = SemanticError::from_token(
+                        format!("Duplicate declaration of type '{}'", type_name),
+                        token,
+                    );
+                    self.record_error(error);
+                    self.current_type_params.clear();
+                    return;
+                }
+
+                let inner = self
+                    .type_registry
+                    .intern(Type::NamedUnit(type_name.clone()));
+                let param_type_ids: Vec<TypeId> =
+                    self.current_type_params.iter().map(|(_, tid)| *tid).collect();
+                let type_id = self.type_registry.intern(Type::Generic {
+                    type_params: param_type_ids,
+                    inner,
+                });
+                self.current_type_params.clear();
+
+                let symbol = Symbol::new(
+                    type_name.clone(),
+                    Some(format!("TypeId({})", type_id.index())),
+                    SymbolKind::Type,
+                )
+                .with_type_id(type_id);
+                self.scopes.insert(symbol);
+                return;
+            }
+            self.current_type_params.clear();
             return; // No type body
         };
 
         if self.ast.nodes[type_body_idx].node_type != NodeType::TypeBody {
+            self.current_type_params.clear();
             return; // Expected TypeBody
         }
 
@@ -75,19 +126,36 @@ impl SemanticAnalyzer {
                 token,
             );
             self.record_error(error);
+            self.current_type_params.clear();
             return;
         }
 
         // PHASE 3: PROCESS TYPE BODY AND REGISTER
 
         // Determine type form based on TypeBody children
-        let type_id = match self.process_type_body(type_body_idx, &type_name) {
+        let inner_type_id = match self.process_type_body(type_body_idx, &type_name) {
             Ok(id) => id,
             Err(error) => {
                 self.record_error(error);
+                self.current_type_params.clear();
                 return;
             }
         };
+
+        // Wrap in Generic if type has type parameters
+        let type_id = if has_type_params {
+            let param_type_ids: Vec<TypeId> =
+                self.current_type_params.iter().map(|(_, tid)| *tid).collect();
+            self.type_registry.intern(Type::Generic {
+                type_params: param_type_ids,
+                inner: inner_type_id,
+            })
+        } else {
+            inner_type_id
+        };
+
+        // Clear type params after processing
+        self.current_type_params.clear();
 
         // Register type in symbol table
         let symbol = Symbol::new(
@@ -613,26 +681,22 @@ mod tests {
     }
 
     #[test]
-    fn test_generic_types_deferred() {
-        let result = analyze_source("type List<T>: { items Array }\n");
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
+    fn test_generic_type_basic_struct() {
+        let result = analyze_source("type List<T>: { count Number }\n");
         assert!(
-            errors[0]
-                .message
-                .contains("Generic types not yet supported")
+            result.is_ok(),
+            "Basic generic struct should succeed: {:?}",
+            result.err()
         );
     }
 
     #[test]
-    fn test_generic_with_constraint_deferred() {
+    fn test_generic_with_constraint() {
         let result = analyze_source("type Container<T: Number>: { value T }\n");
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
         assert!(
-            errors[0]
-                .message
-                .contains("Generic types not yet supported")
+            result.is_ok(),
+            "Generic with constraint should succeed: {:?}",
+            result.err()
         );
     }
 

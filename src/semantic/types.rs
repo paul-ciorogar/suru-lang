@@ -229,6 +229,14 @@ pub enum Type {
         /// Optional constraint type
         constraint: Option<TypeId>,
     },
+    /// Generic type wrapping an inner type with type parameters
+    /// Example: `type List<T>: { ... }` becomes Generic { type_params: [TypeParameter("T")], inner: Struct{...} }
+    Generic {
+        /// Type parameter TypeIds (each points to a Type::TypeParameter)
+        type_params: Vec<TypeId>,
+        /// The inner type (struct, union, alias, etc.)
+        inner: TypeId,
+    },
 
     // Collection types
     /// Array type
@@ -952,6 +960,61 @@ mod tests {
 
         // Different constraints = different type parameters
         assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_intern_generic_type() {
+        let mut registry = TypeRegistry::new();
+
+        let t_param = registry.intern(Type::TypeParameter {
+            name: "T".to_string(),
+            constraint: None,
+        });
+        let inner = registry.intern(Type::Struct(StructType {
+            fields: vec![],
+            methods: vec![],
+        }));
+
+        let generic = registry.intern(Type::Generic {
+            type_params: vec![t_param],
+            inner,
+        });
+
+        match registry.get(generic) {
+            Type::Generic {
+                type_params,
+                inner: i,
+            } => {
+                assert_eq!(type_params.len(), 1);
+                assert_eq!(type_params[0], t_param);
+                assert_eq!(*i, inner);
+            }
+            _ => panic!("Expected Generic type"),
+        }
+    }
+
+    #[test]
+    fn test_intern_generic_deduplication() {
+        let mut registry = TypeRegistry::new();
+
+        let t_param = registry.intern(Type::TypeParameter {
+            name: "T".to_string(),
+            constraint: None,
+        });
+        let inner = registry.intern(Type::Struct(StructType {
+            fields: vec![],
+            methods: vec![],
+        }));
+
+        let g1 = registry.intern(Type::Generic {
+            type_params: vec![t_param],
+            inner,
+        });
+        let g2 = registry.intern(Type::Generic {
+            type_params: vec![t_param],
+            inner,
+        });
+        assert_eq!(g1, g2);
     }
 
     // ========== Test Group 8: Collections ==========

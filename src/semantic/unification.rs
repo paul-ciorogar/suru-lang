@@ -133,6 +133,29 @@ impl SemanticAnalyzer {
                 self.unify(f1.return_type, f2.return_type, source)
             }
 
+            // ========== Generic Types ==========
+            (
+                Type::Generic {
+                    type_params: tp1,
+                    inner: i1,
+                },
+                Type::Generic {
+                    type_params: tp2,
+                    inner: i2,
+                },
+            ) => {
+                if tp1.len() != tp2.len() {
+                    return Err(self.make_error(
+                        "Generic type parameter count mismatch".to_string(),
+                        source,
+                    ));
+                }
+                for (p1, p2) in tp1.iter().zip(tp2.iter()) {
+                    self.unify(*p1, *p2, source)?;
+                }
+                self.unify(*i1, *i2, source)
+            }
+
             // ========== Named Unit Types ==========
             (Type::NamedUnit(n1), Type::NamedUnit(n2)) => {
                 if n1 == n2 {
@@ -265,6 +288,10 @@ impl SemanticAnalyzer {
                     || self.occurs_check(var, func.return_type)
             }
             Type::Union(types) => types.iter().any(|t| self.occurs_check(var, *t)),
+            Type::Generic { type_params, inner } => {
+                type_params.iter().any(|tp| self.occurs_check(var, *tp))
+                    || self.occurs_check(var, *inner)
+            }
             Type::Struct(struct_type) => {
                 // Check fields and methods
                 struct_type

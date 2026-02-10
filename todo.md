@@ -184,10 +184,10 @@
 - [x] Write tests for function types
 
 ### 7.4 Generic Type Parameters
-- [ ] Implement generic type parameter tracking
-- [ ] Implement type parameter substitution
-- [ ] Implement generic constraints checking
-- [ ] Write tests for generic types
+- [x] Implement generic type parameter tracking
+- [x] Implement type parameter substitution
+- [x] Implement generic constraints checking
+- [x] Write tests for generic types
 
 ### 7.5 Structural Type Compatibility
 - [ ] Implement structural subtyping rules

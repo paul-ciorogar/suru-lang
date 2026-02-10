@@ -4,6 +4,7 @@ mod assignment_type_checking;
 mod expression_type_inference;
 mod function_body_analysis;
 mod function_call_type_checking;
+mod generic_type_checking;
 mod intersection_type_checking;
 mod method_call_type_checking;
 mod module_resolution;
@@ -375,6 +376,11 @@ pub struct SemanticAnalyzer {
     // Struct method context
     /// Current struct type for 'this' keyword resolution in method bodies
     current_struct_type: Option<TypeId>,
+
+    // Generic type parameters context
+    /// Current generic type parameters in scope during type body processing
+    /// Maps parameter name to its TypeId (which points to Type::TypeParameter)
+    current_type_params: Vec<(String, TypeId)>,
 }
 
 impl SemanticAnalyzer {
@@ -403,6 +409,8 @@ impl SemanticAnalyzer {
             is_submodule: false,
             // Initialize struct method context
             current_struct_type: None,
+            // Initialize generic type parameters context
+            current_type_params: Vec::new(),
         }
     }
 
@@ -564,6 +572,11 @@ impl SemanticAnalyzer {
             return true;
         }
 
+        // Check current generic type parameters
+        if self.current_type_params.iter().any(|(n, _)| n == name) {
+            return true;
+        }
+
         // Check symbol table for user-defined types
         if let Some(symbol) = self.scopes.lookup(name) {
             return symbol.kind == SymbolKind::Type;
@@ -593,6 +606,13 @@ impl SemanticAnalyzer {
             "Float32" => Type::Float(FloatSize::F32),
             "Float64" => Type::Float(FloatSize::F64),
             _ => {
+                // Check current generic type parameters
+                if let Some((_, type_id)) =
+                    self.current_type_params.iter().find(|(n, _)| n == name)
+                {
+                    return Ok(*type_id);
+                }
+
                 // Look up user-defined type in symbol table
                 if let Some(symbol) = self.scopes.lookup(name) {
                     if symbol.kind == SymbolKind::Type {

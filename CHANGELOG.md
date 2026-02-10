@@ -5,6 +5,20 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-02-10 - Generic Type Parameters
+
+### Added
+- **Generic type declarations** - `type List<T>: { value T }` with single or multiple type parameters
+- **Constraint validation** - `type Container<T: Number>: { value T }` validates constraint types exist
+- **Type parameter scoping** - type params (T, K, V) available in struct fields, methods, aliases, and unions during declaration
+- **New `Type::Generic` variant** wraps inner types with their type parameter metadata
+- **New module**: `src/semantic/generic_type_checking.rs` - `extract_type_params()` helper + 17 tests
+
+### Changed
+- Replaced "Generic types not yet supported" rejection in `type_resolution.rs` with full processing
+- Extended `type_exists()` and `lookup_type_id()` to resolve type parameters during generic body processing
+- Updated `unification.rs` to handle `Generic` type matching and occurs check
+
 ## [0.40.0] - 2026-02-10 - Function Type Checking
 
 ### Added
