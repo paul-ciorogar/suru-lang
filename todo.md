@@ -190,9 +190,9 @@
 - [x] Write tests for generic types
 
 ### 7.5 Structural Type Compatibility
-- [ ] Implement structural subtyping rules
-- [ ] Check struct compatibility based on fields/methods
-- [ ] Write tests for structural typing
+- [x] Implement structural subtyping rules
+- [x] Check struct compatibility based on fields/methods
+- [x] Write tests for structural typing
 
 ## Phase 8: Control Flow and Pattern Matching
 

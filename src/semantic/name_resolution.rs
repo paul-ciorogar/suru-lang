@@ -13,6 +13,19 @@ use super::{
 use crate::ast::NodeType;
 
 impl SemanticAnalyzer {
+    /// Finds the ParamList node after an identifier, skipping optional TypeParams
+    fn find_param_list(&self, ident_idx: usize) -> usize {
+        let next_idx = self.ast.nodes[ident_idx].next_sibling.unwrap();
+        if self.ast.nodes[next_idx].node_type == NodeType::ParamList {
+            next_idx
+        } else if self.ast.nodes[next_idx].node_type == NodeType::TypeParams {
+            // Skip TypeParams to get ParamList
+            self.ast.nodes[next_idx].next_sibling.unwrap()
+        } else {
+            next_idx // fallback
+        }
+    }
+
     /// Visits variable declaration
     /// Extracts variable name and optional type, then registers in current scope
     pub(super) fn visit_var_decl(&mut self, node_idx: usize) {
@@ -216,9 +229,9 @@ impl SemanticAnalyzer {
     /// Helper: Build function signature string from function declaration
     /// Returns signature like "(Type1, Type2) -> RetType" or "()" or "() -> Type"
     fn build_function_signature(&self, func_decl_idx: usize) -> String {
-        // Get ParamList (second child after function name)
+        // Get ParamList (skip optional TypeParams after identifier)
         let ident_idx = self.ast.nodes[func_decl_idx].first_child.unwrap();
-        let param_list_idx = self.ast.nodes[ident_idx].next_sibling.unwrap();
+        let param_list_idx = self.find_param_list(ident_idx);
 
         // Build parameter type list
         let mut param_types = Vec::new();
@@ -270,9 +283,9 @@ impl SemanticAnalyzer {
     /// Parameters without type annotations get Type::Unknown for later inference
     /// Return type without annotation gets Type::Unknown for later inference
     fn build_function_type(&mut self, func_decl_idx: usize) -> TypeId {
-        // Get ParamList (second child after function name)
+        // Get ParamList (skip optional TypeParams after identifier)
         let ident_idx = self.ast.nodes[func_decl_idx].first_child.unwrap();
-        let param_list_idx = self.ast.nodes[ident_idx].next_sibling.unwrap();
+        let param_list_idx = self.find_param_list(ident_idx);
 
         // Build parameter list with TypeIds
         let mut params = Vec::new();
@@ -392,8 +405,14 @@ impl SemanticAnalyzer {
         // Enter function scope
         self.scopes.enter_scope(super::ScopeKind::Function);
 
-        // Register parameters in function scope
-        let param_list_idx = self.ast.nodes[ident_idx].next_sibling.unwrap();
+        // Check for TypeParams and register type parameters in scope
+        let next_after_ident = self.ast.nodes[ident_idx].next_sibling.unwrap();
+        if self.ast.nodes[next_after_ident].node_type == NodeType::TypeParams {
+            self.extract_type_params(next_after_ident);
+        }
+
+        // Register parameters in function scope (skip optional TypeParams)
+        let param_list_idx = self.find_param_list(ident_idx);
         if let Some(first_param_idx) = self.ast.nodes[param_list_idx].first_child {
             let mut current_param_idx = first_param_idx;
             loop {
@@ -431,6 +450,14 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Register parameter types in variable_types for type checking
+        let func_type_clone = self.type_registry.resolve(func_type_id).clone();
+        if let Type::Function(ref ft) = func_type_clone {
+            for param in &ft.params {
+                self.record_variable_type(&param.name, param.type_id);
+            }
+        }
+
         // Find and visit function body (Block node)
         // Block is after identifier, params, and optional return type
         let mut current_idx = Some(param_list_idx);
@@ -450,6 +477,11 @@ impl SemanticAnalyzer {
 
         // Validate return types
         self.validate_function_returns(node_idx, func_type_id);
+
+        // Clear type params if we set them
+        if self.ast.nodes[next_after_ident].node_type == NodeType::TypeParams {
+            self.current_type_params.clear();
+        }
 
         // Exit function scope
         self.scopes.exit_scope();

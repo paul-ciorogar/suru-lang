@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
 
     /// Parse generic type parameters: <T, K, V> or <T: Constraint>
     /// Returns TypeParams node containing TypeParam children
-    fn parse_type_params(&mut self, depth: usize) -> Result<usize, ParseError> {
+    pub(super) fn parse_type_params(&mut self, depth: usize) -> Result<usize, ParseError> {
         self.check_depth(depth)?;
 
         // Consume '<'

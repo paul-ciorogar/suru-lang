@@ -95,6 +95,11 @@ impl SemanticAnalyzer {
             Type::Var(_) | Type::Unknown
         );
 
+        let is_type_param = matches!(
+            self.type_registry.resolve(receiver_type_id),
+            Type::TypeParameter { .. }
+        );
+
         if is_struct {
             // Check field existence and get its type
             if let Some(field_type_id) =
@@ -121,6 +126,11 @@ impl SemanticAnalyzer {
                     token,
                 ));
             }
+        } else if is_type_param {
+            // TypeParameter receiver - property will be checked at instantiation
+            // Set result type as fresh type variable
+            let result_type = self.fresh_type_var();
+            self.set_node_type(node_idx, result_type);
         } else if is_inference_type {
             // Type not yet known - skip checks, will be resolved during inference
         } else {

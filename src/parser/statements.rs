@@ -94,6 +94,37 @@ impl<'a> Parser<'a> {
                     _ => Err(self.new_unexpected_token("':' after type annotation")),
                 }
             }
+            TokenKind::Lt => {
+                // Could be generic function: ident<T>: (params) { body }
+                // Scan past <...> to find ':'
+                let mut offset = 2;
+                let mut angle_depth = 1;
+                loop {
+                    match self.peek_next_kind(offset) {
+                        TokenKind::Lt => angle_depth += 1,
+                        TokenKind::Gt => {
+                            angle_depth -= 1;
+                            if angle_depth == 0 {
+                                offset += 1;
+                                break;
+                            }
+                        }
+                        TokenKind::Eof => {
+                            return Err(self.new_unexpected_token("'>'"));
+                        }
+                        _ => {}
+                    }
+                    offset += 1;
+                }
+                // Token after '>' should be ':'
+                match self.peek_next_kind(offset) {
+                    TokenKind::Colon => match self.peek_next_kind(offset + 1) {
+                        TokenKind::LParen => Ok("function"),
+                        _ => Ok("variable"),
+                    },
+                    _ => Err(self.new_unexpected_token("':' after generic parameters")),
+                }
+            }
             TokenKind::LParen => {
                 // Standalone function call: ident()
                 Ok("call")
@@ -404,6 +435,13 @@ impl<'a> Parser<'a> {
         let ident_idx = self.ast.add_node(ident_node);
         self.advance(); // Consume identifier
 
+        // Check for optional type parameters: ident<T, U>
+        let type_params_idx = if self.peek_kind() == TokenKind::Lt {
+            Some(self.parse_type_params(depth + 1)?)
+        } else {
+            None
+        };
+
         // Expect colon
         self.consume(TokenKind::Colon, "':'")?;
 
@@ -415,8 +453,11 @@ impl<'a> Parser<'a> {
         let func_decl_node = AstNode::new(NodeType::FunctionDecl);
         let func_decl_idx = self.ast.add_node(func_decl_node);
 
-        // Add children: identifier and params
+        // Add children: identifier, optional type params, and params
         self.ast.add_child(func_decl_idx, ident_idx);
+        if let Some(tp_idx) = type_params_idx {
+            self.ast.add_child(func_decl_idx, tp_idx);
+        }
         self.ast.add_child(func_decl_idx, param_list_idx);
 
         // Check for optional return type annotation

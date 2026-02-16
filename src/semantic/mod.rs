@@ -20,6 +20,7 @@ mod types;
 mod unification;
 mod union_type_checking;
 mod function_type_checking;
+mod structural_type_compatibility;
 
 pub use types::{
     Constraint,
@@ -381,6 +382,23 @@ pub struct SemanticAnalyzer {
     /// Current generic type parameters in scope during type body processing
     /// Maps parameter name to its TypeId (which points to Type::TypeParameter)
     current_type_params: Vec<(String, TypeId)>,
+
+    // Structural type compatibility - deferred method checks
+    /// Method calls on TypeParameter receivers are deferred until after unification
+    deferred_method_checks: Vec<DeferredMethodCheck>,
+}
+
+/// Represents a deferred method check for structural type compatibility
+///
+/// When a method is called on a generic type parameter (e.g., `obj.add(value)`
+/// where obj is of type T), we defer the check until after unification resolves T.
+#[derive(Debug, Clone)]
+pub(super) struct DeferredMethodCheck {
+    pub receiver_type_id: TypeId,
+    pub method_name: String,
+    pub arg_type_ids: Vec<TypeId>,
+    pub call_node_idx: usize,
+    pub method_name_node_idx: usize,
 }
 
 impl SemanticAnalyzer {
@@ -411,6 +429,8 @@ impl SemanticAnalyzer {
             current_struct_type: None,
             // Initialize generic type parameters context
             current_type_params: Vec::new(),
+            // Initialize deferred method checks
+            deferred_method_checks: Vec::new(),
         }
     }
 
@@ -660,6 +680,16 @@ impl SemanticAnalyzer {
             // Phase 2: Solve constraints via unification
             if let Err(errors) = self.solve_constraints() {
                 self.errors.extend(errors);
+            }
+
+            // Phase 2.5: Verify deferred structural type checks
+            self.verify_deferred_checks();
+
+            // Phase 2.6: Solve any new constraints from deferred checks
+            if !self.constraints.is_empty() {
+                if let Err(errors) = self.solve_constraints() {
+                    self.errors.extend(errors);
+                }
             }
 
             // Phase 3: Apply final substitution to all node types

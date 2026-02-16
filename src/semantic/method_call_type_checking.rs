@@ -14,7 +14,7 @@
 //! - The result type of `receiver.method(args)` is the method's return type
 //! - Privacy rules are enforced via helpers in struct_privacy.rs
 
-use super::{SemanticAnalyzer, SemanticError, Type, TypeId};
+use super::{DeferredMethodCheck, SemanticAnalyzer, SemanticError, Type, TypeId};
 
 impl SemanticAnalyzer {
     /// Looks up a method's function type TypeId on a struct type
@@ -82,6 +82,10 @@ impl SemanticAnalyzer {
         let is_inference_type = matches!(
             self.type_registry.resolve(receiver_type_id),
             Type::Var(_) | Type::Unknown
+        );
+        let is_type_param = matches!(
+            self.type_registry.resolve(receiver_type_id),
+            Type::TypeParameter { .. }
         );
 
         if is_struct {
@@ -163,6 +167,35 @@ impl SemanticAnalyzer {
                     self.visit_children(arg_list_idx);
                 }
             }
+        } else if is_type_param {
+            // TypeParameter receiver - defer check until after unification
+            let arg_list_idx = self.ast.nodes[name_idx].next_sibling;
+            let mut arg_type_ids = Vec::new();
+
+            // Visit arguments and collect their types
+            if let Some(arg_list_idx) = arg_list_idx {
+                let mut arg_idx = self.ast.nodes[arg_list_idx].first_child;
+                while let Some(current_arg_idx) = arg_idx {
+                    self.visit_node(current_arg_idx);
+                    if let Some(arg_type) = self.get_node_type(current_arg_idx) {
+                        arg_type_ids.push(arg_type);
+                    }
+                    arg_idx = self.ast.nodes[current_arg_idx].next_sibling;
+                }
+            }
+
+            // Set return type as fresh type variable (resolved later)
+            let return_type_var = self.fresh_type_var();
+            self.set_node_type(node_idx, return_type_var);
+
+            // Record deferred check
+            self.deferred_method_checks.push(DeferredMethodCheck {
+                receiver_type_id,
+                method_name: method_name.clone(),
+                arg_type_ids,
+                call_node_idx: node_idx,
+                method_name_node_idx: name_idx,
+            });
         } else if is_inference_type {
             // Type not yet known - visit args, skip checks
             if let Some(arg_list_idx) = self.ast.nodes[name_idx].next_sibling {

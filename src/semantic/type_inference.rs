@@ -62,6 +62,9 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Clear constraints to avoid re-processing on subsequent passes
+        self.constraints.clear();
+
         if errors.is_empty() {
             Ok(())
         } else {

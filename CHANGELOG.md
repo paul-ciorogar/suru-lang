@@ -5,6 +5,22 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-02-10 - Structural Type Compatibility
+
+### Added
+- **Generic function declarations** - `acceptsAdd<T>: (obj T, value Number) T { ... }` with type parameters on functions
+- **Deferred method checks** - method calls on TypeParameter receivers are deferred until after unification
+- **TypeParameter property access** - property access on generic type params allowed (duck typing)
+- **Parameter type registration** - function parameters now properly tracked in `variable_types` for type checking
+- **New module**: `src/semantic/structural_type_compatibility.rs` - deferred check verification + 11 tests
+
+### Changed
+- Parser: `parse_function_decl` supports optional `<T, U>` type parameters after identifier
+- Parser: `peek_statement_type` handles `<` lookahead for generic function disambiguation
+- `parse_type_params` visibility changed to `pub(super)` for reuse across parser modules
+- `build_function_type`/`build_function_signature`/`visit_function_decl` use `find_param_list` helper to skip optional TypeParams
+- `solve_constraints` now clears constraints after solving to support multi-pass analysis
+
 ## [0.41.0] - 2026-02-10 - Generic Type Parameters
 
 ### Added
