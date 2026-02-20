@@ -33,10 +33,11 @@ impl SemanticAnalyzer {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
 
-        // Iterate through struct members
-        let mut current_child = self.ast.nodes[struct_body_idx].first_child;
+        // Collect child indices first to avoid holding an immutable borrow while
+        // processing methods (which require a mutable borrow of self)
+        let child_indices: Vec<usize> = self.ast.children(struct_body_idx).collect();
 
-        while let Some(child_idx) = current_child {
+        for child_idx in child_indices {
             match self.ast.nodes[child_idx].node_type {
                 NodeType::StructField => {
                     let field = self.process_struct_field_definition(child_idx)?;
@@ -54,8 +55,6 @@ impl SemanticAnalyzer {
                     ));
                 }
             }
-
-            current_child = self.ast.nodes[child_idx].next_sibling;
         }
 
         // Create struct type
@@ -302,9 +301,9 @@ impl SemanticAnalyzer {
     ) -> Result<Vec<FunctionParam>, SemanticError> {
         let mut params = Vec::new();
 
-        let mut current_child = self.ast.nodes[params_idx].first_child;
+        let param_indices: Vec<usize> = self.ast.children(params_idx).collect();
 
-        while let Some(child_idx) = current_child {
+        for child_idx in param_indices {
             // Each child should be a StructField (reused for params)
             if self.ast.nodes[child_idx].node_type != NodeType::StructField {
                 let token = self.ast.nodes[child_idx].token.as_ref().unwrap();
@@ -365,8 +364,6 @@ impl SemanticAnalyzer {
                 name: param_name,
                 type_id,
             });
-
-            current_child = self.ast.nodes[child_idx].next_sibling;
         }
 
         Ok(params)

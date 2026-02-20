@@ -5,6 +5,32 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-02-20 - AST Navigation Abstractions
+
+### Added
+- **Flyweight view types in `src/ast.rs`** — thin, non-owning wrappers over AST node indices that replace raw `first_child`/`next_sibling` navigation throughout the semantic analyzer
+  - `ChildIter<'a>` — generic `Iterator<Item = usize>` over a node's direct children; replaces the ubiquitous `first_child` + `next_sibling` loop pattern
+  - `VarDeclView<'a>` — typed access to `VarDecl` nodes via `.name()`, `.ident_idx()`, `.type_annotation()`, `.value_expr_idx()`
+  - `FunctionDeclView<'a>` — typed access to `FunctionDecl` nodes via `.name()`, `.ident_idx()`, `.type_params_idx()`, `.param_list_idx()`, `.return_type_annotation()`, `.body_idx()`, `.params()`
+  - `ParamView<'a>` / `ParamIter<'a>` — typed access to `Param` nodes via `.name()`, `.type_annotation()`, `.idx()`
+- **New `Ast` factory methods**: `children(idx)`, `var_decl(idx)`, `function_decl(idx)`
+
+### Changed
+- `src/semantic/name_resolution.rs` — full refactor of all four methods using view types:
+  - Removed `find_param_list()` helper (logic absorbed into `FunctionDeclView::param_list_idx()`)
+  - `visit_var_decl()` uses `VarDeclView` — name, type annotation, and value expression extracted via view
+  - `build_function_signature()` uses `FunctionDeclView` + `ParamIter` — replaced manual sibling traversal loops
+  - `build_function_type()` uses `FunctionDeclView` + `ParamIter` — replaced manual sibling traversal loops
+  - `visit_function_decl()` uses `FunctionDeclView` — name, type params, param list, and body accessed via view
+- `src/semantic/struct_type_definition.rs` — replaced manual `while let Some(child)` loops with `ChildIter` in `process_struct_type_definition()` and `process_function_type_params()`
+- `src/semantic/struct_init_type_checking.rs` — replaced manual child loop with `ChildIter` in `collect_struct_init_signatures()`
+- `src/semantic/function_call_type_checking.rs` — argument iteration uses `ChildIter` + `zip` against param list; `count_call_arguments()` simplified to `self.ast.children(idx).count()`
+
+### Technical Notes
+- **Borrow checker pattern**: `ChildIter<'a>` holds `&'a Ast`, so loops that call mutable `self` methods in the body use `self.ast.children(idx).collect::<Vec<usize>>()` to release the immutable borrow before processing
+
+---
+
 ## [0.42.0] - 2026-02-10 - Structural Type Compatibility
 
 ### Added

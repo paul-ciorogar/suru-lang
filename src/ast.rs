@@ -182,6 +182,24 @@ impl Ast {
         }
     }
 
+    /// Iterate over direct children of a node (first-child/next-sibling traversal)
+    pub fn children(&self, node_idx: usize) -> ChildIter<'_> {
+        ChildIter {
+            ast: self,
+            current: self.nodes[node_idx].first_child,
+        }
+    }
+
+    /// Get a typed view over a VarDecl node
+    pub fn var_decl(&self, node_idx: usize) -> VarDeclView<'_> {
+        VarDeclView { ast: self, idx: node_idx }
+    }
+
+    /// Get a typed view over a FunctionDecl node
+    pub fn function_decl(&self, node_idx: usize) -> FunctionDeclView<'_> {
+        FunctionDeclView { ast: self, idx: node_idx }
+    }
+
     // Add node and return its index
     pub fn add_node(&mut self, node: AstNode) -> usize {
         // Check AST node limit before adding
@@ -282,5 +300,218 @@ impl Ast {
         }
 
         result
+    }
+}
+
+// =============================================================================
+// AST View Types (Flyweight Pattern)
+//
+// Thin, non-owning wrappers around node indices that provide semantic access
+// to AST nodes without copying data. Each view holds a reference to the Ast
+// and the index of the node it represents.
+// =============================================================================
+
+/// Iterator over direct child nodes (first-child/next-sibling traversal)
+pub struct ChildIter<'a> {
+    ast: &'a Ast,
+    current: Option<usize>,
+}
+
+impl<'a> Iterator for ChildIter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let idx = self.current?;
+        self.current = self.ast.nodes[idx].next_sibling;
+        Some(idx)
+    }
+}
+
+/// View over a `VarDecl` node
+///
+/// AST structure:
+/// ```text
+/// VarDecl
+///   Identifier 'name'
+///   TypeAnnotation 'Type'   (optional)
+///   <Expression>            (value)
+/// ```
+pub struct VarDeclView<'a> {
+    ast: &'a Ast,
+    idx: usize,
+}
+
+impl<'a> VarDeclView<'a> {
+    /// Returns the variable name from the first child Identifier
+    pub fn name(&self) -> Option<&str> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        self.ast.node_text(ident_idx)
+    }
+
+    /// Returns the index of the Identifier node (for token/error reporting)
+    pub fn ident_idx(&self) -> Option<usize> {
+        self.ast.nodes[self.idx].first_child
+    }
+
+    /// Returns the type annotation string if present (second child when TypeAnnotation)
+    pub fn type_annotation(&self) -> Option<&str> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        let second_idx = self.ast.nodes[ident_idx].next_sibling?;
+        if self.ast.nodes[second_idx].node_type == NodeType::TypeAnnotation {
+            self.ast.node_text(second_idx)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the index of the value expression node if present.
+    /// Skips the type annotation if one exists.
+    pub fn value_expr_idx(&self) -> Option<usize> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        let second_idx = self.ast.nodes[ident_idx].next_sibling?;
+        if self.ast.nodes[second_idx].node_type == NodeType::TypeAnnotation {
+            self.ast.nodes[second_idx].next_sibling
+        } else {
+            Some(second_idx)
+        }
+    }
+}
+
+/// View over a single `Param` node
+///
+/// AST structure:
+/// ```text
+/// Param
+///   Identifier 'name'
+///   TypeAnnotation 'Type'   (optional)
+/// ```
+pub struct ParamView<'a> {
+    ast: &'a Ast,
+    idx: usize,
+}
+
+impl<'a> ParamView<'a> {
+    /// Returns the node index of this Param
+    pub fn idx(&self) -> usize {
+        self.idx
+    }
+
+    /// Returns the parameter name from the first child Identifier
+    pub fn name(&self) -> Option<&str> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        self.ast.node_text(ident_idx)
+    }
+
+    /// Returns the type annotation string if present
+    pub fn type_annotation(&self) -> Option<&str> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        let type_ann_idx = self.ast.nodes[ident_idx].next_sibling?;
+        if self.ast.nodes[type_ann_idx].node_type == NodeType::TypeAnnotation {
+            self.ast.node_text(type_ann_idx)
+        } else {
+            None
+        }
+    }
+}
+
+/// Iterator over `Param` nodes in a `ParamList`
+pub struct ParamIter<'a> {
+    ast: &'a Ast,
+    current: Option<usize>,
+}
+
+impl<'a> Iterator for ParamIter<'a> {
+    type Item = ParamView<'a>;
+
+    fn next(&mut self) -> Option<ParamView<'a>> {
+        let idx = self.current?;
+        self.current = self.ast.nodes[idx].next_sibling;
+        Some(ParamView { ast: self.ast, idx })
+    }
+}
+
+/// View over a `FunctionDecl` node
+///
+/// AST structure:
+/// ```text
+/// FunctionDecl
+///   Identifier 'name'
+///   TypeParams              (optional)
+///   ParamList
+///     Param*
+///   TypeAnnotation          (return type, optional)
+///   Block
+/// ```
+pub struct FunctionDeclView<'a> {
+    ast: &'a Ast,
+    idx: usize,
+}
+
+impl<'a> FunctionDeclView<'a> {
+    /// Returns the function name from the first child Identifier
+    pub fn name(&self) -> Option<&str> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        self.ast.node_text(ident_idx)
+    }
+
+    /// Returns the index of the Identifier node (for token/error reporting)
+    pub fn ident_idx(&self) -> Option<usize> {
+        self.ast.nodes[self.idx].first_child
+    }
+
+    /// Returns the index of the TypeParams node if present (generic functions)
+    pub fn type_params_idx(&self) -> Option<usize> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        let next_idx = self.ast.nodes[ident_idx].next_sibling?;
+        if self.ast.nodes[next_idx].node_type == NodeType::TypeParams {
+            Some(next_idx)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the index of the ParamList node, skipping optional TypeParams
+    pub fn param_list_idx(&self) -> Option<usize> {
+        let ident_idx = self.ast.nodes[self.idx].first_child?;
+        let next_idx = self.ast.nodes[ident_idx].next_sibling?;
+        if self.ast.nodes[next_idx].node_type == NodeType::TypeParams {
+            self.ast.nodes[next_idx].next_sibling
+        } else if self.ast.nodes[next_idx].node_type == NodeType::ParamList {
+            Some(next_idx)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the return type annotation string if present (TypeAnnotation after ParamList)
+    pub fn return_type_annotation(&self) -> Option<&str> {
+        let param_list_idx = self.param_list_idx()?;
+        let after_params_idx = self.ast.nodes[param_list_idx].next_sibling?;
+        if self.ast.nodes[after_params_idx].node_type == NodeType::TypeAnnotation {
+            self.ast.node_text(after_params_idx)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the index of the Block (function body) node if present
+    pub fn body_idx(&self) -> Option<usize> {
+        let param_list_idx = self.param_list_idx()?;
+        let mut current = Some(param_list_idx);
+        while let Some(idx) = current {
+            if self.ast.nodes[idx].node_type == NodeType::Block {
+                return Some(idx);
+            }
+            current = self.ast.nodes[idx].next_sibling;
+        }
+        None
+    }
+
+    /// Iterates over the Param nodes in the ParamList
+    pub fn params(&self) -> ParamIter<'a> {
+        let first_param = self
+            .param_list_idx()
+            .and_then(|pl| self.ast.nodes[pl].first_child);
+        ParamIter { ast: self.ast, current: first_param }
     }
 }

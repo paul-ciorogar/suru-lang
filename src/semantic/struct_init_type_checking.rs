@@ -84,9 +84,9 @@ impl SemanticAnalyzer {
         let mut methods = Vec::new();
         let mut method_func_decls = Vec::new();
 
-        let mut current_child = self.ast.nodes[struct_init_idx].first_child;
+        let child_indices: Vec<usize> = self.ast.children(struct_init_idx).collect();
 
-        while let Some(child_idx) = current_child {
+        for child_idx in child_indices {
             match self.ast.nodes[child_idx].node_type {
                 NodeType::StructInitField => {
                     if let Some(field) = self.process_struct_init_field(child_idx) {
@@ -106,8 +106,6 @@ impl SemanticAnalyzer {
                     self.visit_children(child_idx);
                 }
             }
-
-            current_child = self.ast.nodes[child_idx].next_sibling;
         }
 
         (fields, methods, method_func_decls)

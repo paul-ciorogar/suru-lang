@@ -69,17 +69,14 @@ impl SemanticAnalyzer {
 
         // 5. Type check each argument against parameter type
         if let Some(arg_list_idx) = arg_list_idx {
-            let mut arg_idx = self.ast.nodes[arg_list_idx].first_child;
-            for param in ft.params.iter() {
-                if let Some(current_arg_idx) = arg_idx {
-                    let param_type = self.type_registry.resolve(param.type_id);
-                    // Only add constraint if parameter has a known type
-                    if !matches!(param_type, Type::Unknown) {
-                        if let Some(arg_type) = self.get_node_type(current_arg_idx) {
-                            self.add_constraint(arg_type, param.type_id, current_arg_idx);
-                        }
+            let arg_indices: Vec<usize> = self.ast.children(arg_list_idx).collect();
+            for (param, current_arg_idx) in ft.params.iter().zip(arg_indices) {
+                let param_type = self.type_registry.resolve(param.type_id);
+                // Only add constraint if parameter has a known type
+                if !matches!(param_type, Type::Unknown) {
+                    if let Some(arg_type) = self.get_node_type(current_arg_idx) {
+                        self.add_constraint(arg_type, param.type_id, current_arg_idx);
                     }
-                    arg_idx = self.ast.nodes[current_arg_idx].next_sibling;
                 }
             }
         }
@@ -90,16 +87,10 @@ impl SemanticAnalyzer {
 
     /// Counts the number of arguments in an ArgList node
     pub(super) fn count_call_arguments(&self, arg_list_idx: Option<usize>) -> usize {
-        let Some(arg_list_idx) = arg_list_idx else {
-            return 0;
-        };
-        let mut count = 0;
-        let mut arg_idx = self.ast.nodes[arg_list_idx].first_child;
-        while let Some(idx) = arg_idx {
-            count += 1;
-            arg_idx = self.ast.nodes[idx].next_sibling;
+        match arg_list_idx {
+            None => 0,
+            Some(idx) => self.ast.children(idx).count(),
         }
-        count
     }
 }
 

@@ -7,52 +7,23 @@
 // - Function call resolution
 
 use super::{
-    FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type,
-    TypeId,
+    FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type, TypeId,
 };
 use crate::ast::NodeType;
 
 impl SemanticAnalyzer {
-    /// Finds the ParamList node after an identifier, skipping optional TypeParams
-    fn find_param_list(&self, ident_idx: usize) -> usize {
-        let next_idx = self.ast.nodes[ident_idx].next_sibling.unwrap();
-        if self.ast.nodes[next_idx].node_type == NodeType::ParamList {
-            next_idx
-        } else if self.ast.nodes[next_idx].node_type == NodeType::TypeParams {
-            // Skip TypeParams to get ParamList
-            self.ast.nodes[next_idx].next_sibling.unwrap()
-        } else {
-            next_idx // fallback
-        }
-    }
-
     /// Visits variable declaration
     /// Extracts variable name and optional type, then registers in current scope
     pub(super) fn visit_var_decl(&mut self, node_idx: usize) {
-        // Extract variable name from first child (Identifier)
-        let Some(ident_idx) = self.ast.nodes[node_idx].first_child else {
+        let decl = self.ast.var_decl(node_idx);
+
+        let Some(name) = decl.name() else {
             return; // Malformed AST - should not happen
         };
-
-        let Some(name) = self.ast.node_text(ident_idx) else {
-            return; // No name - should not happen
-        };
         let name = name.to_string();
-
-        // Extract optional type annotation from second child
-        let mut type_name: Option<String> = None;
-        let mut value_expr_idx: Option<usize> = None;
-
-        if let Some(second_child_idx) = self.ast.nodes[ident_idx].next_sibling {
-            if self.ast.nodes[second_child_idx].node_type == NodeType::TypeAnnotation {
-                type_name = self.ast.node_text(second_child_idx).map(String::from);
-                // Value expression is after type annotation
-                value_expr_idx = self.ast.nodes[second_child_idx].next_sibling;
-            } else {
-                // No type annotation, this is the value expression
-                value_expr_idx = Some(second_child_idx);
-            }
-        }
+        let type_annotation = decl.type_annotation().map(String::from);
+        let value_expr_idx = decl.value_expr_idx();
+        let ident_idx = decl.ident_idx().unwrap();
 
         // Assignment type checking
         // Check if variable already exists in CURRENT scope (not outer scopes)
@@ -85,7 +56,7 @@ impl SemanticAnalyzer {
         // Note: If variable exists in OUTER scope only, this is shadowing (allowed)
 
         // Insert/update symbol in current scope
-        let symbol = Symbol::new(name.clone(), type_name.clone(), SymbolKind::Variable);
+        let symbol = Symbol::new(name.clone(), type_annotation.clone(), SymbolKind::Variable);
         self.scopes
             .current_scope_mut()
             .symbols
@@ -94,7 +65,7 @@ impl SemanticAnalyzer {
         // Type checking
 
         // 1. Resolve type annotation if present
-        let declared_type_id: Option<TypeId> = if let Some(ref type_name_str) = type_name {
+        let declared_type_id: Option<TypeId> = if let Some(ref type_name_str) = type_annotation {
             match self.lookup_type_id(&type_name_str) {
                 Ok(type_id) => Some(type_id),
                 Err(error) => {
@@ -190,18 +161,13 @@ impl SemanticAnalyzer {
 
         // Look up in scope chain
         // Extract symbol info before mutable borrows
-        let symbol_info = self
-            .scopes
-            .lookup(name)
-            .map(|s| (s.kind, s.type_id));
+        let symbol_info = self.scopes.lookup(name).map(|s| (s.kind, s.type_id));
 
         match symbol_info {
             None => {
                 let token = self.ast.nodes[node_idx].token.as_ref().unwrap();
-                let error = SemanticError::from_token(
-                    format!("Variable '{}' is not defined", name),
-                    token,
-                );
+                let error =
+                    SemanticError::from_token(format!("Variable '{}' is not defined", name), token);
                 self.record_error(error);
             }
             Some((kind, type_id)) => {
@@ -229,52 +195,22 @@ impl SemanticAnalyzer {
     /// Helper: Build function signature string from function declaration
     /// Returns signature like "(Type1, Type2) -> RetType" or "()" or "() -> Type"
     fn build_function_signature(&self, func_decl_idx: usize) -> String {
-        // Get ParamList (skip optional TypeParams after identifier)
-        let ident_idx = self.ast.nodes[func_decl_idx].first_child.unwrap();
-        let param_list_idx = self.find_param_list(ident_idx);
+        let decl = self.ast.function_decl(func_decl_idx);
 
-        // Build parameter type list
-        let mut param_types = Vec::new();
-        if let Some(first_param_idx) = self.ast.nodes[param_list_idx].first_child {
-            let mut current_param_idx = first_param_idx;
-            loop {
-                // Each Param has Identifier child, possibly TypeAnnotation as second child
-                if let Some(param_ident_idx) = self.ast.nodes[current_param_idx].first_child {
-                    if let Some(type_ann_idx) = self.ast.nodes[param_ident_idx].next_sibling {
-                        if self.ast.nodes[type_ann_idx].node_type == NodeType::TypeAnnotation {
-                            if let Some(type_name) = self.ast.node_text(type_ann_idx) {
-                                param_types.push(type_name.to_string());
-                            } else {
-                                param_types.push("?".to_string());
-                            }
-                        } else {
-                            param_types.push("?".to_string());
-                        }
-                    } else {
-                        param_types.push("?".to_string());
-                    }
-                }
+        let param_types: Vec<String> = decl
+            .params()
+            .map(|p| {
+                p.type_annotation()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "?".to_string())
+            })
+            .collect();
 
-                // Move to next param
-                if let Some(next) = self.ast.nodes[current_param_idx].next_sibling {
-                    current_param_idx = next;
-                } else {
-                    break;
-                }
-            }
-        }
+        let return_type = decl
+            .return_type_annotation()
+            .map(|t| format!(" -> {}", t))
+            .unwrap_or_default();
 
-        // Get return type (after ParamList, if exists and is TypeAnnotation)
-        let mut return_type = String::new();
-        if let Some(after_params_idx) = self.ast.nodes[param_list_idx].next_sibling {
-            if self.ast.nodes[after_params_idx].node_type == NodeType::TypeAnnotation {
-                if let Some(type_name) = self.ast.node_text(after_params_idx) {
-                    return_type = format!(" -> {}", type_name);
-                }
-            }
-        }
-
-        // Build signature
         format!("({}){}", param_types.join(", "), return_type)
     }
 
@@ -283,99 +219,55 @@ impl SemanticAnalyzer {
     /// Parameters without type annotations get Type::Unknown for later inference
     /// Return type without annotation gets Type::Unknown for later inference
     fn build_function_type(&mut self, func_decl_idx: usize) -> TypeId {
-        // Get ParamList (skip optional TypeParams after identifier)
-        let ident_idx = self.ast.nodes[func_decl_idx].first_child.unwrap();
-        let param_list_idx = self.find_param_list(ident_idx);
+        let decl = self.ast.function_decl(func_decl_idx);
+
+        // Collect param data before mutably borrowing self
+        let param_data: Vec<(String, Option<String>)> = decl
+            .params()
+            .map(|p| {
+                (
+                    p.name().map(str::to_string).unwrap_or_default(),
+                    p.type_annotation().map(str::to_string),
+                )
+            })
+            .collect();
+        let return_type_name = decl.return_type_annotation().map(str::to_string);
 
         // Build parameter list with TypeIds
         let mut params = Vec::new();
-        if let Some(first_param_idx) = self.ast.nodes[param_list_idx].first_child {
-            let mut current_param_idx = first_param_idx;
-            loop {
-                if let Some(param_ident_idx) = self.ast.nodes[current_param_idx].first_child {
-                    // Get parameter name
-                    let param_name = self
-                        .ast
-                        .node_text(param_ident_idx)
-                        .map(|s| s.to_string())
-                        .unwrap_or_default();
-
-                    // Get type: annotation or Unknown for inference
-                    let type_id = if let Some(type_ann_idx) =
-                        self.ast.nodes[param_ident_idx].next_sibling
-                    {
-                        if self.ast.nodes[type_ann_idx].node_type == NodeType::TypeAnnotation {
-                            if let Some(type_name) =
-                                self.ast.node_text(type_ann_idx).map(|s| s.to_string())
-                            {
-                                // Lookup type, use Unknown if not found (error recorded elsewhere)
-                                self.lookup_type_id(&type_name)
-                                    .unwrap_or_else(|_| self.type_registry.intern(Type::Unknown))
-                            } else {
-                                self.type_registry.intern(Type::Unknown)
-                            }
-                        } else {
-                            self.type_registry.intern(Type::Unknown)
-                        }
-                    } else {
-                        // No type annotation - inferred parameter
-                        self.type_registry.intern(Type::Unknown)
-                    };
-
-                    params.push(FunctionParam {
-                        name: param_name,
-                        type_id,
-                    });
-                }
-
-                if let Some(next) = self.ast.nodes[current_param_idx].next_sibling {
-                    current_param_idx = next;
-                } else {
-                    break;
-                }
-            }
+        for (param_name, type_name) in param_data {
+            let type_id = match type_name {
+                Some(name) => self
+                    .lookup_type_id(&name)
+                    .unwrap_or_else(|_| self.type_registry.intern(Type::Unknown)),
+                None => self.type_registry.intern(Type::Unknown),
+            };
+            params.push(FunctionParam { name: param_name, type_id });
         }
 
-        // Get return type (after ParamList, if TypeAnnotation exists)
-        let return_type = if let Some(after_params_idx) =
-            self.ast.nodes[param_list_idx].next_sibling
-        {
-            if self.ast.nodes[after_params_idx].node_type == NodeType::TypeAnnotation {
-                if let Some(type_name) = self.ast.node_text(after_params_idx).map(|s| s.to_string())
-                {
-                    self.lookup_type_id(&type_name)
-                        .unwrap_or_else(|_| self.type_registry.intern(Type::Unknown))
-                } else {
-                    self.type_registry.intern(Type::Unknown)
-                }
-            } else {
-                // No return type annotation - to be inferred
-                self.type_registry.intern(Type::Unknown)
-            }
-        } else {
-            // No return type annotation - to be inferred
-            self.type_registry.intern(Type::Unknown)
+        // Get return type
+        let return_type = match return_type_name {
+            Some(name) => self
+                .lookup_type_id(&name)
+                .unwrap_or_else(|_| self.type_registry.intern(Type::Unknown)),
+            None => self.type_registry.intern(Type::Unknown),
         };
 
-        // Create and intern the function type
-        let func_type = FunctionType {
-            params,
-            return_type,
-        };
+        let func_type = FunctionType { params, return_type };
         self.type_registry.intern(Type::Function(func_type))
     }
 
     /// Visits function declaration
     /// Registers function in current scope and adds parameters to function scope
     pub(super) fn visit_function_decl(&mut self, node_idx: usize) {
-        // Extract function name from first child
-        let Some(ident_idx) = self.ast.nodes[node_idx].first_child else {
-            return;
-        };
-        let Some(name) = self.ast.node_text(ident_idx) else {
+        let decl = self.ast.function_decl(node_idx);
+
+        let Some(name) = decl.name() else {
             return;
         };
         let name = name.to_string();
+        let ident_idx = decl.ident_idx().unwrap();
+        let type_params_idx = decl.type_params_idx();
 
         // Build function signature string (for backward compatibility)
         let signature = self.build_function_signature(node_idx);
@@ -406,48 +298,26 @@ impl SemanticAnalyzer {
         self.scopes.enter_scope(super::ScopeKind::Function);
 
         // Check for TypeParams and register type parameters in scope
-        let next_after_ident = self.ast.nodes[ident_idx].next_sibling.unwrap();
-        if self.ast.nodes[next_after_ident].node_type == NodeType::TypeParams {
-            self.extract_type_params(next_after_ident);
+        if let Some(tp_idx) = type_params_idx {
+            self.extract_type_params(tp_idx);
         }
 
-        // Register parameters in function scope (skip optional TypeParams)
-        let param_list_idx = self.find_param_list(ident_idx);
-        if let Some(first_param_idx) = self.ast.nodes[param_list_idx].first_child {
-            let mut current_param_idx = first_param_idx;
-            loop {
-                // Extract parameter name and optional type
-                if let Some(param_ident_idx) = self.ast.nodes[current_param_idx].first_child {
-                    if let Some(param_name) = self.ast.node_text(param_ident_idx) {
-                        let param_name = param_name.to_string();
+        // Register parameters in function scope
+        let param_data: Vec<(String, Option<String>)> = self
+            .ast
+            .function_decl(node_idx)
+            .params()
+            .map(|p| {
+                (
+                    p.name().map(str::to_string).unwrap_or_default(),
+                    p.type_annotation().map(str::to_string),
+                )
+            })
+            .collect();
 
-                        // Get optional type annotation
-                        let param_type = if let Some(type_ann_idx) =
-                            self.ast.nodes[param_ident_idx].next_sibling
-                        {
-                            if self.ast.nodes[type_ann_idx].node_type == NodeType::TypeAnnotation {
-                                self.ast.node_text(type_ann_idx).map(String::from)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        // Insert parameter as variable in function scope
-                        let param_symbol =
-                            Symbol::new(param_name, param_type, SymbolKind::Variable);
-                        self.scopes.insert(param_symbol);
-                    }
-                }
-
-                // Move to next parameter
-                if let Some(next) = self.ast.nodes[current_param_idx].next_sibling {
-                    current_param_idx = next;
-                } else {
-                    break;
-                }
-            }
+        for (param_name, param_type) in param_data {
+            let param_symbol = Symbol::new(param_name, param_type, SymbolKind::Variable);
+            self.scopes.insert(param_symbol);
         }
 
         // Register parameter types in variable_types for type checking
@@ -459,16 +329,7 @@ impl SemanticAnalyzer {
         }
 
         // Find and visit function body (Block node)
-        // Block is after identifier, params, and optional return type
-        let mut current_idx = Some(param_list_idx);
-        let mut block_idx = None;
-        while let Some(idx) = current_idx {
-            if self.ast.nodes[idx].node_type == NodeType::Block {
-                block_idx = Some(idx);
-                break;
-            }
-            current_idx = self.ast.nodes[idx].next_sibling;
-        }
+        let block_idx = self.ast.function_decl(node_idx).body_idx();
 
         if let Some(block_idx) = block_idx {
             // Visit block children directly (don't create another Block scope)
@@ -479,7 +340,7 @@ impl SemanticAnalyzer {
         self.validate_function_returns(node_idx, func_type_id);
 
         // Clear type params if we set them
-        if self.ast.nodes[next_after_ident].node_type == NodeType::TypeParams {
+        if type_params_idx.is_some() {
             self.current_type_params.clear();
         }
 
