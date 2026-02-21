@@ -197,10 +197,10 @@
 ## Phase 8: Control Flow and Pattern Matching
 
 ### 8.1 Match Expression Type Checking
-- [ ] Check match subject type
-- [ ] Check all arms return compatible types
-- [ ] Determine match expression result type
-- [ ] Write tests for match expressions
+- [x] Check match subject type
+- [x] Check all arms return compatible types
+- [x] Determine match expression result type
+- [x] Write tests for match expressions
 
 ### 8.2 Match Pattern Validation
 - [ ] Validate patterns against subject type

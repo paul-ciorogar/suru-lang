@@ -20,6 +20,7 @@ mod types;
 mod unification;
 mod union_type_checking;
 mod function_type_checking;
+mod match_type_checking;
 mod structural_type_compatibility;
 
 pub use types::{
@@ -737,6 +738,8 @@ impl SemanticAnalyzer {
             NodeType::MethodCall => self.visit_method_call(node_idx),
             // this keyword resolution
             NodeType::This => self.visit_this(node_idx),
+            // Match expression type checking
+            NodeType::Match => self.visit_match(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

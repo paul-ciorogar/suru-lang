@@ -5,6 +5,16 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-02-20 - Match Expression Type Checking
+
+### Added
+- **`src/semantic/match_type_checking.rs`** — type checking for match expressions
+  - Visits match subject expression and infers its type
+  - Constrains all arm result expressions to a common type via unification
+  - Sets the match expression's result type to the unified arm type
+  - Reports "Type mismatch" when arms return incompatible types
+- 11 new semantic tests covering: Number/Bool/String arms, single arm, incompatible arm types, match in variable declaration, match in function return, function call subject
+
 ## [0.43.0] - 2026-02-20 - AST Navigation Abstractions
 
 ### Added
