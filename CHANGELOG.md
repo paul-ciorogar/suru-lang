@@ -5,6 +5,15 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - 2026-02-21 - Match Pattern Validation
+
+### Added
+- **`src/semantic/match_type_checking.rs`** — pattern validation, unreachable detection, exhaustiveness checking
+  - Pattern type constraints: each non-wildcard pattern is constrained to the subject type via unification
+  - Unreachable detection: patterns after a wildcard `_`, or duplicate literal patterns, are reported immediately
+  - Exhaustiveness: `Bool` subjects require `true` + `false` (or wildcard); `Number`/`String` subjects always require a wildcard
+- **`src/semantic/mod.rs`** — `DeferredMatchExhaustivenessCheck` struct; `deferred_match_checks` field; Phase 2.6 call to `verify_match_exhaustiveness`
+
 ## [0.44.0] - 2026-02-20 - Match Expression Type Checking
 
 ### Added

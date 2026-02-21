@@ -203,10 +203,10 @@
 - [x] Write tests for match expressions
 
 ### 8.2 Match Pattern Validation
-- [ ] Validate patterns against subject type
-- [ ] Check pattern exhaustiveness
-- [ ] Report unreachable patterns
-- [ ] Write tests for pattern matching
+- [x] Validate patterns against subject type
+- [x] Check pattern exhaustiveness
+- [x] Report unreachable patterns
+- [x] Write tests for pattern matching
 
 ### 8.3 Match Arm Type Checking
 - [ ] Check each arm body type

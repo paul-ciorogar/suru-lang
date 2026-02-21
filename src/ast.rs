@@ -200,6 +200,16 @@ impl Ast {
         FunctionDeclView { ast: self, idx: node_idx }
     }
 
+    /// Get a typed view over a Match node
+    pub fn match_expr(&self, node_idx: usize) -> MatchView<'_> {
+        MatchView { ast: self, idx: node_idx }
+    }
+
+    /// Get a typed view over a MatchArm node
+    pub fn match_arm(&self, node_idx: usize) -> MatchArmView<'_> {
+        MatchArmView { ast: self, idx: node_idx }
+    }
+
     // Add node and return its index
     pub fn add_node(&mut self, node: AstNode) -> usize {
         // Check AST node limit before adding
@@ -513,5 +523,65 @@ impl<'a> FunctionDeclView<'a> {
             .param_list_idx()
             .and_then(|pl| self.ast.nodes[pl].first_child);
         ParamIter { ast: self.ast, current: first_param }
+    }
+}
+
+/// View over a `Match` node
+///
+/// AST structure:
+/// ```text
+/// Match
+///   MatchSubject
+///     <expression>
+///   MatchArms
+///     MatchArm*
+/// ```
+pub struct MatchView<'a> {
+    ast: &'a Ast,
+    idx: usize,
+}
+
+impl<'a> MatchView<'a> {
+    /// Returns the index of the subject expression (inside MatchSubject)
+    pub fn subject_expr_idx(&self) -> Option<usize> {
+        let subject_idx = self.ast.nodes[self.idx].first_child?;
+        self.ast.nodes[subject_idx].first_child
+    }
+
+    /// Returns an iterator over MatchArm node indices
+    pub fn arm_indices(&self) -> ChildIter<'a> {
+        let first_arm = self.ast.nodes[self.idx]
+            .first_child // MatchSubject
+            .and_then(|subject_idx| self.ast.nodes[subject_idx].next_sibling) // MatchArms
+            .and_then(|arms_idx| self.ast.nodes[arms_idx].first_child); // first MatchArm
+        ChildIter { ast: self.ast, current: first_arm }
+    }
+}
+
+/// View over a single `MatchArm` node
+///
+/// AST structure:
+/// ```text
+/// MatchArm
+///   MatchPattern
+///     <pattern>   (Placeholder | LiteralNumber | LiteralString | LiteralBoolean)
+///   <result expression>
+/// ```
+pub struct MatchArmView<'a> {
+    ast: &'a Ast,
+    idx: usize,
+}
+
+impl<'a> MatchArmView<'a> {
+    /// Returns the index of the pattern child node (inside MatchPattern)
+    pub fn pattern_child_idx(&self) -> Option<usize> {
+        let pattern_idx = self.ast.nodes[self.idx].first_child?;
+        self.ast.nodes[pattern_idx].first_child
+    }
+
+    /// Returns the index of the result expression (sibling after MatchPattern)
+    pub fn result_expr_idx(&self) -> Option<usize> {
+        let pattern_idx = self.ast.nodes[self.idx].first_child?;
+        self.ast.nodes[pattern_idx].next_sibling
     }
 }

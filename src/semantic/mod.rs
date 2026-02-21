@@ -4,8 +4,10 @@ mod assignment_type_checking;
 mod expression_type_inference;
 mod function_body_analysis;
 mod function_call_type_checking;
+mod function_type_checking;
 mod generic_type_checking;
 mod intersection_type_checking;
+mod match_type_checking;
 mod method_call_type_checking;
 mod module_resolution;
 mod name_resolution;
@@ -14,14 +16,12 @@ mod return_type_validation;
 mod struct_init_type_checking;
 mod struct_privacy;
 mod struct_type_definition;
+mod structural_type_compatibility;
 mod type_inference;
 mod type_resolution;
 mod types;
 mod unification;
 mod union_type_checking;
-mod function_type_checking;
-mod match_type_checking;
-mod structural_type_compatibility;
 
 pub use types::{
     Constraint,
@@ -387,6 +387,10 @@ pub struct SemanticAnalyzer {
     // Structural type compatibility - deferred method checks
     /// Method calls on TypeParameter receivers are deferred until after unification
     deferred_method_checks: Vec<DeferredMethodCheck>,
+
+    // Match pattern validation - deferred exhaustiveness checks
+    /// Match expressions are checked for exhaustiveness after unification
+    deferred_match_checks: Vec<DeferredMatchExhaustivenessCheck>,
 }
 
 /// Represents a deferred method check for structural type compatibility
@@ -400,6 +404,24 @@ pub(super) struct DeferredMethodCheck {
     pub arg_type_ids: Vec<TypeId>,
     pub call_node_idx: usize,
     pub method_name_node_idx: usize,
+}
+
+/// Represents a deferred match exhaustiveness check
+///
+/// Collected during `visit_match` and verified after unification, when the
+/// subject type is fully resolved.
+#[derive(Debug, Clone)]
+pub(super) struct DeferredMatchExhaustivenessCheck {
+    /// AST index of the subject expression (for type resolution and error reporting)
+    pub subject_expr_idx: Option<usize>,
+    /// Whether any arm has a wildcard `_` pattern
+    pub has_wildcard: bool,
+    /// For Bool subjects: whether a `true` literal pattern is present
+    pub has_true: bool,
+    /// For Bool subjects: whether a `false` literal pattern is present
+    pub has_false: bool,
+    /// The Match node index (for error location fallback)
+    pub match_node_idx: usize,
 }
 
 impl SemanticAnalyzer {
@@ -432,6 +454,8 @@ impl SemanticAnalyzer {
             current_type_params: Vec::new(),
             // Initialize deferred method checks
             deferred_method_checks: Vec::new(),
+            // Initialize deferred match exhaustiveness checks
+            deferred_match_checks: Vec::new(),
         }
     }
 
@@ -628,8 +652,7 @@ impl SemanticAnalyzer {
             "Float64" => Type::Float(FloatSize::F64),
             _ => {
                 // Check current generic type parameters
-                if let Some((_, type_id)) =
-                    self.current_type_params.iter().find(|(n, _)| n == name)
+                if let Some((_, type_id)) = self.current_type_params.iter().find(|(n, _)| n == name)
                 {
                     return Ok(*type_id);
                 }
@@ -686,7 +709,10 @@ impl SemanticAnalyzer {
             // Phase 2.5: Verify deferred structural type checks
             self.verify_deferred_checks();
 
-            // Phase 2.6: Solve any new constraints from deferred checks
+            // Phase 2.6: Verify match pattern exhaustiveness
+            self.verify_match_exhaustiveness();
+
+            // Phase 2.7: Solve any new constraints from deferred checks
             if !self.constraints.is_empty() {
                 if let Err(errors) = self.solve_constraints() {
                     self.errors.extend(errors);
