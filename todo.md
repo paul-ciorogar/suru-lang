@@ -209,9 +209,9 @@
 - [x] Write tests for pattern matching
 
 ### 8.3 Match Arm Type Checking
-- [ ] Check each arm body type
-- [ ] Ensure all arms have compatible types
-- [ ] Write tests for match arm types
+- [x] Check each arm body type
+- [x] Ensure all arms have compatible types
+- [x] Write tests for match arm types
 
 ## Phase 9: Advanced Features
 

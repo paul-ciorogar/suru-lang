@@ -156,18 +156,6 @@ impl SemanticAnalyzer {
                 self.unify(*i1, *i2, source)
             }
 
-            // ========== Named Unit Types ==========
-            (Type::NamedUnit(n1), Type::NamedUnit(n2)) => {
-                if n1 == n2 {
-                    Ok(())
-                } else {
-                    Err(self.make_error(
-                        format!("Type mismatch: cannot unify {:?} with {:?}", type1, type2),
-                        source,
-                    ))
-                }
-            }
-
             // ========== Union Types ==========
 
             // Concrete type vs Union: check if concrete type is one of the alternatives
@@ -176,9 +164,7 @@ impl SemanticAnalyzer {
                     Ok(())
                 } else {
                     Err(self.make_error(
-                        format!(
-                            "Type mismatch: type is not a member of the union type"
-                        ),
+                        "Type mismatch: type is not a member of the union type".to_string(),
                         source,
                     ))
                 }
@@ -190,9 +176,7 @@ impl SemanticAnalyzer {
                     Ok(())
                 } else {
                     Err(self.make_error(
-                        format!(
-                            "Type mismatch: type is not a member of the union type"
-                        ),
+                        "Type mismatch: type is not a member of the union type".to_string(),
                         source,
                     ))
                 }
@@ -249,10 +233,18 @@ impl SemanticAnalyzer {
             (Type::Error, _) | (_, Type::Error) => Ok(()),
 
             // ========== Type Mismatch ==========
-            _ => Err(self.make_error(
-                format!("Type mismatch: cannot unify {:?} with {:?}", type1, type2),
-                source,
-            )),
+            // Last resort: check if both types are members of a common union
+            // (e.g., `type Result: String, Bool` allows arms returning String or Bool)
+            _ => {
+                if self.type_registry.any_union_contains_both(t1, t2) {
+                    Ok(())
+                } else {
+                    Err(self.make_error(
+                        format!("Type mismatch: cannot unify {:?} with {:?}", type1, type2),
+                        source,
+                    ))
+                }
+            }
         }
     }
 

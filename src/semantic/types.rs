@@ -343,6 +343,24 @@ impl TypeRegistry {
     pub fn is_empty(&self) -> bool {
         self.types.is_empty()
     }
+
+    /// Returns true if any registered union type contains both `t1` and `t2` as alternatives.
+    ///
+    /// Used during unification to allow two different NamedUnit types to unify when
+    /// they are both members of the same union (e.g., `Active` and `Inactive` both
+    /// belong to `type Status: Active, Inactive`).
+    pub fn any_union_contains_both(&self, t1: TypeId, t2: TypeId) -> bool {
+        for ty in &self.types {
+            if let Type::Union(alternatives) = ty {
+                let has_t1 = alternatives.iter().any(|alt| *alt == t1);
+                let has_t2 = alternatives.iter().any(|alt| *alt == t2);
+                if has_t1 && has_t2 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 impl Default for TypeRegistry {

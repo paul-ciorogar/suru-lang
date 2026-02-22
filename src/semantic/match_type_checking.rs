@@ -708,4 +708,170 @@ mod tests {
             "String match without wildcard should be non-exhaustive"
         );
     }
+
+    // ========== Group 7: Arm Body Type Checking ==========
+
+    #[test]
+    fn test_arm_body_function_call_same_return_type() {
+        let source = r#"
+            getNum: () Number { return 42 }
+            x: 1
+            result: match x {
+                1: getNum()
+                _: getNum()
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_ok(),
+            "Arms returning same function call return type should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_arm_body_identifier_same_type() {
+        let source = r#"
+            n: 42
+            x: 1
+            result: match x {
+                1: n
+                _: n
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_ok(),
+            "Arms returning identifier of same type should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_arm_body_named_unit_same_type() {
+        let source = r#"
+            type Active
+            x: 1
+            result: match x {
+                1: Active
+                _: Active
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_ok(),
+            "Arms returning same named unit type should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_arm_body_nested_match_same_type() {
+        let source = r#"
+            x: 1
+            y: 2
+            result: match x {
+                1: match y {
+                    1: "a"
+                    _: "b"
+                }
+                _: "c"
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_ok(),
+            "Nested match arm returning same type should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_arm_body_bool_expression_consistent() {
+        let source = r#"
+            flag: true
+            x: 1
+            result: match x {
+                1: flag and true
+                _: not flag
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_ok(),
+            "Arms returning Bool expressions should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_arm_body_union_member_types() {
+        let source = r#"
+            type Active
+            type Inactive
+            type Status: Active, Inactive
+            result Status: match true {
+                true: Active
+                false: Inactive
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_ok(),
+            "Arms returning different union member types with union annotation should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_arm_body_function_call_type_mismatch() {
+        let source = r#"
+            getNum: () Number { return 42 }
+            getStr: () String { return "hi" }
+            x: 1
+            result: match x {
+                1: getNum()
+                _: getStr()
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_err(),
+            "Arms returning different function return types should fail"
+        );
+    }
+
+    #[test]
+    fn test_arm_body_identifier_type_mismatch() {
+        let source = r#"
+            n: 42
+            s: "hello"
+            x: 1
+            result: match x {
+                1: n
+                _: s
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_err(),
+            "Arms returning identifiers of different types should fail"
+        );
+    }
+
+    #[test]
+    fn test_arm_body_bool_expression_vs_number() {
+        let source = r#"
+            x: 1
+            result: match x {
+                1: true and false
+                _: 42
+            }
+        "#;
+        let result = analyze_source(source);
+        assert!(
+            result.is_err(),
+            "Arms returning Bool and Number should fail"
+        );
+    }
 }

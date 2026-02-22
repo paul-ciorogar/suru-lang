@@ -5,6 +5,19 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] - 2026-02-22 - Match Arm Type Checking
+
+### Added
+- **`src/semantic/match_type_checking.rs`** — 9 new tests (Group 7) covering arm body type checking:
+  - Valid: function call return types, identifier references, named unit types, nested match results, bool expressions
+  - Valid: arms returning different union members when result is annotated with the parent union (`result Status: match true { true: Active, false: Inactive }`)
+  - Invalid: function call return type mismatch, identifier type mismatch, Bool vs Number arms
+- **`src/semantic/unification.rs`** — common-union fallback in the type mismatch catch-all: before reporting a mismatch, check if both types are members of a common registered union type; enables arms of different union-member types to unify
+- **`src/semantic/types.rs`** — `TypeRegistry::any_union_contains_both(t1, t2)` helper
+
+### Changed
+- Removed the redundant `NamedUnit vs NamedUnit` match arm from `unification.rs` (same-name identity is already handled by the `t1 == t2` guard; different-name case now falls through to the common-union check in `_ =>`)
+
 ## [0.45.0] - 2026-02-21 - Match Pattern Validation
 
 ### Added
