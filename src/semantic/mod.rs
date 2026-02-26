@@ -9,6 +9,7 @@ mod generic_type_checking;
 mod intersection_type_checking;
 mod match_type_checking;
 mod method_call_type_checking;
+mod pipe_type_checking;
 mod module_resolution;
 mod name_resolution;
 mod property_access_type_checking;
@@ -766,6 +767,8 @@ impl SemanticAnalyzer {
             NodeType::This => self.visit_this(node_idx),
             // Match expression type checking
             NodeType::Match => self.visit_match(node_idx),
+            // Pipe operator type checking
+            NodeType::Pipe => self.visit_pipe(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

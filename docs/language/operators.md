@@ -86,10 +86,10 @@ result: value | transform
 
 // Multiple pipes
 processed: "Hello, world!"
-    | trim()
-    | toLower()
+    | trim
+    | toLower
     | replace(_, "world", "you")
-    | capitalize()
+    | capitalize
 
 // Pipe with arithmetic
 output: 2_283 | subtract(_, 2) | print  # 2281 would be printed
@@ -156,11 +156,11 @@ Chain multiple transformations:
 ```suru
 // Text processing
 processed: "  Hello World  "
-    | trim()
-    | toLower()
+    | trim
+    | toLower
     | replace(_, "world", "Suru")
-    | capitalize()
-// Result: "Hello suru"
+    | capitalize
+// Result: "HELLO SURU"
 
 // Number processing
 final: 100
@@ -176,10 +176,10 @@ Pipe works seamlessly with method calls:
 
 ```suru
 result: data
-    | process()
-    | validate()
-    | user.transform(_)
-    | save()
+    | process
+    | validate
+    | user.transform
+    | save
 ```
 
 ### Error Handling with Pipes
@@ -231,10 +231,10 @@ type LabeledCircle: Circle + {
 ```suru
 // Data transformation pipeline
 users
-    | filterActive()
-    | sortByName()
+    | filterActive
+    | sortByName
     | take(_, 10)
-    | mapToDisplay()
+    | mapToDisplay
 
 // Validation pipeline
 input

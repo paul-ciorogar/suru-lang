@@ -5,6 +5,19 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.0] - 2026-02-26 - Pipe Operator Type Checking
+
+### Added
+- **`src/semantic/pipe_type_checking.rs`** — pipe operator type checking with three dispatch forms:
+  - **Bare identifier** (`value | fn`): validates `fn` is a function taking exactly 1 parameter, constrains piped type to param type, propagates return type
+  - **Placeholder call** (`value | fn(_, arg)`): injects piped value at `_` position via type constraint, propagates call return type
+  - **No-placeholder call** (`value | fn()`): call must return a function, which is then applied to the piped value (`(fn())(value)`)
+  - Void-left-side detection: error if left side produces no value
+  - Pipe chaining (`a | b | c`) with correct type propagation through the chain
+  - Undefined function and type mismatch errors in all three forms
+  - 14 tests across 6 groups (bare identifier, placeholder, no-placeholder, chaining, type annotation, undefined function)
+- **`src/semantic/mod.rs`** — registered `pipe_type_checking` module and added `NodeType::Pipe` dispatch in `visit_node()`
+
 ## [0.46.0] - 2026-02-22 - Match Arm Type Checking
 
 ### Added

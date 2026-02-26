@@ -216,10 +216,10 @@
 ## Phase 9: Advanced Features
 
 ### 9.1 Pipe Operator Type Checking
-- [ ] Check left side produces value
-- [ ] Check right side accepts value
-- [ ] Chain types through pipe sequence
-- [ ] Write tests for pipe operator
+- [x] Check left side produces value
+- [x] Check right side accepts value
+- [x] Chain types through pipe sequence
+- [x] Write tests for pipe operator
 
 ### 9.2 Try Operator Type Checking
 - [ ] Implement error handling type checking

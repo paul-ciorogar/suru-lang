@@ -160,7 +160,7 @@ result: value
 add: (x Number
       , y Number
       , z Number) {
-    return x + y + z
+    return x.add(y).add(z)
 }
 ```
 
