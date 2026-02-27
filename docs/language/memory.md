@@ -143,6 +143,28 @@ parallel: () {
 }
 ```
 
+## Linear Types: Guaranteed Consumption
+
+Suru's affine move semantics ensure a value is used *at most* once. **Linear types** (`type-linear`) strengthen this to *exactly* once: certain values cannot be dropped implicitly — every code path must call a consumer method.
+
+```suru
+type-linear FileHandle: {
+    read: (n Number) String  // observer — handle remains live
+    close: () void           // consumer — obligation satisfied
+}
+
+safeRead: (path String) String {
+    handle: openFile(path)
+    content: handle.read(4096)
+    handle.close()           // required — compiler error if omitted
+    return content
+}
+```
+
+The compiler tracks the obligation state flow-sensitively. Every match arm, every early return path must satisfy the obligation before it exits scope. This prevents resource leaks at compile time without requiring runtime cleanup or garbage collection.
+
+**See also:** [Linear Types](linear-types.md) for the full specification including typestate patterns, generics, and fallible consumers.
+
 ## Memory Patterns
 
 ### Return Ownership
@@ -283,3 +305,4 @@ result: Builder()
 - [Variables](variables.md) - Variable scope and mutability
 - [Functions](functions.md) - Function parameters
 - [Types](types.md) - Type ownership
+- [Linear Types](linear-types.md) - Must-consume obligations for resource safety

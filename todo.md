@@ -222,9 +222,9 @@
 - [x] Write tests for pipe operator
 
 ### 9.2 Try Operator Type Checking
-- [ ] Implement error handling type checking
-- [ ] Check try operator on appropriate types
-- [ ] Write tests for try operator
+- [x] Implement error handling type checking
+- [x] Check try operator on appropriate types
+- [x] Write tests for try operator
 
 ### 9.3 Partial Application
 - [ ] Validate placeholder usage

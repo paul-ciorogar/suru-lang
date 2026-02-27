@@ -11,7 +11,7 @@
 
 ## Type Forms
 
-Suru supports seven distinct type forms:
+Suru supports eight distinct type forms:
 
 ### 1. Unit Types
 
@@ -129,6 +129,21 @@ type Comparable<T: Orderable>: {
     lessThan: (other Comparable<T>) Bool
 }
 ```
+
+### 8. Linear Types
+
+Types whose values carry a must-consume obligation enforced by the compiler:
+
+```suru
+type-linear FileHandle: {
+    read: (n Number) String   // observer method — FileHandle remains live
+    close: () void            // consumer method — satisfies the obligation
+}
+```
+
+Values of `type-linear` cannot go out of scope without a consumer method being called. The compiler tracks this obligation flow-sensitively across all code paths, including all match arms and early returns.
+
+**See also:** [Linear Types](linear-types.md) for full documentation including typestate, generics, and fallible consumers.
 
 ### Basic Compatibility
 
@@ -517,3 +532,4 @@ top: numberStack.peek()  // Some(3)
 - [Functions](functions.md) - Function types and declarations
 - [Composition](composition.md) - Type composition with `+`
 - [Variables](variables.md) - Variable type annotations
+- [Linear Types](linear-types.md) - `type-linear`, consumer/observer methods, typestate, virality

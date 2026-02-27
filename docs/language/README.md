@@ -47,6 +47,7 @@ Suru supports clear, readable syntax with minimal punctuation:
 5. **Intersection types** - Combining types with `+`
 6. **Function types** - Function signatures
 7. **Generic types** - Parameterized types with constraints
+8. **Linear types** — Must-consume values for resource safety (`type-linear FileHandle`)
 
 **Learn more:** [Type System](types.md)
 
@@ -93,6 +94,7 @@ This approach **eliminates entire classes of memory-related bugs** while keeping
   - Intersection types and composition
   - Function types and generics
   - Generic type constraint and inference
+- [**Linear Types**](linear-types.md) — `type-linear`, consumer/observer methods, typestate, virality
 
 ### Functions & Control Flow
 

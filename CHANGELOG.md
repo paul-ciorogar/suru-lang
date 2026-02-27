@@ -5,6 +5,12 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.0] - 2026-02-26 - Try Operator Type Checking
+
+### Added
+- **`src/semantic/try_type_checking.rs`** — `try` operator type checking: validates operand is a 2-variant union (`Union<A,B>`, `Result(ok,err)`, `Option(inner)`), sets expression type to the success variant, and constrains the containing function's return type to be compatible with the failure variant; 11 tests across happy-path (2-variant union, Result-like, Option-like, type propagation, chaining) and error cases (Number/String/Bool operand, 3-variant union, outside function, non-union return type)
+- **`src/semantic/mod.rs`** — registered `try_type_checking` module and added `NodeType::Try` dispatch in `visit_node()`
+
 ## [0.47.0] - 2026-02-26 - Pipe Operator Type Checking
 
 ### Added

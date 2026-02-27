@@ -11,6 +11,7 @@ Suru Lang prioritizes interactive development, transforming editors into REPL-li
 - **Minimal Syntax** - Maximum expressiveness with minimal punctuation
 - **Structural Typing** - Duck typing based on shape, not names
 - **No Garbage Collection** - Simple ownership model with move semantics
+- **Linear Types** - `type-linear` for guaranteed resource cleanup; must-consume obligations enforced at compile time
 - **Method-Centric Design** - No loop keywords; iteration through methods like `.times()` and `.each()`
 - **Interactive Development** - LSP-first tooling for inline inspection and testing
 - **Composition Over Inheritance** - Use `+` operator to compose types and data
