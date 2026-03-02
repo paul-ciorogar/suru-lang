@@ -9,6 +9,7 @@ mod generic_type_checking;
 mod intersection_type_checking;
 mod match_type_checking;
 mod method_call_type_checking;
+mod partial_application_type_checking;
 mod pipe_type_checking;
 mod try_type_checking;
 mod module_resolution;
@@ -772,6 +773,9 @@ impl SemanticAnalyzer {
             NodeType::Pipe => self.visit_pipe(node_idx),
             // Try operator type checking
             NodeType::Try => self.visit_try(node_idx),
+            // Partial application type checking
+            NodeType::Partial => self.visit_partial(node_idx),
+            NodeType::Placeholder => self.visit_placeholder(node_idx),
             // For now, just visit children for all other node types
             _ => self.visit_children(node_idx),
         }

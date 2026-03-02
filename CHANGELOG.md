@@ -5,6 +5,18 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.0] - 2026-03-02 - Partial Application Type Checking
+
+### Added
+- **`src/semantic/partial_application_type_checking.rs`** — partial application type checking with two dispatch forms:
+  - **Bare identifier** (`partial func`): validates `func` is a function and propagates its type unchanged to the `Partial` node
+  - **Partial call** (`partial func(args...)`): does not delegate to `visit_function_call` (avoiding false arity errors); instead validates the function type, constrains each provided concrete argument against the corresponding parameter type, keeps `_` placeholder positions open, and interns a new `FunctionType` covering only the remaining (uncovered) parameters with the same return type
+  - **Placeholder validation** (`_`): valid only as a direct child of `ArgList` or `MatchPattern`; any other position (e.g., `x: _`) records "Placeholder '_' can only appear as a function argument or match pattern"
+  - Too-many-arguments detection: error when provided arg count exceeds the function's parameter count
+  - Undefined function and non-function symbol errors in both forms
+  - 13 tests across all groups: bare identifier, no-args, one concrete arg, concrete + placeholder, all args, type mismatch in arg, too many args, non-function, undefined function, valid `_` in ArgList, invalid standalone `_`, integration (multiple partial applications), type annotation mismatch
+- **`src/semantic/mod.rs`** — registered `partial_application_type_checking` module and added `NodeType::Partial` / `NodeType::Placeholder` dispatch in `visit_node()`
+
 ## [0.48.0] - 2026-02-26 - Try Operator Type Checking
 
 ### Added

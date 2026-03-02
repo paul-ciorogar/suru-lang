@@ -227,9 +227,9 @@
 - [x] Write tests for try operator
 
 ### 9.3 Partial Application
-- [ ] Validate placeholder usage
-- [ ] Construct partial function types
-- [ ] Write tests for partial application
+- [x] Validate placeholder usage
+- [x] Construct partial function types
+- [x] Write tests for partial application
 
 ### 9.4 This Keyword Validation
 - [ ] Check `this` only used in method context
