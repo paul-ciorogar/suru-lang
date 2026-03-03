@@ -5,6 +5,19 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.0] - 2026-03-03 - Module Parsing Infrastructure
+
+### Added
+- **`src/semantic/module_registry.rs`** — `ModuleRegistry` for tracking cross-file module exports; `ModuleExportedSymbol` for per-symbol metadata; 8 unit tests covering CRUD operations and edge cases
+- **`src/semantic/multi_file_analyzer.rs`** — `MultiFileAnalyzer` implementing a two-pass multi-file semantic analysis pipeline; `extract_module_info` helper for lightweight first-pass AST scanning; 8 integration tests covering single-file and two-file scenarios including import resolution
+- **`src/semantic/module_resolution.rs`** — `visit_export_stmt` (validates exported names exist in scope), `visit_import_stmt` (resolves full module imports against registry in multi-file mode), `collect_exported_names` helper; 6 new tests
+- **`src/semantic/mod.rs`** — `module_registry` and `exported_symbol_names` fields on `SemanticAnalyzer`; `with_module_registry()` builder method; `Import` and `Export` now dispatched in `visit_node` instead of falling through to `visit_children`
+
+### Changed
+- Full module imports (`import { math }`) are now resolved across files when using `MultiFileAnalyzer`
+- Export statements now validate that each exported name exists in the current scope
+- Single-file analysis ignores import statements (no registry → no error)
+
 ## [0.50.0] - 2026-03-02 - This Keyword Validation
 
 ### Added

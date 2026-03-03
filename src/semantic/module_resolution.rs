@@ -5,7 +5,11 @@
 // - Main module handling (module Name)
 // - Submodule handling (module .name)
 // - Module symbol table creation
+// - Export statement validation
+// - Import statement resolution
 
+use crate::ast::NodeType;
+use crate::lexer::TokenKind;
 use super::{ScopeKind, SemanticAnalyzer, SemanticError, Symbol, SymbolKind};
 
 impl SemanticAnalyzer {
@@ -59,6 +63,119 @@ impl SemanticAnalyzer {
 
         // Enter module scope for subsequent declarations
         self.scopes.enter_scope(ScopeKind::Module);
+    }
+
+    /// Visits an export statement: export { name1, name2, ... }
+    ///
+    /// Validates that each exported name exists in the current scope.
+    /// Records valid export names in `self.exported_symbol_names`.
+    pub(super) fn visit_export_stmt(&mut self, node_idx: usize) {
+        // Export → ExportList → Identifier*
+        let Some(export_list_idx) = self.ast.nodes[node_idx].first_child else {
+            return;
+        };
+
+        let mut current = self.ast.nodes[export_list_idx].first_child;
+        while let Some(ident_idx) = current {
+            if let Some(name) = self.ast.node_text(ident_idx) {
+                let name = name.to_string();
+                if self.scopes.lookup(&name).is_none() {
+                    let error_msg = format!("Exported symbol '{}' is not defined", name);
+                    if let Some(token) = self.ast.nodes[ident_idx].token.as_ref() {
+                        self.record_error(SemanticError::from_token(error_msg, token));
+                    } else {
+                        self.record_error(SemanticError::new(error_msg, 0, 0));
+                    }
+                } else {
+                    self.exported_symbol_names.push(name);
+                }
+            }
+            current = self.ast.nodes[ident_idx].next_sibling;
+        }
+    }
+
+    /// Visits an import statement: import { item1, item2, ... }
+    ///
+    /// For full module imports (`import { math }`), looks up the module in
+    /// the registry and adds it to scope. Other import forms (aliased,
+    /// selective, star) are silently skipped (handled in later phases).
+    pub(super) fn visit_import_stmt(&mut self, node_idx: usize) {
+        // If no registry is set, we are in single-file mode — skip silently.
+        let registry = match &self.module_registry {
+            Some(r) => r.clone(),
+            None => return,
+        };
+
+        // Import → ImportList → ImportItem+
+        let Some(import_list_idx) = self.ast.nodes[node_idx].first_child else {
+            return;
+        };
+
+        let mut current = self.ast.nodes[import_list_idx].first_child;
+        while let Some(item_idx) = current {
+            self.resolve_import_item(item_idx, &registry);
+            current = self.ast.nodes[item_idx].next_sibling;
+        }
+    }
+
+    /// Resolves a single ImportItem node.
+    ///
+    /// Only full imports (`ImportItem → Identifier`) are handled here.
+    /// Star, aliased, and selective imports are deferred to later phases.
+    fn resolve_import_item(
+        &mut self,
+        item_idx: usize,
+        registry: &std::rc::Rc<std::cell::RefCell<super::module_registry::ModuleRegistry>>,
+    ) {
+        let Some(first_child_idx) = self.ast.nodes[item_idx].first_child else {
+            return;
+        };
+
+        let first_child_type = self.ast.nodes[first_child_idx].node_type;
+
+        // Full import: ImportItem → Identifier (not star, not alias, not selective)
+        if first_child_type == NodeType::Identifier {
+            // Check if this is a star import (Identifier with Star token)
+            if let Some(token) = self.ast.nodes[first_child_idx].token.as_ref() {
+                if token.kind == TokenKind::Star {
+                    // Star import — skip for now
+                    return;
+                }
+            }
+
+            // Full module import
+            let Some(module_name) = self.ast.node_text(first_child_idx) else {
+                return;
+            };
+            let module_name = module_name.to_string();
+
+            let reg = registry.borrow();
+            if reg.module_exists(&module_name) {
+                // Add module symbol to current scope
+                let symbol = Symbol::new(
+                    module_name.clone(),
+                    Some("module".to_string()),
+                    SymbolKind::Module,
+                );
+                self.scopes.insert(symbol);
+            } else {
+                let error_msg = format!("Module '{}' not found", module_name);
+                if let Some(token) = self.ast.nodes[first_child_idx].token.as_ref().cloned() {
+                    self.record_error(SemanticError::from_token(error_msg, &token));
+                } else {
+                    self.record_error(SemanticError::new(error_msg, 0, 0));
+                }
+            }
+        }
+        // Aliased (ImportAlias), selective (ImportSelective), or star already handled above
+    }
+
+    /// Returns the list of exported symbol names collected during analysis.
+    ///
+    /// Called by `MultiFileAnalyzer` after per-file analysis to build the
+    /// `ModuleRegistry`.
+    pub fn collect_exported_names(&self) -> Vec<String> {
+        self.exported_symbol_names.clone()
     }
 }
 
@@ -327,6 +444,97 @@ x: 42
         assert!(
             symbol.is_some(),
             "Variable should be visible in module scope"
+        );
+    }
+
+    // ========== Export Statement Tests ==========
+
+    #[test]
+    fn test_export_stmt_valid() {
+        // Export an existing symbol — should succeed with no errors
+        let source = "x: 42\nexport { x }\n";
+        let result = analyze_source(source);
+        assert!(result.is_ok(), "Export of defined symbol should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_export_stmt_undefined_symbol() {
+        // Export a non-existent symbol — should produce an error
+        let source = "export { undeclared }\n";
+        let result = analyze_source(source);
+        assert!(result.is_err(), "Export of undefined symbol should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Exported symbol 'undeclared' is not defined")),
+            "Error should mention the missing symbol"
+        );
+    }
+
+    #[test]
+    fn test_export_stmt_multiple() {
+        // Export several symbols, all defined
+        let source = "a: 1\nb: 2\nc: 3\nexport { a, b, c }\n";
+        let result = analyze_source(source);
+        assert!(result.is_ok(), "Export of multiple defined symbols should succeed: {:?}", result);
+    }
+
+    // ========== Import Statement Tests (no registry = single-file mode) ==========
+
+    #[test]
+    fn test_import_stmt_no_registry() {
+        // Without a registry, import should be silently ignored (no error)
+        let source = "import { math }\n";
+        let result = analyze_source(source);
+        assert!(result.is_ok(), "Import without registry should be silently ignored: {:?}", result);
+    }
+
+    // ========== Import Statement Tests (with registry) ==========
+
+    #[test]
+    fn test_import_stmt_with_registry_found() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { math }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math".to_string());
+        registry.add_export(
+            "math",
+            ModuleExportedSymbol::new("add".to_string(), SymbolKind::Function),
+        );
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Import of known module should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_import_stmt_with_registry_not_found() {
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { unknown_module }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry = ModuleRegistry::new(); // empty — no modules registered
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Import of unknown module should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Module 'unknown_module' not found")),
+            "Error should mention the missing module"
         );
     }
 }

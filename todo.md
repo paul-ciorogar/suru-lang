@@ -238,33 +238,39 @@
 
 ## Phase 10: Module System
 
-### 10.1 Module Declaration Processing
+### 10.1 Module Parsing Infrastructure
+- [x] Set up multiple file parsing for modules
+- [x] Support module import resolution across files
+- [x] Implement module AST structure for cross-file references
+- [x] Write tests for module parsing infrastructure
+
+### 10.2 Module Declaration Processing
 - [x] Register module declarations
 - [x] Support main modules (`module Name`)
 - [x] Support submodules (`module .name`)
 - [x] Create module symbol tables
 - [x] Write tests for module registration
 
-### 10.2 Import Statement Resolution
+### 10.3 Import Statement Resolution
 - [ ] Implement full module import resolution
 - [ ] Implement selective import resolution
 - [ ] Implement star import resolution
 - [ ] Implement import alias handling
 - [ ] Write tests for import resolution
 
-### 10.3 Export Statement Validation
+### 10.4 Export Statement Validation
 - [ ] Validate exported symbols exist
 - [ ] Build export lists for modules
 - [ ] Check for duplicate exports
 - [ ] Write tests for export validation
 
-### 10.4 Submodule Visibility Rules
+### 10.5 Submodule Visibility Rules
 - [ ] Implement submodule scoping rules
 - [ ] Restrict submodule visibility to parent hierarchy
 - [ ] Check submodule access permissions
 - [ ] Write tests for submodule visibility
 
-### 10.5 Module Path Resolution
+### 10.6 Module Path Resolution
 - [ ] Implement dotted module path resolution
 - [ ] Handle nested module lookups
 - [ ] Report errors for undefined modules

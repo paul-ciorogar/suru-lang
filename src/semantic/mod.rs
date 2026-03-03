@@ -12,8 +12,13 @@ mod method_call_type_checking;
 mod partial_application_type_checking;
 mod pipe_type_checking;
 mod try_type_checking;
+mod module_registry;
 mod module_resolution;
+mod multi_file_analyzer;
 mod name_resolution;
+
+pub use module_registry::ModuleRegistry;
+pub use multi_file_analyzer::{FileAnalysisResult, MultiFileAnalyzer, SourceFile};
 mod property_access_type_checking;
 mod return_type_validation;
 mod struct_init_type_checking;
@@ -395,6 +400,12 @@ pub struct SemanticAnalyzer {
     // Match pattern validation - deferred exhaustiveness checks
     /// Match expressions are checked for exhaustiveness after unification
     deferred_match_checks: Vec<DeferredMatchExhaustivenessCheck>,
+
+    // Multi-file module support
+    /// Shared module registry for cross-file import resolution (None in single-file mode)
+    module_registry: Option<std::rc::Rc<std::cell::RefCell<module_registry::ModuleRegistry>>>,
+    /// Names of symbols exported by this file (collected by visit_export_stmt)
+    pub(super) exported_symbol_names: Vec<String>,
 }
 
 /// Represents a deferred method check for structural type compatibility
@@ -460,7 +471,23 @@ impl SemanticAnalyzer {
             deferred_method_checks: Vec::new(),
             // Initialize deferred match exhaustiveness checks
             deferred_match_checks: Vec::new(),
+            // Initialize multi-file module support
+            module_registry: None,
+            exported_symbol_names: Vec::new(),
         }
+    }
+
+    /// Sets the module registry for cross-file import resolution.
+    ///
+    /// When set, `import { module_name }` statements are resolved against the
+    /// registry. Without this, import statements are silently ignored (single-
+    /// file mode).
+    pub fn with_module_registry(
+        mut self,
+        registry: std::rc::Rc<std::cell::RefCell<module_registry::ModuleRegistry>>,
+    ) -> Self {
+        self.module_registry = Some(registry);
+        self
     }
 
     /// Records a semantic error
@@ -759,8 +786,10 @@ impl SemanticAnalyzer {
             NodeType::Negate => self.visit_negate(node_idx),
             // Function body analysis
             NodeType::ReturnStmt => self.visit_return_stmt(node_idx),
-            // Module declaration
+            // Module declarations and imports/exports
             NodeType::ModuleDecl => self.visit_module_decl(node_idx),
+            NodeType::Import => self.visit_import_stmt(node_idx),
+            NodeType::Export => self.visit_export_stmt(node_idx),
             // Struct initialization
             NodeType::StructInit => self.visit_struct_init(node_idx),
             // Property access and method call type checking
