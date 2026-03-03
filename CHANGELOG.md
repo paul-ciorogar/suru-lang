@@ -5,6 +5,17 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.0] - 2026-03-02 - This Keyword Validation
+
+### Added
+- **`src/semantic/this_keyword_validation.rs`** — dedicated module for `this` keyword validation with 11 tests covering:
+  - Error when `this` is used at the top level or inside a plain function
+  - `this` resolving to the correct struct type in method bodies
+  - `this.field` access, `this.method()` calls, and `this` as a return value
+  - Nested struct: `this` resolves to the innermost struct, not an outer one
+  - Error on `this.nonexistent_field` and `this.method(wrongType)`
+- **`src/semantic/mod.rs`** — registered `this_keyword_validation` module; removed `visit_this` from `method_call_type_checking.rs`
+
 ## [0.49.0] - 2026-03-02 - Partial Application Type Checking
 
 ### Added

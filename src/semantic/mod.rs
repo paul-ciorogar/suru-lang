@@ -20,6 +20,7 @@ mod struct_init_type_checking;
 mod struct_privacy;
 mod struct_type_definition;
 mod structural_type_compatibility;
+mod this_keyword_validation;
 mod type_inference;
 mod type_resolution;
 mod types;

@@ -217,21 +217,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Visits a `this` keyword node
-    ///
-    /// Sets the node's type to the current struct type if inside a method body.
-    /// Reports an error if `this` is used outside a method context.
-    pub(super) fn visit_this(&mut self, node_idx: usize) {
-        if let Some(struct_type_id) = self.current_struct_type {
-            self.set_node_type(node_idx, struct_type_id);
-        } else {
-            let token = self.ast.nodes[node_idx].token.as_ref().unwrap();
-            self.record_error(SemanticError::from_token(
-                "'this' can only be used inside a method body".to_string(),
-                token,
-            ));
-        }
-    }
 }
 
 #[cfg(test)]
@@ -700,73 +685,6 @@ mod tests {
             result.is_ok(),
             "Calling public method should succeed: {:?}",
             result.err()
-        );
-    }
-
-    // ========== this Keyword Tests ==========
-
-    #[test]
-    fn test_this_outside_method_error() {
-        let source = "x: this\n";
-        let result = analyze_source(source);
-        assert!(
-            result.is_err(),
-            "'this' outside method should fail"
-        );
-        let errors = result.unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("'this' can only be used inside a method body")),
-            "Error should mention this context: {:?}",
-            errors
-        );
-    }
-
-    #[test]
-    fn test_this_in_regular_function_error() {
-        let source = "foo: () { x: this }\n";
-        let result = analyze_source(source);
-        assert!(
-            result.is_err(),
-            "'this' in regular function should fail"
-        );
-        let errors = result.unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("'this' can only be used inside a method body")),
-            "Error should mention this context: {:?}",
-            errors
-        );
-    }
-
-    #[test]
-    fn test_this_in_method_body_field_access() {
-        let source = "obj: {\n    name: \"Paul\"\n    getName: () String { return this.name }\n}\n";
-        let result = analyze_source(source);
-        assert!(
-            result.is_ok(),
-            "'this' in method body should succeed: {:?}",
-            result.err()
-        );
-    }
-
-    #[test]
-    fn test_this_property_nonexistent_field_error() {
-        let source = "obj: {\n    name: \"Paul\"\n    getBad: () String { return this.email }\n}\n";
-        let result = analyze_source(source);
-        assert!(
-            result.is_err(),
-            "'this.email' on struct without email should fail"
-        );
-        let errors = result.unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("Field 'email' does not exist")),
-            "Error should mention nonexistent field: {:?}",
-            errors
         );
     }
 

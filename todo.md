@@ -232,9 +232,9 @@
 - [x] Write tests for partial application
 
 ### 9.4 This Keyword Validation
-- [ ] Check `this` only used in method context
-- [ ] Resolve `this` to correct struct type
-- [ ] Write tests for `this` keyword
+- [x] Check `this` only used in method context
+- [x] Resolve `this` to correct struct type
+- [x] Write tests for `this` keyword
 
 ## Phase 10: Module System
 
