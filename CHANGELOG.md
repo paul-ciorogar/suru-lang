@@ -5,6 +5,18 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.52.0] - 2026-03-04 - Import Statement Resolution
+
+### Added
+- **`src/semantic/module_resolution.rs`** — extended `resolve_import_item()` into four focused helpers covering all import forms:
+  - **`resolve_full_import`** — `import { math }`: existing behaviour, unchanged
+  - **`resolve_aliased_import`** — `import { m: math }`: adds alias `m` (not `math`) to scope as a `Module` symbol
+  - **`resolve_star_import`** — `import { *: math }`: clones all `ModuleExportedSymbol` entries from the registry into the current scope
+  - **`resolve_selective_import`** — `import { {sin, cos}: math }`: resolves each selector against the registry; adds found symbols to scope, records `"Symbol 'x' not found in module 'y'"` for missing ones
+
+### Changed
+- All four import forms now fully resolved (previously only full imports were handled; aliased/star/selective were silently skipped)
+
 ## [0.51.0] - 2026-03-03 - Module Parsing Infrastructure
 
 ### Added

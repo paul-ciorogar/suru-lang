@@ -252,11 +252,11 @@
 - [x] Write tests for module registration
 
 ### 10.3 Import Statement Resolution
-- [ ] Implement full module import resolution
-- [ ] Implement selective import resolution
-- [ ] Implement star import resolution
-- [ ] Implement import alias handling
-- [ ] Write tests for import resolution
+- [x] Implement full module import resolution
+- [x] Implement selective import resolution
+- [x] Implement star import resolution
+- [x] Implement import alias handling
+- [x] Write tests for import resolution
 
 ### 10.4 Export Statement Validation
 - [ ] Validate exported symbols exist

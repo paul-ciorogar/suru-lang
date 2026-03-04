@@ -120,8 +120,11 @@ impl SemanticAnalyzer {
 
     /// Resolves a single ImportItem node.
     ///
-    /// Only full imports (`ImportItem → Identifier`) are handled here.
-    /// Star, aliased, and selective imports are deferred to later phases.
+    /// Handles all four import forms:
+    /// - Full:     `ImportItem → Identifier("math")`
+    /// - Aliased:  `ImportItem → ImportAlias("m"), Identifier("math")`
+    /// - Star:     `ImportItem → Identifier("*"), Identifier("math")`
+    /// - Selective:`ImportItem → ImportSelective(→ ImportSelector*), Identifier("math")`
     fn resolve_import_item(
         &mut self,
         item_idx: usize,
@@ -133,41 +136,188 @@ impl SemanticAnalyzer {
 
         let first_child_type = self.ast.nodes[first_child_idx].node_type;
 
-        // Full import: ImportItem → Identifier (not star, not alias, not selective)
-        if first_child_type == NodeType::Identifier {
-            // Check if this is a star import (Identifier with Star token)
-            if let Some(token) = self.ast.nodes[first_child_idx].token.as_ref() {
-                if token.kind == TokenKind::Star {
-                    // Star import — skip for now
-                    return;
+        match first_child_type {
+            NodeType::Identifier => {
+                let is_star = self.ast.nodes[first_child_idx]
+                    .token
+                    .as_ref()
+                    .map(|t| t.kind == TokenKind::Star)
+                    .unwrap_or(false);
+
+                if is_star {
+                    self.resolve_star_import(first_child_idx, registry);
+                } else {
+                    self.resolve_full_import(first_child_idx, registry);
                 }
             }
+            NodeType::ImportAlias => {
+                self.resolve_aliased_import(first_child_idx, registry);
+            }
+            NodeType::ImportSelective => {
+                self.resolve_selective_import(first_child_idx, registry);
+            }
+            _ => {}
+        }
+    }
 
-            // Full module import
-            let Some(module_name) = self.ast.node_text(first_child_idx) else {
-                return;
-            };
-            let module_name = module_name.to_string();
+    /// Handles: `import { math }` — adds module symbol to scope.
+    fn resolve_full_import(
+        &mut self,
+        ident_idx: usize,
+        registry: &std::rc::Rc<std::cell::RefCell<super::module_registry::ModuleRegistry>>,
+    ) {
+        let Some(module_name) = self.ast.node_text(ident_idx) else {
+            return;
+        };
+        let module_name = module_name.to_string();
 
-            let reg = registry.borrow();
-            if reg.module_exists(&module_name) {
-                // Add module symbol to current scope
-                let symbol = Symbol::new(
-                    module_name.clone(),
-                    Some("module".to_string()),
-                    SymbolKind::Module,
-                );
-                self.scopes.insert(symbol);
+        let reg = registry.borrow();
+        if reg.module_exists(&module_name) {
+            let symbol = Symbol::new(module_name.clone(), Some("module".to_string()), SymbolKind::Module);
+            self.scopes.insert(symbol);
+        } else {
+            let error_msg = format!("Module '{}' not found", module_name);
+            let token = self.ast.nodes[ident_idx].token.as_ref().cloned();
+            drop(reg);
+            if let Some(token) = token {
+                self.record_error(SemanticError::from_token(error_msg, &token));
             } else {
+                self.record_error(SemanticError::new(error_msg, 0, 0));
+            }
+        }
+    }
+
+    /// Handles: `import { m: math }` — adds alias `m` (not `math`) to scope.
+    fn resolve_aliased_import(
+        &mut self,
+        alias_idx: usize,
+        registry: &std::rc::Rc<std::cell::RefCell<super::module_registry::ModuleRegistry>>,
+    ) {
+        let Some(alias_name) = self.ast.node_text(alias_idx).map(|s| s.to_string()) else {
+            return;
+        };
+        let Some(module_ident_idx) = self.ast.nodes[alias_idx].next_sibling else {
+            return;
+        };
+        let Some(module_name) = self.ast.node_text(module_ident_idx).map(|s| s.to_string()) else {
+            return;
+        };
+
+        if registry.borrow().module_exists(&module_name) {
+            let symbol = Symbol::new(alias_name, Some("module".to_string()), SymbolKind::Module);
+            self.scopes.insert(symbol);
+        } else {
+            let error_msg = format!("Module '{}' not found", module_name);
+            let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+            if let Some(token) = token {
+                self.record_error(SemanticError::from_token(error_msg, &token));
+            } else {
+                self.record_error(SemanticError::new(error_msg, 0, 0));
+            }
+        }
+    }
+
+    /// Handles: `import { *: math }` — adds all exported symbols from `math` to scope.
+    fn resolve_star_import(
+        &mut self,
+        star_idx: usize,
+        registry: &std::rc::Rc<std::cell::RefCell<super::module_registry::ModuleRegistry>>,
+    ) {
+        let Some(module_ident_idx) = self.ast.nodes[star_idx].next_sibling else {
+            return;
+        };
+        let Some(module_name) = self.ast.node_text(module_ident_idx).map(|s| s.to_string()) else {
+            return;
+        };
+
+        let symbols: Option<Vec<Symbol>> = registry
+            .borrow()
+            .get_module_exports(&module_name)
+            .map(|exports| {
+                exports
+                    .iter()
+                    .map(|exp| Symbol::new(exp.name.clone(), exp.type_name.clone(), exp.kind))
+                    .collect()
+            });
+
+        match symbols {
+            Some(syms) => {
+                for sym in syms {
+                    self.scopes.insert(sym);
+                }
+            }
+            None => {
                 let error_msg = format!("Module '{}' not found", module_name);
-                if let Some(token) = self.ast.nodes[first_child_idx].token.as_ref().cloned() {
+                let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+                if let Some(token) = token {
                     self.record_error(SemanticError::from_token(error_msg, &token));
                 } else {
                     self.record_error(SemanticError::new(error_msg, 0, 0));
                 }
             }
         }
-        // Aliased (ImportAlias), selective (ImportSelective), or star already handled above
+    }
+
+    /// Handles: `import { {sin, cos}: math }` — adds selected symbols from `math` to scope.
+    fn resolve_selective_import(
+        &mut self,
+        selective_idx: usize,
+        registry: &std::rc::Rc<std::cell::RefCell<super::module_registry::ModuleRegistry>>,
+    ) {
+        let Some(module_ident_idx) = self.ast.nodes[selective_idx].next_sibling else {
+            return;
+        };
+        let Some(module_name) = self.ast.node_text(module_ident_idx).map(|s| s.to_string()) else {
+            return;
+        };
+        let module_token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+
+        // Collect selector names and their tokens from AST before borrowing registry
+        let mut selectors: Vec<(String, Option<crate::lexer::Token>)> = Vec::new();
+        let mut current = self.ast.nodes[selective_idx].first_child;
+        while let Some(sel_idx) = current {
+            if let Some(name) = self.ast.node_text(sel_idx) {
+                selectors.push((name.to_string(), self.ast.nodes[sel_idx].token.as_ref().cloned()));
+            }
+            current = self.ast.nodes[sel_idx].next_sibling;
+        }
+
+        let reg = registry.borrow();
+        if !reg.module_exists(&module_name) {
+            let error_msg = format!("Module '{}' not found", module_name);
+            drop(reg);
+            if let Some(token) = module_token {
+                self.record_error(SemanticError::from_token(error_msg, &token));
+            } else {
+                self.record_error(SemanticError::new(error_msg, 0, 0));
+            }
+            return;
+        }
+
+        let mut symbols_to_add: Vec<Symbol> = Vec::new();
+        let mut errors: Vec<(String, Option<crate::lexer::Token>)> = Vec::new();
+        for (sel_name, sel_token) in &selectors {
+            if let Some(exp) = reg.get_symbol(&module_name, sel_name) {
+                symbols_to_add.push(Symbol::new(exp.name.clone(), exp.type_name.clone(), exp.kind));
+            } else {
+                errors.push((
+                    format!("Symbol '{}' not found in module '{}'", sel_name, module_name),
+                    sel_token.clone(),
+                ));
+            }
+        }
+        drop(reg);
+
+        for sym in symbols_to_add {
+            self.scopes.insert(sym);
+        }
+        for (msg, token) in errors {
+            if let Some(t) = token {
+                self.record_error(SemanticError::from_token(msg, &t));
+            } else {
+                self.record_error(SemanticError::new(msg, 0, 0));
+            }
+        }
     }
 
     /// Returns the list of exported symbol names collected during analysis.
@@ -534,6 +684,201 @@ x: 42
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.message.contains("Module 'unknown_module' not found")),
+            "Error should mention the missing module"
+        );
+    }
+
+    // ========== Aliased Import Tests ==========
+
+    #[test]
+    fn test_import_aliased_found() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { m: math }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math".to_string());
+        registry.add_export("math", ModuleExportedSymbol::new("add".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let mut analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        // Alias 'm' should be in scope
+        let alias_sym = analyzer.scopes.lookup("m");
+        assert!(alias_sym.is_some(), "Alias 'm' should be in scope");
+        assert_eq!(alias_sym.unwrap().kind, SymbolKind::Module);
+
+        // Original module name 'math' should NOT be in scope
+        let math_sym = analyzer.scopes.lookup("math");
+        assert!(math_sym.is_none(), "Original module name should NOT be in scope for aliased import");
+    }
+
+    #[test]
+    fn test_import_aliased_module_not_found() {
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { m: nonexistent }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = Rc::new(RefCell::new(ModuleRegistry::new()));
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Aliased import of unknown module should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Module 'nonexistent' not found")),
+            "Error should mention the missing module"
+        );
+    }
+
+    // ========== Star Import Tests ==========
+
+    #[test]
+    fn test_import_star_adds_all_exports() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { *: math }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math".to_string());
+        registry.add_export("math", ModuleExportedSymbol::new("add".to_string(), SymbolKind::Function));
+        registry.add_export("math", ModuleExportedSymbol::new("pi".to_string(), SymbolKind::Variable));
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let mut analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let add_sym = analyzer.scopes.lookup("add");
+        assert!(add_sym.is_some(), "'add' should be in scope after star import");
+        assert_eq!(add_sym.unwrap().kind, SymbolKind::Function);
+
+        let pi_sym = analyzer.scopes.lookup("pi");
+        assert!(pi_sym.is_some(), "'pi' should be in scope after star import");
+        assert_eq!(pi_sym.unwrap().kind, SymbolKind::Variable);
+    }
+
+    #[test]
+    fn test_import_star_module_not_found() {
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { *: nonexistent }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = Rc::new(RefCell::new(ModuleRegistry::new()));
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Star import of unknown module should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Module 'nonexistent' not found")),
+            "Error should mention the missing module"
+        );
+    }
+
+    // ========== Selective Import Tests ==========
+
+    #[test]
+    fn test_import_selective_found() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {sin, cos}: math }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math".to_string());
+        registry.add_export("math", ModuleExportedSymbol::new("sin".to_string(), SymbolKind::Function));
+        registry.add_export("math", ModuleExportedSymbol::new("cos".to_string(), SymbolKind::Function));
+        registry.add_export("math", ModuleExportedSymbol::new("tan".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let mut analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let sin_sym = analyzer.scopes.lookup("sin");
+        assert!(sin_sym.is_some(), "'sin' should be in scope after selective import");
+        assert_eq!(sin_sym.unwrap().kind, SymbolKind::Function);
+
+        let cos_sym = analyzer.scopes.lookup("cos");
+        assert!(cos_sym.is_some(), "'cos' should be in scope after selective import");
+
+        // 'tan' was not selected — should not be in scope
+        let tan_sym = analyzer.scopes.lookup("tan");
+        assert!(tan_sym.is_none(), "'tan' should NOT be in scope since it wasn't selected");
+    }
+
+    #[test]
+    fn test_import_selective_symbol_not_in_module() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {sin, missing}: math }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math".to_string());
+        registry.add_export("math", ModuleExportedSymbol::new("sin".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Selective import of missing symbol should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Symbol 'missing' not found in module 'math'")),
+            "Error should mention the missing symbol: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_import_selective_module_not_found() {
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {sin}: nonexistent }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = Rc::new(RefCell::new(ModuleRegistry::new()));
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Selective import from unknown module should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Module 'nonexistent' not found")),
             "Error should mention the missing module"
         );
     }
