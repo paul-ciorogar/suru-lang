@@ -180,6 +180,18 @@ impl SemanticAnalyzer {
 
         let reg = registry.borrow();
         if reg.module_exists(&module_name) {
+            let accessible = self.is_submodule_accessible(&module_name, &reg);
+            if !accessible {
+                let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
+                let token = self.ast.nodes[ident_idx].token.as_ref().cloned();
+                drop(reg);
+                if let Some(token) = token {
+                    self.record_error(SemanticError::from_token(error_msg, &token));
+                } else {
+                    self.record_error(SemanticError::new(error_msg, 0, 0));
+                }
+                return;
+            }
             let symbol = Symbol::new(module_name.clone(), Some("module".to_string()), SymbolKind::Module);
             self.scopes.insert(symbol);
         } else {
@@ -210,12 +222,27 @@ impl SemanticAnalyzer {
             return;
         };
 
-        if registry.borrow().module_exists(&module_name) {
+        let reg = registry.borrow();
+        if reg.module_exists(&module_name) {
+            let accessible = self.is_submodule_accessible(&module_name, &reg);
+            if !accessible {
+                let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
+                let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+                drop(reg);
+                if let Some(token) = token {
+                    self.record_error(SemanticError::from_token(error_msg, &token));
+                } else {
+                    self.record_error(SemanticError::new(error_msg, 0, 0));
+                }
+                return;
+            }
+            drop(reg);
             let symbol = Symbol::new(alias_name, Some("module".to_string()), SymbolKind::Module);
             self.scopes.insert(symbol);
         } else {
             let error_msg = format!("Module '{}' not found", module_name);
             let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+            drop(reg);
             if let Some(token) = token {
                 self.record_error(SemanticError::from_token(error_msg, &token));
             } else {
@@ -237,8 +264,9 @@ impl SemanticAnalyzer {
             return;
         };
 
-        let symbols: Option<Vec<Symbol>> = registry
-            .borrow()
+        let reg = registry.borrow();
+        let accessible = self.is_submodule_accessible(&module_name, &reg);
+        let symbols: Option<Vec<Symbol>> = reg
             .get_module_exports(&module_name)
             .map(|exports| {
                 exports
@@ -246,9 +274,20 @@ impl SemanticAnalyzer {
                     .map(|exp| Symbol::new(exp.name.clone(), exp.type_name.clone(), exp.kind))
                     .collect()
             });
+        drop(reg);
 
         match symbols {
             Some(syms) => {
+                if !accessible {
+                    let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
+                    let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+                    if let Some(token) = token {
+                        self.record_error(SemanticError::from_token(error_msg, &token));
+                    } else {
+                        self.record_error(SemanticError::new(error_msg, 0, 0));
+                    }
+                    return;
+                }
                 for sym in syms {
                     self.scopes.insert(sym);
                 }
@@ -300,6 +339,16 @@ impl SemanticAnalyzer {
             }
             return;
         }
+        if !self.is_submodule_accessible(&module_name, &reg) {
+            let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
+            drop(reg);
+            if let Some(token) = module_token {
+                self.record_error(SemanticError::from_token(error_msg, &token));
+            } else {
+                self.record_error(SemanticError::new(error_msg, 0, 0));
+            }
+            return;
+        }
 
         let mut symbols_to_add: Vec<Symbol> = Vec::new();
         let mut errors: Vec<(String, Option<crate::lexer::Token>)> = Vec::new();
@@ -333,6 +382,25 @@ impl SemanticAnalyzer {
     /// `ModuleRegistry`.
     pub fn collect_exported_names(&self) -> Vec<String> {
         self.exported_symbol_names.clone()
+    }
+
+    /// Returns true if the named module is accessible from the current file.
+    ///
+    /// A submodule is only accessible when the importing file is in the same
+    /// package batch (`package_modules` contains the module name). In
+    /// single-file mode (`package_modules` is None) all imports are allowed.
+    fn is_submodule_accessible(
+        &self,
+        module_name: &str,
+        registry: &super::module_registry::ModuleRegistry,
+    ) -> bool {
+        if !registry.is_submodule(module_name) {
+            return true; // Not a submodule — always accessible
+        }
+        match &self.package_modules {
+            None => true, // Single-file mode — no restriction
+            Some(pkg) => pkg.contains(module_name),
+        }
     }
 }
 
@@ -933,5 +1001,264 @@ x: 42
             errors.iter().any(|e| e.message.contains("Module 'nonexistent' not found")),
             "Error should mention the missing module"
         );
+    }
+
+    // ========== Submodule Visibility Tests — Full Import ==========
+
+    fn make_registry_with_submodule(name: &str) -> std::rc::Rc<std::cell::RefCell<super::super::module_registry::ModuleRegistry>> {
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule(name.to_string());
+        Rc::new(RefCell::new(registry))
+    }
+
+    fn make_package_modules(names: &[&str]) -> std::collections::HashSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_submodule_import_allowed_with_package_context() {
+        // registry has submodule 'utils', package_modules contains 'utils' → no error
+        let source = "import { utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        let pkg = make_package_modules(&["utils"]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Submodule import within package should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_submodule_import_denied_outside_package() {
+        // registry has submodule 'utils', package_modules does NOT contain 'utils' → error
+        let source = "import { utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        let pkg = make_package_modules(&[]); // empty — 'utils' not in this batch
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Submodule import from outside package should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Cannot import submodule 'utils' from outside its package")),
+            "Error should mention submodule access restriction: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_import_allowed_no_package_context() {
+        // No package_modules set (single-file mode) → always allowed
+        let source = "import { utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        // No with_package_modules call — single-file mode
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Submodule import in single-file mode should be allowed: {:?}", result);
+    }
+
+    // ========== Submodule Visibility Tests — Aliased Import ==========
+
+    #[test]
+    fn test_submodule_aliased_import_allowed_with_package_context() {
+        let source = "import { u: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        let pkg = make_package_modules(&["utils"]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Aliased submodule import within package should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_submodule_aliased_import_denied_outside_package() {
+        let source = "import { u: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        let pkg = make_package_modules(&[]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Aliased submodule import from outside package should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Cannot import submodule 'utils' from outside its package")),
+            "Error should mention submodule restriction: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_aliased_import_allowed_no_package_context() {
+        let source = "import { u: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Aliased submodule import in single-file mode should be allowed: {:?}", result);
+    }
+
+    // ========== Submodule Visibility Tests — Star Import ==========
+
+    #[test]
+    fn test_submodule_star_import_allowed_with_package_context() {
+        let source = "import { *: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        let pkg = make_package_modules(&["utils"]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Star submodule import within package should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_submodule_star_import_denied_outside_package() {
+        let source = "import { *: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+        let pkg = make_package_modules(&[]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Star submodule import from outside package should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Cannot import submodule 'utils' from outside its package")),
+            "Error should mention submodule restriction: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_star_import_allowed_no_package_context() {
+        let source = "import { *: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule("utils");
+
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Star submodule import in single-file mode should be allowed: {:?}", result);
+    }
+
+    // ========== Submodule Visibility Tests — Selective Import ==========
+
+    #[test]
+    fn test_submodule_selective_import_allowed_with_package_context() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {helper}: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule("utils".to_string());
+        registry.add_export("utils", ModuleExportedSymbol::new("helper".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+        let pkg = make_package_modules(&["utils"]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Selective submodule import within package should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_submodule_selective_import_denied_outside_package() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {helper}: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule("utils".to_string());
+        registry.add_export("utils", ModuleExportedSymbol::new("helper".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+        let pkg = make_package_modules(&[]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Selective submodule import from outside package should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Cannot import submodule 'utils' from outside its package")),
+            "Error should mention submodule restriction: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_selective_import_allowed_no_package_context() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {helper}: utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule("utils".to_string());
+        registry.add_export("utils", ModuleExportedSymbol::new("helper".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Selective submodule import in single-file mode should be allowed: {:?}", result);
     }
 }

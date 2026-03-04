@@ -7,7 +7,7 @@
 //           for import resolution.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::ast::{Ast, NodeType};
@@ -73,12 +73,16 @@ impl MultiFileAnalyzer {
 
         for (name, result) in &parsed {
             if let Ok(ast) = result {
-                let (module_name, export_names) = extract_module_info(ast);
+                let (module_name, export_names, is_submodule) = extract_module_info(ast);
                 file_module_names.insert(name.clone(), module_name.clone());
 
                 if let Some(ref mod_name) = module_name {
                     let mut reg = registry.borrow_mut();
-                    reg.register_module(mod_name.clone());
+                    if is_submodule {
+                        reg.register_submodule(mod_name.clone());
+                    } else {
+                        reg.register_module(mod_name.clone());
+                    }
                     for export_name in export_names {
                         reg.add_export(
                             mod_name,
@@ -90,6 +94,13 @@ impl MultiFileAnalyzer {
                 file_module_names.insert(name.clone(), None);
             }
         }
+
+        // Collect all module names in this batch for submodule visibility enforcement
+        let package_modules: HashSet<String> = file_module_names
+            .values()
+            .filter_map(|opt| opt.as_ref())
+            .cloned()
+            .collect();
 
         // ── Step 3: second pass — full semantic analysis ─────────────────────
         let mut results: HashMap<String, FileAnalysisResult> = HashMap::new();
@@ -110,7 +121,8 @@ impl MultiFileAnalyzer {
                 Ok(ast) => {
                     let module_name = file_module_names.get(&name).cloned().flatten();
                     let analyzer = SemanticAnalyzer::new(ast)
-                        .with_module_registry(registry.clone());
+                        .with_module_registry(registry.clone())
+                        .with_package_modules(package_modules.clone());
                     let errors = match analyzer.analyze() {
                         Ok(_) => Vec::new(),
                         Err(errs) => errs,
@@ -132,17 +144,19 @@ impl MultiFileAnalyzer {
     }
 }
 
-/// Lightweight first-pass scan: extracts module name and exported symbol names
-/// directly from the AST without running full type-checking.
+/// Lightweight first-pass scan: extracts module name, exported symbol names,
+/// and whether the module is a submodule directly from the AST without running
+/// full type-checking.
 ///
-/// Returns `(module_name, export_names)`.
-pub fn extract_module_info(ast: &Ast) -> (Option<String>, Vec<String>) {
+/// Returns `(module_name, export_names, is_submodule)`.
+pub fn extract_module_info(ast: &Ast) -> (Option<String>, Vec<String>, bool) {
     let Some(root_idx) = ast.root else {
-        return (None, Vec::new());
+        return (None, Vec::new(), false);
     };
 
     let mut module_name: Option<String> = None;
     let mut export_names: Vec<String> = Vec::new();
+    let mut is_submodule = false;
 
     // Walk direct children of Program
     let mut current = ast.nodes[root_idx].first_child;
@@ -154,12 +168,12 @@ pub fn extract_module_info(ast: &Ast) -> (Option<String>, Vec<String>) {
                     if let Some(text) = ast.node_text(path_idx) {
                         let text = text.to_string();
                         // Strip leading dot for submodules
-                        let name = if text.starts_with('.') {
-                            text[1..].to_string()
+                        if text.starts_with('.') {
+                            is_submodule = true;
+                            module_name = Some(text[1..].to_string());
                         } else {
-                            text
-                        };
-                        module_name = Some(name);
+                            module_name = Some(text);
+                        }
                     }
                 }
             }
@@ -180,7 +194,7 @@ pub fn extract_module_info(ast: &Ast) -> (Option<String>, Vec<String>) {
         current = ast.nodes[child_idx].next_sibling;
     }
 
-    (module_name, export_names)
+    (module_name, export_names, is_submodule)
 }
 
 #[cfg(test)]
@@ -198,9 +212,10 @@ mod tests {
         let limits = CompilerLimits::default();
         let tokens = crate::lexer::lex("x: 42\n", &limits).unwrap();
         let ast = crate::parser::parse(tokens, &limits).unwrap();
-        let (module_name, exports) = extract_module_info(&ast);
+        let (module_name, exports, is_submodule) = extract_module_info(&ast);
         assert!(module_name.is_none());
         assert!(exports.is_empty());
+        assert!(!is_submodule);
     }
 
     #[test]
@@ -208,8 +223,9 @@ mod tests {
         let limits = CompilerLimits::default();
         let tokens = crate::lexer::lex("module math\n", &limits).unwrap();
         let ast = crate::parser::parse(tokens, &limits).unwrap();
-        let (module_name, _) = extract_module_info(&ast);
+        let (module_name, _, is_submodule) = extract_module_info(&ast);
         assert_eq!(module_name, Some("math".to_string()));
+        assert!(!is_submodule);
     }
 
     #[test]
@@ -218,9 +234,20 @@ mod tests {
         let limits = CompilerLimits::default();
         let tokens = crate::lexer::lex(source, &limits).unwrap();
         let ast = crate::parser::parse(tokens, &limits).unwrap();
-        let (module_name, exports) = extract_module_info(&ast);
+        let (module_name, exports, is_submodule) = extract_module_info(&ast);
         assert_eq!(module_name, Some("math".to_string()));
         assert!(exports.contains(&"add".to_string()));
+        assert!(!is_submodule);
+    }
+
+    #[test]
+    fn test_extract_module_info_submodule() {
+        let limits = CompilerLimits::default();
+        let tokens = crate::lexer::lex("module .utils\n", &limits).unwrap();
+        let ast = crate::parser::parse(tokens, &limits).unwrap();
+        let (module_name, _, is_submodule) = extract_module_info(&ast);
+        assert_eq!(module_name, Some("utils".to_string()));
+        assert!(is_submodule);
     }
 
     // ── MultiFileAnalyzer integration tests ──────────────────────────────────
@@ -297,6 +324,78 @@ mod tests {
         assert!(
             main_result.errors.iter().any(|e| e.message.contains("Module 'nonexistent' not found")),
             "Error should mention the missing module"
+        );
+    }
+
+    // ── Submodule visibility tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_submodule_import_from_main_module() {
+        // Both files in the same batch — main module can import submodule
+        let main_src = "module Calculator\nimport { utils }\n";
+        let utils_src = "module .utils\n";
+
+        let analyzer = MultiFileAnalyzer::new(vec![
+            make_file("calc.suru", main_src),
+            make_file("utils.suru", utils_src),
+        ]);
+        let results = analyzer.analyze();
+
+        let calc_result = &results["calc.suru"];
+        assert!(
+            calc_result.errors.is_empty(),
+            "Main module importing sibling submodule should succeed: {:?}",
+            calc_result.errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_import_from_sibling_submodule() {
+        // Both submodules in the same batch — sibling can import sibling
+        let ops_src = "module .operations\nimport { utils }\n";
+        let utils_src = "module .utils\n";
+
+        let analyzer = MultiFileAnalyzer::new(vec![
+            make_file("operations.suru", ops_src),
+            make_file("utils.suru", utils_src),
+        ]);
+        let results = analyzer.analyze();
+
+        let ops_result = &results["operations.suru"];
+        assert!(
+            ops_result.errors.is_empty(),
+            "Sibling submodule import should succeed: {:?}",
+            ops_result.errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_not_importable_from_outside() {
+        use super::super::module_registry::ModuleRegistry;
+        use std::collections::HashSet;
+        use std::rc::Rc;
+
+        // Simulate batch A: register 'utils' as a submodule
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule("utils".to_string());
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        // Batch B: new analyzer with the registry but empty package_modules
+        // (simulates an external file not in the same batch as utils)
+        let limits = CompilerLimits::default();
+        let tokens = crate::lexer::lex("import { utils }\n", &limits).unwrap();
+        let ast = crate::parser::parse(tokens, &limits).unwrap();
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(HashSet::new()); // empty — 'utils' not in this batch
+
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "External file should not be able to import submodule");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Cannot import submodule 'utils' from outside its package")),
+            "Error should mention submodule access restriction: {:?}", errors
         );
     }
 }

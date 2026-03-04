@@ -5,6 +5,18 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.54.0] - 2026-03-04 - Submodule Visibility Rules
+
+### Added
+- **`src/semantic/module_registry.rs`** — `submodules: HashSet<String>` field on `ModuleRegistry`; `register_submodule(name)` method (registers module AND marks it as a submodule); `is_submodule(name) -> bool` query method; 3 new unit tests
+- **`src/semantic/mod.rs`** — `package_modules: Option<HashSet<String>>` field on `SemanticAnalyzer`; `with_package_modules(modules)` builder for setting the in-batch module set
+- **`src/semantic/multi_file_analyzer.rs`** — `extract_module_info` now returns `(Option<String>, Vec<String>, bool)` (third element = `is_submodule`); `analyze()` calls `register_submodule` for submodule files and builds `package_modules` from all batch module names, passing it to each `SemanticAnalyzer`; 4 new tests (including `test_submodule_not_importable_from_outside`)
+- **`src/semantic/module_resolution.rs`** — `is_submodule_accessible` private helper; submodule visibility check injected into all four import handlers (`resolve_full_import`, `resolve_aliased_import`, `resolve_star_import`, `resolve_selective_import`); 12 new tests covering all import forms × 3 access scenarios (in-package, out-of-package, single-file mode)
+
+### Changed
+- Submodule imports (`module .name`) are now restricted: only files in the same `MultiFileAnalyzer` batch can import them; external files get `"Cannot import submodule '<name>' from outside its package"`
+- Single-file mode (no `package_modules` set) continues to allow all imports unchanged
+
 ## [0.53.0] - 2026-03-04 - Export Statement Validation
 
 ### Added

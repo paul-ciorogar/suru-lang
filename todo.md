@@ -265,10 +265,10 @@
 - [x] Write tests for export validation
 
 ### 10.5 Submodule Visibility Rules
-- [ ] Implement submodule scoping rules
-- [ ] Restrict submodule visibility to parent hierarchy
-- [ ] Check submodule access permissions
-- [ ] Write tests for submodule visibility
+- [x] Implement submodule scoping rules
+- [x] Restrict submodule visibility to parent hierarchy
+- [x] Check submodule access permissions
+- [x] Write tests for submodule visibility
 
 ### 10.6 Module Path Resolution
 - [ ] Implement dotted module path resolution

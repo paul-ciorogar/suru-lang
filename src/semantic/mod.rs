@@ -406,6 +406,9 @@ pub struct SemanticAnalyzer {
     module_registry: Option<std::rc::Rc<std::cell::RefCell<module_registry::ModuleRegistry>>>,
     /// Names of symbols exported by this file (collected by visit_export_stmt)
     pub(super) exported_symbol_names: Vec<String>,
+    /// Set of module names in the current package batch (for submodule visibility enforcement)
+    /// None in single-file mode — all imports allowed
+    package_modules: Option<std::collections::HashSet<String>>,
 }
 
 /// Represents a deferred method check for structural type compatibility
@@ -474,6 +477,7 @@ impl SemanticAnalyzer {
             // Initialize multi-file module support
             module_registry: None,
             exported_symbol_names: Vec::new(),
+            package_modules: None,
         }
     }
 
@@ -487,6 +491,15 @@ impl SemanticAnalyzer {
         registry: std::rc::Rc<std::cell::RefCell<module_registry::ModuleRegistry>>,
     ) -> Self {
         self.module_registry = Some(registry);
+        self
+    }
+
+    /// Sets the package module set for submodule visibility enforcement.
+    ///
+    /// Modules in this set are the siblings/peers in the same analysis batch.
+    /// A submodule import is allowed only if the importing file is in the same batch.
+    pub fn with_package_modules(mut self, modules: std::collections::HashSet<String>) -> Self {
+        self.package_modules = Some(modules);
         self
     }
 
