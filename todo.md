@@ -259,10 +259,10 @@
 - [x] Write tests for import resolution
 
 ### 10.4 Export Statement Validation
-- [ ] Validate exported symbols exist
-- [ ] Build export lists for modules
-- [ ] Check for duplicate exports
-- [ ] Write tests for export validation
+- [x] Validate exported symbols exist
+- [x] Build export lists for modules
+- [x] Check for duplicate exports
+- [x] Write tests for export validation
 
 ### 10.5 Submodule Visibility Rules
 - [ ] Implement submodule scoping rules

@@ -86,6 +86,13 @@ impl SemanticAnalyzer {
                     } else {
                         self.record_error(SemanticError::new(error_msg, 0, 0));
                     }
+                } else if self.exported_symbol_names.contains(&name) {
+                    let error_msg = format!("Symbol '{}' is exported more than once", name);
+                    if let Some(token) = self.ast.nodes[ident_idx].token.as_ref() {
+                        self.record_error(SemanticError::from_token(error_msg, token));
+                    } else {
+                        self.record_error(SemanticError::new(error_msg, 0, 0));
+                    }
                 } else {
                     self.exported_symbol_names.push(name);
                 }
@@ -626,6 +633,51 @@ x: 42
         let source = "a: 1\nb: 2\nc: 3\nexport { a, b, c }\n";
         let result = analyze_source(source);
         assert!(result.is_ok(), "Export of multiple defined symbols should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_export_stmt_duplicate() {
+        // Export the same symbol twice — should fail with "exported more than once"
+        let source = "x: 42\nexport { x, x }\n";
+        let result = analyze_source(source);
+        assert!(result.is_err(), "Duplicate export should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Symbol 'x' is exported more than once")),
+            "Error should mention duplicate export: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_export_stmt_partial_undefined() {
+        // Export one defined and one undefined symbol — should fail for the undefined one
+        let source = "a: 1\nexport { a, missing }\n";
+        let result = analyze_source(source);
+        assert!(result.is_err(), "Export of undefined symbol should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Exported symbol 'missing' is not defined")),
+            "Error should mention the undefined symbol: {:?}", errors
+        );
+    }
+
+    #[test]
+    fn test_export_collected_names() {
+        // After analysis, collect_exported_names() should return the exported names
+        let source = "a: 1\nb: 2\nexport { a, b }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(ast);
+
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let names = analyzer.collect_exported_names();
+        assert!(names.contains(&"a".to_string()), "collect_exported_names should include 'a'");
+        assert!(names.contains(&"b".to_string()), "collect_exported_names should include 'b'");
+        assert_eq!(names.len(), 2, "Should have exactly 2 exported names");
     }
 
     // ========== Import Statement Tests (no registry = single-file mode) ==========

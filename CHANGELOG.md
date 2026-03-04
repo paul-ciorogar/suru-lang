@@ -5,6 +5,14 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.53.0] - 2026-03-04 - Export Statement Validation
+
+### Added
+- **`src/semantic/module_resolution.rs`** — duplicate export detection in `visit_export_stmt`: emits `"Symbol 'x' is exported more than once"` when the same name appears twice in an export list
+
+### Changed
+- `visit_export_stmt` now rejects duplicate exports while still recording all valid, non-duplicate names in `exported_symbol_names`
+
 ## [0.52.0] - 2026-03-04 - Import Statement Resolution
 
 ### Added
