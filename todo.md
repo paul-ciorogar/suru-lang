@@ -271,10 +271,10 @@
 - [x] Write tests for submodule visibility
 
 ### 10.6 Module Path Resolution
-- [ ] Implement dotted module path resolution
-- [ ] Handle nested module lookups
-- [ ] Report errors for undefined modules
-- [ ] Write tests for module path resolution
+- [x] Implement dotted module path resolution
+- [x] Handle nested module lookups (Parent.submodule qualified imports)
+- [x] Report errors for undefined modules
+- [x] Write tests for module path resolution
 
 ## Phase 11: Error Reporting
 

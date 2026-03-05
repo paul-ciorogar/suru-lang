@@ -33,12 +33,18 @@ impl ModuleExportedSymbol {
 pub struct ModuleRegistry {
     modules: HashMap<String, Vec<ModuleExportedSymbol>>,
     submodules: HashSet<String>,
+    /// Maps submodule canonical name → parent module name
+    submodule_parents: HashMap<String, String>,
 }
 
 impl ModuleRegistry {
     /// Creates a new empty registry
     pub fn new() -> Self {
-        ModuleRegistry { modules: HashMap::new(), submodules: HashSet::new() }
+        ModuleRegistry {
+            modules: HashMap::new(),
+            submodules: HashSet::new(),
+            submodule_parents: HashMap::new(),
+        }
     }
 
     /// Registers an empty module.
@@ -53,6 +59,45 @@ impl ModuleRegistry {
     pub fn register_submodule(&mut self, name: String) {
         self.modules.entry(name.clone()).or_insert_with(Vec::new);
         self.submodules.insert(name);
+    }
+
+    /// Registers a submodule and records its parent module name.
+    /// If the module is already registered this is a no-op for exports, but
+    /// still marks it as a submodule and sets the parent link.
+    pub fn register_submodule_with_parent(&mut self, name: String, parent: String) {
+        self.modules.entry(name.clone()).or_insert_with(Vec::new);
+        self.submodules.insert(name.clone());
+        self.submodule_parents.insert(name, parent);
+    }
+
+    /// Returns the parent module name for a submodule, or None if not set.
+    pub fn get_submodule_parent(&self, name: &str) -> Option<&str> {
+        self.submodule_parents.get(name).map(|s| s.as_str())
+    }
+
+    /// Returns the canonical registry key for `path`, or None if unresolvable.
+    ///
+    /// Resolution order:
+    /// 1. Direct match — `path` is already a registered module name.
+    /// 2. Qualified lookup — split on the last `.` into `parent` + `child`;
+    ///    if `submodule_parents[child] == parent`, the canonical key is `child`.
+    /// 3. Otherwise → `None`.
+    pub fn resolve_qualified_path<'a>(&'a self, path: &str) -> Option<&'a str> {
+        // 1. Direct match
+        if let Some((key, _)) = self.modules.get_key_value(path) {
+            return Some(key.as_str());
+        }
+        // 2. Qualified lookup: split on last '.'
+        if let Some(dot_pos) = path.rfind('.') {
+            let parent = &path[..dot_pos];
+            let child = &path[dot_pos + 1..];
+            if let Some(stored_parent) = self.submodule_parents.get(child) {
+                if stored_parent == parent {
+                    return self.modules.get_key_value(child).map(|(k, _)| k.as_str());
+                }
+            }
+        }
+        None
     }
 
     /// Returns true if the named module was declared as a submodule (`module .name`).
@@ -211,5 +256,58 @@ mod tests {
     fn test_registry_non_submodule_returns_false() {
         let registry = ModuleRegistry::new();
         assert!(!registry.is_submodule("nonexistent"), "Unregistered name should not be a submodule");
+    }
+
+    #[test]
+    fn test_registry_register_submodule_with_parent() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule_with_parent("utils".to_string(), "Calculator".to_string());
+        assert!(registry.module_exists("utils"), "Submodule should be registered as a module");
+        assert!(registry.is_submodule("utils"), "Submodule should be marked as a submodule");
+        assert_eq!(registry.get_submodule_parent("utils"), Some("Calculator"));
+    }
+
+    #[test]
+    fn test_registry_get_submodule_parent() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_submodule_with_parent("utils".to_string(), "Calculator".to_string());
+        assert_eq!(registry.get_submodule_parent("utils"), Some("Calculator"));
+        assert!(registry.get_submodule_parent("unknown").is_none(), "Unknown submodule has no parent");
+        assert!(registry.get_submodule_parent("Calculator").is_none(), "Non-submodule has no parent");
+    }
+
+    #[test]
+    fn test_registry_resolve_qualified_path_direct() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math".to_string());
+        let resolved = registry.resolve_qualified_path("math");
+        assert_eq!(resolved, Some("math"), "Direct match should return the key");
+    }
+
+    #[test]
+    fn test_registry_resolve_qualified_path_parent_child() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("Calculator".to_string());
+        registry.register_submodule_with_parent("utils".to_string(), "Calculator".to_string());
+        // Qualified path "Calculator.utils" should resolve to canonical "utils"
+        let resolved = registry.resolve_qualified_path("Calculator.utils");
+        assert_eq!(resolved, Some("utils"), "Qualified path should resolve to canonical child name");
+    }
+
+    #[test]
+    fn test_registry_resolve_qualified_path_wrong_parent() {
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("Calculator".to_string());
+        registry.register_submodule_with_parent("utils".to_string(), "Calculator".to_string());
+        // Wrong parent should not resolve
+        let resolved = registry.resolve_qualified_path("Wrong.utils");
+        assert!(resolved.is_none(), "Qualified path with wrong parent should not resolve");
+    }
+
+    #[test]
+    fn test_registry_resolve_qualified_path_not_found() {
+        let registry = ModuleRegistry::new();
+        assert!(registry.resolve_qualified_path("Unknown").is_none(), "Unregistered module should not resolve");
+        assert!(registry.resolve_qualified_path("Unknown.anything").is_none(), "Unregistered qualified path should not resolve");
     }
 }

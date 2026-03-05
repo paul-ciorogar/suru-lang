@@ -5,6 +5,17 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.55.0] - 2026-03-05 - Module Path Resolution
+
+### Added
+- **`src/semantic/module_registry.rs`** — `submodule_parents: HashMap<String, String>` field (child canonical name → parent module name); `register_submodule_with_parent(name, parent)` method; `get_submodule_parent(name) -> Option<&str>` query; `resolve_qualified_path(path) -> Option<&str>` which resolves via direct match first, then `Parent.child` → canonical `child` via parent link; 6 new unit tests
+- **`src/semantic/multi_file_analyzer.rs`** — Pass 1 split into two sub-steps: A collects `(name, module_name, is_submodule, exports)` tuples; B finds the single main (non-submodule) module name in the batch and registers submodules with `register_submodule_with_parent` when a parent is present; 3 new integration tests (`test_submodule_registered_with_parent`, `test_qualified_submodule_import`, `test_qualified_submodule_wrong_parent_fails`)
+- **`src/semantic/module_resolution.rs`** — All four import resolvers (`resolve_full_import`, `resolve_aliased_import`, `resolve_star_import`, `resolve_selective_import`) now use `resolve_qualified_path` instead of `module_exists`/`get_module_exports`; canonical key used for registry operations, original `module_name` string added to scope; 6 new tests covering all import forms with qualified paths and not-found errors
+
+### Changed
+- `import { Calculator.utils }` now resolves correctly when `module Calculator` and `module .utils` are in the same batch — the registry parent link maps `"utils"` → `"Calculator"`, and `resolve_qualified_path("Calculator.utils")` returns the canonical key `"utils"`
+- Submodule imports without a matching parent still fall back to `register_submodule` (unchanged behaviour)
+
 ## [0.54.0] - 2026-03-04 - Submodule Visibility Rules
 
 ### Added

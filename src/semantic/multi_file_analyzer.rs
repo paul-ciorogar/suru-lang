@@ -71,27 +71,44 @@ impl MultiFileAnalyzer {
         let registry = Rc::new(RefCell::new(ModuleRegistry::new()));
         let mut file_module_names: HashMap<String, Option<String>> = HashMap::new();
 
+        // Sub-step A: collect (name, module_name, is_submodule, exports) without registering
+        let mut collected: Vec<(String, Option<String>, bool, Vec<String>)> = Vec::new();
         for (name, result) in &parsed {
             if let Ok(ast) = result {
                 let (module_name, export_names, is_submodule) = extract_module_info(ast);
                 file_module_names.insert(name.clone(), module_name.clone());
-
-                if let Some(ref mod_name) = module_name {
-                    let mut reg = registry.borrow_mut();
-                    if is_submodule {
-                        reg.register_submodule(mod_name.clone());
-                    } else {
-                        reg.register_module(mod_name.clone());
-                    }
-                    for export_name in export_names {
-                        reg.add_export(
-                            mod_name,
-                            ModuleExportedSymbol::new(export_name, SymbolKind::Variable),
-                        );
-                    }
-                }
+                collected.push((name.clone(), module_name, is_submodule, export_names));
             } else {
                 file_module_names.insert(name.clone(), None);
+                collected.push((name.clone(), None, false, Vec::new()));
+            }
+        }
+
+        // Sub-step B: find the single main (non-submodule) module name in this batch,
+        // then register all modules with proper parent links.
+        let main_module_name: Option<String> = collected
+            .iter()
+            .find(|(_, _, is_sub, _)| !is_sub)
+            .and_then(|(_, mod_name, _, _)| mod_name.clone());
+
+        for (_, module_name, is_submodule, export_names) in &collected {
+            if let Some(mod_name) = module_name {
+                let mut reg = registry.borrow_mut();
+                if *is_submodule {
+                    if let Some(ref parent) = main_module_name {
+                        reg.register_submodule_with_parent(mod_name.clone(), parent.clone());
+                    } else {
+                        reg.register_submodule(mod_name.clone());
+                    }
+                } else {
+                    reg.register_module(mod_name.clone());
+                }
+                for export_name in export_names {
+                    reg.add_export(
+                        mod_name,
+                        ModuleExportedSymbol::new(export_name.clone(), SymbolKind::Variable),
+                    );
+                }
             }
         }
 
@@ -366,6 +383,79 @@ mod tests {
             ops_result.errors.is_empty(),
             "Sibling submodule import should succeed: {:?}",
             ops_result.errors
+        );
+    }
+
+    #[test]
+    fn test_submodule_registered_with_parent() {
+        // After batch analysis, qualified import Calculator.utils should work,
+        // which proves the parent link was registered in the registry.
+        let calc_src = "module Calculator\n";
+        let utils_src = "module .utils\n";
+        // A third file in the same batch imports via qualified path
+        let main_src = "import { Calculator.utils }\n";
+
+        let analyzer = MultiFileAnalyzer::new(vec![
+            make_file("calc.suru", calc_src),
+            make_file("utils.suru", utils_src),
+            make_file("main.suru", main_src),
+        ]);
+        let results = analyzer.analyze();
+
+        // If parent link was registered, the qualified import resolves to "utils" and succeeds
+        let main_result = &results["main.suru"];
+        assert!(
+            main_result.errors.is_empty(),
+            "Qualified import should succeed when parent link is registered: {:?}",
+            main_result.errors
+        );
+    }
+
+    #[test]
+    fn test_qualified_submodule_import() {
+        // import { Calculator.utils } should succeed when both files are in the same batch
+        let calc_src = "module Calculator\n";
+        let utils_src = "module .utils\n";
+        let main_src = "import { Calculator.utils }\n";
+
+        let analyzer = MultiFileAnalyzer::new(vec![
+            make_file("calc.suru", calc_src),
+            make_file("utils.suru", utils_src),
+            make_file("main.suru", main_src),
+        ]);
+        let results = analyzer.analyze();
+
+        assert!(results["calc.suru"].errors.is_empty(), "calc.suru errors: {:?}", results["calc.suru"].errors);
+        assert!(results["utils.suru"].errors.is_empty(), "utils.suru errors: {:?}", results["utils.suru"].errors);
+        let main_result = &results["main.suru"];
+        assert!(
+            main_result.errors.is_empty(),
+            "import {{ Calculator.utils }} should succeed: {:?}",
+            main_result.errors
+        );
+    }
+
+    #[test]
+    fn test_qualified_submodule_wrong_parent_fails() {
+        // import { Wrong.utils } should fail even when .utils exists (wrong parent)
+        let utils_src = "module .utils\n";
+        let main_src = "import { Wrong.utils }\n";
+
+        let analyzer = MultiFileAnalyzer::new(vec![
+            make_file("utils.suru", utils_src),
+            make_file("main.suru", main_src),
+        ]);
+        let results = analyzer.analyze();
+
+        let main_result = &results["main.suru"];
+        assert!(
+            !main_result.errors.is_empty(),
+            "import {{ Wrong.utils }} should fail when parent is incorrect"
+        );
+        assert!(
+            main_result.errors.iter().any(|e| e.message.contains("not found")),
+            "Error should mention not found: {:?}",
+            main_result.errors
         );
     }
 

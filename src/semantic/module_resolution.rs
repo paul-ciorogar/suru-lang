@@ -179,8 +179,9 @@ impl SemanticAnalyzer {
         let module_name = module_name.to_string();
 
         let reg = registry.borrow();
-        if reg.module_exists(&module_name) {
-            let accessible = self.is_submodule_accessible(&module_name, &reg);
+        let canonical = reg.resolve_qualified_path(&module_name).map(|s| s.to_string());
+        if let Some(canonical) = canonical {
+            let accessible = self.is_submodule_accessible(&canonical, &reg);
             if !accessible {
                 let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
                 let token = self.ast.nodes[ident_idx].token.as_ref().cloned();
@@ -192,6 +193,7 @@ impl SemanticAnalyzer {
                 }
                 return;
             }
+            drop(reg);
             let symbol = Symbol::new(module_name.clone(), Some("module".to_string()), SymbolKind::Module);
             self.scopes.insert(symbol);
         } else {
@@ -223,8 +225,9 @@ impl SemanticAnalyzer {
         };
 
         let reg = registry.borrow();
-        if reg.module_exists(&module_name) {
-            let accessible = self.is_submodule_accessible(&module_name, &reg);
+        let canonical = reg.resolve_qualified_path(&module_name).map(|s| s.to_string());
+        if let Some(canonical) = canonical {
+            let accessible = self.is_submodule_accessible(&canonical, &reg);
             if !accessible {
                 let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
                 let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
@@ -265,41 +268,40 @@ impl SemanticAnalyzer {
         };
 
         let reg = registry.borrow();
-        let accessible = self.is_submodule_accessible(&module_name, &reg);
-        let symbols: Option<Vec<Symbol>> = reg
-            .get_module_exports(&module_name)
-            .map(|exports| {
-                exports
-                    .iter()
-                    .map(|exp| Symbol::new(exp.name.clone(), exp.type_name.clone(), exp.kind))
-                    .collect()
-            });
-        drop(reg);
-
-        match symbols {
-            Some(syms) => {
-                if !accessible {
-                    let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
-                    let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
-                    if let Some(token) = token {
-                        self.record_error(SemanticError::from_token(error_msg, &token));
-                    } else {
-                        self.record_error(SemanticError::new(error_msg, 0, 0));
-                    }
-                    return;
-                }
-                for sym in syms {
-                    self.scopes.insert(sym);
-                }
-            }
-            None => {
-                let error_msg = format!("Module '{}' not found", module_name);
+        let canonical = reg.resolve_qualified_path(&module_name).map(|s| s.to_string());
+        if let Some(canonical) = canonical {
+            let accessible = self.is_submodule_accessible(&canonical, &reg);
+            let symbols: Vec<Symbol> = reg
+                .get_module_exports(&canonical)
+                .map(|exports| {
+                    exports
+                        .iter()
+                        .map(|exp| Symbol::new(exp.name.clone(), exp.type_name.clone(), exp.kind))
+                        .collect()
+                })
+                .unwrap_or_default();
+            drop(reg);
+            if !accessible {
+                let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
                 let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
                 if let Some(token) = token {
                     self.record_error(SemanticError::from_token(error_msg, &token));
                 } else {
                     self.record_error(SemanticError::new(error_msg, 0, 0));
                 }
+                return;
+            }
+            for sym in symbols {
+                self.scopes.insert(sym);
+            }
+        } else {
+            let error_msg = format!("Module '{}' not found", module_name);
+            let token = self.ast.nodes[module_ident_idx].token.as_ref().cloned();
+            drop(reg);
+            if let Some(token) = token {
+                self.record_error(SemanticError::from_token(error_msg, &token));
+            } else {
+                self.record_error(SemanticError::new(error_msg, 0, 0));
             }
         }
     }
@@ -329,7 +331,8 @@ impl SemanticAnalyzer {
         }
 
         let reg = registry.borrow();
-        if !reg.module_exists(&module_name) {
+        let canonical = reg.resolve_qualified_path(&module_name).map(|s| s.to_string());
+        let Some(canonical) = canonical else {
             let error_msg = format!("Module '{}' not found", module_name);
             drop(reg);
             if let Some(token) = module_token {
@@ -338,8 +341,8 @@ impl SemanticAnalyzer {
                 self.record_error(SemanticError::new(error_msg, 0, 0));
             }
             return;
-        }
-        if !self.is_submodule_accessible(&module_name, &reg) {
+        };
+        if !self.is_submodule_accessible(&canonical, &reg) {
             let error_msg = format!("Cannot import submodule '{}' from outside its package", module_name);
             drop(reg);
             if let Some(token) = module_token {
@@ -353,7 +356,7 @@ impl SemanticAnalyzer {
         let mut symbols_to_add: Vec<Symbol> = Vec::new();
         let mut errors: Vec<(String, Option<crate::lexer::Token>)> = Vec::new();
         for (sel_name, sel_token) in &selectors {
-            if let Some(exp) = reg.get_symbol(&module_name, sel_name) {
+            if let Some(exp) = reg.get_symbol(&canonical, sel_name) {
                 symbols_to_add.push(Symbol::new(exp.name.clone(), exp.type_name.clone(), exp.kind));
             } else {
                 errors.push((
@@ -1260,5 +1263,175 @@ x: 42
         let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
         let result = analyzer.analyze();
         assert!(result.is_ok(), "Selective submodule import in single-file mode should be allowed: {:?}", result);
+    }
+
+    // ========== Qualified Path Import Tests ==========
+
+    fn make_registry_with_submodule_and_parent(
+        parent: &str,
+        child: &str,
+    ) -> std::rc::Rc<std::cell::RefCell<super::super::module_registry::ModuleRegistry>> {
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let mut registry = ModuleRegistry::new();
+        registry.register_module(parent.to_string());
+        registry.register_submodule_with_parent(child.to_string(), parent.to_string());
+        Rc::new(RefCell::new(registry))
+    }
+
+    #[test]
+    fn test_dotted_module_name_import_direct() {
+        // Module registered directly as "math.geometry" (not parent/child).
+        // resolve_qualified_path should find it as a direct match.
+        use super::super::module_registry::ModuleRegistry;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { math }\n"; // use simple name to avoid parser dotted-path issues
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("math.geometry".to_string());
+        registry.register_module("math".to_string());
+        let registry_rc = Rc::new(RefCell::new(registry));
+
+        // Verify resolve_qualified_path works for direct dotted name
+        let reg = registry_rc.borrow();
+        assert_eq!(reg.resolve_qualified_path("math.geometry"), Some("math.geometry"),
+            "Direct dotted module name should resolve");
+        assert_eq!(reg.resolve_qualified_path("math"), Some("math"),
+            "Plain module name should resolve");
+        drop(reg);
+
+        // Full import of "math" should succeed
+        let analyzer = SemanticAnalyzer::new(ast).with_module_registry(registry_rc);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Import of known module should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_qualified_submodule_full_import() {
+        // import { Calc.utils } when registry has Calc as parent of utils
+        let source = "import { Calc.utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule_and_parent("Calc", "utils");
+        let pkg = make_package_modules(&["Calc", "utils"]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_ok(), "Qualified full import should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_qualified_submodule_star_import() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { *: Calc.utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("Calc".to_string());
+        registry.register_submodule_with_parent("utils".to_string(), "Calc".to_string());
+        registry.add_export("utils", ModuleExportedSymbol::new("helper".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+        let pkg = make_package_modules(&["Calc", "utils"]);
+
+        let mut analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let sym = analyzer.scopes.lookup("helper");
+        assert!(sym.is_some(), "'helper' should be in scope after qualified star import");
+    }
+
+    #[test]
+    fn test_qualified_submodule_selective_import() {
+        use super::super::module_registry::{ModuleExportedSymbol, ModuleRegistry};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let source = "import { {fn1}: Calc.utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let mut registry = ModuleRegistry::new();
+        registry.register_module("Calc".to_string());
+        registry.register_submodule_with_parent("utils".to_string(), "Calc".to_string());
+        registry.add_export("utils", ModuleExportedSymbol::new("fn1".to_string(), SymbolKind::Function));
+        let registry_rc = Rc::new(RefCell::new(registry));
+        let pkg = make_package_modules(&["Calc", "utils"]);
+
+        let mut analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let sym = analyzer.scopes.lookup("fn1");
+        assert!(sym.is_some(), "'fn1' should be in scope after qualified selective import");
+    }
+
+    #[test]
+    fn test_qualified_submodule_aliased_import() {
+        let source = "import { u: Calc.utils }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule_and_parent("Calc", "utils");
+        let pkg = make_package_modules(&["Calc", "utils"]);
+
+        let mut analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        if let Some(root) = analyzer.ast.root {
+            analyzer.visit_node(root);
+        }
+
+        let alias_sym = analyzer.scopes.lookup("u");
+        assert!(alias_sym.is_some(), "Alias 'u' should be in scope after qualified aliased import");
+        assert_eq!(alias_sym.unwrap().kind, SymbolKind::Module);
+
+        // "utils" and "Calc.utils" should NOT be in scope
+        assert!(analyzer.scopes.lookup("utils").is_none(), "Original name should not be in scope");
+    }
+
+    #[test]
+    fn test_qualified_path_not_found_error() {
+        let source = "import { Calc.nonexistent }\n";
+        let limits = CompilerLimits::default();
+        let tokens = lex(source, &limits).unwrap();
+        let ast = parse(tokens, &limits).unwrap();
+
+        let registry_rc = make_registry_with_submodule_and_parent("Calc", "utils");
+        let pkg = make_package_modules(&["Calc", "utils"]);
+
+        let analyzer = SemanticAnalyzer::new(ast)
+            .with_module_registry(registry_rc)
+            .with_package_modules(pkg);
+        let result = analyzer.analyze();
+        assert!(result.is_err(), "Import of unresolvable qualified path should fail");
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("not found")),
+            "Error should mention not found: {:?}", errors
+        );
     }
 }
