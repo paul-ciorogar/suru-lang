@@ -5,6 +5,15 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.56.0] - 2026-03-05 - Full Pipeline Integration
+
+### Added
+- **`src/cli.rs`** — `Check(CheckArgs)` variant added to `Commands` enum; new `CheckArgs { file: String }` struct for the `suru check <file>` subcommand
+- **`src/main.rs`** — `check_command()` handler: loads limits, reads file, runs lexer → parser → `SemanticAnalyzer`, prints "No errors found." on success or prints all semantic errors to stderr and exits with code 1
+- **`src/lib.rs`** — New library crate root re-exporting all modules (`ast`, `cli`, `codegen`, `lexer`, `limits`, `parser`, `semantic`, `string_storage`), enabling integration tests and doctests to import via `suru_lang_rs::`
+- **`tests/check_integration.rs`** — 4 integration tests: valid program, valid function declaration, undefined variable reference (expects `Err`), and struct type declaration
+
+
 ## [0.55.0] - 2026-03-05 - Module Path Resolution
 
 ### Added

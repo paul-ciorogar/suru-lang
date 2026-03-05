@@ -12,6 +12,14 @@ pub struct Cli {
 pub enum Commands {
     /// Parse a Suru source file and print the AST
     Parse(ParseArgs),
+    /// Type-check a Suru source file
+    Check(CheckArgs),
+}
+
+#[derive(clap::Args)]
+pub struct CheckArgs {
+    /// Input file path
+    pub file: String,
 }
 
 #[derive(clap::Args)]

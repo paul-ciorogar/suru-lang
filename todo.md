@@ -276,42 +276,44 @@
 - [x] Report errors for undefined modules
 - [x] Write tests for module path resolution
 
-## Phase 11: Error Reporting
+## Phase 11: Integration
 
-### 11.1 Semantic Error Types
+### 11.1 Full Pipeline Integration
+- [x] Add semantic analysis to main.rs
+- [x] Create `suru check <file>` CLI command
+- [x] Wire up lexer -> parser -> semantic analysis
+- [x] Write integration tests
+
+## Phase 12: Error Reporting
+
+### 12.1 Semantic Error Types
 - [ ] Define comprehensive SemanticError enum
 - [ ] Add error for undefined symbols
 - [ ] Add error for type mismatches
 - [ ] Add error for duplicate declarations
 - [ ] Add error for privacy violations
 
-### 11.2 Error Messages
+### 12.2 Error Messages
 - [ ] Implement Display for SemanticError
 - [ ] Add source location to errors
 - [ ] Add helpful error messages with suggestions
 - [ ] Write tests for error formatting
 
-### 11.3 Multiple Error Collection
+### 12.3 Multiple Error Collection
 - [ ] Continue analysis after errors
 - [ ] Collect all errors before reporting
 - [ ] Sort errors by source location
 - [ ] Write tests for error collection
 
-## Phase 12: Integration and Testing
+## Phase 13: Testing
 
-### 12.1 Full Pipeline Integration
-- [ ] Add semantic analysis to main.rs
-- [ ] Create `suru check <file>` CLI command
-- [ ] Wire up lexer -> parser -> semantic analysis
-- [ ] Write integration tests
-
-### 12.2 Comprehensive Test Suite
+### 13.2 Comprehensive Test Suite
 - [ ] Test all example.suru constructs
 - [ ] Test error cases for each feature
 - [ ] Test complex nested scenarios
 - [ ] Achieve >90% test coverage
 
-### 12.3 Performance Optimization
+### 13.3 Performance Optimization
 - [ ] Profile semantic analysis performance
 - [ ] Optimize symbol table lookups
 - [ ] Cache type compatibility checks
@@ -325,21 +327,3 @@
 - Tasks should be completed in order within each phase
 - Write tests for each task before moving to the next
 - Keep commits small and focused on individual tasks
-- Update progress.md after completing each phase
-
-### Phase 4.1a Implementation Notes (2026-01-13)
-
-Implemented Hindley-Milner type inference with:
-- **Incremental approach**: Split into 4.1a (foundation), 4.1b (expressions), 4.1c (functions)
-- **Type representation**: Using `Type::Var(TypeVarId)` instead of string-based type variables
-- **Function signatures**: Currently stored as strings; will transition to `FunctionType` struct in Phase 4.1c when implementing function inference
-- **Testing**: All 144 semantic tests passing, including 18 new tests for unification and type inference
-
-### Future Considerations
-
-- Function signature structure: Consider migrating from string representation to structured `FunctionType` for better type inference and comparison (Phase 5)
-- Variable signature struct: May be beneficial for complex type tracking (Phase 8+)
-
-### Test Notes
-
-- test_intersection_invalid_left_type is valid
