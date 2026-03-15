@@ -1,329 +1,211 @@
-# Semantic Analysis Implementation Roadmap
+# Code Generation Preparations - Implementation Roadmap
 
-## Phase 1: Foundation - Symbol Tables and Scopes
+This pass sits between semantic analysis and LLVM IR generation.
+It produces a **lowered AST** with:
+- Generic functions replaced by concrete type specializations (monomorphization)
+- Functions that take heap params split into ref and owned specializations
+- Explicit `drop()` calls inserted at ownership end-of-life
+- Explicit `clone()` calls inserted where sharing requires copying
 
-### 1.1 Basic Symbol Table Infrastructure
-- [x] Create `src/semantic/mod.rs` module
-- [x] Define `Symbol` struct (name, type, kind: variable/function/type)
-- [x] Define `SymbolTable` struct with HashMap storage
-- [x] Implement basic insert/lookup methods
-- [x] Write tests for symbol insertion and retrieval
+Module location: `src/lower/`
 
-### 1.2 Scope Management
-- [x] Define `Scope` struct (parent scope, symbol table, scope kind)
-- [x] Define `ScopeKind` enum (Global, Module, Function, Block)
-- [x] Implement `ScopeStack` for managing nested scopes
-- [x] Add `enter_scope()` and `exit_scope()` methods
-- [x] Write tests for scope nesting and variable shadowing
+---
 
-### 1.3 Semantic Analyzer Skeleton
-- [x] Create `SemanticAnalyzer` struct with AST and scope stack
-- [x] Implement `analyze()` entry point that traverses AST
-- [x] Add helper methods for visiting different node types
-- [x] Implement error collection (Vec<SemanticError>)
-- [x] Write basic integration test (empty program)
+## Phase 0: Mutation Analysis — Semantic Annotation (1-2 hours)
 
-## Phase 2: Name Resolution
+**Prerequisite semantic analysis step.** While traversing function bodies, annotate each
+function symbol with which of its parameters it mutates. The lowering pass reads these
+flags instead of re-traversing bodies.
 
-### 2.1 Variable Declaration Resolution
-- [x] Implement resolution for variable declarations
-- [x] Check for duplicate declarations in same scope (NOTE: Variables allow redeclaration)
-- [x] Add variable to current scope's symbol table
-- [x] Write tests for valid/invalid variable declarations
+- [ ] Add `mutates_params: Vec<bool>` field to `FunctionSymbol` in `src/semantic/`
+  - One `bool` per parameter, in declaration order
+  - Default: all `false` until body is analyzed
+- [ ] In `visit_function_decl`, after visiting the body, compute mutation per param:
+  - A param is mutated if the body contains a field assignment on it (`param.field: value`)
+  - A param is mutated if the body calls a method on it that is itself marked as mutating
+  - Resolve transitive calls via the symbol table (already-analyzed callees)
+- [ ] Store the result in the function's `FunctionSymbol` entry in the symbol table
+- [ ] Write tests:
+  - Function that only reads param fields → all `false`
+  - Function with `param.name: newName` → that param `true`
+  - Function that calls a mutating method on param → that param `true`
+  - Transitive: function calls another function that mutates the param → `true`
 
-### 2.2 Variable Reference Resolution
-- [x] Implement identifier lookup in scope chain
-- [x] Report error for undefined variables
-- [x] Write tests for variable references (valid/undefined)
-- [x] Test variable shadowing across scopes
+---
 
-### 2.3 Function Declaration Resolution
-- [x] Implement function declaration registration
-- [x] Check for duplicate function names
-- [x] Store function signature in symbol table
-- [x] Write tests for function declarations
+## Phase 1: Lowered AST Infrastructure (1-2 hours)
 
-### 2.4 Function Call Resolution
-- [x] Implement function name lookup for calls
-- [x] Report error for calls to undefined functions
-- [x] Write tests for valid/invalid function calls
+Define the data structures the lowering pass produces.
 
-## Phase 3: Type System Foundation
+- [ ] Create `src/lower/mod.rs` with public API skeleton
+- [ ] Define `LoweredProgram` struct (top-level container)
+- [ ] Define `LoweredFunction` (mangled name, params with `PassMode`, return type, body)
+- [ ] Define `LoweredStatement` enum:
+  - `VarDecl(name, expr, is_heap: bool)`
+  - `Drop(name)` — inserted by compiler
+  - `Assign(name, expr)`
+  - `ExprStmt(expr)`
+  - `Return(Option<expr>)`
+- [ ] Define `LoweredExpr` enum:
+  - `Literal`, `Identifier`, `Call`, `MethodCall`, `FieldAccess`
+  - `Clone(Box<LoweredExpr>)` — inserted by compiler
+  - `BoolOp`, `Not`
+- [ ] Define `PassMode` enum: `ByRef`, `ByOwnership`
+- [ ] Define `LoweredParam(name, type, pass_mode: PassMode)`
+- [ ] Write unit tests for constructing a minimal `LoweredProgram`
 
-### 3.1 Internal Type Representation
-- [x] Create `src/semantic/types.rs` module
-- [x] Define `Type` enum (Unit, Number, String, Bool, Function, Struct, etc.)
-- [x] Define `TypeId` for efficient type comparisons
-- [x] Implement type interning/caching system
-- [x] Write tests for type creation and equality
+---
 
-### 3.2 Type Declaration Processing
-- [x] Implement type alias resolution
-- [x] Implement unit type registration
-- [x] Implement union type registration
-- [x] Implement struct type registration
-- [x] Write tests for each type declaration form
+## Phase 2: Specialization Key Design (1-2 hours)
 
-### 3.3 Built-in Types
-- [x] Register built-in types (Number, String, Bool, Int8-Int64, UInt8-UInt64, Float32, Float64)
-- [x] Create type registry for built-in types
-- [x] Write tests for built-in type lookup
+Both generic instantiation and ref/own variants are specializations of the same function.
+Unify them under a single key so Phase 3 can handle both in one pass.
 
-## Phase 4: Basic Type Checking
+- [ ] Create `src/lower/specialization.rs`
+- [ ] Define `SpecKey` struct:
+  - `base_name: String` — original function name
+  - `type_args: Vec<Type>` — empty for non-generic functions
+  - `pass_modes: Vec<PassMode>` — one entry per heap parameter
+- [ ] Implement `mangled_name(key: &SpecKey) -> String`:
+  - Example: `adder<I32>` → `adder__I32`
+  - Example: `printMessage(ByRef)` → `printMessage__ref`
+  - Example: `printMessage(ByOwnership)` → `printMessage__own`
+  - Example: combined: `process<String>(ByRef, ByOwnership)` → `process__String__ref_own`
+- [ ] Implement `SpecKey` equality and hashing (for deduplication)
+- [ ] Write tests:
+  - Same types + same modes → one key
+  - Different type args → different keys
+  - Ref vs. owned variant → different keys
 
-### 4.1 Literal Type Inference (Phase 4.1a - Hindley-Milner Foundation)
-- [x] Implement type inference for number literals
-- [x] Implement type inference for string literals
-- [x] Implement type inference for boolean literals
-- [x] Implement type inference for list literals (empty lists; non-empty deferred to 4.1b)
-- [x] Write tests for literal type inference
-- [x] Implement Hindley-Milner type system infrastructure
-  - [x] Type variables (`Type::Var(TypeVarId)`) for unknowns
-  - [x] Constraint system for collecting type equalities
-  - [x] Unification algorithm with occurs check
-  - [x] Substitution mechanism for type variable bindings
-- [x] Three-phase analysis algorithm
-  - [x] Phase 1: Constraint collection via AST traversal
-  - [x] Phase 2: Constraint solving via unification
-  - [x] Phase 3: Substitution application to all nodes
+---
 
-### 4.2 Expression Type Checking
-- [x] Implement type checking for binary operators (and, or)
-- [x] Implement type checking for unary operators (not, negate)
-- [x] Report type errors for incompatible operations
-- [x] Write tests for expression type checking
+## Phase 3: Specialization Collection (2-3 hours)
 
-### 4.3 Variable Declaration Type Checking
-- [x] Implement type annotation validation
-- [x] Check initializer expression matches declared type
-- [x] Infer type from initializer if not annotated
-- [x] Write tests for variable type checking
+Walk the semantic AST and collect every distinct `SpecKey` needed.
 
-### 4.4 Assignment Type Checking
-- [x] Check assigned value matches variable type
-- [x] Report type mismatch errors
-- [x] Write tests for assignment type checking
+- [ ] Create `src/lower/collect.rs`
+- [ ] Implement `collect_specializations(ast, type_info) -> HashSet<SpecKey>`
+  - Visit every `FunctionCall` and `MethodCall`
+  - For generic callees: read resolved type arguments from `type_info`
+  - For each heap parameter: determine whether the argument is its last use in scope
+    - Last use → `ByOwnership`; still live after → `ByRef`
+  - For non-generic, non-heap-param functions: emit a single key with empty vecs
+- [ ] Write tests:
+  - `adder(3i32, 7i32)` + `adder(3i64, 7i64)` → two `SpecKey`s
+  - `printMessage(message)` used twice → `ByRef` key; last use → `ByOwnership` key
+  - Non-generic, stack-only function → single key (no modes)
 
-## Phase 5: Function Type Checking
+---
 
-### 5.1 Function Signature Analysis
-- [x] Build function type from parameters and return type
-- [x] Handle inferred parameter types (mark as Unknown initially)
-- [x] Store function type in symbol table
-- [x] Write tests for function signature construction
+## Phase 4: Function Specialization (2-4 hours)
 
-### 5.2 Function Body Analysis
-- [x] Analyze function body in new scope
-- [x] Add parameters to function scope
-- [x] Track return statement types
-- [x] Write tests for function body analysis
+For each collected `SpecKey`, produce a concrete `LoweredFunction`.
 
-### 5.3 Return Type Validation
-- [x] Check all return statements match declared return type
-- [x] Infer return type if not declared
-- [x] Check all paths return a value (if return type specified)
-- [x] Write tests for return type checking
+- [ ] Implement `specialize(func_decl, key, type_info) -> LoweredFunction` in `src/lower/specialization.rs`
+  - Clone the function's statement list
+  - Substitute type parameters using `key.type_args`
+  - Annotate each heap param's `PassMode` from `key.pass_modes`
+  - Set `mangled_name` from `mangled_name(&key)`
+- [ ] Rewrite call sites: replace original function name with mangled name, passing the right `SpecKey`
+- [ ] Exclude original generic / unspecialized definitions from the lowered output
+- [ ] Write tests:
+  - Specialized function has correct concrete param types
+  - `__ref` variant has `PassMode::ByRef`; `__own` has `PassMode::ByOwnership`
+  - Call site references mangled name
+  - Original definition absent from output
 
-### 5.4 Function Call Type Checking
-- [x] Check argument count matches parameter count
-- [x] Check argument types match parameter types
-- [x] Determine call expression result type
-- [x] Write tests for function call type checking
+---
 
+## Phase 5: Heap vs. Stack Classification (1-2 hours)
 
-## Phase 6: Struct Types
+Determine which values live on the heap; needed by phases 3, 6, and 7.
 
-### 6.1 Struct Type Definition
-- [x] Parse struct field types from type declarations
-- [x] Parse struct method signatures
-- [x] Build internal struct type representation
-- [x] Write tests for struct type construction
+- [ ] Create `src/lower/heap_analysis.rs`
+- [ ] Implement `is_heap_type(ty: &Type) -> bool`
+  - Stack: primitive scalars (Number, Bool, Int8–UInt64, Float32, Float64, unit types)
+  - Heap: String, Struct, intersection types, union types containing any heap member
+- [ ] Annotate each `LoweredParam` and `VarDecl` with `is_heap`
+- [ ] Write tests:
+  - `Number` → stack; `String` → heap; custom struct → heap
+  - Union of stack types → stack; union containing `String` → heap
 
-### 6.2 Struct Initialization Type Checking
-- [x] Check struct literal field types
-- [x] Check struct literal method signatures
-- [x] Validate required fields are present
-- [x] Write tests for struct initialization
+---
 
-### 6.3 Struct Privacy Enforcement
-- [x] Track private fields/methods (using NodeFlags)
-- [x] Enforce privacy rules for field access
-- [x] Enforce privacy rules for method calls
-- [x] Write tests for privacy enforcement
+## Phase 6: Liveness Analysis (2-4 hours)
 
-### 6.4 Property Access Type Checking
-- [x] Check field exists on struct type
-- [x] Determine property access result type
-- [x] Check privacy rules for property access
-- [x] Write tests for property access
+Find the last-use point of each variable within its scope.
+Required for deciding ownership transfer, drop placement, and clone insertion.
 
-### 6.5 Method Call Type Checking
-- [x] Check method exists on struct type
-- [x] Validate method call arguments
-- [x] Determine method call result type
-- [x] Handle `this` keyword in method bodies
-- [x] Write tests for method calls
+- [ ] Create `src/lower/liveness.rs`
+- [ ] Define `LivenessMap { last_use: HashMap<String, StatementIndex> }`
+- [ ] Implement `compute_liveness(stmts) -> LivenessMap`
+  - Forward scan: each read of a variable updates `last_use`
+  - A call that takes ownership counts as a use and ends liveness
+- [ ] Implement `is_last_use(var, stmt_idx, liveness) -> bool`
+- [ ] Write tests:
+  - Variable used once → last_use at that statement
+  - Variable used twice → last_use at second use
+  - Variable passed to function and never read again → last_use is that call
 
-## Phase 7: Advanced Type Features
+---
 
-### 7.1 Union Type Support
-- [x] Implement union type checking
-- [x] Check value matches one of union alternatives
-- [x] Write tests for union types
+## Phase 7: Drop Insertion (2-3 hours)
 
-### 7.2 Intersection Type Support (Composition)
-- [x] Implement intersection type construction
-- [x] Merge struct fields/methods for intersections
-- [x] Check composition operator type compatibility
-- [x] Check privacy overwriting (public not overwritten by private and private not overwritten by public)
-- [x] Write tests for intersection types
+Insert `LoweredStatement::Drop(name)` so no heap value leaks.
 
-### 7.3 Function Type Checking
-- [x] Validate function type declarations
-- [x] Check function values match function types
-- [x] Write tests for function types
+- [ ] Create `src/lower/drop_insertion.rs`
+- [ ] Implement `insert_drops(block, liveness, heap_info) -> Vec<LoweredStatement>`
+  - At end of scope insert `Drop` for every owned heap variable NOT moved
+  - After a `ByOwnership` call, mark the argument as moved — no `Drop` in caller
+  - Return values transfer ownership — no `Drop` on returned value
+- [ ] Handle function params: heap param with `ByOwnership` and not returned → `Drop` at end
+- [ ] Write tests:
+  - `text: "hello"` unused after decl → `Drop(text)` at end of block
+  - `makeSomething(greeting)` passes ownership → no `Drop(greeting)` in caller
+  - `circle: makeCircle()` not passed anywhere → `Drop(circle)` at end
+  - Returned value → no `Drop`
 
-### 7.4 Generic Type Parameters
-- [x] Implement generic type parameter tracking
-- [x] Implement type parameter substitution
-- [x] Implement generic constraints checking
-- [x] Write tests for generic types
+---
 
-### 7.5 Structural Type Compatibility
-- [x] Implement structural subtyping rules
-- [x] Check struct compatibility based on fields/methods
-- [x] Write tests for structural typing
+## Phase 8: Clone Insertion (2-3 hours)
 
-## Phase 8: Control Flow and Pattern Matching
+Insert `LoweredExpr::Clone(...)` when a value must be copied before passing.
 
-### 8.1 Match Expression Type Checking
-- [x] Check match subject type
-- [x] Check all arms return compatible types
-- [x] Determine match expression result type
-- [x] Write tests for match expressions
+- [ ] Create `src/lower/clone_insertion.rs`
+- [ ] Implement `insert_clones(block, liveness, type_info) -> Vec<LoweredStatement>`
+  - At each call site: if argument is heap, call takes `ByOwnership`, AND variable is still live → wrap arg in `Clone(...)`
+  - If it is the last use → no clone, ownership transferred
+  - Struct field init: if source variable is still live after this field assignment → `Clone`
+- [ ] Write tests:
+  - First `changeAndPrint(message)` when `message` used again → `Clone(message)` inserted
+  - Second `changeAndPrint(message)` at last use → no clone
+  - `name: theName` twice in two structs → second gets `Clone(theName)`
+  - `extractName(person)` returning `person.name` → clone the field value
 
-### 8.2 Match Pattern Validation
-- [x] Validate patterns against subject type
-- [x] Check pattern exhaustiveness
-- [x] Report unreachable patterns
-- [x] Write tests for pattern matching
+---
 
-### 8.3 Match Arm Type Checking
-- [x] Check each arm body type
-- [x] Ensure all arms have compatible types
-- [x] Write tests for match arm types
+## Phase 9: Lowering Pipeline Integration (2-3 hours)
 
-## Phase 9: Advanced Features
+Wire all passes together and expose through the compiler.
 
-### 9.1 Pipe Operator Type Checking
-- [x] Check left side produces value
-- [x] Check right side accepts value
-- [x] Chain types through pipe sequence
-- [x] Write tests for pipe operator
-
-### 9.2 Try Operator Type Checking
-- [x] Implement error handling type checking
-- [x] Check try operator on appropriate types
-- [x] Write tests for try operator
-
-### 9.3 Partial Application
-- [x] Validate placeholder usage
-- [x] Construct partial function types
-- [x] Write tests for partial application
-
-### 9.4 This Keyword Validation
-- [x] Check `this` only used in method context
-- [x] Resolve `this` to correct struct type
-- [x] Write tests for `this` keyword
-
-## Phase 10: Module System
-
-### 10.1 Module Parsing Infrastructure
-- [x] Set up multiple file parsing for modules
-- [x] Support module import resolution across files
-- [x] Implement module AST structure for cross-file references
-- [x] Write tests for module parsing infrastructure
-
-### 10.2 Module Declaration Processing
-- [x] Register module declarations
-- [x] Support main modules (`module Name`)
-- [x] Support submodules (`module .name`)
-- [x] Create module symbol tables
-- [x] Write tests for module registration
-
-### 10.3 Import Statement Resolution
-- [x] Implement full module import resolution
-- [x] Implement selective import resolution
-- [x] Implement star import resolution
-- [x] Implement import alias handling
-- [x] Write tests for import resolution
-
-### 10.4 Export Statement Validation
-- [x] Validate exported symbols exist
-- [x] Build export lists for modules
-- [x] Check for duplicate exports
-- [x] Write tests for export validation
-
-### 10.5 Submodule Visibility Rules
-- [x] Implement submodule scoping rules
-- [x] Restrict submodule visibility to parent hierarchy
-- [x] Check submodule access permissions
-- [x] Write tests for submodule visibility
-
-### 10.6 Module Path Resolution
-- [x] Implement dotted module path resolution
-- [x] Handle nested module lookups (Parent.submodule qualified imports)
-- [x] Report errors for undefined modules
-- [x] Write tests for module path resolution
-
-## Phase 11: Integration
-
-### 11.1 Full Pipeline Integration
-- [x] Add semantic analysis to main.rs
-- [x] Create `suru check <file>` CLI command
-- [x] Wire up lexer -> parser -> semantic analysis
-- [x] Write integration tests
-
-## Phase 12: Error Reporting
-
-### 12.1 Semantic Error Types
-- [ ] Define comprehensive SemanticError enum
-- [ ] Add error for undefined symbols
-- [ ] Add error for type mismatches
-- [ ] Add error for duplicate declarations
-- [ ] Add error for privacy violations
-
-### 12.2 Error Messages
-- [ ] Implement Display for SemanticError
-- [ ] Add source location to errors
-- [ ] Add helpful error messages with suggestions
-- [ ] Write tests for error formatting
-
-### 12.3 Multiple Error Collection
-- [ ] Continue analysis after errors
-- [ ] Collect all errors before reporting
-- [ ] Sort errors by source location
-- [ ] Write tests for error collection
-
-## Phase 13: Testing
-
-### 13.2 Comprehensive Test Suite
-- [ ] Test all example.suru constructs
-- [ ] Test error cases for each feature
-- [ ] Test complex nested scenarios
-- [ ] Achieve >90% test coverage
-
-### 13.3 Performance Optimization
-- [ ] Profile semantic analysis performance
-- [ ] Optimize symbol table lookups
-- [ ] Cache type compatibility checks
-- [ ] Write performance benchmarks
+- [ ] Implement `lower(ast, semantic_info) -> Result<LoweredProgram, LoweringError>` in `src/lower/mod.rs`
+  - Step 1: classify heap vs. stack (Phase 5)
+  - Step 2: collect specialization keys (Phase 3)
+  - Step 3: specialize functions — both generics and ref/own variants (Phase 4)
+  - Step 4: compute liveness per function (Phase 6)
+  - Step 5: insert drops (Phase 7)
+  - Step 6: insert clones (Phase 8)
+- [ ] Define `LoweringError` with `Display`
+- [ ] Add `suru lower <file>` CLI subcommand that prints a debug dump of the lowered AST
+- [ ] Wire into existing pipeline: `lex → parse → semantic check → lower`
+- [ ] Write integration tests using programs from `code_generation_preparations.md`
 
 ---
 
 ## Notes
 
-- Each checkbox represents a small, focused task (~1-4 hours of work)
-- Tasks should be completed in order within each phase
-- Write tests for each task before moving to the next
-- Keep commits small and focused on individual tasks
+- Stack values (primitives) never get `Drop` or `Clone` — they copy freely
+- `ByRef` variant: LLVM pointer arg (`*T`), no drop of parameter at end
+- `ByOwnership` variant: LLVM value arg (`T`), drop parameter at end if not returned/moved
+- Liveness is per-scope; variables declared in inner blocks are dropped at the inner block's end
+- Phases 5–8 can be developed and tested independently before integration in Phase 9
