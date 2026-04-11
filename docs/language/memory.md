@@ -6,14 +6,21 @@
 
 Suru manages memory **without garbage collection**, using a straightforward ownership model that eliminates entire classes of memory-related bugs while keeping the memory model simple and predictable.
 
+### No Shared Mutable State
+
+**Mutable state is never shared between scopes.**
+
+When a mutation would cause sharing, Suru automatically copies the memory instead. All copies are deep copies with no exceptions.
+
 ## Ownership and Move Semantics
 
 ### Core Rules
 
 1. **Functions take ownership** of all values passed to them
-2. **All values are passed by move** by default
+2. **All values are passed by move** in default cases
 3. **Automatic copy before move** when a value would be mutated after being passed
 4. **Memory can be shared** as long as no mutations occur
+5. **Automatic cleanup** via `drop` when values go out of scope
 
 ### Example: Basic Move
 
@@ -35,113 +42,168 @@ main: () {
 
 ```suru
 useMultipleTimes: () {
-    value: 42
+    value: createData()
 
-    // First usage: value is moved
+    // First usage: value is automatically copied because it's used again
     result1: process(value)
+    // Compiler replaces with result1: process(copy(value))
 
-    // Second usage: value is automatically copied before move
+    // Second usage: value is moved (last usage)
     result2: process(value)
 }
 ```
 
 **How it works:**
-- When a value would be mutated after being passed to a function, Suru automatically creates a copy before the move
+- When a value would be mutated after being passed to a function, Suru automatically copies it before the move
 - This ensures no shared mutable state
+- All copies are deep copies
 
-## No Shared Mutable State
+## Memory Cleanup with `drop`
 
-### Core Principle
+When a value goes out of scope and is no longer needed, the compiler automatically inserts a call to `drop` to free the allocated memory. You never need to call `drop` manually.
 
-**Mutable state is never shared between scopes.**
-
-When a mutation would cause sharing, Suru duplicates the memory instead. All copies are deep copies with no exceptions.
-
-### Example
+### Basic Cleanup
 
 ```suru
-modify: (data Data) Data {
-    data.field: newValue  // Mutation
-    return data
+main: () {
+    text: "this is a value on the heap"
+    // Compiler adds: drop(text)
+}
+```
+
+The `text` value is allocated on the heap. When it goes out of scope at the end of the function, the compiler ensures it is cleaned up.
+
+### Passing Ownership Transfers Cleanup Responsibility
+
+When you pass a value to a function, ownership transfers and so does the responsibility for cleanup:
+
+```suru
+makeSomething: (val String) void {
+    // val needs to be cleaned here
+    // Compiler adds: drop(val)
+}
+
+type Circle: { x Number, y Number, radius Number }
+
+makeCircle: () Circle {
+    // Create a Circle on the heap and return it
+    // Ownership is returned also - no drop here
+    return {
+        x: 1
+        y: 1
+        radius: 15
+    }
 }
 
 main: () {
-    original: createData()
+    greeting: "hello!"
 
-    // `original` is copied before being moved to `modify`
-    // because it will be used again
-    modified: modify(original)
+    // Pass ownership - no drop needed for greeting here
+    makeSomething(greeting)
 
-    // Both `original` and `modified` exist independently
-    print(original.field)   // Original value
-    print(modified.field)   // New value
+    circle: makeCircle()
+
+    // Compiler adds: drop(circle)
+    // No drop(greeting) - ownership was transferred
 }
 ```
 
-## Function Scope
+## Copying with `copy`
 
-### Ownership Within Functions
+When a value needs to be used after being passed to a mutating function, the compiler automatically inserts a `copy` call to create a deep copy.
 
-1. **Each function owns all its memory values**
-2. **All values within a function scope are mutable**
-3. **Once a function receives a value, it has complete ownership**
-
-### Example
+### Copying for Mutating Functions
 
 ```suru
-processData: (data Data) {
-    // Function owns `data`
-    // Can modify it freely
-    data.field1: value1
-    data.field2: value2
-    data.field3: value3
+// Mutating function
+changeAndPrint: (circle Circle) void {
+    circle.updateRadius(5)
+    // pring code here ...
+    // Compiler adds: drop(circle)
+}
 
-    // All modifications are local to this function
-    return data
+main: () {
+    circle: { radius: 3 }
+
+    // Compiler copies circle because it's used later
+    changeAndPrint(copy(circle))
+
+    circle.updateRadius(6)
+
+    // No copy - last usage, passes ownership
+    changeAndPrint(message)
 }
 ```
 
-## Memory Safety Guarantees
+### Copying When Adding to Structs
 
-### No Dangling Pointers
-
-Values cannot be accessed after they've been moved:
+When a value becomes part of a struct while still being needed elsewhere:
 
 ```suru
-useValue: () {
-    data: createData()
-    process(data)          // `data` is moved
-    // print(data)         // ERROR: `data` was moved
+type Person: { name String, age Number }
+
+theName: "Paul"
+
+person Person: {
+    name: theName
+    // theName will be used agains so we need a copy
+    // Compiler will rewrite to: name: copy(theName)
+}
+
+secondPerson Person: {
+    name: theName  // Ownership passed to the struct
 }
 ```
 
-### No Use-After-Free
+### Copying Values from Data Structures
 
-The compiler ensures values are not used after being freed:
+Extracting a value from a struct may require copying:
 
 ```suru
-invalid: () {
-    data: createData()
-    return data.field      // OK: accessing before return
+type Person: {
+    name String
+    age Number
 }
-// data is freed after function returns
+
+extractName: (person Person) String {
+    return person.name  // Copy needed - name leaving struct scope
+    // Compiler will rewrite to: return copy(person.name)
+}
+
+printName: (person Person) String {
+    name: person.name
+    io.writeLine(name)  // No copy - no mutation occurs
+}
 ```
 
-### No Data Races
+## Reference Passing for Performance
 
-No shared mutable state means no data races:
+For performance, the compiler passes references when possible, avoiding unnecessary copies or moves.
+
+### Non-Mutating Functions Receive References
 
 ```suru
-parallel: () {
-    data: createData()
+// Non-mutating function
+printMessage: (val String) void {
+    io.writeLine(val)
+}
 
-    // Each function gets its own copy if needed
-    result1: asyncProcess(data)
-    result2: asyncProcess(data)
+main: () {
+    message: "Hello"
 
-    // No race condition - separate copies
+    // Pass a reference - message is still used later
+    printMessage(message)
+
+    // Pass ownership - last usage of message
+    printMessage(message)
 }
 ```
+
+The compiler generates two versions of `printMessage`:
+- One that receives a reference (for when the caller still needs the value)
+- One that receives ownership (for the final usage)
+
+
 
 ## Linear Types: Guaranteed Consumption
 
@@ -154,14 +216,14 @@ type-linear FileHandle: {
 }
 
 safeRead: (path String) String {
-    handle: openFile(path)
+    handle FileHandle: openFile(path)
     content: handle.read(4096)
     handle.close()           // required — compiler error if omitted
     return content
 }
 ```
 
-The compiler tracks the obligation state flow-sensitively. Every match arm, every early return path must satisfy the obligation before it exits scope. This prevents resource leaks at compile time without requiring runtime cleanup or garbage collection.
+The compiler tracks the obligation state flow-sensitively. Every match arm, every early return path must satisfy the obligation before it exits scope. This prevents resource leaks at compile time without requiring runtime cleanup or garbage collection. Linear types can only be passed by move they will never be copied. Calling `copy` on a linear type will produce a compilation error.
 
 **See also:** [Linear Types](linear-types.md) for the full specification including typestate patterns, generics, and fallible consumers.
 
@@ -195,46 +257,28 @@ process: (data Data) Data {
 }
 ```
 
-### Explicit Copy (Future Feature)
+### Explicit Copy
 
-Planned syntax for explicit copying:
+You can explicitly copy a value when needed:
 
 ```suru
-// Planned
 makeCopy: (data Data) {
-    copied: data.copy()
+    copied: copy(data)
     // Now have two independent values
 }
 ```
 
+Note: The compiler automatically inserts `copy` calls where needed, so explicit copy is rarely necessary.
+
 ## Comparison with Other Languages
-
-### vs Rust
-
-- **Simpler**: No lifetime annotations or borrow checker
-- **Automatic copying**: Compiler inserts copies when needed
-- **No unsafe**: All operations are safe
-
-### vs Go
-
-- **No GC**: Deterministic memory management
-- **Move semantics**: Explicit ownership transfer
-- **No shared mutable state**: Prevents data races
-
-### vs C++
-
-- **No manual management**: No `new`/`delete`
-- **Memory safe**: No dangling pointers or leaks
-- **Simpler model**: No smart pointers needed
 
 ## Best Practices
 
-1. **Trust the compiler**: It inserts copies when needed
+1. **Trust the compiler**: It inserts `clone` and `drop` calls when needed
 2. **Design for move semantics**: Functions consume their arguments
-3. **Return new values**: Don't try to mutate parameters
 4. **Use functional style**: Transform data, don't mutate in place
-5. **Leverage immutability**: File-scope constants are immutable
 6. **Understand ownership**: Values are owned by one scope at a time
+7. **Last usage optimization**: Structure code so values are used once when possible to avoid copying
 
 ## Examples
 
@@ -254,7 +298,7 @@ processUser: (user User) User {
 
 ```suru
 prepareData: (raw RawData) ProcessedData {
-    raw
+    return raw
         | validate
         | normalize
         | enrich

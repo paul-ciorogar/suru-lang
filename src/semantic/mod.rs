@@ -807,6 +807,7 @@ impl SemanticAnalyzer {
             NodeType::StructInit => self.visit_struct_init(node_idx),
             // Property access and method call type checking
             NodeType::PropertyAccess => self.visit_property_access(node_idx),
+            NodeType::PropertyAssignment => self.visit_property_assignment(node_idx),
             NodeType::MethodCall => self.visit_method_call(node_idx),
             // this keyword resolution
             NodeType::This => self.visit_this(node_idx),

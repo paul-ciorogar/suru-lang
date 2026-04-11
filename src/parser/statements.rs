@@ -58,7 +58,16 @@ impl<'a> Parser<'a> {
                     "function" => Ok(Some(self.parse_function_decl(depth + 1)?)),
                     "variable" => Ok(Some(self.parse_var_decl(depth + 1)?)),
                     "call" => self.parse_standalone_call(depth + 1),
+                    "property_assign" => Ok(Some(self.parse_property_assignment(depth + 1)?)),
                     _ => unreachable!(),
+                }
+            }
+            TokenKind::This => {
+                // this.field: value — property assignment via this
+                if self.peek_next_kind(1) == TokenKind::Dot {
+                    Ok(Some(self.parse_property_assignment(depth + 1)?))
+                } else {
+                    Err(self.new_unexpected_token("'.'"))
                 }
             }
             TokenKind::RBrace => Ok(None), // End of block
@@ -129,6 +138,7 @@ impl<'a> Parser<'a> {
                 // Standalone function call: ident()
                 Ok("call")
             }
+            TokenKind::Dot => Ok("property_assign"),
             _ => Err(self.new_unexpected_token("':' or '('")),
         }
     }
@@ -184,6 +194,47 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expr_stmt_idx)
+    }
+
+    /// Parse a property assignment: receiver.field: expression
+    /// Handles both `person.name: value` and `this.name: value`
+    fn parse_property_assignment(&mut self, depth: usize) -> Result<usize, ParseError> {
+        self.check_depth(depth)?;
+
+        // Parse LHS as expression — the expression parser stops before ':'
+        // This handles: person.field, this.field, a.b.c (chained)
+        let lhs_idx = self.parse_expression(depth + 1, 0)?;
+
+        // LHS must be a PropertyAccess
+        if self.ast.nodes[lhs_idx].node_type != NodeType::PropertyAccess {
+            return Err(self.new_unexpected_token("property access expression"));
+        }
+
+        // Consume ':'
+        self.consume(TokenKind::Colon, "':'")?;
+
+        // Skip newlines before RHS
+        self.skip_newlines();
+
+        // Parse RHS expression
+        let rhs_idx = self.parse_expression(depth + 1, 0)?;
+
+        // Create PropertyAssignment node
+        let node = AstNode::new(NodeType::PropertyAssignment);
+        let node_idx = self.ast.add_node(node);
+        self.ast.add_child(node_idx, lhs_idx);
+        self.ast.add_child(node_idx, rhs_idx);
+
+        // Expect newline, EOF, or RBrace
+        match self.peek_kind() {
+            TokenKind::Newline => {
+                self.advance();
+            }
+            TokenKind::Eof | TokenKind::RBrace => {}
+            _ => return Err(self.new_unexpected_token("newline, '}', or end of file")),
+        }
+
+        Ok(node_idx)
     }
 
     /// Parse a variable declaration: identifier [Type] : expression
@@ -804,6 +855,95 @@ Program
       StructInitField
         Identifier 'name'
         LiteralString 'Paul'
+";
+        assert_eq!(ast, expected);
+    }
+
+    // Property assignment tests
+
+    #[test]
+    fn test_property_assignment_simple() {
+        let ast = to_ast_string("person.name: \"Paul\"\n").unwrap();
+        let expected = "\
+Program
+  PropertyAssignment
+    PropertyAccess
+      Identifier 'person'
+      Identifier 'name'
+    LiteralString 'Paul'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_property_assignment_number() {
+        let ast = to_ast_string("p.age: 42\n").unwrap();
+        let expected = "\
+Program
+  PropertyAssignment
+    PropertyAccess
+      Identifier 'p'
+      Identifier 'age'
+    LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_property_assignment_chained() {
+        let ast = to_ast_string("a.b.c: 42\n").unwrap();
+        let expected = "\
+Program
+  PropertyAssignment
+    PropertyAccess
+      PropertyAccess
+        Identifier 'a'
+        Identifier 'b'
+      Identifier 'c'
+    LiteralNumber '42'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_property_assignment_this() {
+        let ast = to_ast_string("f: () {\n    this.name: \"Paul\"\n}\n").unwrap();
+        let expected = "\
+Program
+  FunctionDecl
+    Identifier 'f'
+    ParamList
+    Block
+      PropertyAssignment
+        PropertyAccess
+          This 'this'
+          Identifier 'name'
+        LiteralString 'Paul'
+";
+        assert_eq!(ast, expected);
+    }
+
+    #[test]
+    fn test_property_assignment_inside_function() {
+        let ast = to_ast_string("update: (p) {\n    p.x: 10\n    p.y: 20\n}\n").unwrap();
+        let expected = "\
+Program
+  FunctionDecl
+    Identifier 'update'
+    ParamList
+      Param
+        Identifier 'p'
+    Block
+      PropertyAssignment
+        PropertyAccess
+          Identifier 'p'
+          Identifier 'x'
+        LiteralNumber '10'
+      PropertyAssignment
+        PropertyAccess
+          Identifier 'p'
+          Identifier 'y'
+        LiteralNumber '20'
 ";
         assert_eq!(ast, expected);
     }

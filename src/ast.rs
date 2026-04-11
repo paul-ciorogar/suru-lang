@@ -56,7 +56,8 @@ pub enum NodeType {
     // Function call
     FunctionCall,   // Function call expression
     MethodCall,     // Method call: receiver.method(args)
-    PropertyAccess, // Property access: receiver.property
+    PropertyAccess,     // Property access: receiver.property
+    PropertyAssignment, // Property assignment: receiver.field: value
     ArgList,        // Argument list for function/method calls
 
     // Match expressions
