@@ -5,6 +5,28 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.58.0] - 2026-04-11 - Annotated Parse Output
+
+### Added
+- **`src/semantic/types.rs`** — `type_to_display_string(type_id, registry) -> String`: renders any `Type` as a human-readable string (`Number`, `String`, `Bool`, `Void`, `()`, `(T1, T2) -> R`, `{ f: T }`, `T1 | T2`, `[T]`, `T?`, `T!E`, sized ints/floats, generic params)
+- **`src/semantic/mod.rs`** — `AnalysisOutput` struct (`ast`, `node_types`, `type_registry`) returned by successful analysis; `AnalysisOutput::to_annotated_string()` renders the AST with inferred `[Type]` suffixes inline; `SemanticAnalyzer::analyze_with_types()` new method returning `Result<AnalysisOutput, Vec<SemanticError>>`; `analyze()` now delegates to it (no behaviour change for existing callers)
+- **`src/ast.rs`** — `Ast::to_annotated_string(annotations: &HashMap<usize, String>) -> String` and private `tree_annotated_recursive` helper; no circular dependency (pre-rendered string map passed in)
+- **`src/main.rs`** — `parse_command` now runs the full semantic pipeline; on success prints annotated AST; on semantic error prints the plain AST then lists errors to stderr and exits 1
+
+### Changed
+- `suru parse <file>` now runs semantic analysis after parsing and annotates every typed node inline (e.g. `VarDecl [Number]`); if semantics fail the plain AST is still printed followed by the error list
+
+## [0.57.0] - 2026-04-11 - Property Assignment
+
+### Added
+- **`src/ast.rs`** — `PropertyAssignment` node type for `receiver.field: value` statements
+- **`src/parser/statements.rs`** — `parse_property_assignment()`: parses `person.field: expr` and `this.field: expr` (including chained access like `a.b.c: val`); 
+- **`src/semantic/struct_privacy.rs`** — `visit_property_assignment()`: validates receiver is a struct, field exists, privacy (private fields only assignable via `this`), and RHS type matches field type;
+- **`src/semantic/mod.rs`** — visitor dispatch for `NodeType::PropertyAssignment`
+
+### Changed
+- **`docs/language/memory.md`** — Major overhaul: added `drop`/`copy` semantics sections, reference-passing for non-mutating functions, revised copy examples, removed language comparison appendix, updated best practices
+
 ## [0.56.0] - 2026-03-05 - Full Pipeline Integration
 
 ### Added

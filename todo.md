@@ -5,7 +5,7 @@ It produces a **lowered AST** with:
 - Generic functions replaced by concrete type specializations (monomorphization)
 - Functions that take heap params split into ref and owned specializations
 - Explicit `drop()` calls inserted at ownership end-of-life
-- Explicit `clone()` calls inserted where sharing requires copying
+- Explicit `copy()` calls inserted where sharing requires copying
 
 Module location: `src/lower/`
 
@@ -17,7 +17,7 @@ Module location: `src/lower/`
 function symbol with which of its parameters it mutates. The lowering pass reads these
 flags instead of re-traversing bodies.
 
-- [ ] Add `mutates_params: Vec<bool>` field to `FunctionSymbol` in `src/semantic/`
+- [ ] Add `mutates_params: Vec<bool>` field to `FunctionSymbol` in `src/semantic/` (alternative consider using bit flags and limit the parameters to 64)
   - One `bool` per parameter, in declaration order
   - Default: all `false` until body is analyzed
 - [ ] In `visit_function_decl`, after visiting the body, compute mutation per param:
@@ -48,7 +48,7 @@ Define the data structures the lowering pass produces.
   - `Return(Option<expr>)`
 - [ ] Define `LoweredExpr` enum:
   - `Literal`, `Identifier`, `Call`, `MethodCall`, `FieldAccess`
-  - `Clone(Box<LoweredExpr>)` — inserted by compiler
+  - `Copy(Box<LoweredExpr>)` — inserted by compiler
   - `BoolOp`, `Not`
 - [ ] Define `PassMode` enum: `ByRef`, `ByOwnership`
 - [ ] Define `LoweredParam(name, type, pass_mode: PassMode)`
@@ -65,12 +65,12 @@ Unify them under a single key so Phase 3 can handle both in one pass.
 - [ ] Define `SpecKey` struct:
   - `base_name: String` — original function name
   - `type_args: Vec<Type>` — empty for non-generic functions
-  - `pass_modes: Vec<PassMode>` — one entry per heap parameter
+  - `pass_modes: Vec<PassMode>` — one entry per heap parameter (question? using a bit flag where 1: reference and 0: owned and limit parameters to 64. Would this be a better solution?
 - [ ] Implement `mangled_name(key: &SpecKey) -> String`:
   - Example: `adder<I32>` → `adder__I32`
-  - Example: `printMessage(ByRef)` → `printMessage__ref`
-  - Example: `printMessage(ByOwnership)` → `printMessage__own`
-  - Example: combined: `process<String>(ByRef, ByOwnership)` → `process__String__ref_own`
+  - Example: `printMessage(ByRef)` → `printMessage__ref` (if the bit flag is implemented then this could be `printMessage__1`)
+  - Example: `printMessage(ByOwnership)` → `printMessage__own` (if the bit flag is implemented then this could be `printMessage__0`)
+  - Example: combined: `process<String>(ByRef, ByOwnership)` → `process__String__ref_own` (if the bit flag is implemented then this could be `process__String__10`)
 - [ ] Implement `SpecKey` equality and hashing (for deduplication)
 - [ ] Write tests:
   - Same types + same modes → one key
@@ -89,7 +89,7 @@ Walk the semantic AST and collect every distinct `SpecKey` needed.
   - For generic callees: read resolved type arguments from `type_info`
   - For each heap parameter: determine whether the argument is its last use in scope
     - Last use → `ByOwnership`; still live after → `ByRef`
-  - For non-generic, non-heap-param functions: emit a single key with empty vecs
+  - For non-generic, non-heap-param functions: emit a single key with empty vecs (consider not generating a key if we don't have to. Only have Specialization where specialization is needed)
 - [ ] Write tests:
   - `adder(3i32, 7i32)` + `adder(3i64, 7i64)` → two `SpecKey`s
   - `printMessage(message)` used twice → `ByRef` key; last use → `ByOwnership` key
@@ -167,20 +167,20 @@ Insert `LoweredStatement::Drop(name)` so no heap value leaks.
 
 ---
 
-## Phase 8: Clone Insertion (2-3 hours)
+## Phase 8: Copy Insertion (2-3 hours)
 
-Insert `LoweredExpr::Clone(...)` when a value must be copied before passing.
+Insert `LoweredExpr::Copy(...)` when a value must be copied before passing.
 
-- [ ] Create `src/lower/clone_insertion.rs`
-- [ ] Implement `insert_clones(block, liveness, type_info) -> Vec<LoweredStatement>`
-  - At each call site: if argument is heap, call takes `ByOwnership`, AND variable is still live → wrap arg in `Clone(...)`
+- [ ] Create `src/lower/copy.rs`
+- [ ] Implement `insert_copies(block, liveness, type_info) -> Vec<LoweredStatement>`
+  - At each call site: if argument is heap, call takes `ByOwnership`, AND variable is still live → wrap arg in `Copy(...)`
   - If it is the last use → no clone, ownership transferred
-  - Struct field init: if source variable is still live after this field assignment → `Clone`
+  - Struct field init: if source variable is still live after this field assignment → `Copy`
 - [ ] Write tests:
-  - First `changeAndPrint(message)` when `message` used again → `Clone(message)` inserted
+  - First `changeAndPrint(message)` when `message` used again → `Copy(message)` inserted
   - Second `changeAndPrint(message)` at last use → no clone
-  - `name: theName` twice in two structs → second gets `Clone(theName)`
-  - `extractName(person)` returning `person.name` → clone the field value
+  - `name: theName` twice in two structs → second gets `Copy(theName)`
+  - `extractName(person)` returning `person.name` → copy the field value
 
 ---
 
@@ -204,7 +204,7 @@ Wire all passes together and expose through the compiler.
 
 ## Notes
 
-- Stack values (primitives) never get `Drop` or `Clone` — they copy freely
+- Stack values (primitives) never get `Drop` or `Copy` — they copy freely
 - `ByRef` variant: LLVM pointer arg (`*T`), no drop of parameter at end
 - `ByOwnership` variant: LLVM value arg (`T`), drop parameter at end if not returned/moved
 - Liveness is per-scope; variables declared in inner blocks are dropped at the inner block's end

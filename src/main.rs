@@ -93,8 +93,22 @@ fn parse_command(args: suru_lang::cli::ParseArgs) -> Result<(), Box<dyn std::err
     let tokens = lexer::lex(&source, &limits)?;
     let ast = parser::parse(tokens, &limits)?;
 
-    // Print AST tree
-    print!("{}", ast.to_string());
+    // Run semantic analysis and print annotated output
+    let analyzer = semantic::SemanticAnalyzer::new(ast);
+    match analyzer.analyze_with_types() {
+        Ok(output) => {
+            print!("{}", output.to_annotated_string());
+        }
+        Err(err) => {
+            // Show the plain AST so the parse structure is still visible
+            print!("{}", err.ast.to_string());
+            eprintln!("\nSemantic errors:");
+            for error in &err.errors {
+                eprintln!("  {error}");
+            }
+            std::process::exit(1);
+        }
+    }
 
     Ok(())
 }

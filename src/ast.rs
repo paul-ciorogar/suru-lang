@@ -1,6 +1,7 @@
 use crate::lexer::Token;
 use crate::string_storage::StringStorage;
 use bitflags::bitflags;
+use std::collections::HashMap;
 
 bitflags! {
     /// Flags for AST node metadata (privacy, mutability, etc.)
@@ -260,6 +261,76 @@ impl Ast {
         } else {
             String::new()
         }
+    }
+
+    /// Renders the AST tree with optional per-node type annotations.
+    ///
+    /// `annotations` maps node index to a pre-rendered type string. Any node
+    /// with an entry gets a `[Type]` suffix appended to its line.
+    pub fn to_annotated_string(&self, annotations: &HashMap<usize, String>) -> String {
+        if let Some(root_idx) = self.root {
+            self.tree_annotated_recursive(root_idx, 0, annotations)
+        } else {
+            String::new()
+        }
+    }
+
+    fn tree_annotated_recursive(
+        &self,
+        node_idx: usize,
+        depth: usize,
+        annotations: &HashMap<usize, String>,
+    ) -> String {
+        let node = &self.nodes[node_idx];
+        let indent = "  ".repeat(depth);
+
+        let text = self
+            .node_text(node_idx)
+            .map(|s| format!(" '{}'", s))
+            .or_else(|| {
+                if let Some(ref token) = node.token {
+                    use crate::lexer::TokenKind;
+                    match token.kind {
+                        TokenKind::True => Some(" 'true'".to_string()),
+                        TokenKind::False => Some(" 'false'".to_string()),
+                        TokenKind::Underscore => Some(" '_'".to_string()),
+                        TokenKind::This => Some(" 'this'".to_string()),
+                        TokenKind::Star => Some(" '*'".to_string()),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        let privacy_marker = if node.flags.contains(NodeFlags::IS_PRIVATE) {
+            " [private]"
+        } else {
+            ""
+        };
+
+        let type_annotation = annotations
+            .get(&node_idx)
+            .map(|t| format!(" [{}]", t))
+            .unwrap_or_default();
+
+        let mut result =
+            format!("{}{:?}{}{}{}\n", indent, node.node_type, text, privacy_marker, type_annotation);
+
+        if let Some(child_idx) = node.first_child {
+            let mut current = child_idx;
+            loop {
+                result.push_str(&self.tree_annotated_recursive(current, depth + 1, annotations));
+                if let Some(next) = self.nodes[current].next_sibling {
+                    current = next;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        result
     }
 
     // Helper to format tree recursively as string

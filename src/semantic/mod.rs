@@ -48,6 +48,7 @@ pub use types::{
     // Hindley-Milner type inference
     TypeVarId,
     UIntSize,
+    type_to_display_string,
 };
 
 /// Represents a semantic analysis error
@@ -87,6 +88,50 @@ impl std::fmt::Display for SemanticError {
 }
 
 impl std::error::Error for SemanticError {}
+
+/// The result of a successful semantic analysis, carrying the AST and full type data.
+///
+/// Returned by [`SemanticAnalyzer::analyze_with_types`]. Use
+/// [`AnalysisOutput::to_annotated_string`] to render the AST with inferred types inline.
+pub struct AnalysisOutput {
+    /// The analyzed AST
+    pub ast: crate::ast::Ast,
+    /// Map from AST node index to its inferred TypeId
+    pub node_types: HashMap<usize, TypeId>,
+    /// The type registry used during analysis (needed to resolve TypeIds)
+    pub type_registry: TypeRegistry,
+}
+
+impl AnalysisOutput {
+    /// Renders the AST as a string with inferred type annotations inline on each node.
+    ///
+    /// Each node that has a resolved type gets a `[Type]` suffix, e.g.:
+    /// ```text
+    /// VarDecl [Number]
+    ///   Identifier 'x' [Number]
+    ///   LiteralNumber '42' [Number]
+    /// ```
+    pub fn to_annotated_string(&self) -> String {
+        let annotations: HashMap<usize, String> = self
+            .node_types
+            .iter()
+            .map(|(&idx, &tid)| (idx, type_to_display_string(tid, &self.type_registry)))
+            .collect();
+        self.ast.to_annotated_string(&annotations)
+    }
+}
+
+/// Carries the AST and error list when semantic analysis fails.
+#[derive(Debug)]
+///
+/// Returning the AST on failure lets callers render it without having to
+/// pre-render before handing the AST to the analyzer.
+pub struct AnalysisError {
+    /// The AST that was analyzed (errors present)
+    pub ast: crate::ast::Ast,
+    /// The semantic errors found during analysis
+    pub errors: Vec<SemanticError>,
+}
 
 /// Represents the kind of symbol in the symbol table
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -732,15 +777,26 @@ impl SemanticAnalyzer {
         Ok(self.type_registry.intern(ty))
     }
 
-    /// Performs semantic analysis on the AST
-    /// Returns Ok(Ast) if no errors, or Err(Vec<SemanticError>) if errors found
+    /// Performs semantic analysis on the AST.
+    /// Returns `Ok(Ast)` if no errors, or `Err(Vec<SemanticError>)` if errors found.
     ///
     /// # Algorithm (Hindley-Milner)
     ///
     /// 1. **Constraint Collection**: Traverse AST and collect type constraints
     /// 2. **Unification**: Solve constraints to find type substitution
     /// 3. **Substitution Application**: Apply final types to all nodes
-    pub fn analyze(mut self) -> Result<crate::ast::Ast, Vec<SemanticError>> {
+    pub fn analyze(self) -> Result<crate::ast::Ast, Vec<SemanticError>> {
+        self.analyze_with_types()
+            .map(|o| o.ast)
+            .map_err(|e| e.errors)
+    }
+
+    /// Like [`analyze`], but returns full type information on success and the AST on failure.
+    ///
+    /// On success returns [`AnalysisOutput`] with the AST, node types, and type registry.
+    /// On failure returns [`AnalysisError`] with the AST and error list — callers can render
+    /// the AST without having to pre-render it before passing it to the analyzer.
+    pub fn analyze_with_types(mut self) -> Result<AnalysisOutput, AnalysisError> {
         if let Some(root_idx) = self.ast.root {
             // Phase 1: Collect constraints by traversing AST
             self.visit_node(root_idx);
@@ -768,9 +824,13 @@ impl SemanticAnalyzer {
         }
 
         if self.errors.is_empty() {
-            Ok(self.ast)
+            Ok(AnalysisOutput {
+                ast: self.ast,
+                node_types: self.node_types,
+                type_registry: self.type_registry,
+            })
         } else {
-            Err(self.errors)
+            Err(AnalysisError { ast: self.ast, errors: self.errors })
         }
     }
 

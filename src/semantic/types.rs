@@ -492,6 +492,80 @@ impl Substitution {
     }
 }
 
+// ========== Display Helpers ==========
+
+/// Renders a type as a human-readable string for display purposes.
+///
+/// Used by `AnalysisOutput::to_annotated_string` to annotate AST nodes.
+pub fn type_to_display_string(type_id: TypeId, registry: &TypeRegistry) -> String {
+    match registry.get(type_id) {
+        Type::Unit => "()".to_string(),
+        Type::NamedUnit(name) => name.clone(),
+        Type::Void => "Void".to_string(),
+        Type::Number => "Number".to_string(),
+        Type::String => "String".to_string(),
+        Type::Bool => "Bool".to_string(),
+        Type::Int(sz) => match sz {
+            IntSize::I8 => "i8".to_string(),
+            IntSize::I16 => "i16".to_string(),
+            IntSize::I32 => "i32".to_string(),
+            IntSize::I64 => "i64".to_string(),
+        },
+        Type::UInt(sz) => match sz {
+            UIntSize::U8 => "u8".to_string(),
+            UIntSize::U16 => "u16".to_string(),
+            UIntSize::U32 => "u32".to_string(),
+            UIntSize::U64 => "u64".to_string(),
+        },
+        Type::Float(sz) => match sz {
+            FloatSize::F32 => "f32".to_string(),
+            FloatSize::F64 => "f64".to_string(),
+        },
+        Type::Var(_) | Type::Unknown | Type::Error => "?".to_string(),
+        Type::TypeVar(name) => name.clone(),
+        Type::TypeParameter { name, .. } => name.clone(),
+        Type::Function(ft) => {
+            let params: Vec<String> = ft
+                .params
+                .iter()
+                .map(|p| type_to_display_string(p.type_id, registry))
+                .collect();
+            let ret = type_to_display_string(ft.return_type, registry);
+            format!("({}) -> {}", params.join(", "), ret)
+        }
+        Type::Struct(st) => {
+            let fields: Vec<String> = st
+                .fields
+                .iter()
+                .filter(|f| !f.is_private)
+                .map(|f| format!("{}: {}", f.name, type_to_display_string(f.type_id, registry)))
+                .collect();
+            format!("{{ {} }}", fields.join(", "))
+        }
+        Type::Union(alternatives) => {
+            let parts: Vec<String> = alternatives
+                .iter()
+                .map(|&alt| type_to_display_string(alt, registry))
+                .collect();
+            parts.join(" | ")
+        }
+        Type::Array(inner) => format!("[{}]", type_to_display_string(*inner, registry)),
+        Type::Option(inner) => format!("{}?", type_to_display_string(*inner, registry)),
+        Type::Result(ok, err) => format!(
+            "{}!{}",
+            type_to_display_string(*ok, registry),
+            type_to_display_string(*err, registry)
+        ),
+        Type::Generic { type_params, inner } => {
+            let params: Vec<String> = type_params
+                .iter()
+                .map(|&p| type_to_display_string(p, registry))
+                .collect();
+            format!("{}<{}>", type_to_display_string(*inner, registry), params.join(", "))
+        }
+    }
+}
+
 // ========== Tests ==========
 
 #[cfg(test)]
