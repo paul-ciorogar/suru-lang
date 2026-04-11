@@ -17,19 +17,15 @@ Module location: `src/lower/`
 function symbol with which of its parameters it mutates. The lowering pass reads these
 flags instead of re-traversing bodies.
 
-- [ ] Add `mutates_params: Vec<bool>` field to `FunctionSymbol` in `src/semantic/` (alternative consider using bit flags and limit the parameters to 64)
-  - One `bool` per parameter, in declaration order
-  - Default: all `false` until body is analyzed
-- [ ] In `visit_function_decl`, after visiting the body, compute mutation per param:
-  - A param is mutated if the body contains a field assignment on it (`param.field: value`)
-  - A param is mutated if the body calls a method on it that is itself marked as mutating
-  - Resolve transitive calls via the symbol table (already-analyzed callees)
-- [ ] Store the result in the function's `FunctionSymbol` entry in the symbol table
-- [ ] Write tests:
-  - Function that only reads param fields → all `false`
-  - Function with `param.name: newName` → that param `true`
-  - Function that calls a mutating method on param → that param `true`
-  - Transitive: function calls another function that mutates the param → `true`
+- [x] Add mutation bitmask (`u64`) per function — bit i set if param i is mutated (limits to 64 params)
+  - Stored in `AnalysisOutput.function_mutations: HashMap<usize, u64>` (keyed by FunctionDecl node index)
+  - Struct method `this`-mutations in `AnalysisOutput.method_this_mutations: HashMap<(TypeId, String), bool>`
+- [x] Collect `FunctionDeclInfo` in `visit_function_decl`; run `compute_all_mutations` after `apply_substitution`
+  - Direct: `param.field: value` → bit set for that param
+  - Method: `param.method()` where method mutates `this` → bit set (precise if type known, name-based fallback otherwise)
+  - Transitive: `callee(param)` where callee mutates that arg position → bit set
+- [x] Exposed via `AnalysisOutput` (consumed by lowering pass)
+- [x] 5 tests in `src/semantic/mutation_analysis.rs` (all pass)
 
 ---
 

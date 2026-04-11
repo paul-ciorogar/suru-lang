@@ -156,6 +156,7 @@ max_expression_depth = 256
 - Token count: 100,000
 - Expression depth: 256
 - AST nodes: 1,000,000
+- Function/method parameters: 64
 - String/identifier/comment lengths: Various per-type limits
 
 **Implementation:**

@@ -5,6 +5,18 @@ All notable changes to Suru Lang will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.59.0] - 2026-04-11 - Mutation Analysis (Phase 0)
+
+### Added
+- **`src/semantic/mutation_analysis.rs`** (new) — post-unification AST walk that computes which declared parameters each function mutates; `FunctionDeclInfo` collected during traversal, `MutationResult` with a `u64` bitmask (bit i = param i mutated) and a `mutates_this` flag for struct methods; three detection rules: direct field assignment (`param.field: value`), method call on param where the method mutates `this`, transitive function call where the callee mutates that argument position; 5 tests covering all rules
+- **`src/semantic/mod.rs`** — `SemanticAnalyzer` gains three new fields: `function_decl_info: Vec<(usize, FunctionDeclInfo)>`, `function_mutations: HashMap<usize, u64>`, `method_this_mutations: HashMap<(TypeId, String), bool>`; `AnalysisOutput` gains `function_mutations` and `method_this_mutations` fields; `compute_all_mutations()` runs after `apply_substitution()` in `analyze_with_types()`, iterating collected function info in visit order (struct methods before their callers) and resolving TypeVars through the substitution before the mutation walk
+- **`src/semantic/name_resolution.rs`** — `visit_function_decl` now pushes a `FunctionDeclInfo` entry after visiting the function body, capturing param names, raw TypeIds, body node index, and struct context
+
+### Notes
+- Mutation flags use a `u64` bitmask, limiting functions to 64 parameters
+- Method-mutation lookup is precise when the param's struct type is resolved; falls back to a name-based scan (conservative) for untyped params
+- Results exposed on `AnalysisOutput` for consumption by the upcoming lowering pass (`src/lower/`)
+
 ## [0.58.0] - 2026-04-11 - Annotated Parse Output
 
 ### Added

@@ -282,6 +282,10 @@ divide: (x Number, y Number) Result<Number, String> {
 }
 ```
 
+## Limitations
+
+- **Maximum parameters**: Functions and methods are limited to **64 parameters**. Exceeding this limit is a compile error.
+
 ## Best Practices
 
 1. **Use type annotations for public APIs**: Makes intent clear

@@ -7,6 +7,7 @@
 // - Function call resolution
 
 use super::{
+    mutation_analysis::FunctionDeclInfo,
     FunctionParam, FunctionType, SemanticAnalyzer, SemanticError, Symbol, SymbolKind, Type, TypeId,
 };
 use crate::ast::NodeType;
@@ -315,8 +316,9 @@ impl SemanticAnalyzer {
             })
             .collect();
 
-        for (param_name, param_type) in param_data {
-            let param_symbol = Symbol::new(param_name, param_type, SymbolKind::Variable);
+        for (param_name, param_type) in &param_data {
+            let param_symbol =
+                Symbol::new(param_name.clone(), param_type.clone(), SymbolKind::Variable);
             self.scopes.insert(param_symbol);
         }
 
@@ -338,6 +340,27 @@ impl SemanticAnalyzer {
 
         // Validate return types
         self.validate_function_returns(node_idx, func_type_id);
+
+        // Collect mutation-analysis info for this function.
+        // Stored now (with raw TypeIds) and processed after type unification
+        // in `compute_all_mutations`, when all TypeVars are fully resolved.
+        {
+            let param_names: Vec<String> = param_data.iter().map(|(n, _)| n.clone()).collect();
+            let param_type_ids: Vec<TypeId> =
+                if let Type::Function(ref ft) = self.type_registry.resolve(func_type_id).clone() {
+                    ft.params.iter().map(|p| p.type_id).collect()
+                } else {
+                    Vec::new()
+                };
+            let info = FunctionDeclInfo {
+                name: name.clone(),
+                param_names,
+                param_type_ids,
+                body_idx: block_idx,
+                struct_context: self.current_struct_type,
+            };
+            self.function_decl_info.push((node_idx, info));
+        }
 
         // Clear type params if we set them
         if type_params_idx.is_some() {

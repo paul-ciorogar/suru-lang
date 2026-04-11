@@ -15,6 +15,7 @@ mod try_type_checking;
 mod module_registry;
 mod module_resolution;
 mod multi_file_analyzer;
+mod mutation_analysis;
 mod name_resolution;
 
 pub use module_registry::ModuleRegistry;
@@ -100,6 +101,14 @@ pub struct AnalysisOutput {
     pub node_types: HashMap<usize, TypeId>,
     /// The type registry used during analysis (needed to resolve TypeIds)
     pub type_registry: TypeRegistry,
+    /// Mutation bitmasks for each function declaration.
+    /// Key: FunctionDecl AST node index.
+    /// Value: u64 bitmask — bit i is set if declared parameter i is mutated.
+    pub function_mutations: HashMap<usize, u64>,
+    /// Whether each struct method mutates `this`.
+    /// Key: (struct TypeId, method name).
+    /// Value: true if the method body contains a `this.field: value` assignment.
+    pub method_this_mutations: HashMap<(TypeId, String), bool>,
 }
 
 impl AnalysisOutput {
@@ -446,6 +455,20 @@ pub struct SemanticAnalyzer {
     /// Match expressions are checked for exhaustiveness after unification
     deferred_match_checks: Vec<DeferredMatchExhaustivenessCheck>,
 
+    // Mutation analysis (Phase 0 for the lowering pass)
+    /// Function declaration info collected during traversal for post-unification
+    /// mutation analysis.  One entry per visited FunctionDecl, in visit order.
+    function_decl_info: Vec<(usize, mutation_analysis::FunctionDeclInfo)>,
+    /// Per-function mutation bitmasks.
+    /// Key: FunctionDecl AST node index.
+    /// Value: u64 bitmask — bit i is set if declared parameter i is mutated.
+    /// Populated by `compute_all_mutations` after type unification.
+    function_mutations: HashMap<usize, u64>,
+    /// Whether each struct method mutates `this`.
+    /// Key: (struct TypeId, method name).
+    /// Populated by `compute_all_mutations` after type unification.
+    method_this_mutations: HashMap<(TypeId, String), bool>,
+
     // Multi-file module support
     /// Shared module registry for cross-file import resolution (None in single-file mode)
     module_registry: Option<std::rc::Rc<std::cell::RefCell<module_registry::ModuleRegistry>>>,
@@ -519,6 +542,10 @@ impl SemanticAnalyzer {
             deferred_method_checks: Vec::new(),
             // Initialize deferred match exhaustiveness checks
             deferred_match_checks: Vec::new(),
+            // Initialize mutation analysis
+            function_decl_info: Vec::new(),
+            function_mutations: HashMap::new(),
+            method_this_mutations: HashMap::new(),
             // Initialize multi-file module support
             module_registry: None,
             exported_symbol_names: Vec::new(),
@@ -821,6 +848,9 @@ impl SemanticAnalyzer {
 
             // Phase 3: Apply final substitution to all node types
             self.apply_substitution();
+
+            // Phase 4: Compute mutation analysis using fully-resolved types
+            self.compute_all_mutations();
         }
 
         if self.errors.is_empty() {
@@ -828,9 +858,70 @@ impl SemanticAnalyzer {
                 ast: self.ast,
                 node_types: self.node_types,
                 type_registry: self.type_registry,
+                function_mutations: self.function_mutations,
+                method_this_mutations: self.method_this_mutations,
             })
         } else {
             Err(AnalysisError { ast: self.ast, errors: self.errors })
+        }
+    }
+
+    /// Computes mutation analysis for all collected function declarations.
+    ///
+    /// Must be called after `apply_substitution()` so that param TypeIds are
+    /// fully resolved when looking up struct method mutations.
+    ///
+    /// Processes functions in the order they were visited (AST traversal order),
+    /// so struct methods (nested inside struct initialisers) are processed before
+    /// the top-level functions that call them — enabling transitive detection.
+    fn compute_all_mutations(&mut self) {
+        use mutation_analysis::compute_param_mutations;
+
+        // Move the info vec out of self so we can borrow other fields while iterating.
+        let infos = std::mem::take(&mut self.function_decl_info);
+
+        // Build the name→node-index map incrementally so earlier entries are
+        // visible when processing later entries (transitive mutation lookup).
+        let mut function_node_by_name: HashMap<String, usize> = HashMap::new();
+
+        for (func_node_idx, info) in &infos {
+            // Resolve param types: TypeVars are substituted to their concrete types.
+            let resolved_param_types: Vec<TypeId> = info
+                .param_type_ids
+                .iter()
+                .map(|&tid| self.substitution.apply(tid, &self.type_registry))
+                .collect();
+
+            // Register before processing the body so recursive calls are visible.
+            function_node_by_name.insert(info.name.clone(), *func_node_idx);
+
+            let (mutations_mask, mutates_this) = match info.body_idx {
+                Some(body_idx) => {
+                    let result = compute_param_mutations(
+                        &self.ast,
+                        body_idx,
+                        &info.param_names,
+                        &resolved_param_types,
+                        &self.type_registry,
+                        &self.function_mutations,
+                        &function_node_by_name,
+                        &self.method_this_mutations,
+                    );
+                    (result.param_mutations, result.mutates_this)
+                }
+                None => (0u64, false),
+            };
+
+            self.function_mutations.insert(*func_node_idx, mutations_mask);
+
+            // For struct methods, record whether the method mutates `this`.
+            if let Some(struct_type_id) = info.struct_context {
+                let resolved_struct = self
+                    .substitution
+                    .apply(struct_type_id, &self.type_registry);
+                self.method_this_mutations
+                    .insert((resolved_struct, info.name.clone()), mutates_this);
+            }
         }
     }
 
