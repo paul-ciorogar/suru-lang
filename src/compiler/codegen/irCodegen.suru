@@ -598,6 +598,23 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                 }
                 _: {}
             }
+            match expr.name.equals("exec") {
+                true: {
+                    ctx: types.addDecl(ctx, "declare i32 @system(ptr)\n")
+                    let ar CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: ar.ctx
+                    let dataR CodegenResult: irFile.extractStringData(ctx, ar.name)
+                    ctx: dataR.ctx
+                    let args Array<String>: []
+                    args.add("ptr ".append(dataR.name))
+                    let cr IrResult: ir.emitCall(ctx.builder, "i32", "system", args)
+                    ctx.builder: cr.builder
+                    let sr IrResult: ir.emitSext(ctx.builder, "i32", cr.name, "i64")
+                    ctx.builder: sr.builder
+                    return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "Int64" }
+                }
+                _: {}
+            }
             return emitUserFnCall(ctx, expr.name, expr.args)
         }
         MethodCallNode: {

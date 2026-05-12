@@ -66,6 +66,7 @@ Dockerfile        Ubuntu 24.04 image with clang-18/llvm-18/lld-18
 - Control flow: `while`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
+- Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `exit`, `exec`
 
 ## Bootstrap context
 

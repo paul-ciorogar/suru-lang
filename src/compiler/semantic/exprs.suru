@@ -268,7 +268,7 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let name String: typed.name
             let args Array<AstNode>: typed.args
             let argCount Int64: args.len()
-            let is1ArgBuiltin Bool: name.equals("printLn") or name.equals("printError") or name.equals("exit") or name.equals("readFile") or name.equals("clone") or name.equals("drop")
+            let is1ArgBuiltin Bool: name.equals("printLn") or name.equals("printError") or name.equals("exit") or name.equals("readFile") or name.equals("clone") or name.equals("drop") or name.equals("exec")
             match is1ArgBuiltin and not argCount.equals(1) {
                 true: semantic.addError(state, "'".append(name).append("' expects exactly 1 argument"))
                 _: {}

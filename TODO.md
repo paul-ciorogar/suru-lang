@@ -60,16 +60,16 @@ The new repo has forward-looking docs only.
 
 ---
 
-## Stage 5 — Shell Test Harness (~1h)
+## Stage 5 — Shell Test Harness (~1h) ✓
 
 `scripts/test.sh` exercises the full fixture corpus inside Docker.
 
-- [ ] `scripts/test.sh`: inside Docker, for each (fixture, expected-output) pair:
+- [x] `scripts/test.sh`: inside Docker, for each (fixture, expected-output) pair:
       compile with `suru-build`, link, run, compare stdout; print `PASS` / `FAIL`;
       exit 1 on any failure
-- [ ] Corpus: arithmetic, fibonacci, while-loop, strings, sum-types, comparisons,
-      negative-literals, arrays, structs, file_io
-- [ ] **Milestone:** `./scripts/test.sh` → all PASS inside Docker
+- [x] `scripts/generate-expected.sh`: one-time helper to capture expected outputs into `tests/fixtures/*/expected.txt`
+- [x] Corpus: arithmetic, fibonacci, while-loop, strings, sum-types, comparisons, arrays, types, file_io
+- [x] **Milestone:** `./scripts/test.sh` → all PASS inside Docker
 
 ---
 
@@ -78,15 +78,15 @@ The new repo has forward-looking docs only.
 First language feature added in pure Suru — no C# changes.
 `exec()` runs a shell command and returns its exit code.
 
-- [ ] `compiler/codegen/irCodegen.suru`: handle `exec` `CallNode` in `emitValue` —
+- [x] `compiler/codegen/irCodegen.suru`: handle `exec` `CallNode` in `emitValue` —
       extract String data ptr, emit `call i32 @system(ptr %data)`, `sext i32 to i64`;
       add `declare i32 @system(ptr)` to extern decls
-- [ ] `compiler/semantic/exprs.suru`: whitelist `exec` as a known built-in call
-- [ ] Rebuild `bin/suru-build` via `./scripts/bootstrap.sh`
-- [ ] New fixture `tests/fixtures/exec-test/main.suru`:
+- [x] `compiler/semantic/exprs.suru`: whitelist `exec` as a known built-in call
+- [x] Rebuild `bin/suru-build` via `./scripts/bootstrap.sh`
+- [x] New fixture `tests/fixtures/exec-test/main.suru`:
       calls `exec("echo hello")`, prints the exit code with `printLn`
-- [ ] Add `exec-test` to `scripts/test.sh`
-- [ ] **Milestone:** `exec()` works; `./scripts/test.sh` still all PASS; zero C# was modified
+- [x] Add `exec-test` to `scripts/test.sh`
+- [x] **Milestone:** `exec()` works; `./scripts/test.sh` still all PASS; zero C# was modified
 
 ---
 

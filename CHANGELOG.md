@@ -16,4 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   All build and bootstrap operations run inside the container — no host toolchain required.
 - Language features: `Bool`, `Int32`, `Int64`, `Float64`, `String`, `Array<T>`, named struct types,
   sum types, `match` (statement and expression), `while`, `include`, `clone`/`drop`,
-  `readFile`/`writeFile`, `exit`, `printLn`, `printError`.
+  `readFile`/`writeFile`/`appendToFile`, `exit`, `printLn`, `printError`, `exec`.
+- `exec(cmd String) Int64` — runs a shell command via `system()` and returns its exit code.
+  First language feature added purely in Suru, with no C# changes.
+- Fixed `scripts/bootstrap.sh`: the C# bootstrap binary emits one `.ll` per module; the
+  script now links all generated modules rather than only the entry-point file.
+- All Docker scripts mount `bin/suru-build` as a volume override so bootstrapping no
+  longer requires rebuilding the Docker image.

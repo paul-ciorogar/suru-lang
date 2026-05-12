@@ -3,6 +3,7 @@ set -euo pipefail
 
 docker run --rm -i \
   -v "$(pwd):/work" \
+  -v "$(pwd)/bin/suru-build:/usr/local/bin/suru-build" \
   suru \
   bash << 'DOCKER_EOF'
 set -euo pipefail
@@ -48,6 +49,7 @@ run_test comparisons
 run_test arrays
 run_test types
 run_test file_io /work/tests/fixtures/file_io/input.txt
+run_test exec-test
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
