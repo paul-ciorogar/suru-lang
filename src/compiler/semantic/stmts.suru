@@ -1,0 +1,218 @@
+// Semantic Analyzer: Statement Analysis
+//
+// Implements statement-level analysis over an Array<AstNode>.
+//
+// Provided analyzers:
+//   analyzeLetStatement          — duplicate check, type resolution, constant marking
+//   analyzeAssignmentStatement   — constant-reassign check, undefined-variable check
+//   analyzeFieldAssignmentStatement — undefined receiver check (VarRef receivers only)
+//   analyzeReturnStatement       — bare return in non-void function check
+//   analyzeWhileStatement        — push scope, analyze body, pop scope
+//   analyzeStatements            — iterate an Array<AstNode> and dispatch each
+//   analyzeStatement             — dispatch over AstNode statement variants
+//
+// All analysis is done through in-place mutation of heap-allocated arrays inside
+// AnalyzerState. Functions return state for caller convenience; callers may
+// discard the return value since mutations are visible through the original reference.
+//
+// Each handler takes the specific AstNode variant type; the sum type dispatch in
+// analyzeStatement coerces the AstNode ptr to the variant ptr at the call site.
+// Field access on variant types calls @suru_variant_inner before @suru_find_field.
+
+include "semantic.suru" as semantic
+include "passes.suru" as passes
+include "exprs.suru" as exprs
+
+// ─── Constants array helpers ──────────────────────────────────────────────────
+
+// isConstantAt — recursive linear search from index i.
+fn isConstantAt(constants Array<String>, name String, i Int64) Bool {
+    return match i.lt(constants.len()) {
+        true: match constants.at(i).equals(name) {
+            true: true
+            _: isConstantAt(constants, name, i.add(1))
+        }
+        _: false
+    }
+}
+
+// isConstant — true when name is in state.constants (module-level constant).
+fn isConstant(state AnalyzerState, name String) Bool {
+    let constants Array<String>: state.constants
+    return isConstantAt(constants, name, 0)
+}
+
+// addConstant — appends name to state.constants.
+fn addConstant(state AnalyzerState, name String) AnalyzerState {
+    let constants Array<String>: state.constants
+    constants.add(name)
+    return state
+}
+
+// markConstantIfModuleScope — adds name to constants only when currently at
+// module scope (scopes.len() == 1) and the let was not a duplicate declaration.
+// Duplicate lets are skipped to avoid registering an invalid constant name that
+// would later produce a spurious "cannot reassign constant" error.
+fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate Bool) AnalyzerState {
+    let scopes Array<Scope>: state.scopes
+    match scopes.len().equals(1) and not isDuplicate {
+        true: addConstant(state, name)
+        _: {}
+    }
+    return state
+}
+
+// ─── Statement analyzers ──────────────────────────────────────────────────────
+
+// checkBareReturn — emits an error when state.currentReturnType indicates a
+// non-void function context.
+fn checkBareReturn(state AnalyzerState) AnalyzerState {
+    let isVoid Bool: state.currentReturnType.equals("void") or state.currentReturnType.equals("")
+    match isVoid {
+        true: {}
+        _: semantic.addError(state, "bare 'return' in non-void function")
+    }
+    return state
+}
+
+// analyzeLetStatement — mirrors SemanticAnalyzer.AnalyzeLetStatement (lines 167–186).
+//
+// Order of checks:
+//   1. Duplicate in current scope → error, skip declaration.
+//   2. Type resolution via resolveTypeName → declare or emit unknown-type error.
+//   3. Module scope → mark as constant (regardless of unknown-type).
+//
+// stmt fields: stmt.name (String), stmt.typeName (String), stmt.value (AstNode).
+fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
+    let isDuplicate Bool: semantic.existsInCurrentScope(state, stmt.name)
+    match isDuplicate {
+        true: semantic.addError(state, "variable '".append(stmt.name).append("' is already declared"))
+        _: {}
+    }
+    let typeResolved Bool: passes.resolveTypeName(state, stmt.typeName)
+    match not isDuplicate and typeResolved {
+        true: semantic.declareSymbol(state, stmt.name, stmt.typeName)
+        _: {}
+    }
+    match not isDuplicate and not typeResolved {
+        true: semantic.addError(state, "unknown type '".append(stmt.typeName).append("' for variable '").append(stmt.name).append("'"))
+        _: {}
+    }
+    markConstantIfModuleScope(state, stmt.name, isDuplicate)
+    let val AstNode: stmt.value
+    exprs.analyzeExpr(state, val)
+    return state
+}
+
+// analyzeAssignmentStatement — mirrors SemanticAnalyzer.AnalyzeAssignmentStatement
+// (lines 150–157). Constant reassignment takes priority over undefined-variable check.
+fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerState {
+    let isConst Bool: isConstant(state, stmt.name)
+    match isConst {
+        true: semantic.addError(state, "cannot reassign constant '".append(stmt.name).append("'"))
+        _: {}
+    }
+    let isDefined Bool: not semantic.lookupSymbol(state, stmt.name).equals("")
+    match not isConst and not isDefined {
+        true: semantic.addError(state, "undefined variable '".append(stmt.name).append("'"))
+        _: {}
+    }
+    let val AstNode: stmt.value
+    exprs.analyzeExpr(state, val)
+    return state
+}
+
+// analyzeFieldAssignmentStatement — mirrors SemanticAnalyzer.AnalyzeFieldAssignmentStatement
+// (lines 159–165). Only checks the receiver when it is a VarRefNode.
+fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) AnalyzerState {
+    let val AstNode: stmt.value
+    exprs.analyzeExpr(state, val)
+    let rcv AstNode: stmt.receiver
+    match rcv {
+        VarRefNode: {
+            let typedRcv VarRefNode: rcv
+            match semantic.lookupSymbol(state, typedRcv.name).equals("") {
+                true: semantic.addError(state, "undefined variable '".append(typedRcv.name).append("'"))
+                _: {}
+            }
+        }
+        _: {}
+    }
+    return state
+}
+
+// analyzeReturnStatement — mirrors SemanticAnalyzer.AnalyzeReturnStatement (lines 207–224).
+//
+// When hasValue is true: analyze the return expression; check return type mismatch
+// when both the inferred type and the declared return type are known (non-"").
+// When hasValue is false (bare return): check bare-return-in-non-void.
+//
+// IMPORTANT: test ReturnNodes with hasValue: true must include a valid AstNode
+// value — analyzeExpr will be called on it.
+fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
+    match stmt.hasValue {
+        true: {
+            let val AstNode: stmt.value
+            exprs.analyzeExpr(state, val)
+            let retType String: exprs.inferType(state, val)
+            let expected String: state.currentReturnType
+            let typesKnown Bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
+            match typesKnown and not retType.equals(expected) {
+                true: semantic.addError(state, "return type mismatch: expected ".append(expected).append(", got ").append(retType))
+                _: {}
+            }
+        }
+        _: checkBareReturn(state)
+    }
+    return state
+}
+
+// analyzeStatements — iterates stmts in order, dispatching each to analyzeStatement.
+// Mutually recursive with analyzeWhileStatement: while bodies are analyzed by
+// calling back into analyzeStatements, enabling arbitrarily nested loops.
+fn analyzeStatements(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        analyzeStatement(state, stmts.at(i))
+        i: i.add(1)
+    }
+    return state
+}
+
+// analyzeWhileStatement — mirrors SemanticAnalyzer.AnalyzeWhileStatement (lines 153–163).
+fn analyzeWhileStatement(state AnalyzerState, stmt WhileNode) AnalyzerState {
+    let cond AstNode: stmt.condition
+    exprs.analyzeExpr(state, cond)
+    let condType String: exprs.inferType(state, cond)
+    match not condType.equals("") and not condType.equals("Bool") {
+        true: semantic.addError(state, "while condition must be Bool, got ".append(condType))
+        _: {}
+    }
+    semantic.pushScope(state)
+    let body Array<AstNode>: stmt.body
+    analyzeStatements(state, body)
+    semantic.popScope(state)
+    return state
+}
+
+// analyzeStatement — dispatch over AstNode statement variants.
+// Mirrors SemanticAnalyzer.AnalyzeStatement (lines 101–136).
+//
+// TypeDeclNode, SumTypeDeclNode, and FnDeclNode are handled by pre-passes.
+// All other statement variants fall through to _:{}.
+fn analyzeStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
+    match stmt {
+        LetNode:         { analyzeLetStatement(state, stmt) }
+        AssignNode:      { analyzeAssignmentStatement(state, stmt) }
+        FieldAssignNode: { analyzeFieldAssignmentStatement(state, stmt) }
+        ReturnNode:      { analyzeReturnStatement(state, stmt) }
+        WhileNode:       { analyzeWhileStatement(state, stmt) }
+        ExprStmtNode: {
+            let typed ExprStmtNode: stmt
+            let innerExpr AstNode: typed.expr
+            exprs.analyzeExpr(state, innerExpr)
+        }
+        _: {}
+    }
+    return state
+}
