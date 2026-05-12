@@ -1,7 +1,6 @@
-// Stage 13c — Semantic Analyzer in Suru: Statement Analysis
+// Semantic Analyzer: Statement Analysis
 //
-// Implements statement-level analysis over an Array<AstNode>. Mirrors
-// AnalyzeStatement and its helpers in SemanticAnalyzer.cs:101–205.
+// Implements statement-level analysis over an Array<AstNode>.
 //
 // Provided analyzers:
 //   analyzeLetStatement          — duplicate check, type resolution, constant marking
@@ -81,7 +80,7 @@ fn checkBareReturn(state AnalyzerState) AnalyzerState {
 // Order of checks:
 //   1. Duplicate in current scope → error, skip declaration.
 //   2. Type resolution via resolveTypeName → declare or emit unknown-type error.
-//   3. Module scope → mark as constant (regardless of unknown-type; matches C# behavior).
+//   3. Module scope → mark as constant (regardless of unknown-type).
 //
 // stmt fields: stmt.name (String), stmt.typeName (String), stmt.value (AstNode).
 fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {

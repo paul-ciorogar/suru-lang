@@ -1,4 +1,4 @@
-// Stage 15f — suru build driver (canonical Suru compiler source)
+// suru build driver (canonical Suru compiler source)
 //
 // This is the Suru compiler written in Suru.  It implements the full
 // compilation pipeline used to bootstrap the language:
@@ -8,8 +8,7 @@
 // Include resolution handles transitive and diamond includes via a depth-first
 // recursive pass with path-deduplication.  Semantic analysis runs pre-passes
 // over ALL resolved declarations (types, functions from libraries and main file)
-// and statement analysis over the main file's OWN code only, mirroring the C#
-// SemanticAnalyzer's SourcePath skip for external declarations.  The driver
+// and statement analysis over the main file's OWN code only.  The driver
 // exits with code 1 and prints errors if semantic analysis fails, so invalid
 // programs are rejected before codegen.
 //
@@ -134,15 +133,13 @@ fn pathResolved(resolved Array<String>, path String) Bool {
 //   - otherwise mark as resolved, recurse into that file's own includes first,
 //     then add its FnDeclNode / TypeDeclNode / SumTypeDeclNode / scalar LetNode
 //     to state.decls.  Scalar LetNode items (Int64/Bool/Float64 literals) are
-//     merged so that included-file module constants appear in the output — this
-//     mirrors C# IncludeResolver which merges scalar LetStatement constants.
+//     merged so that included-file module constants appear in the output.
 // Non-include declaration nodes in stmts are added directly to state.decls.
 // All other node kinds (ExprStmt, …) are skipped — they belong only
 // to the file that defines them and must not leak into other compilation units.
 fn resolveIncludesRec(stmts Array<AstNode>, dir String, state ResolveState) ResolveState {
     // Pass 1: add this file's own declarations first, before any sub-includes.
-    // Mirrors C#'s "own stmts first" ordering in IncludeResolver.Resolve so that
-    // the merged declaration list is in pre-order DFS — parent file's FnDecls
+    // The merged declaration list is in pre-order DFS — parent file's FnDecls
     // appear before those of the files it includes.
     let i Int64: 0
     while i.lt(stmts.len()) {
@@ -189,9 +186,7 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, state ResolveState) Reso
 }
 
 // Resolve all transitive includes from mainStmts.  Returns the merged statement
-// list (main file's own nodes FIRST, then transitive declarations — mirrors C#
-// IncludeResolver.Resolve which seeds mergedStatements from the main module's
-// own non-include statements before appending external declarations) and the
+// list (main file's own nodes FIRST, then transitive declarations) and the
 // ordered deduplicated list of included absolute source paths (depth-first).
 fn resolveIncludes(mainStmts Array<AstNode>, dir String) ResolveResult {
     let state ResolveState: { decls: [], resolved: [] }
@@ -216,7 +211,7 @@ fn resolveIncludes(mainStmts Array<AstNode>, dir String) ResolveResult {
         }
         i: i.add(1)
     }
-    // Main file's own nodes FIRST (mirrors C# order), then transitive declarations.
+    // Main file's own nodes FIRST, then transitive declarations.
     let all Array<AstNode>: []
     let j Int64: 0
     while j.lt(mainStmts.len()) {
@@ -278,7 +273,7 @@ fn analyzeModuleStatements(state AnalyzerState, moduleStmts Array<AstNode>) Anal
 }
 
 // printErrorsFrom — recursive helper that prints errors starting at index i.
-// Prefixes each message with the source file path, matching C# output format.
+// Prefixes each message with the source file path.
 fn printErrorsFrom(state AnalyzerState, path String, i Int64) {
     let errors Array<AnalysisError>: state.errors
     match i.lt(errors.len()) {
@@ -342,8 +337,7 @@ fn fileNameStem(path String) String {
 }
 
 // Compile a single source file and write its .ll to outDir/<stem>.ll.
-// Mirrors C# new Compiler(path).GenerateIr(): own functions get full definitions,
-// functions from that file's includes get declare stubs.
+// Own functions get full definitions; functions from includes get declare stubs.
 // Semantic analysis is intentionally skipped — library files are already validated
 // when the root file is compiled; skipping avoids duplicate error output.
 fn compileOneFile(sourcePath String, outDir String) {
@@ -389,13 +383,11 @@ fn main(args Array<String>) {
     }
 
     // Code generation proceeds only when semantic analysis passes.
-    // Per-module mode: emit only own function bodies + declare stubs for externals,
-    // matching the C# compiler's per-source-file IR output.
+    // Per-module mode: emit only own function bodies + declare stubs for externals.
     let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames)
     writeFile(outputPath, irText)
 
-    // Compile each included file into its own .ll, matching C# CompileIR behaviour
-    // (each included source path gets a standalone IR file in the same output dir).
+    // Compile each included file into its own .ll in the same output directory.
     let outDir String: dirName(outputPath)
     let pi Int64: 0
     while pi.lt(resolved.includedPaths.len()) {

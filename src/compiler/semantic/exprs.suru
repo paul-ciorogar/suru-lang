@@ -1,20 +1,18 @@
-// Stage 13e — Semantic Analyzer in Suru: Expression Analysis
+// Semantic Analyzer: Expression Analysis
 //
 // Implements inferType and analyzeExpr, the expression-analysis layer that
-// completes the semantic analyzer. Mirrors InferType and AnalyzeExpression
-// in SemanticAnalyzer.cs:456–517 and 285–451.
+// completes the semantic analyzer.
 //
 // Key design decisions:
 //   - inferType returns a String type name ("Bool", "Int64", etc.) or "" for
 //     unknown/context-dependent types (array/struct literals, field access).
-//     This matches the C# "return null" path, which suppresses type-mismatch
-//     errors rather than reporting false positives.
+//     The "" return suppresses type-mismatch errors rather than reporting false positives.
 //
 //   - Namespace alias detection: when a MethodCallNode receiver is a VarRefNode
 //     whose name is not in scope and not a static builtin type receiver
 //     (Int32/Int64/Float64/Bool), the receiver is assumed to be a namespace alias
 //     (e.g. `semantic.pushScope`). The call is silently skipped — no "undefined
-//     variable" error and no arity check — matching the C# _module.Aliases guard.
+//     variable" error and no arity check.
 //
 //   - Inside match arms, typed intermediate variables (`let typed XNode: expr`)
 //     give the specific variant type so @suru_variant_inner is called before
@@ -115,8 +113,7 @@ fn inferTypeFromMethod(state AnalyzerState, expr MethodCallNode) String {
 }
 
 // inferTypeFromFirstArm — returns the inferred type of the first arm's body, or "".
-// Mirrors the C# InferType(MatchExpression) heuristic: all arms are expected to be
-// the same type, so the first concrete arm is a representative sample.
+// All arms are expected to be the same type, so the first concrete arm is sampled.
 fn inferTypeFromFirstArm(state AnalyzerState, arms Array<MatchArm>) String {
     return match arms.len().gt(0) {
         true: inferType(state, arms.at(0).body)

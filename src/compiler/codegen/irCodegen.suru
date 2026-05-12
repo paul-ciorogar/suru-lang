@@ -1,19 +1,13 @@
 // ir-codegen.suru — Main LLVM IR code generator.
 //
-// Mirrors IRCodeGenerator.cs + IRFunctionCodeGenerator.cs + IRMatchCodeGenerator.cs.
-// All three C# partial-class files are merged here because emitValue, emitMatchExpr,
-// emitMatchStmt, emitStmt, emitStmts, emitWhile, and emitFunction form a mutually-
-// recursive cluster that Suru's acyclic include DAG cannot split across files.
-//
-// Section banners mark logical partial-class boundaries for cross-referencing:
-//   // ─── [mirrors IRCodeGenerator.cs] ─────────────────────────────────────────
-//   // ─── [mirrors IRFunctionCodeGenerator.cs] ──────────────────────────────────
-//   // ─── [mirrors IRMatchCodeGenerator.cs] ─────────────────────────────────────
+// emitValue, emitMatchExpr, emitMatchStmt, emitStmt, emitStmts, emitWhile, and
+// emitFunction form a mutually-recursive cluster that Suru's acyclic include DAG
+// cannot split across files — all live here.
 //
 // Design: helper files (string/array/struct/fileio) receive pre-emitted SSA names
 // and never call emitValue. emitValue pre-emits all sub-expressions, then delegates.
 //
-// Include DAG: top of the new rewrite DAG — depends on all seven helper files.
+// Include DAG: top of the codegen DAG — depends on all seven helper files.
 // Imported by suru-build/main.suru as the codegen entry point.
 
 include "../parser/parserAst.suru" as ast
@@ -26,10 +20,9 @@ include "irStructCodegen.suru" as irStruct
 include "irFileioCodegen.suru" as irFile
 include "irTypeCloneDropCodegen.suru" as irCD
 
-// ─── [mirrors IRCodeGenerator.cs] ─────────────────────────────────────────────
+// ─── Pre-passes ───────────────────────────────────────────────────────────────
 
 // Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
-// Mirrors C# Emit() type-collection loop.
 fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let i Int64: 0
     while i.lt(stmts.len()) {
@@ -61,7 +54,6 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 // Pre-pass 1: register same-file function signatures into ctx.functions.
 // Only functions whose names are in ctx.ownFnNames get registered — external
 // (included) functions are excluded here; they may be added by the caller.
-// Mirrors C# _userFunctions pre-pass in Emit().
 fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let i Int64: 0
     while i.lt(stmts.len()) {
@@ -95,7 +87,6 @@ fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
 }
 
 // Pre-pass 2: register module-level scalar constant names in ctx.globalVars.
-// Mirrors C# _globalVars population in Emit().
 fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let i Int64: 0
     while i.lt(stmts.len()) {
@@ -127,7 +118,7 @@ fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
 
 // Emit LLVM global constant declarations for all registered module-level scalars.
 // Called during assembly in generate() — reads ctx.globalVars, matches back to stmts
-// to get the literal text. Mirrors C# global-emit loop in Emit().
+// to get the literal text.
 fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
     let out String: ""
     let i Int64: 0
@@ -166,7 +157,6 @@ fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
 // ─── Variable load ─────────────────────────────────────────────────────────────
 
 // Load from a local alloca or module-level constant global.
-// Mirrors C# EmitLoad().
 fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
     let v VarEntry: types.lookupVar(ctx, name)
     match v.name.equals("") {
@@ -188,7 +178,6 @@ fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
 // ─── Arithmetic helpers ─────────────────────────────────────────────────────────
 
 // For arithmetic/comparison, NamedType (struct field) is treated as Int64 at runtime.
-// Mirrors C# effectiveType pattern in EmitBinOp/EmitCmp.
 fn effectiveSuruType(suruType String) String {
     match box.isScalarType(suruType) { true: { return suruType } _: {} }
     match suruType.equals("String")  { true: { return "String"  } _: {} }
@@ -206,7 +195,7 @@ fn rawVal(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     return box.unboxScalar(ctx, val, "Int64")
 }
 
-// Emit binary arithmetic operation. Mirrors C# EmitBinOp().
+// Emit binary arithmetic operation.
 fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
@@ -220,7 +209,7 @@ fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, lt
     return { ctx: ctx, name: br.name, llvmType: rawT, suruType: eff }
 }
 
-// Emit comparison. Returns i1 result with suruType="Bool". Mirrors C# EmitCmp().
+// Emit comparison. Returns i1 result with suruType="Bool".
 fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
@@ -236,7 +225,7 @@ fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String
     return { ctx: ctx, name: cr.name, llvmType: "i1", suruType: "Bool" }
 }
 
-// Emit compare() → i64 -1/0/1. Mirrors C# EmitCompare().
+// Emit compare() → i64 -1/0/1.
 fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rawT String: box.rawLlvmTypeOf(eff)
@@ -264,7 +253,6 @@ fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rty
 }
 
 // Emit invert() — numeric negation. Bool invert is also numeric (xor not needed).
-// Mirrors C# EmitInvert().
 fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     let eff String: effectiveSuruType(suruType)
     let rr CodegenResult: rawVal(ctx, val, suruType)
@@ -368,7 +356,6 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
 
 // Emit a call to a user-defined (same-file or included) function.
 // Looks up the signature in ctx.functions, emits each arg, coerces scalar params.
-// Mirrors C# EmitUserFunctionCall().
 fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) CodegenResult {
     let sig FnEntry: types.lookupFn(ctx, fnName)
     let argParts Array<String>: []
@@ -407,9 +394,9 @@ fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) Code
 // ─── Array / struct literal helpers ────────────────────────────────────────────
 
 // Emit an array literal: header alloc first, then elements into raw data buffer,
-// then header fields — mirrors C# EmitArrayLiteral exactly so SSA numbering matches.
+// then header fields.
 //
-// C# order:
+// SSA emission order (preserves numbering invariants):
 //   hdrPtr = malloc(40)
 //   if count > 0: firstVal = EmitValue(elements[0])    ← eval first elem BEFORE rawData
 //                 rawData  = malloc(count*8)
@@ -417,8 +404,6 @@ fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) Code
 //                 for i=1..count-1: elemVal = EmitValue, slot = GEP, as64 = EmitToI64, store
 //   pre-allocate all 5 header GEP SSA names in one batch
 //   emit header GEPs + stores (lenGep/capGep with double-space after SSA name)
-//
-// Mirrors C# EmitArrayLiteral.
 fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String) CodegenResult {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     // Step 1: allocate Array header (40 bytes).
@@ -434,7 +419,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
     match count.equals(0) {
         true: {}
         _: {
-            // Evaluate first element BEFORE malloc'ing rawData (mirrors C# order).
+            // Evaluate first element BEFORE malloc'ing rawData (preserves SSA ordering invariant).
             let firstValR CodegenResult: emitValue(ctx, elems.at(0))
             ctx: firstValR.ctx
             actualElemSuruType: firstValR.suruType
@@ -464,8 +449,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
             }
         }
     }
-    // Step 3: pre-allocate all 5 header GEP SSA names in one batch (mirrors C#
-    // var ttagGep=NextTmp(); var etagGep=NextTmp(); var lenGep=NextTmp(); etc.).
+    // Step 3: pre-allocate all 5 header GEP SSA names in one batch.
     let ttagNR IrResult: ir.nextTmp(ctx.builder)
     ctx.builder: ttagNR.builder
     let etagNR IrResult: ir.nextTmp(ctx.builder)
@@ -479,7 +463,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
     let etag String: types.suruTypeTag(actualElemSuruType)
     // Step 4: emit header field GEPs + stores.
     // ttagGep and etagGep use single space; lenGep and capGep use double space
-    // (mirrors C# alignment: var lenGep  = NextTmp() with two spaces before =).
+    // (aligned formatting required for len/cap GEP SSA names).
     let ttagLine String: "  ".append(ttagNR.name).append(" = getelementptr %suru.Array, ptr ").append(hdrPtr).append(", i32 0, i32 0\n")
     ctx.builder: ir.emit(ctx.builder, ttagLine)
     ctx.builder: ir.emitStore(ctx.builder, "i64", "5", ttagNR.name)
@@ -499,11 +483,9 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
 }
 
 // Emit a struct literal: allocate first, then for each TypeDecl field GEP the slot
-// BEFORE evaluating the field value — this mirrors C# EmitStructLiteral which does
-// var fGep = NextTmp() (allocates the GEP SSA name) then calls EmitValue(fieldExpr),
-// so the GEP name has a lower number than the field value's intermediate SSA names.
+// BEFORE evaluating the field value — GEP SSA name must have a lower number than the
+// field value's intermediate SSA names (dominance invariant).
 // typeName is the declared struct type (from let annotation or current fn return type).
-// Mirrors C# EmitStructLiteral().
 fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName String) CodegenResult {
     // Step 1: allocate struct memory and write the 32-byte header.
     let allocR CodegenResult: irStruct.emitStructLiteralAlloc(ctx, typeName)
@@ -546,7 +528,7 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
 // ─── Main value dispatch ────────────────────────────────────────────────────────
 
 // Emit IR for any expression node, returning the SSA name and Suru type.
-// Mirrors C# EmitValue().  All sub-expressions are emitted here or in helpers;
+// All sub-expressions are emitted here or in helpers;
 // helper files (string/array/struct) never call emitValue themselves.
 fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
     match expr {
@@ -559,9 +541,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         }
         FloatLitNode: {
             // LLVM requires float literals in IEEE-754 hex form (e.g. 0x3FF3333333333333).
-            // fval.llvmHex() calls @suru_float64_to_llvm_hex at the codegen binary's runtime,
-            // converting the parsed decimal to the exact hex constant that C# produces via
-            // BitConverter.DoubleToInt64Bits.
+            // fval.llvmHex() calls @suru_float64_to_llvm_hex at the codegen binary's runtime.
             let fval Float64: Float64.from(expr.text)
             let hexLit String: fval.llvmHex()
             return { ctx: ctx, name: hexLit, llvmType: "double", suruType: "Float64" }
@@ -647,7 +627,6 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // Peek the Suru type of an expression node without emitting IR.
 // Used by emitMatchExpr to choose the result alloca LLVM type.
 // Returns CodegenResult with only suruType set (name/llvmType are irrelevant).
-// Mirrors C# PeekType() / PeekMethodType().
 fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
     let st String: ""
     match expr {
@@ -754,13 +733,11 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // ─── Method call dispatch ────────────────────────────────────────────────────────
 
 // Dispatch a MethodCallNode to the appropriate helper.
-// Mirrors C# EmitMethodCall().
 fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let method String: expr.methodName
     let recv AstNode: expr.receiver
 
     // Namespace alias call: receiver VarRef not in local scope → direct fn call.
-    // Mirrors C# alias check + EmitUserFunctionCall cross-module path.
     match recv {
         VarRefNode: {
             let recvName String: recv.name
@@ -850,7 +827,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             match method.equals("add") {
                 true: {
                     // Thread elemST so struct literal arguments resolve to the element type,
-                    // not the enclosing function's return type (mirrors C# ResolvedType).
+                    // not the enclosing function's return type.
                     // Save/restore so the mutation doesn't leak to subsequent struct literals.
                     let savedReturnTypeName String: ctx.currentReturnTypeName
                     ctx.currentReturnTypeName: elemST
@@ -888,7 +865,6 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 _: {}
             }
             // .slice(from, to) → sub-array via suru_array_slice.
-            // Mirrors C# EmitArraySlice in IRArrayCodeGenerator.
             match method.equals("slice") {
                 true: {
                     let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
@@ -1061,12 +1037,11 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "" }
 }
 
-// ─── [mirrors IRMatchCodeGenerator.cs] ─────────────────────────────────────────
+// ─── Match emission ────────────────────────────────────────────────────────────
 
 // Narrow the condition variable's suruType to the concrete variant type for the
 // duration of a match arm so field accesses resolve without re-binding.
 // Only narrows when the variable's type is a sum type name.
-// Mirrors C# NarrowCondVar().
 fn narrowCondVar(ctx IrCodegenContext, condVarName String, variantTypeName String) IrCodegenContext {
     match condVarName.equals("")    { true: { return ctx } _: {} }
     match variantTypeName.equals("") { true: { return ctx } _: {} }
@@ -1083,7 +1058,6 @@ fn narrowCondVar(ctx IrCodegenContext, condVarName String, variantTypeName Strin
 }
 
 // Restore the condition variable's original VarEntry after a narrowed arm.
-// Mirrors C# RestoreCondVar().
 fn restoreCondVar(ctx IrCodegenContext, condVarName String, original VarEntry) IrCodegenContext {
     match condVarName.equals("") { true: { return ctx } _: {} }
     return types.updateVar(ctx, condVarName, original)
@@ -1118,7 +1092,6 @@ fn collectStmtPatterns(arms Array<MatchStmtArm>) Array<AstNode> {
 // Each pattern gets an icmp/fcmp/strcmp/variant-tag comparison; branches to
 // match_arm_{n}_{i} on success or the next test / missLabel on miss.
 // For sum-type conditions, @suru_variant_tag is called ONCE before the loop.
-// Mirrors C# EmitPatternComparisons().
 fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType String, patterns Array<AstNode>, hasWildcard Bool, matchN String) IrCodegenContext {
     let missLabel String: match hasWildcard {
         true: "match_wildcard_".append(matchN)
@@ -1158,9 +1131,8 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
             true: "match_test_".append(matchN).append("_").append(i.add(1).toString())
             _:    missLabel
         }
-        // Pre-allocate comparison result name before emitting operands — mirrors C# cmpTmp = NextTmp().
-        // This ensures the icmp SSA name has a lower number than the operand intermediates,
-        // matching the exact C# IR output order.
+        // Pre-allocate comparison result name before emitting operands so the icmp SSA name
+        // has a lower number than the operand intermediates (dominance ordering invariant).
         let preR CodegenResult: box.ctxNextTmp(ctx)
         ctx: preR.ctx
         let cmpTmp String: preR.name
@@ -1232,7 +1204,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
 }
 
 // Emit a match-as-expression.  Result alloca MUST be emitted BEFORE the comparison
-// chain (LLVM dominance invariant).  Mirrors C# EmitMatchAsExpression().
+// chain (LLVM dominance invariant).
 fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     // Peek result type from first non-wildcard arm.
     let resultSuruType String: "Int64"
@@ -1306,7 +1278,6 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
 }
 
 // Emit a MatchExprNode used as a statement (side-effects only, no result stored).
-// Mirrors C# EmitMatchAsStatement().
 fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContext {
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
@@ -1352,9 +1323,9 @@ fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContex
     return ctx
 }
 
-// Emit a MatchStatement (block-body arms, IReadOnlyList<Statement> per arm).
-// _blockOpen is checked before each merge branch so arms ending with ret/exit
-// don't produce a double-terminator.  Mirrors C# EmitMatchStatement().
+// Emit a MatchStatement (block-body arms).
+// blockOpen is checked before each merge branch so arms ending with ret/exit
+// don't produce a double-terminator.
 fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
@@ -1421,10 +1392,9 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     return ctx
 }
 
-// ─── [mirrors IRFunctionCodeGenerator.cs] ──────────────────────────────────────
+// ─── Statement and function emission ─────────────────────────────────────────
 
 // Emit a while loop: three labeled blocks (cond/body/after).
-// Mirrors C# WhileStatement case in EmitStmt().
 fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCodegenContext {
     let wnR IrResult: ir.nextWhileNum(ctx.builder)
     ctx.builder: wnR.builder
@@ -1451,7 +1421,7 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
     return ctx
 }
 
-// Emit a single statement.  Mirrors C# EmitStmt().
+// Emit a single statement.
 fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
     match stmt {
         MatchStmtNode: { return emitMatchStmt(ctx, stmt) }
@@ -1501,7 +1471,6 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             match letValueNode {
                 ArrayLitNode: {
                     // Empty array literal: use annotation element type (not default Int64).
-                    // Mirrors C# semantic propagation of ResolvedType from let annotation.
                     match letValueNode.elems.len().equals(0) {
                         true: {
                             let elemSuruType String: types.elemSuruType(annSuruType)
@@ -1526,7 +1495,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                         true: {
                             let parent SumTypeDecl: types.findParentSumType(ctx, stmt.typeName)
                             let idx Int64: types.variantIdx(parent, stmt.typeName)
-                            // C# emits "{tagGep}  = getelementptr" (double space) for i64 0 GEP,
+                            // Variant tagging: "{tagGep}  = getelementptr" (double space) for i64 0 GEP,
                             // "{vidxGep} = getelementptr" (single space) for i64 8 GEP.
                             let tgNameR IrResult: ir.nextTmp(ctx.builder)
                             ctx.builder: tgNameR.builder
@@ -1687,7 +1656,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             ctx.builder: ir.emitUnreachable(ctx.builder)
                             let tnR CodegenResult: box.ctxNextTmp(ctx)
                             ctx: tnR.ctx
-                            // Dead block label: matches C# "dead_{_tmp}" which uses just the number.
+                            // Dead block after unreachable — label uses just the number.
                             // tnR.name = "%tN"; slice(2,…) strips "%t" leaving "N".
                             ctx.builder: ir.emitLabel(ctx.builder, "dead_".append(tnR.name.slice(2, tnR.name.len())))
                             ctx.blockOpen: true
@@ -1695,9 +1664,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                         }
                         _: {}
                     }
-                    // writeFile — emit path, extract path data, THEN emit content.
-                    // Mirrors C# EmitWriteFile which calls EmitExtractStringData(pathSeq)
-                    // before EmitValue(contentArg) so path GEPs have lower SSA numbers.
+                    // writeFile — emit path, extract path data, THEN emit content
+                    // so path GEPs have lower SSA numbers than content loads.
                     match expr.name.equals("writeFile") {
                         true: {
                             let pr CodegenResult: emitValue(ctx, expr.args.at(0))
@@ -1750,7 +1718,7 @@ fn emitStmts(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 }
 
 // Emit a function definition or declare stub (for external/included functions).
-// Resets per-function state.  Mirrors C# EmitFunction().
+// Resets per-function state.
 fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // External (included) function → emit declare stub only.
     match types.isOwnFn(ctx, fnDecl.name) {
@@ -1770,8 +1738,8 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     }
 
     // Reset per-function state, preserving the SSA counter across functions.
-    // C# shares a single _tmp counter across all functions; ir.freshFnBuilder
-    // carries the current tmpCount into the new builder so SSA names match.
+    // SSA names must be globally unique — ir.freshFnBuilder carries the current
+    // tmpCount into the new builder so the counter never resets between functions.
     let freshVars Array<VarEntry>: []
     let freshArgv Array<String>: []
     ctx.vars: freshVars
@@ -1846,7 +1814,6 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
 }
 
 // Emit the @main C entry point that wraps @suru_main.
-// Mirrors C# EmitMainWrapper().
 fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
     let out String: "define i32 @main(i32 %argc, ptr %argv) {\n"
         .append("entry:\n")
@@ -1866,10 +1833,10 @@ fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
     return ctx
 }
 
-// ─── [mirrors IRCodeGenerator.Emit() / Generate()] ─────────────────────────────
+// ─── Module and assembly ──────────────────────────────────────────────────────
 
 // Full module emit: run pre-passes, emit all type clone/drop helpers, emit all
-// function bodies.  Mirrors C# IRCodeGenerator.Emit().
+// function bodies.
 fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     ctx: types.addDecl(ctx, "declare void @free(ptr)\n")
@@ -1899,7 +1866,7 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 }
 
 // Insertion-sort an Array<String> alphabetically and return the sorted copy.
-// Mirrors C# _externalTypeCloneDrop.OrderBy(x => x) in IRCodeGenerator.Emit().
+// Used to emit external clone/drop declares in deterministic order.
 fn sortStrings(arr Array<String>) Array<String> {
     let result Array<String>: []
     let i Int64: 0
@@ -1931,7 +1898,6 @@ fn sortStrings(arr Array<String>) Array<String> {
 
 // Top-level entry point: initialise context, run emit(), assemble .ll text.
 // ownFnNames: names of functions defined in THIS file (not from includes).
-// Mirrors C# IRCodeGenerator.Generate(module, sourceName).
 fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>) String {
     let ctx IrCodegenContext: types.makeIrContext()
     ctx.ownFnNames: ownFnNames
@@ -1968,7 +1934,6 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
 
     // Assemble output: header | globalConstants | strGlobals | decls | suruDecls |
     //                  extCloneDropDecls | helpers | fns
-    // Mirrors C# Emit() Pass 2 assembly.
     let header String: "; ModuleID = '"
         .append(sourceName).append("'\n")
         .append("source_filename = \"").append(sourceName).append("\"\n")
@@ -1978,18 +1943,17 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
         .append("%suru.Box    = type { i64, i64 }\n")
         .append("\n")
     let globalConsts String: emitGlobalConstants(ctx, stmts)
-    // Blank-line separators mirror C# Emit():
+    // Blank-line separators:
     //   sep1 — after globalVars (if any)
     //   sep2 — after user string literals (if any); NOT after mode/format globals
     //   sep3 — after extCloneDropDecls (if any)
-    // ctx.strGlobals holds mode/format/bool strings (C# _boolStringGlobals, no blank).
-    // ctx.strLiterals holds user Suru string literal globals (C# _stringLiterals, blank if non-empty).
+    // ctx.strGlobals holds mode/format/bool strings (no blank after).
+    // ctx.strLiterals holds user Suru string literal globals (blank after if non-empty).
     let sep1 String: ""
     match globalConsts.len().equals(0) { true: {} _: { sep1: "\n" } }
     let sep2 String: ""
     match ctx.strLiterals.len().equals(0) { true: {} _: { sep2: "\n" } }
-    // Build extCloneDropDecls from sorted type names — mirrors C#'s
-    // _externalTypeCloneDrop.OrderBy(x => x) which sorts alphabetically.
+    // Build extCloneDropDecls from sorted type names (alphabetical for deterministic output).
     let sortedNames Array<String>: sortStrings(ctx.extCloneDropTypeNames)
     let extCloneDropDecls String: ""
     let ei Int64: 0

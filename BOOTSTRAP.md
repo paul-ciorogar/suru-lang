@@ -18,7 +18,7 @@ Use `bin/suru-build` to compile `compiler/build.suru` into a new binary:
 
 ```sh
 ./bin/suru-build compiler/build.suru /tmp/build.ll
-clang-15 /tmp/build.ll runtime/*.ll -o bin/suru-build-new
+clang-18 /tmp/build.ll runtime/*.ll -o bin/suru-build-new
 ```
 
-`scripts/bootstrap.sh` automates this process (see Stage 3).
+`scripts/bootstrap.sh` automates this process.

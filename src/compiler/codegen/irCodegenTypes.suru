@@ -1,9 +1,7 @@
 // ir-codegen-types.suru — IrCodegenContext and all supporting types.
 //
-// Mirrors the private field set of IRCodeGenerator (C# partial class split
-// across IRCodeGenerator.cs, IRBoxCodeGenerator.cs, etc.).  Every codegen
-// function threads an IrCodegenContext through its call chain.  Structs are
-// heap-allocated (ptr), so field assignment mutates in-place; no with* helpers needed.
+// Every codegen function threads an IrCodegenContext through its call chain.
+// Structs are heap-allocated (ptr), so field assignment mutates in-place; no with* helpers needed.
 //
 // Include DAG position: leaf (depends only on ir-builder.suru).
 // Imported by ir-box-codegen.suru and everything above it.
@@ -42,8 +40,7 @@ type FnEntry: {
 // ─── Module-level constant ────────────────────────────────────────────────────
 
 // One entry in the module-level constant (global variable) table.
-// Mirrors _globalVars in IRCodeGenerator.  suruName is the Suru identifier;
-// globalName is the LLVM global (e.g. "@MY_CONST").
+// suruName is the Suru identifier; globalName is the LLVM global (e.g. "@MY_CONST").
 type GlobalVar: { suruName String, globalName String, suruType String }
 
 // ─── String literal entry ─────────────────────────────────────────────────────
@@ -178,7 +175,7 @@ fn makeIrContext() IrCodegenContext {
 // ─── Declare-stub dedup helpers ───────────────────────────────────────────────
 
 // Append `line` to ctx.decls (libc externals) only if not already declared.
-// Mirrors C# Externals.Add* — malloc/free/fopen/strlen/exit go here (one leading space).
+// malloc/free/fopen/strlen/exit go here (one leading space).
 fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
     let i Int64: 0
     while i.lt(ctx.declares.len()) {
@@ -191,7 +188,7 @@ fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
 }
 
 // Append `line` to ctx.suruDecls (Suru runtime declares) only if not already declared.
-// Mirrors C# SuruRuntimeDeclarations.Add* — suru_*/suru_string_* use two leading spaces.
+// suru_*/suru_string_* use two leading spaces.
 fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
     let i Int64: 0
     while i.lt(ctx.declares.len()) {
@@ -205,7 +202,6 @@ fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
 
 // Append declare stubs for an external struct type's clone/drop functions.
 // Idempotent — uses ctx.declares for deduplication.
-// Mirrors C# _externalTypeCloneDrop emission in IRCodeGenerator.Emit().
 fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
     let cloneLine String: "declare ptr  @suru_clone_".append(typeName).append("(ptr)\n")
     let dropLine  String: "declare void @suru_drop_".append(typeName).append("(ptr)\n")
@@ -215,7 +211,7 @@ fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
         i: i.add(1)
     }
     ctx.declares.add(cloneLine)
-    // Collect type name for sorted assembly in generate() — C# sorts alphabetically.
+    // Collect type name for sorted assembly in generate() — names are sorted alphabetically.
     ctx.extCloneDropTypeNames.add(typeName)
     return ctx
 }
@@ -234,8 +230,8 @@ fn lookupVar(ctx IrCodegenContext, name String) VarEntry {
 }
 
 // Add or update a variable binding.  Overwrites an existing entry with the same
-// name — matches C# Dictionary<> assignment so re-declared variables (e.g. same
-// `let` name in a second while loop) update the slot rather than shadow it.
+// name — re-declared variables (e.g. same `let` name in a second while loop)
+// update the slot rather than shadow it.
 fn addVar(ctx IrCodegenContext, name String, allocaName String, suruType String) IrCodegenContext {
     let i Int64: 0
     while i.lt(ctx.vars.len()) {
@@ -359,7 +355,6 @@ fn variantIdx(sumType SumTypeDecl, variantName String) Int64 {
 }
 
 // True when name appears as a variant in any registered sum type.
-// Mirrors IRCodeGenerator.IsVariant().
 fn isVariant(ctx IrCodegenContext, name String) Bool {
     let i Int64: 0
     while i.lt(ctx.sumTypes.len()) {
@@ -376,7 +371,6 @@ fn isVariant(ctx IrCodegenContext, name String) Bool {
 
 // Walk sumTypes to find the SumTypeDecl that owns variantName.
 // Returns an empty SumTypeDecl if not found.
-// Mirrors IRCodeGenerator.FindParentSumType().
 fn findParentSumType(ctx IrCodegenContext, variantName String) SumTypeDecl {
     let i Int64: 0
     while i.lt(ctx.sumTypes.len()) {
@@ -444,7 +438,6 @@ fn isOwnType(ctx IrCodegenContext, name String) Bool {
 // Escape a Suru string for inclusion in an LLVM c-string constant.
 // Printable ASCII (32–126) except '"' and '\' pass through unchanged.
 // All other characters are encoded as \HH (two-digit uppercase hex).
-// Mirrors IRCodeGenerator.EscapeStringForIR().
 fn irEscapeStr(text String) String {
     let r String: ""
     let i Int64: 0
@@ -464,7 +457,6 @@ fn irEscapeStr(text String) String {
 // The byteLen stored includes the null terminator so callers can use it for malloc.
 // ctx.strLiterals is separate from ctx.strGlobals (mode/format strings) so the
 // generate function can add a blank line after user literals but not after mode strings.
-// Mirrors the string-scanning + emitStringLiteralGlobal calls in IRCodeGenerator.
 fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
     // Dedup: if this text was already interned, nothing to do.
     let i Int64: 0
@@ -504,7 +496,6 @@ fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
 // ─── Type classification helpers ──────────────────────────────────────────────
 
 // True for the four scalar types that use raw LLVM values (not ptr).
-// Mirrors C# IRCodeGenerator.IsScalar().
 fn isScalarSuruType(suruType String) Bool {
     return match suruType {
         "Int64"   : true
@@ -558,7 +549,6 @@ fn makeSuruType(typeName String) String {
 
 // LLVM type string for a Suru type name.
 // Scalars use raw LLVM types; all heap types and void use ptr.
-// Mirrors C# IRCodeGenerator.LlvmType() and HeapCodegenContext.heapLlvmTypeOf().
 fn irLlvmTypeOf(suruType String) String {
     // Void functions return `ret ptr null` per Suru's IR convention.
     return match suruType {
@@ -572,7 +562,7 @@ fn irLlvmTypeOf(suruType String) String {
 }
 
 // Integer type_tag for a Suru type (used for array elem_tag and struct type_tag).
-// Mirrors the SuruType.Tag constants in C#.
+// Values must stay in sync with the Suru runtime's type_tag encoding.
 fn suruTypeTag(suruType String) String {
     match isArraySuruType(suruType) { true: { return "5" } _: {} }
     return match suruType {

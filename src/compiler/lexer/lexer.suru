@@ -1,4 +1,4 @@
-// Token kind constants — ordinals match the C# TokenKind enum exactly.
+// Token kind constants — ordinals must stay in sync with the bootstrap binary's token kind encoding.
 let TOK_EOF      Int64: 0
 let TOK_IDENT    Int64: 1
 let TOK_TRUE     Int64: 2

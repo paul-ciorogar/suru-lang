@@ -1,4 +1,4 @@
-// Stage 13b — Semantic Analyzer: Declaration Pre-passes
+// Semantic Analyzer: Declaration Pre-passes
 //
 // Implements two passes over an AstModule's statement list that populate
 // AnalyzerState before any statement analysis runs:
@@ -11,8 +11,6 @@
 //     resolveTypeName; errors on unknown types and duplicate function names.
 //
 // Entry point: runPrePasses(state, stmts) runs both passes in order.
-//
-// Mirrors C# SemanticAnalyzer passes 1 and 2 in _Analyze() (lines 44-47).
 //
 // Design note: AnalyzerState fields (typeNames, functions, errors) are accessed
 // through typed intermediate variables (e.g. `let typeNames Array<String>: state.typeNames`)
@@ -169,7 +167,7 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
-// runPrePasses — runs pass 1 then pass 2 in order, matching the C# _Analyze() contract.
+// runPrePasses — runs pass 1 then pass 2 in order.
 fn runPrePasses(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     collectTypeDeclarations(state, stmts)
     collectFunctionDeclarations(state, stmts)

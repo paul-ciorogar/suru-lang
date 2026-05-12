@@ -1,7 +1,5 @@
 // ir-fileio-codegen.suru — File I/O and argv IR emission helpers.
 //
-// Mirrors IRFileIoCodeGenerator.cs (C# partial class file).
-//
 // Three built-in operations are handled here:
 //
 //   args.at(i)       — argv element extraction (ir-codegen.suru routes here when the
@@ -36,7 +34,6 @@ include "irBuilder.suru" as ir
 
 // ─── Mode string global helpers ───────────────────────────────────────────────
 // fopen("r\00"), fopen("w\00"), fopen("a\00") — each is a private constant global.
-// Mirrors BoolStringGlobals.AddModeR/W/A in C#.
 
 // Generic helper: append `line` to ctx.strGlobals only if not already declared.
 // Uses ctx.declares (shared dedup set) for idempotency, like addDecl/addSuruDecl.
@@ -71,7 +68,6 @@ fn addModeA(ctx IrCodegenContext) IrCodegenContext {
 // Duplicated from ir-string-codegen.suru to avoid a circular include at this DAG level.
 
 // GEP to field 2 (data ptr) and load it — yields the raw char* / char** payload.
-// Mirrors C# EmitExtractStringData.
 fn extractStringData(ctx IrCodegenContext, seqVal String) CodegenResult {
     let gr IrResult: ir.emitGEP2(ctx.builder, "%suru.String", seqVal, "i32 0, i32 2")
     ctx.builder: gr.builder
@@ -81,7 +77,6 @@ fn extractStringData(ctx IrCodegenContext, seqVal String) CodegenResult {
 }
 
 // GEP to field 1 (len) and load it as a raw i64.
-// Mirrors C# EmitExtractStringLen.
 fn extractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
     let gr IrResult: ir.emitGEP(ctx.builder, "%suru.String", seqVal, "i32 0, i32 1")
     ctx.builder: gr.builder
@@ -105,7 +100,6 @@ fn extractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
 //   4. strlen to measure the C string length.
 //   5. @suru_string_create to wrap it in a Suru String header.
 //
-// Mirrors C# EmitArgAt.
 fn emitArgAt(ctx IrCodegenContext, argvPtr String, idx String) CodegenResult {
     // Step 1: extract char** from the fake %suru.String data field.
     let dataR CodegenResult: extractStringData(ctx, argvPtr)
@@ -155,7 +149,6 @@ fn emitArgAt(ctx IrCodegenContext, argvPtr String, idx String) CodegenResult {
 //   fclose(file)
 //   @suru_string_create(buf, size) → wrap in Suru String header
 //
-// Mirrors C# EmitReadFile.
 fn emitReadFile(ctx IrCodegenContext, pathPtr String) CodegenResult {
     // Extract the raw char* path from the suru.String data field.
     let pathDataR CodegenResult: extractStringData(ctx, pathPtr)
@@ -242,13 +235,10 @@ fn emitReadFile(ctx IrCodegenContext, pathPtr String) CodegenResult {
 // contentPtr: pre-emitted SSA ptr to the content suru.String.
 //
 // The caller must extract pathData before emitting contentPtr so that path GEPs
-// have lower SSA numbers than content loads — mirroring C# EmitWriteFile which calls
-// EmitExtractStringData(pathSeq) before EmitValue(contentArg).
+// have lower SSA numbers than content loads.
 //
 // Algorithm: fopen(pathData, "w") → fwrite(data, 1, len, file) → fclose(file).
 // Returns ctx (void — result is always discarded by the caller).
-//
-// Mirrors C# EmitWriteFile.
 fn emitWriteFile(ctx IrCodegenContext, pathData String, contentPtr String) IrCodegenContext {
     // Extract content len and data ptr from the content suru.String.
     // Extract content len and data ptr from the content suru.String.
@@ -297,8 +287,6 @@ fn emitWriteFile(ctx IrCodegenContext, pathData String, contentPtr String) IrCod
 //
 // Algorithm: fopen(pathData, "a") → fwrite(data, 1, len, file) → fclose(file).
 // Returns ctx (void — result is always discarded by the caller).
-//
-// Mirrors C# EmitAppendToFile.
 fn emitAppendToFile(ctx IrCodegenContext, pathData String, contentPtr String) IrCodegenContext {
     // Extract content len and data ptr from the content suru.String.
     let contentLenR CodegenResult: extractStringLen(ctx, contentPtr)

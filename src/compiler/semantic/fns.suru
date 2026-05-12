@@ -1,8 +1,6 @@
-// Stage 13d — Semantic Analyzer in Suru: Function Declaration Analysis
+// Semantic Analyzer: Function Declaration Analysis
 //
 // Implements analyzeFunctionDeclaration and the checkHasReturn helper suite.
-// Mirrors AnalyzeFunctionDeclaration in SemanticAnalyzer.cs:201–226 and
-// CheckHasReturn in SemanticAnalyzer.cs:228–237.
 //
 // analyzeFunctionDeclaration:
 //   push fresh scope → inject params → set currentReturnType → analyze body →
@@ -11,7 +9,7 @@
 // checkHasReturn:
 //   linear scan of a statement list; returns true on ReturnNode or on
 //   a WhileNode whose body transitively contains a return. The exit()
-//   path is deferred to Stage 13e (requires expression analysis).
+//   path is handled in expr analysis (requires expression analysis to resolve).
 //
 // All function names here are distinct from those in suru-semantic-stmts.suru
 // to avoid LLVM link-time symbol collisions — each included file compiles to
@@ -32,7 +30,6 @@ fn checkHasReturnInWhile(stmt WhileNode) Bool {
 
 // allMatchArmsHaveReturn — true when every arm of a MatchStmtNode has a return/exit
 // path.  Typed as Array<MatchStmtArm> so arm.stmts resolves without an undeclared-field GEP.
-// Mirrors C# CheckHasReturn stage-13j extension.
 fn allMatchArmsHaveReturn(arms Array<MatchStmtArm>, i Int64) Bool {
     match i.lt(arms.len()) {
         true: {
@@ -76,7 +73,6 @@ fn isExitCall(stmt ExprStmtNode) Bool {
 // checkHasReturnAt — linear scan starting at index i.
 // Returns true on ReturnNode, a WhileNode that transitively contains a return,
 // or an ExprStmtNode that is a direct call to exit().
-// Mirrors CheckHasReturn (SemanticAnalyzer.cs:253–268).
 fn checkHasReturnAt(stmts Array<AstNode>, i Int64) Bool {
     return match i.lt(stmts.len()) {
         true: match stmts.at(i) {
@@ -141,7 +137,7 @@ fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerStat
     state.currentReturnType: returnType
     state.insideFunction: 1
 
-    // 5. Analyze the function body using the Stage-13c statement analyzer.
+    // 5. Analyze the function body using the statement analyzer.
     let body Array<AstNode>: stmt.body
     analysis.analyzeStatements(state, body)
 

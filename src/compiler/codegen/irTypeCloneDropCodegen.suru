@@ -1,7 +1,5 @@
 // ir-type-clone-drop-codegen.suru — Per-type @suru_clone_T / @suru_drop_T emission.
 //
-// Mirrors IRTypeCloneDropCodeGenerator.cs (C# partial class file, 164 lines).
-//
 // For every locally-declared struct type, emits two module-level helper functions
 // stored in ctx.helpers (before user function bodies):
 //
@@ -18,7 +16,7 @@
 //
 // The cgTmp counter is separate from the per-function SSA counter (builder.tmpCount).
 // It starts at 0 and threads through ALL types so SSA names like %malloc_0, %cgep_1
-// are globally unique across all helper functions — matching C#'s _cgTmp class field.
+// are globally unique across all helper functions.
 //
 // External types (from included modules) are NOT emitted here — their clone/drop
 // bodies are compiled from the origin .suru file.  Declare stubs for external types
@@ -44,7 +42,6 @@ type CloneDropResult: { ctx IrCodegenContext, cgTmp Int64 }
 // ─── Counter helper ───────────────────────────────────────────────────────────
 
 // Build a counter-indexed SSA name: %prefix_N.
-// Mirrors C# CG(prefix) which returns $"%{prefix}_{_cgTmp++}".
 // The counter is passed in as cgTmp; callers advance it by the slot count consumed.
 fn cgName(prefix String, n Int64) String {
     return "%".append(prefix).append("_").append(n.toString())
@@ -57,7 +54,6 @@ fn cgName(prefix String, n Int64) String {
 
 // Emit an i64 word copy from %s to dst at byte byteOffset.
 // Uses names: cgep (src GEP), cv (load), dgep (dst GEP).
-// Mirrors C# CopyI64Field(string src, string dst, long byteOffset).
 // Consumes 3 counter slots.
 fn copyI64Field(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
     let sgep String: cgName("cgep", cgTmp)
@@ -73,7 +69,6 @@ fn copyI64Field(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
 
 // Emit a ptr word copy from %s to dst at byte byteOffset.
 // Uses names: pgep (src GEP), pv (load), dpgep (dst GEP).
-// Mirrors C# CopyPtrField(string src, string dst, long byteOffset).
 // Consumes 3 counter slots.
 fn copyPtrField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
     let sgep String: cgName("pgep",  cgTmp)
@@ -90,11 +85,8 @@ fn copyPtrField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
 // Emit recursive clone of one heap field: load i64 slot → inttoptr → suru_clone_dyn
 // → ptrtoint → store back into dst at byteOffset.
 //
-// Counter pre-allocation order matches C# (raw/ptr/cloned/i64 first, then sgep/dgep),
-// even though fsgep is emitted first in the IR text.  This is the exact same name
-// sequence as C# so cross-validated IR output matches byte-for-byte.
-//
-// Mirrors the non-scalar field branch of C# EmitOneTypeCloneDrop.
+// Counter pre-allocation order is fixed: raw/ptr/cloned/i64 first, then sgep/dgep,
+// even though fsgep is emitted first in the IR text.
 // Consumes 6 counter slots.
 fn cloneHeapField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
     let fraw    String: cgName("fraw",    cgTmp)
@@ -115,9 +107,7 @@ fn cloneHeapField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
 }
 
 // Emit recursive drop of one heap field: load i64 slot → inttoptr → suru_drop_dyn.
-//
 // Counter pre-allocation order: fraw/fptr/fgep; fgep is emitted first in IR text.
-// Matches C# EmitOneTypeCloneDrop drop loop for non-scalar fields.
 // Consumes 3 counter slots.
 fn dropHeapField(byteOffset Int64, cgTmp Int64) CgTextResult {
     let fraw String: cgName("fraw", cgTmp)
@@ -136,10 +126,8 @@ fn dropHeapField(byteOffset Int64, cgTmp Int64) CgTextResult {
 // Emit @suru_clone_{typeName} and @suru_drop_{typeName} for one struct type.
 // Both bodies are appended to ctx.helpers.
 //
-// cgTmp is the shared counter threaded across all types (mirrors C# _cgTmp).
-// Callers must use the returned cgTmp for subsequent types so names stay unique.
-//
-// Mirrors C# EmitOneTypeCloneDrop(string typeName, TypeDeclaration typeDecl).
+// cgTmp is the shared counter threaded across all types — callers must use the
+// returned cgTmp for subsequent types so names stay globally unique.
 fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDropResult {
     let decl TypeDecl: types.lookupType(ctx, typeName)
     let fc   Int64:    decl.fields.len()
@@ -245,7 +233,6 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
 // The actual bodies are compiled in the origin .suru file and linked via the linker.
 //
 // Thin wrapper over types.addExtCloneDropDecl (idempotent via declares dedup set).
-// Mirrors the _externalTypeCloneDrop emission in C# IRCodeGenerator.Emit().
 fn emitExternalCloneDropDeclare(ctx IrCodegenContext, typeName String) IrCodegenContext {
     return types.addExtCloneDropDecl(ctx, typeName)
 }
@@ -259,7 +246,6 @@ fn emitExternalCloneDropDeclare(ctx IrCodegenContext, typeName String) IrCodegen
 // The cgTmp counter starts at 0 and threads through all types, producing globally
 // unique SSA names across the entire helpers block.
 //
-// Mirrors C# EmitTypeCloneDrop() (the outer foreach over module.TypeDeclarations).
 fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
     let cgTmp Int64: 0
     let i Int64: 0
@@ -273,9 +259,7 @@ fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
             }
             _: {
                 // External types: declare stubs are emitted on-demand by
-                // emitStructLiteralAlloc when the type is actually instantiated —
-                // mirrors C# IRStructCodeGenerator.EmitStructLiteral adding to
-                // _externalTypeCloneDrop only at instantiation time.
+                // emitStructLiteralAlloc when the type is actually instantiated.
             }
         }
         i: i.add(1)

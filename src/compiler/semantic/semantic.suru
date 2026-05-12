@@ -1,16 +1,15 @@
-// Stage 13a — Semantic Analyzer Data Structures
+// Semantic Analyzer Data Structures
 //
-// Defines the scope-chain types and core helpers used by all later semantic
-// analysis stages. The design mirrors C# SemanticAnalyzer's scope stack but
-// uses Suru-idiomatic patterns: a flat Array<Scope> with integer parent indices
-// replaces Stack<Dictionary>, and in-place heap mutation replaces copy-on-write.
+// Defines the scope-chain types and core helpers used by all semantic analysis passes.
+// Uses a flat Array<Scope> with integer parent indices as the scope stack;
+// in-place heap mutation (no copy-on-write).
 //
 // Invariant: the current scope is always the last element of state.scopes.
 // pushScope appends; popScope slices off the last element.
 // parent = -1 marks the module scope (no parent).
 //
 // Field access on array elements (e.g. symbols.at(i).name) works directly
-// because the C# compiler tracks Array<T> element types and annotates every
+// because the compiler tracks Array<T> element types and annotates every
 // AST expression node with its resolved SuruType during semantic analysis.
 
 // ─── Type declarations ────────────────────────────────────────────────────────
