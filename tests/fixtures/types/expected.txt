@@ -1,0 +1,8 @@
+true
+2283
+false
+false
+Suru
+2283
+42
+99

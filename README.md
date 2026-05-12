@@ -30,6 +30,12 @@ Compile and run a program:
 ./build/main
 ```
 
+Run the test suite:
+
+```sh
+./scripts/test.sh
+```
+
 Bootstrap a new compiler binary from source:
 
 ```sh
@@ -46,8 +52,8 @@ src/
     semantic/
     codegen/
 runtime/          LLVM IR runtime modules (box, string, array, struct, variant)
-tests/fixtures/   Corpus programs used for validation
-scripts/          build.sh, test.sh, bootstrap.sh
+tests/fixtures/   Corpus programs; each dir contains main.suru + expected.txt
+scripts/          build.sh, test.sh, bootstrap.sh, generate-expected.sh
 bin/              Bootstrap binary (suru-build)
 Dockerfile        Ubuntu 24.04 image with clang-18/llvm-18/lld-18
 ```
