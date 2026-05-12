@@ -7,6 +7,26 @@ A minimalist, library-driven, general-purpose programming language — staticall
 - [Status](#status)
 - [Language overview](#language-overview)
 - [Language guide](#language-guide)
+  - [Printing](#printing)
+  - [Variables](#variables)
+  - [Comments](#comments)
+  - [Arithmetic](#arithmetic)
+  - [Boolean operators](#boolean-operators)
+  - [Comparison methods](#comparison-methods)
+  - [Control flow — while](#control-flow--while)
+  - [Control flow — match](#control-flow--match)
+  - [Functions](#functions)
+  - [Named types](#named-types)
+  - [Sum types](#sum-types-discriminated-unions)
+  - [Arrays](#arrays)
+  - [Strings](#strings)
+  - [Type conversions](#type-conversions)
+  - [File I/O](#file-io)
+  - [Exit](#exit)
+  - [printError](#printerror)
+  - [Built-in functions](#built-in-functions)
+  - [Include directive](#include-directive)
+  - [Main function and CLI arguments](#main-function-and-cli-arguments)
 - [Getting started](#getting-started)
 - [Repository layout](#repository-layout)
 - [Bootstrap context](#bootstrap-context)
@@ -25,7 +45,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - Control flow: `while`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
-- Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `exit`
+- Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `exit`, `exec`
 
 ## Language guide
 
@@ -429,6 +449,39 @@ Write to stderr. Accepts the same types as `printLn` (`Bool`, `Int64`, `Float64`
 ```suru
 printError("error: file not found")
 printError(42)
+```
+
+### Built-in functions
+
+| Function | Signature | Description |
+|---|---|---|
+| `printLn` | `printLn(value)` | Prints `value` to stdout followed by a newline. Accepts `Bool`, `Int32`, `Int64`, `Float64`, and `String`. |
+| `printError` | `printError(value)` | Same as `printLn` but writes to stderr. |
+| `readFile` | `readFile(path) → String` | Reads the entire contents of the file at `path` and returns it as a `String`. Aborts if the file cannot be opened. |
+| `writeFile` | `writeFile(path, content)` | Writes `content` to the file at `path`, creating it if it does not exist and truncating it if it does. |
+| `appendToFile` | `appendToFile(path, content)` | Appends `content` to the file at `path`. Creates the file if it does not exist. |
+| `clone` | `clone(x) → T` | Returns a deep copy of `x`. Required before storing a heap value (String, Array, or struct) in a second variable, passing it somewhere that takes ownership, or outliving the original. |
+| `drop` | `drop(x)` | Frees the heap memory owned by `x` (String, Array, or struct). After `drop`, `x` must not be used. |
+| `exit` | `exit(code)` | Terminates the process immediately with the given exit code (`Int64`). Counts as a terminal statement — no `return` is needed after it in a non-void function. |
+| `exec` | `exec(cmd) → Int64` | Runs `cmd` as a shell command via `system()` and returns the exit code as `Int64`. Stdout and stderr pass through to the process. |
+
+```suru
+// print
+printLn("hello")           // stdout
+printError("bad input")    // stderr
+
+// file I/O
+let src String: readFile("input.txt")
+writeFile("out.txt", src)
+appendToFile("log.txt", "done\n")
+
+// memory
+let copy String: clone(src)
+drop(src)
+
+// process
+let code Int64: exec("ls -la")
+exit(code)
 ```
 
 ### Include directive

@@ -1,0 +1,55 @@
+type TestCase: { name String, source String, args String, expected String }
+
+fn main(args Array<String>) {
+    let runtime String: "/usr/local/lib/suru/runtime"
+    let cases Array<TestCase>: [
+        { name: "arithmetic",  source: "tests/fixtures/arithmetic",  args: "",                                        expected: readFile("/work/tests/fixtures/arithmetic/expected.txt")  },
+        { name: "fibonacci",   source: "tests/fixtures/fibonacci",   args: "",                                        expected: readFile("/work/tests/fixtures/fibonacci/expected.txt")   },
+        { name: "while-loop",  source: "tests/fixtures/while-loop",  args: "",                                        expected: readFile("/work/tests/fixtures/while-loop/expected.txt")  },
+        { name: "strings",     source: "tests/fixtures/strings",     args: "",                                        expected: readFile("/work/tests/fixtures/strings/expected.txt")     },
+        { name: "sum-types",   source: "tests/fixtures/sum-types",   args: "",                                        expected: readFile("/work/tests/fixtures/sum-types/expected.txt")   },
+        { name: "comparisons", source: "tests/fixtures/comparisons", args: "",                                        expected: readFile("/work/tests/fixtures/comparisons/expected.txt") },
+        { name: "arrays",      source: "tests/fixtures/arrays",      args: "",                                        expected: readFile("/work/tests/fixtures/arrays/expected.txt")      },
+        { name: "types",       source: "tests/fixtures/types",       args: "",                                        expected: readFile("/work/tests/fixtures/types/expected.txt")       },
+        { name: "file_io",     source: "tests/fixtures/file_io",     args: " /work/tests/fixtures/file_io/input.txt", expected: readFile("/work/tests/fixtures/file_io/expected.txt")     },
+        { name: "exec-test",   source: "tests/fixtures/exec-test",   args: "",                                        expected: readFile("/work/tests/fixtures/exec-test/expected.txt")   },
+    ]
+
+    let passed Int64: 0
+    let failed Int64: 0
+    let i Int64: 0
+
+    while i.lt(cases.len()) {
+        let tc TestCase: cases.at(i)
+        let ll String: "/tmp/suru-test-".append(tc.name).append(".ll")
+        let bin String: "/tmp/suru-test-".append(tc.name)
+        let outFile String: bin.append(".out")
+
+        exec("suru-build /work/".append(tc.source).append("/main.suru ").append(ll).append(" 2>/dev/null"))
+        exec("clang-18 ".append(ll).append(" ").append(runtime).append("/*.ll -o ").append(bin).append(" 2>/dev/null"))
+        exec(bin.append(tc.args).append(" > ").append(outFile).append(" 2>&1"))
+
+        let actual String: readFile(outFile)
+
+        match actual.equals(tc.expected) {
+            true: {
+                printLn("PASS ".append(tc.name))
+                passed = passed.add(1)
+            }
+            _: {
+                printLn("FAIL ".append(tc.name))
+                failed = failed.add(1)
+            }
+        }
+
+        i = i.add(1)
+    }
+
+    printLn("")
+    printLn("Results: ".append(passed.toString()).append(" passed, ").append(failed.toString()).append(" failed"))
+
+    match failed.gt(0) {
+        true: { exit(1) }
+        _: {}
+    }
+}

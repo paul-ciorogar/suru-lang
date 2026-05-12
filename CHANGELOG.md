@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added Self-Hosted Test Runner
+
+- `tests/runner/main.suru`: Suru program that compiles and runs the full test corpus using
+  `exec()` + `readFile()`. Iterates over 10 fixtures, invokes `suru-build` and `clang-18`
+  directly, captures output, compares against `expected.txt`, and reports `PASS`/`FAIL`.
+- `scripts/test.sh` now builds the runner via `./scripts/build.sh`, then launches it inside
+  Docker — no shell test logic remains in the script itself.
+
+---
+
 ## v0.1.0 — Self-Hosting Achieved
 
 ### Added
