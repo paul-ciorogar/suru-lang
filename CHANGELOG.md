@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Typed Element Sizes in Arrays
+
+Arrays now store elements at their native size — no heap boxing for scalars:
+- `Bool` elements use 1-byte `i8[]` buffers; `Int32` uses 4-byte `i32[]`; `Int64`, `Float64`,
+  and heap types (String, Array, Struct) use 8-byte `i64[]` buffers.
+- `at()` and `set()` are inlined as typed GEP+load/store — no runtime call.
+- `add()` dispatches to a typed runtime variant (`suru_array_add_i8/i32/i64`).
+- Clone and drop fast-path scalar arrays via `memcpy` / direct free, skipping per-element dispatch.
+- Fixed a pre-existing bug where non-empty array literals with struct elements (e.g.
+  `let xs Array<MyType>: [{ ... }, ...]`) would generate an invalid `@suru_clone_` reference.
+
 ### Added Self-Hosted Test Runner
 
 - `tests/runner/main.suru`: Suru program that compiles and runs the full test corpus using

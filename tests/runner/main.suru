@@ -34,15 +34,15 @@ fn main(args Array<String>) {
         match actual.equals(tc.expected) {
             true: {
                 printLn("PASS ".append(tc.name))
-                passed = passed.add(1)
+                passed: passed.add(1)
             }
             _: {
                 printLn("FAIL ".append(tc.name))
-                failed = failed.add(1)
+                failed: failed.add(1)
             }
         }
 
-        i = i.add(1)
+        i: i.add(1)
     }
 
     printLn("")

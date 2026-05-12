@@ -399,9 +399,9 @@ fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) Code
 // SSA emission order (preserves numbering invariants):
 //   hdrPtr = malloc(40)
 //   if count > 0: firstVal = EmitValue(elements[0])    ← eval first elem BEFORE rawData
-//                 rawData  = malloc(count*8)
-//                 slot0    = GEP(rawData, 0); as64_0 = EmitToI64(firstVal); store
-//                 for i=1..count-1: elemVal = EmitValue, slot = GEP, as64 = EmitToI64, store
+//                 rawData  = malloc(count * elemSizeBytes)
+//                 slot0    = GEP(rawData, 0); enc0 = emitElemEncode(firstVal); store
+//                 for i=1..count-1: elemVal = EmitValue, slot = GEP, enc = emitElemEncode, store
 //   pre-allocate all 5 header GEP SSA names in one batch
 //   emit header GEPs + stores (lenGep/capGep with double-space after SSA name)
 fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String) CodegenResult {
@@ -423,28 +423,30 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
             let firstValR CodegenResult: emitValue(ctx, elems.at(0))
             ctx: firstValR.ctx
             actualElemSuruType: firstValR.suruType
-            // malloc raw data buffer: count * 8 bytes.
+            let storeType String: irArr.elemStorageLlvmType(actualElemSuruType)
+            let elemBytes Int64: irArr.elemSizeBytes(actualElemSuruType)
+            // malloc raw data buffer: count * elemBytes.
             let rawArgs Array<String>: []
-            rawArgs.add("i64 ".append(count.multiply(8).toString()))
+            rawArgs.add("i64 ".append(count.multiply(elemBytes).toString()))
             let rawR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", rawArgs)
             ctx.builder: rawR.builder
             dataPtr: rawR.name
-            // Slot 0: GEP first, then EmitToI64(firstVal), then store.
-            let slot0R IrResult: ir.emitGEP(ctx.builder, "i64", dataPtr, "i64 0")
+            // Slot 0: GEP first, then encode firstVal, then store.
+            let slot0R IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 0")
             ctx.builder: slot0R.builder
-            let as64_0 CodegenResult: irArr.emitToI64(ctx, firstValR.name, firstValR.suruType)
-            ctx: as64_0.ctx
-            ctx.builder: ir.emitStore(ctx.builder, "i64", as64_0.name, slot0R.name)
-            // Slots 1..count-1: eval elem, GEP slot, EmitToI64, store.
+            let enc0 CodegenResult: irArr.emitElemEncode(ctx, firstValR.name, firstValR.suruType)
+            ctx: enc0.ctx
+            ctx.builder: ir.emitStore(ctx.builder, storeType, enc0.name, slot0R.name)
+            // Slots 1..count-1: eval elem, GEP slot, encode, store.
             let i Int64: 1
             while i.lt(count) {
                 let elemValR CodegenResult: emitValue(ctx, elems.at(i))
                 ctx: elemValR.ctx
-                let slotR IrResult: ir.emitGEP(ctx.builder, "i64", dataPtr, "i64 ".append(i.toString()))
+                let slotR IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 ".append(i.toString()))
                 ctx.builder: slotR.builder
-                let as64 CodegenResult: irArr.emitToI64(ctx, elemValR.name, elemValR.suruType)
-                ctx: as64.ctx
-                ctx.builder: ir.emitStore(ctx.builder, "i64", as64.name, slotR.name)
+                let enc CodegenResult: irArr.emitElemEncode(ctx, elemValR.name, elemValR.suruType)
+                ctx: enc.ctx
+                ctx.builder: ir.emitStore(ctx.builder, storeType, enc.name, slotR.name)
                 i: i.add(1)
             }
         }
@@ -1487,21 +1489,22 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             let letValueNode AstNode: stmt.value
             match letValueNode {
                 ArrayLitNode: {
-                    // Empty array literal: use annotation element type (not default Int64).
-                    match letValueNode.elems.len().equals(0) {
-                        true: {
-                            let elemSuruType String: types.elemSuruType(annSuruType)
-                            let ar CodegenResult: emitArrayLit(ctx, letValueNode.elems, elemSuruType)
-                            ctx: ar.ctx
-                            let arrPtr String: ar.name
-                            let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, "ptr")
-                            ctx.builder: ptrR.builder
-                            ctx.builder: ir.emitStore(ctx.builder, "ptr", arrPtr, ptrR.name)
-                            ctx: types.addVar(ctx, stmt.name, ptrR.name, ar.suruType)
-                            return ctx
-                        }
-                        _: {}
-                    }
+                    // Thread annotation element type into ctx so struct literal elements
+                    // inside the array literal resolve to the correct type name.
+                    // Handles both empty literals (annotation is sole type source) and
+                    // non-empty literals with struct elements (e.g. Array<TestCase>).
+                    let elemSuruType String: types.elemSuruType(annSuruType)
+                    let savedReturnTypeName String: ctx.currentReturnTypeName
+                    ctx.currentReturnTypeName: elemSuruType
+                    let ar CodegenResult: emitArrayLit(ctx, letValueNode.elems, elemSuruType)
+                    ctx: ar.ctx
+                    ctx.currentReturnTypeName: savedReturnTypeName
+                    let arrPtr String: ar.name
+                    let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, "ptr")
+                    ctx.builder: ptrR.builder
+                    ctx.builder: ir.emitStore(ctx.builder, "ptr", arrPtr, ptrR.name)
+                    ctx: types.addVar(ctx, stmt.name, ptrR.name, ar.suruType)
+                    return ctx
                 }
                 StructLitNode: {
                     let sr CodegenResult: emitStructLit(ctx, letValueNode.fields, stmt.typeName)
