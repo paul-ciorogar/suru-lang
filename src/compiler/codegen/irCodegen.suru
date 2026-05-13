@@ -610,6 +610,40 @@ fn isPrintTempString(node AstNode) Bool {
     }
 }
 
+// Extends isPrintTempString for String-context receivers and arguments.
+// String.at(i) creates a new heap char String — unlike Array<T>.at() which is
+// a borrowed pointer — and must be dropped after use.
+// Checks the variable's type via lookupVar to distinguish String.at() from
+// Array.at() when both appear as .at() method calls.
+fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) Bool {
+    match isPrintTempString(node) { true: { return true } _: {} }
+    match node {
+        MethodCallNode: {
+            let nodeMethod String: node.methodName
+            match nodeMethod.equals("at") {
+                true: {
+                    let nodeRecv AstNode: node.receiver
+                    match nodeRecv {
+                        VarRefNode: {
+                            let recvName String: nodeRecv.name
+                            let entry VarEntry: types.lookupVar(ctx, recvName)
+                            let recvType String: entry.suruType
+                            match recvType.equals("String") {
+                                true: { return true }
+                                _: {}
+                            }
+                        }
+                        _: {}
+                    }
+                }
+                _: {}
+            }
+        }
+        _: {}
+    }
+    return false
+}
+
 // ─── Main value dispatch ────────────────────────────────────────────────────────
 
 // Emit IR for any expression node, returning the SSA name and Suru type.
@@ -905,36 +939,6 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let recvVal String: rr.name
     let recvSuruType String: rr.suruType
 
-    // argv.at(i) — route to EmitArgAt (args is the fake %suru.String header holding char**).
-    let isArgv Bool: false
-    match recv {
-        VarRefNode: {
-            let i Int64: 0
-            while i.lt(ctx.argvVars.len()) {
-                match ctx.argvVars.at(i).equals(recv.name) { true: { isArgv: true } _: {} }
-                i: i.add(1)
-            }
-        }
-        _: {}
-    }
-    match isArgv {
-        true: {
-            match method.equals("at") {
-                true: {
-                    let idxR CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: idxR.ctx
-                    return irFile.emitArgAt(ctx, recvVal, idxR.name)
-                }
-                _: {}
-            }
-            match method.equals("len") {
-                true: { return irStr.emitStringLen(ctx, recvVal) }
-                _: {}
-            }
-        }
-        _: {}
-    }
-
     // Array instance methods.
     match types.isArraySuruType(recvSuruType) {
         true: {
@@ -1039,7 +1043,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 true: {
                     let result CodegenResult: irStr.emitStringLen(ctx, recvVal)
                     ctx: result.ctx
-                    match isPrintTempString(recv) {
+                    match isOwnedStringTemp(ctx, recv) {
                         true: {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                             ctx: dr.ctx
@@ -1056,7 +1060,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 true: {
                     let result CodegenResult: irStr.emitStringOrd(ctx, recvVal)
                     ctx: result.ctx
-                    match isPrintTempString(recv) {
+                    match isOwnedStringTemp(ctx, recv) {
                         true: {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                             ctx: dr.ctx
@@ -1079,7 +1083,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                             let charLen Int64: argNode.text.len()
                             let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
                             ctx: result.ctx
-                            match isPrintTempString(recv) {
+                            match isOwnedStringTemp(ctx, recv) {
                                 true: {
                                     let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                                     ctx: dr.ctx
@@ -1093,14 +1097,14 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                             ctx: ar.ctx
                             let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
                             ctx: result.ctx
-                            match isPrintTempString(argNode) {
+                            match isOwnedStringTemp(ctx, argNode) {
                                 true: {
                                     let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
                                     ctx: dr.ctx
                                 }
                                 _: {}
                             }
-                            match isPrintTempString(recv) {
+                            match isOwnedStringTemp(ctx, recv) {
                                 true: {
                                     let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                                     ctx: dr.ctx
@@ -1122,7 +1126,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                             let gname String: types.lookupStrGlobal(ctx, eqArg.text)
                             let result CodegenResult: irStr.emitStringEqualsLit(ctx, recvVal, gname)
                             ctx: result.ctx
-                            match isPrintTempString(recv) {
+                            match isOwnedStringTemp(ctx, recv) {
                                 true: {
                                     let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                                     ctx: dr.ctx
@@ -1136,14 +1140,14 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                             ctx: ar.ctx
                             let result CodegenResult: irStr.emitStringEquals(ctx, recvVal, ar.name)
                             ctx: result.ctx
-                            match isPrintTempString(eqArg) {
+                            match isOwnedStringTemp(ctx, eqArg) {
                                 true: {
                                     let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
                                     ctx: dr.ctx
                                 }
                                 _: {}
                             }
-                            match isPrintTempString(recv) {
+                            match isOwnedStringTemp(ctx, recv) {
                                 true: {
                                     let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                                     ctx: dr.ctx
@@ -1171,7 +1175,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                     }
                     let result CodegenResult: irStr.emitStringAt(ctx, recvVal, idxRaw)
                     ctx: result.ctx
-                    match isPrintTempString(recv) {
+                    match isOwnedStringTemp(ctx, recv) {
                         true: {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                             ctx: dr.ctx
@@ -1208,7 +1212,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                     }
                     let result CodegenResult: irStr.emitStringSlice(ctx, recvVal, i1r, i2r)
                     ctx: result.ctx
-                    match isPrintTempString(recv) {
+                    match isOwnedStringTemp(ctx, recv) {
                         true: {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                             ctx: dr.ctx
@@ -1225,14 +1229,14 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                     ctx: cr.ctx
                     let result CodegenResult: irStr.emitStringCompare(ctx, recvVal, cr.name)
                     ctx: result.ctx
-                    match isPrintTempString(expr.args.at(0)) {
+                    match isOwnedStringTemp(ctx, expr.args.at(0)) {
                         true: {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, cr.name)
                             ctx: dr.ctx
                         }
                         _: {}
                     }
-                    match isPrintTempString(recv) {
+                    match isOwnedStringTemp(ctx, recv) {
                         true: {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                             ctx: dr.ctx
@@ -2133,9 +2137,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // SSA names must be globally unique — ir.freshFnBuilder carries the current
     // tmpCount into the new builder so the counter never resets between functions.
     let freshVars Array<VarEntry>: []
-    let freshArgv Array<String>: []
     ctx.vars: freshVars
-    ctx.argvVars: freshArgv
     ctx.blockOpen: true
     ctx.builder: ir.freshFnBuilder(ctx.builder)
 
@@ -2149,7 +2151,6 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
             ctx.builder: ir.emitFixedAlloca(ctx.builder, "args.addr", "ptr")
             ctx.builder: ir.emitStore(ctx.builder, "ptr", "%args", "%args.addr")
             ctx: types.addVar(ctx, "args", "%args.addr", "Array:String")
-            ctx.argvVars.add("args")
         }
         _: {
             let retSuru String: types.makeSuruType(fnDecl.returnType)
@@ -2185,7 +2186,15 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     match ctx.blockOpen {
         true: {
             match fnDecl.name.equals("main") {
-                true: { ctx.builder: ir.emitRet(ctx.builder, "i64", "0") }
+                true: {
+                    // Drop the Array<String> before returning — it was built by @main wrapper.
+                    let argsEntry VarEntry: types.lookupVar(ctx, "args")
+                    let argsLoadR IrResult: ir.emitLoad(ctx.builder, "ptr", argsEntry.allocaName)
+                    ctx.builder: argsLoadR.builder
+                    let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name)
+                    ctx: dropR.ctx
+                    ctx.builder: ir.emitRet(ctx.builder, "i64", "0")
+                }
                 _: {
                     match ctx.currentReturnSuruType.equals("void") {
                         true: { ctx.builder: ir.emitRet(ctx.builder, "ptr", "null") }
@@ -2206,20 +2215,49 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
 }
 
 // Emit the @main C entry point that wraps @suru_main.
+// Builds a real Array<String> from argc/argv — each argv[i] is copied into a
+// heap-owned suru.String (type_tag=6) and added to the array via suru_array_add_i64.
+// suru_main receives the fully-populated array and drops it before returning.
 fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
+    ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
+    ctx: types.addDecl(ctx, "declare i64 @strlen(ptr)\n")
+    ctx: types.addDecl(ctx, "declare ptr @memcpy(ptr, ptr, i64)\n")
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_create(ptr, i64)\n")
+    ctx: types.addSuruDecl(ctx, "declare void @suru_array_add_i64(ptr, i64)\n")
     let out String: "define i32 @main(i32 %argc, ptr %argv) {\n"
         .append("entry:\n")
-        .append("  %seq      = call ptr @malloc(i64 24)\n")
-        .append("  %tag_gep  = getelementptr %suru.String, ptr %seq, i32 0, i32 0\n")
-        .append("  store i64 6, ptr %tag_gep\n")
-        .append("  %len_gep  = getelementptr %suru.String, ptr %seq, i32 0, i32 1\n")
-        .append("  %argc64   = sext i32 %argc to i64\n")
-        .append("  store i64 %argc64, ptr %len_gep\n")
-        .append("  %data_gep = getelementptr %suru.String, ptr %seq, i32 0, i32 2\n")
-        .append("  store ptr %argv, ptr %data_gep\n")
-        .append("  %suru_ret = call i64 @suru_main(ptr %seq)\n")
-        .append("  call void @free(ptr %seq)\n")
-        .append("  %ret32    = trunc i64 %suru_ret to i32\n")
+        .append("  %arr     = call ptr @malloc(i64 40)\n")
+        .append("  %tt_gep  = getelementptr %suru.Array, ptr %arr, i32 0, i32 0\n")
+        .append("  store i64 5, ptr %tt_gep\n")
+        .append("  %et_gep  = getelementptr %suru.Array, ptr %arr, i32 0, i32 1\n")
+        .append("  store i64 6, ptr %et_gep\n")
+        .append("  %ln_gep  = getelementptr %suru.Array, ptr %arr, i32 0, i32 2\n")
+        .append("  store i64 0, ptr %ln_gep\n")
+        .append("  %cp_gep  = getelementptr %suru.Array, ptr %arr, i32 0, i32 3\n")
+        .append("  store i64 0, ptr %cp_gep\n")
+        .append("  %dt_gep  = getelementptr %suru.Array, ptr %arr, i32 0, i32 4\n")
+        .append("  store ptr null, ptr %dt_gep\n")
+        .append("  %argc64  = sext i32 %argc to i64\n")
+        .append("  br label %argv_cond\n")
+        .append("argv_cond:\n")
+        .append("  %ai      = phi i64 [ 0, %entry ], [ %ai_next, %argv_body ]\n")
+        .append("  %acond   = icmp slt i64 %ai, %argc64\n")
+        .append("  br i1 %acond, label %argv_body, label %argv_done\n")
+        .append("argv_body:\n")
+        .append("  %slot    = getelementptr ptr, ptr %argv, i64 %ai\n")
+        .append("  %cstr    = load ptr, ptr %slot\n")
+        .append("  %clen    = call i64 @strlen(ptr %cstr)\n")
+        .append("  %bufsz   = add i64 %clen, 1\n")
+        .append("  %buf     = call ptr @malloc(i64 %bufsz)\n")
+        .append("  call ptr @memcpy(ptr %buf, ptr %cstr, i64 %bufsz)\n")
+        .append("  %str     = call ptr @suru_string_create(ptr %buf, i64 %clen)\n")
+        .append("  %strI64  = ptrtoint ptr %str to i64\n")
+        .append("  call void @suru_array_add_i64(ptr %arr, i64 %strI64)\n")
+        .append("  %ai_next = add i64 %ai, 1\n")
+        .append("  br label %argv_cond\n")
+        .append("argv_done:\n")
+        .append("  %suru_ret = call i64 @suru_main(ptr %arr)\n")
+        .append("  %ret32   = trunc i64 %suru_ret to i32\n")
         .append("  ret i32 %ret32\n")
         .append("}\n")
     ctx.fns: ctx.fns.append(out)

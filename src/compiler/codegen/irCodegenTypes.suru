@@ -87,7 +87,6 @@ type SumTypeDecl: { name String, variants Array<String> }
 //
 // Per-function state (reset at the start of each emitFunction call):
 //   vars                  — local variable symbol table
-//   argvVars              — names of argv-holding variables (for args.at routing)
 //   blockOpen             — false after a terminator (ret/br); guards double-terminators
 //   currentReturnLlvmType — LLVM type of the current function's return ("i64", "ptr", …)
 //   currentReturnSuruType — Suru type name of the current function's return
@@ -114,7 +113,6 @@ type IrCodegenContext: {
     ownFnNames        Array<String>
     ownTypeNames      Array<String>
     vars              Array<VarEntry>
-    argvVars          Array<String>
     blockOpen         Bool
     currentReturnLlvmType String
     currentReturnSuruType String
@@ -142,7 +140,6 @@ fn makeIrContext() IrCodegenContext {
     let ownFnNames   Array<String>:       []
     let ownTypeNames Array<String>:       []
     let vars         Array<VarEntry>:     []
-    let argvVars    Array<String>:       []
     let declares              Array<String>: []
     let extCloneDropTypeNames Array<String>: []
     return {
@@ -162,7 +159,6 @@ fn makeIrContext() IrCodegenContext {
         ownFnNames:        ownFnNames
         ownTypeNames:      ownTypeNames
         vars:              vars
-        argvVars:          argvVars
         blockOpen:         false
         currentReturnLlvmType: ""
         currentReturnSuruType: ""

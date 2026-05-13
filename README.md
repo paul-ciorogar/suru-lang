@@ -28,6 +28,13 @@ A minimalist, library-driven, general-purpose programming language — staticall
   - [Include directive](#include-directive)
   - [Main function and CLI arguments](#main-function-and-cli-arguments)
 - [Getting started](#getting-started)
+- [CLI](#cli)
+  - [Building the CLI](#building-the-cli)
+  - [compile](#compile)
+  - [build](#build)
+  - [lex](#lex)
+  - [parse](#parse)
+  - [ir](#ir)
 - [Repository layout](#repository-layout)
 - [Bootstrap context](#bootstrap-context)
 
@@ -533,8 +540,8 @@ docker build -t suru .
 Compile and run a program:
 
 ```sh
-./scripts/build.sh tests/fixtures/arithmetic/main.suru build/
-./build/main
+./scripts/build.sh tests/fixtures/arithmetic/main.suru
+./tests/fixtures/arithmetic/build/main
 ```
 
 Run the test suite (builds a Suru test runner, then runs it inside Docker):
@@ -548,6 +555,76 @@ Bootstrap a new compiler binary from source:
 ```sh
 ./scripts/bootstrap.sh
 ```
+
+## CLI
+
+The Suru CLI (`src/cli/main.suru`) is the compiler. It wraps the compiler pipeline and exposes five commands: `compile`, `build`, `lex`, `parse`, and `ir`.
+
+### Building the CLI
+
+```sh
+./scripts/build.sh src/cli/main.suru build/cli
+```
+
+The binary is written to `build/cli/main`. You can invoke it directly:
+
+```sh
+build/cli/main <command> <file.suru>
+```
+
+Or copy/symlink it somewhere on your `$PATH` as `suru`.
+
+### compile
+
+Compile a `.suru` source file to LLVM IR files. This is the low-level interface used by build scripts and the test runner — it mirrors the old `suru-build <source> <output.ll>` interface:
+
+```sh
+build/cli/main compile src/myprogram/main.suru /tmp/out/main.ll
+# writes main.ll and one .ll per included file into /tmp/out/
+clang-18 /tmp/out/*.ll /usr/local/lib/suru/runtime/*.ll -o myprogram
+```
+
+### build
+
+Compile a `.suru` source file to a native executable. The output binary is placed in a `build/` directory next to the source file:
+
+```sh
+build/cli/main build src/myprogram/main.suru
+# → src/myprogram/build/main
+```
+
+### lex
+
+Print every token produced by the lexer, one per line, in the format `KIND text line:col`. Useful for debugging tokenisation:
+
+```sh
+build/cli/main lex src/myprogram/main.suru
+# KEYWORD fn 1:1
+# IDENT   main 1:4
+# ...
+```
+
+`include` directives are **not** expanded — only the tokens of the given file are printed.
+
+### parse
+
+Parse the source file (expanding all `include` directives transitively) and print the AST as an indented tree:
+
+```sh
+build/cli/main parse src/myprogram/main.suru
+```
+
+Useful for verifying that the parser sees the structure you expect and for inspecting how includes are resolved.
+
+### ir
+
+Run the full compilation pipeline and print the generated LLVM IR to stdout, without invoking `clang`:
+
+```sh
+build/cli/main ir src/myprogram/main.suru
+```
+
+Useful for inspecting codegen output or diffing IR across changes without producing a binary.
 
 ## Repository layout
 

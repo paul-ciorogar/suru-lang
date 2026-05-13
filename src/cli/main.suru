@@ -1,0 +1,148 @@
+// suru CLI — user-facing frontend for the Suru compiler.
+//
+// Commands:
+//   compile <file> <out.ll>   Compile to LLVM IR files (replaces bin/suru-build)
+//   build   <file>            Compile to a native executable (written to build/ next to the source)
+//   lex     <file>            Print all tokens produced by the lexer, one per line
+//   parse   <file>            Print the parsed AST as an indented tree (includes are expanded)
+//   ir      <file>            Print the generated LLVM IR without invoking clang
+
+include "../compiler/pipeline.suru"          as pipeline
+include "../compiler/lexer/lexer.suru"       as lex
+include "../compiler/parser/parser.suru"     as parser
+
+// ─── Lex command ───────────────────────────────────────────────────────────────
+
+// Print each token as "KIND text line:col", one per line (EOF omitted).
+fn runLex(sourcePath String) {
+    let source String: readFile(sourcePath)
+    let output String: lex.toString(source)
+    drop(source)
+    printLn(output)
+    drop(output)
+}
+
+// ─── Parse command ─────────────────────────────────────────────────────────────
+
+// Tokenize and parse sourcePath, then print the AST tree to stdout.
+fn runParse(sourcePath String) {
+    let source String: readFile(sourcePath)
+    let tokens Array<Token>: lex.tokenize(source)
+    let mod AstModule: parser.parse(tokens)
+    parser.printModule(mod, sourcePath)
+}
+
+// ─── IR command ────────────────────────────────────────────────────────────────
+
+// Run the full compilation pipeline and print the LLVM IR to stdout.
+fn runIR(sourcePath String) {
+    printLn(pipeline.generateIRText(sourcePath))
+}
+
+// ─── Build command ─────────────────────────────────────────────────────────────
+
+// Compile sourcePath to a native binary in build/ next to the source file.
+fn runBuild(sourcePath String) {
+    let buildDir String: pipeline.dirName(sourcePath).append("build/")
+    pipeline.compilePipeline(sourcePath, buildDir)
+    printLn("Built: ".append(buildDir).append("main"))
+}
+
+// ─── Compile command ────────────────────────────────────────────────────────────
+
+// Write IR for sourcePath and each included file into the directory containing outputPath.
+// This is the scriptable compiler interface, replacing the old bin/suru-build binary.
+fn runCompile(sourcePath String, outputPath String) {
+    pipeline.runBuildDriver(sourcePath, outputPath)
+}
+
+// ─── Usage ─────────────────────────────────────────────────────────────────────
+
+fn printUsage() {
+    printError("Usage: suru <command> [args]")
+    printError("")
+    printError("Commands:")
+    printError("  compile <file> <out.ll>   Compile to LLVM IR files (used by build scripts)")
+    printError("  build   <file>            Compile to a native executable (written to build/ next to the source)")
+    printError("  lex     <file>            Print all tokens produced by the lexer, one per line")
+    printError("  parse   <file>            Print the parsed AST as an indented tree (includes are expanded)")
+    printError("  ir      <file>            Print the generated LLVM IR without invoking clang")
+}
+
+// ─── Entry point ───────────────────────────────────────────────────────────────
+
+fn main(args Array<String>) {
+    // args.at(0) = argv[0] (binary name); args.at(1) = command; args.at(2) = file
+    match args.len().lt(2) {
+        true: {
+            printUsage()
+            exit(1)
+        }
+        _: {}
+    }
+
+    let command String: args.at(1)
+
+    match command {
+        "compile": {
+            match args.len().lt(4) {
+                true: {
+                    printError("error: 'compile' requires a source file and output path")
+                    printError("Usage: suru compile <file.suru> <output.ll>")
+                    exit(1)
+                }
+                _: {}
+            }
+            runCompile(args.at(2), args.at(3))
+        }
+        "build": {
+            match args.len().lt(3) {
+                true: {
+                    printError("error: 'build' requires a file argument")
+                    printError("Usage: suru build <file.suru>")
+                    exit(1)
+                }
+                _: {}
+            }
+            runBuild(args.at(2))
+        }
+        "lex": {
+            match args.len().lt(3) {
+                true: {
+                    printError("error: 'lex' requires a file argument")
+                    printError("Usage: suru lex <file.suru>")
+                    exit(1)
+                }
+                _: {}
+            }
+            runLex(args.at(2))
+        }
+        "parse": {
+            match args.len().lt(3) {
+                true: {
+                    printError("error: 'parse' requires a file argument")
+                    printError("Usage: suru parse <file.suru>")
+                    exit(1)
+                }
+                _: {}
+            }
+            runParse(args.at(2))
+        }
+        "ir": {
+            match args.len().lt(3) {
+                true: {
+                    printError("error: 'ir' requires a file argument")
+                    printError("Usage: suru ir <file.suru>")
+                    exit(1)
+                }
+                _: {}
+            }
+            runIR(args.at(2))
+        }
+        _: {
+            printError("error: unknown command '".append(command).append("'"))
+            printUsage()
+            exit(1)
+        }
+    }
+}

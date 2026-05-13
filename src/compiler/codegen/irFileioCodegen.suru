@@ -1,12 +1,4 @@
-// ir-fileio-codegen.suru — File I/O and argv IR emission helpers.
-//
-// Three built-in operations are handled here:
-//
-//   args.at(i)       — argv element extraction (ir-codegen.suru routes here when the
-//                       receiver is in ctx.argvVars).  args is a fake %suru.String
-//                       header whose `data` field holds the raw char** argv pointer;
-//                       the `len` field holds argc.  emitArgAt GEPs into char**, calls
-//                       strlen, and wraps the C string in a fresh suru.String header.
+// ir-fileio-codegen.suru — File I/O IR emission helpers.
 //
 //   readFile(path)   — fopen/fseek(SEEK_END)/ftell/rewind/malloc/fread/null-terminate/
 //                       fclose, then @suru_string_create to wrap the buffer.
@@ -83,70 +75,6 @@ fn extractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
     let lr IrResult: ir.emitLoad(ctx.builder, "i64", gr.name)
     ctx.builder: lr.builder
     return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "Int64" }
-}
-
-// ─── argv element extraction ──────────────────────────────────────────────────
-
-// Emit args.at(idx) — extract the idx-th element from the char** argv pointer
-// wrapped inside a fake %suru.String header (built by @main / emitMainWrapper).
-//
-// argvPtr: SSA name of the args variable (ptr to the fake %suru.String).
-// idx:     pre-emitted raw i64 SSA name for the index.
-//
-// Steps:
-//   1. GEP to field 2 (data) of the %suru.String → char** (raw argv pointer).
-//   2. GEP into char** at position idx → ptr to the i-th char* slot.
-//   3. Load the char* from the slot.
-//   4. strlen to measure the C string length.
-//   5. @suru_string_create to wrap it in a Suru String header.
-//
-fn emitArgAt(ctx IrCodegenContext, argvPtr String, idx String) CodegenResult {
-    // Step 1: extract char** from the fake %suru.String data field.
-    let dataR CodegenResult: extractStringData(ctx, argvPtr)
-    ctx: dataR.ctx
-    let charStarStar String: dataR.name
-
-    // Step 2: GEP into char** at position idx → pointer to the slot.
-    let slotR IrResult: ir.emitGEP(ctx.builder, "ptr", charStarStar, "i64 ".append(idx))
-    ctx.builder: slotR.builder
-
-    // Step 3: load the char* (C string pointer) from the slot.
-    let cstrR IrResult: ir.emitLoad(ctx.builder, "ptr", slotR.name)
-    ctx.builder: cstrR.builder
-
-    // Step 4: measure the C string length (excluding null terminator).
-    ctx: types.addDecl(ctx, "declare i64 @strlen(ptr)\n")
-    let strlenArgs Array<String>: []
-    strlenArgs.add("ptr ".append(cstrR.name))
-    let lenR IrResult: ir.emitCall(ctx.builder, "i64", "strlen", strlenArgs)
-    ctx.builder: lenR.builder
-
-    // Step 5: copy the argv C string into a heap buffer so the result is
-    // fully owned and safe to drop with suru_string_drop.
-    // Buffer size = len + 1 (includes null terminator).
-    ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
-    let bufSzR IrResult: ir.emitBinop(ctx.builder, "add", "i64", lenR.name, "1")
-    ctx.builder: bufSzR.builder
-    let mallocArgs Array<String>: []
-    mallocArgs.add("i64 ".append(bufSzR.name))
-    let bufR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", mallocArgs)
-    ctx.builder: bufR.builder
-    ctx: types.addDecl(ctx, "declare ptr @memcpy(ptr, ptr, i64)\n")
-    let mcArgs Array<String>: []
-    mcArgs.add("ptr ".append(bufR.name))
-    mcArgs.add("ptr ".append(cstrR.name))
-    mcArgs.add("i64 ".append(bufSzR.name))
-    ctx.builder: ir.emitCallDiscard(ctx.builder, "ptr", "memcpy", mcArgs)
-
-    // Step 6: wrap the owned heap buffer in a Suru String header.
-    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_create(ptr, i64)\n")
-    let createArgs Array<String>: []
-    createArgs.add("ptr ".append(bufR.name))
-    createArgs.add("i64 ".append(lenR.name))
-    let createR IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_create", createArgs)
-    ctx.builder: createR.builder
-
-    return { ctx: ctx, name: createR.name, llvmType: "ptr", suruType: "String" }
 }
 
 // ─── File I/O built-ins ───────────────────────────────────────────────────────

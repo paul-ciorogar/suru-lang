@@ -250,6 +250,71 @@ fn skipLineComment(source String, pos Int64, line Int64, col Int64) LexState {
     return { pos: pos, line: line, col: col }
 }
 
+// Map a token kind ordinal to its display name.
+fn tokenKindName(kind Int64) String {
+    match kind.equals(0)  { true: { return "EOF"      } _: {} }
+    match kind.equals(1)  { true: { return "IDENT"    } _: {} }
+    match kind.equals(2)  { true: { return "TRUE"     } _: {} }
+    match kind.equals(3)  { true: { return "FALSE"    } _: {} }
+    match kind.equals(4)  { true: { return "INT"      } _: {} }
+    match kind.equals(5)  { true: { return "FLOAT"    } _: {} }
+    match kind.equals(6)  { true: { return "STRING"   } _: {} }
+    match kind.equals(7)  { true: { return "LPAREN"   } _: {} }
+    match kind.equals(8)  { true: { return "RPAREN"   } _: {} }
+    match kind.equals(9)  { true: { return "LBRACE"   } _: {} }
+    match kind.equals(10) { true: { return "RBRACE"   } _: {} }
+    match kind.equals(11) { true: { return "LBRACKET" } _: {} }
+    match kind.equals(12) { true: { return "RBRACKET" } _: {} }
+    match kind.equals(13) { true: { return "COMMA"    } _: {} }
+    match kind.equals(14) { true: { return "DOT"      } _: {} }
+    match kind.equals(15) { true: { return "COLON"    } _: {} }
+    match kind.equals(16) { true: { return "MINUS"    } _: {} }
+    match kind.equals(17) { true: { return "LT"       } _: {} }
+    match kind.equals(18) { true: { return "GT"       } _: {} }
+    match kind.equals(19) { true: { return "LET"      } _: {} }
+    match kind.equals(20) { true: { return "NOT"      } _: {} }
+    match kind.equals(21) { true: { return "AND"      } _: {} }
+    match kind.equals(22) { true: { return "OR"       } _: {} }
+    match kind.equals(23) { true: { return "MATCH"    } _: {} }
+    match kind.equals(24) { true: { return "WILDCARD" } _: {} }
+    match kind.equals(25) { true: { return "FN"       } _: {} }
+    match kind.equals(26) { true: { return "RETURN"   } _: {} }
+    match kind.equals(27) { true: { return "VOID"     } _: {} }
+    match kind.equals(28) { true: { return "WHILE"    } _: {} }
+    match kind.equals(29) { true: { return "INCLUDE"  } _: {} }
+    match kind.equals(30) { true: { return "TYPE"     } _: {} }
+    match kind.equals(31) { true: { return "AS"       } _: {} }
+    return "UNKNOWN"
+}
+
+// Tokenize source and format all non-EOF tokens as "KIND text line:col\n" lines.
+fn toString(source String) String {
+    let tokens Array<Token>: tokenize(source)
+    let result String: ""
+    let i Int64: 0
+    while i.lt(tokens.len()) {
+        let tok Token: tokens.at(i)
+        match tok.kind.equals(TOK_EOF) {
+            true: {}
+            _: {
+                let line String: tokenKindName(tok.kind)
+                    .append(" ")
+                    .append(tok.text)
+                    .append(" ")
+                    .append(tok.line.toString())
+                    .append(":")
+                    .append(tok.col.toString())
+                    .append("\n")
+                result: result.append(line)
+                drop(line)
+            }
+        }
+        i: i.add(1)
+    }
+    drop(tokens)
+    return result
+}
+
 fn tokenize(source String) Array<Token> {
     let tokens Array<Token>: []
     let pos Int64: 0

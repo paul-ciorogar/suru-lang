@@ -6,19 +6,16 @@ docker run --rm -i \
   suru \
   bash << 'DOCKER_EOF'
 set -euo pipefail
-RUNTIME="/usr/local/lib/suru/runtime"
 
 capture() {
   local name="$1"; shift
   local extra_args=("$@")
   local source="/work/tests/fixtures/${name}/main.suru"
-  local out_ll="/tmp/cap_${name}.ll"
-  local out_bin="/tmp/cap_${name}"
+  local out_bin="/work/tests/fixtures/${name}/build/main"
   local expected="/work/tests/fixtures/${name}/expected.txt"
 
   echo "capturing ${name}..."
-  suru-build "$source" "$out_ll"
-  clang-18 "$out_ll" "${RUNTIME}"/*.ll -o "$out_bin"
+  suru build "$source"
   "$out_bin" "${extra_args[@]}" > "$expected"
   echo "  wrote ${expected}"
 }

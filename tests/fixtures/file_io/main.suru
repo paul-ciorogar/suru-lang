@@ -3,5 +3,4 @@ fn main(args Array<String>) {
     let content String: readFile(path)
     printLn(content)
     drop(content)
-    drop(path)
 }

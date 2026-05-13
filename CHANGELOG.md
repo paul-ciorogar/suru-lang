@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### User-Facing CLI (`suru`)
+
+A new user-facing CLI entry point (`src/cli/main.suru`) wraps the compiler pipeline:
+- `suru build <file.suru>` — compiles to a native binary in `build/` next to the source file
+- `suru lex <file.suru>` — prints all tokens produced by the lexer, one per line (`KIND text line:col`)
+- `suru parse <file.suru>` — prints the parsed AST as an indented tree (includes are expanded)
+- `suru ir <file.suru>` — prints the generated LLVM IR without invoking clang
+
+`src/compiler/pipeline.suru` was extracted from `build.suru` as a shared library so both the
+bootstrap driver and the CLI can use the same lex→parse→semantic→codegen pipeline.
+`build.suru` is now a thin 12-line wrapper around `pipeline.suru`.
+
+Added `cli-lex` test fixture: runs `suru lex` on `tests/fixtures/simple/main.suru` and compares
+output against a captured snapshot.
+
 ### Zero-Cost Static String Literals
 
 String literals (`"hello"`) are now zero-allocation static globals instead of heap-allocated values:
