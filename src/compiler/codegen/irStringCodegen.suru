@@ -53,42 +53,17 @@ fn emitExtractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
 
 // ─── String literal value ─────────────────────────────────────────────────────
 
-// Intern a Suru string literal into a module-level [N x i8] constant, then
-// malloc+memcpy the bytes into a heap buffer and call @suru_string_create.
+// Intern a Suru string literal as a pair of module-level globals:
+//   @.str_N      — [K x i8] constant holding the raw bytes (incl. null terminator)
+//   @.str_hdr_N  — %suru.String constant { type_tag=7, len, ptr @.str_N }
 //
-// byteLen = len+1 (includes null terminator) — used for malloc and memcpy.
-// charLen = len   (excludes null terminator) — passed to suru_string_create.
-//
-// The resulting ptr is a fresh 24-byte suru.String whose data ptr owns the buffer.
+// type_tag=7 marks the header as a static literal so suru_string_drop skips freeing it.
+// Returning a ptr to the global constant costs zero at runtime — no malloc, no memcpy.
 fn emitStringLiteralValue(ctx IrCodegenContext, text String) CodegenResult {
-    // Intern: emit private constant global if not already seen (idempotent).
+    // internString emits both @.str_N and @.str_hdr_N (idempotent).
     ctx: types.internString(ctx, text)
-    let gname String: types.lookupStrGlobal(ctx, text)
-    let byteLen Int64: text.len().add(1)
-    let charLen Int64: text.len()
-    // Allocate a heap buffer to own the bytes (including null terminator).
-    ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
-    let mallocArgs Array<String>: []
-    mallocArgs.add("i64 ".append(byteLen.toString()))
-    let mallocR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", mallocArgs)
-    ctx.builder: mallocR.builder
-    let buf String: mallocR.name
-    // Copy bytes from the intern global into the heap buffer.
-    // memcpy returns the destination ptr but the result is always discarded here.
-    ctx: types.addDecl(ctx, "declare ptr @memcpy(ptr, ptr, i64)\n")
-    let mcArgs Array<String>: []
-    mcArgs.add("ptr ".append(buf))
-    mcArgs.add("ptr ".append(gname))
-    mcArgs.add("i64 ".append(byteLen.toString()))
-    ctx.builder: ir.emitCallDiscard(ctx.builder, "ptr", "memcpy", mcArgs)
-    // Wrap the heap buffer in a suru.String header via the runtime constructor.
-    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_create(ptr, i64)\n")
-    let scArgs Array<String>: []
-    scArgs.add("ptr ".append(buf))
-    scArgs.add("i64 ".append(charLen.toString()))
-    let scR IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_create", scArgs)
-    ctx.builder: scR.builder
-    return { ctx: ctx, name: scR.name, llvmType: "ptr", suruType: "String" }
+    let hdrName String: types.lookupStrHdrGlobal(ctx, text)
+    return { ctx: ctx, name: hdrName, llvmType: "ptr", suruType: "String" }
 }
 
 // ─── String instance methods ──────────────────────────────────────────────────
@@ -106,6 +81,19 @@ fn emitStringAppend(ctx IrCodegenContext, recv String, arg String) CodegenResult
     args.add("ptr ".append(recv))
     args.add("ptr ".append(arg))
     let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_append", args)
+    ctx.builder: r.builder
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
+}
+
+// .append("literal") → String: concat lhs with a raw string-literal global.
+// gname is the interned @.str_N name; charLen is the char count (excl. null).
+fn emitStringAppendLit(ctx IrCodegenContext, recv String, gname String, charLen Int64) CodegenResult {
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append_lit(ptr, ptr, i64)\n")
+    let args Array<String>: []
+    args.add("ptr ".append(recv))
+    args.add("ptr ".append(gname))
+    args.add("i64 ".append(charLen.toString()))
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_append_lit", args)
     ctx.builder: r.builder
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
@@ -132,6 +120,42 @@ fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResu
     let r IrResult: ir.emitCall(ctx.builder, "i1", "suru_string_equals", args)
     ctx.builder: r.builder
     return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "Bool" }
+}
+
+// .equals("literal") → raw i1 Bool: compare recv with a raw string-literal global.
+// gname is the interned @.str_N constant; no suru.String wrapper needed for rhs.
+fn emitStringEqualsLit(ctx IrCodegenContext, recv String, gname String) CodegenResult {
+    ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
+    let ldGr IrResult: ir.emitGEP(ctx.builder, "%suru.String", recv, "i32 0, i32 2")
+    ctx.builder: ldGr.builder
+    let ldR IrResult: ir.emitLoad(ctx.builder, "ptr", ldGr.name)
+    ctx.builder: ldR.builder
+    let scArgs Array<String>: []
+    scArgs.add("ptr ".append(ldR.name))
+    scArgs.add("ptr ".append(gname))
+    let cmpR IrResult: ir.emitCall(ctx.builder, "i32", "strcmp", scArgs)
+    ctx.builder: cmpR.builder
+    let eqR IrResult: ir.emitICmp(ctx.builder, "eq", "i32", cmpR.name, "0")
+    ctx.builder: eqR.builder
+    return { ctx: ctx, name: eqR.name, llvmType: "i1", suruType: "Bool" }
+}
+
+// .compare("literal") → i64: signed ordering via @strcmp against a raw global.
+// gname is the interned @.str_N constant; no suru.String wrapper needed for rhs.
+fn emitStringCompareLit(ctx IrCodegenContext, recv String, gname String) CodegenResult {
+    ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
+    let ldGr IrResult: ir.emitGEP(ctx.builder, "%suru.String", recv, "i32 0, i32 2")
+    ctx.builder: ldGr.builder
+    let ldR IrResult: ir.emitLoad(ctx.builder, "ptr", ldGr.name)
+    ctx.builder: ldR.builder
+    let scArgs Array<String>: []
+    scArgs.add("ptr ".append(ldR.name))
+    scArgs.add("ptr ".append(gname))
+    let cmpR IrResult: ir.emitCall(ctx.builder, "i32", "strcmp", scArgs)
+    ctx.builder: cmpR.builder
+    let sextR IrResult: ir.emitSext(ctx.builder, "i32", cmpR.name, "i64")
+    ctx.builder: sextR.builder
+    return { ctx: ctx, name: sextR.name, llvmType: "i64", suruType: "Int64" }
 }
 
 // .compare(rhs) → i64: signed ordering via @strcmp; negative/0/positive.

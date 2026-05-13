@@ -1,7 +1,7 @@
 ; Suru box runtime — compiled to suru_box.o and linked with every Suru program.
 ;
 ; %suru.Box wraps scalar values so every Suru value is a `ptr` with type_tag at offset 0.
-; type_tag: 0=Bool 1=Int32 2=Int64 3=Float64 4=Struct 5=Array 6=String
+; type_tag: 0=Bool 1=Int32 2=Int64 3=Float64 4=Struct 5=Array 6=String 7=SumType 8=StaticString
 
 ; ModuleID = 'suru_box.ll'
 source_filename = "suru_box.ll"
@@ -141,6 +141,7 @@ entry:
     i64 4, label %is_struct
     i64 5, label %is_array
     i64 6, label %is_string
+    i64 8, label %is_string
   ]
 is_bool:
   %bp  = getelementptr %suru.Box, ptr %v, i32 0, i32 1
@@ -201,6 +202,7 @@ entry:
     i64 4, label %is_struct
     i64 5, label %is_array
     i64 6, label %is_string
+    i64 8, label %is_string
   ]
 is_bool:
   %bp  = getelementptr %suru.Box, ptr %v, i32 0, i32 1
@@ -252,11 +254,90 @@ done:
   ret void
 }
 
+; ─── suru_println_bool / i32 / i64 / f64 ──────────────────────────────────────
+; Scalar-specific stdout printers — no heap allocation.
+define void @suru_println_bool(i1 %v) {
+entry:
+  br i1 %v, label %is_true, label %is_false
+is_true:
+  call i32 @puts(ptr @.box_true)
+  ret void
+is_false:
+  call i32 @puts(ptr @.box_false)
+  ret void
+}
+
+define void @suru_println_i32(i32 %v) {
+entry:
+  call i32 (ptr, ...) @printf(ptr @.box_fmt_d, i32 %v)
+  ret void
+}
+
+define void @suru_println_i64(i64 %v) {
+entry:
+  call i32 (ptr, ...) @printf(ptr @.box_fmt_lld, i64 %v)
+  ret void
+}
+
+define void @suru_println_f64(double %v) {
+entry:
+  call i32 (ptr, ...) @printf(ptr @.box_fmt_g, double %v)
+  ret void
+}
+
+; ─── suru_printerror_bool / i32 / i64 / f64 ───────────────────────────────────
+; Scalar-specific stderr printers — no heap allocation.
+define void @suru_printerror_bool(i1 %v) {
+entry:
+  %fp = load ptr, ptr @stderr
+  br i1 %v, label %is_true, label %is_false
+is_true:
+  call i32 @fputs(ptr @.box_true, ptr %fp)
+  call i32 @fputs(ptr @.box_newline, ptr %fp)
+  ret void
+is_false:
+  call i32 @fputs(ptr @.box_false, ptr %fp)
+  call i32 @fputs(ptr @.box_newline, ptr %fp)
+  ret void
+}
+
+define void @suru_printerror_i32(i32 %v) {
+entry:
+  %fp = load ptr, ptr @stderr
+  call i32 (ptr, ptr, ...) @fprintf(ptr %fp, ptr @.box_efmt_d, i32 %v)
+  ret void
+}
+
+define void @suru_printerror_i64(i64 %v) {
+entry:
+  %fp = load ptr, ptr @stderr
+  call i32 (ptr, ptr, ...) @fprintf(ptr %fp, ptr @.box_efmt_lld, i64 %v)
+  ret void
+}
+
+define void @suru_printerror_f64(double %v) {
+entry:
+  %fp = load ptr, ptr @stderr
+  call i32 (ptr, ptr, ...) @fprintf(ptr %fp, ptr @.box_efmt_g, double %v)
+  ret void
+}
+
+; ─── suru_printerror_lit ───────────────────────────────────────────────────────
+; Print a raw string-literal byte buffer to stderr followed by a newline.
+; %data is a ptr to a null-terminated i8 buffer (e.g. a module-level constant).
+define void @suru_printerror_lit(ptr %data) {
+entry:
+  %fp = load ptr, ptr @stderr
+  call i32 @fputs(ptr %data, ptr %fp)
+  call i32 @fputs(ptr @.box_newline, ptr %fp)
+  ret void
+}
+
 ; ─── suru_dyn_len ──────────────────────────────────────────────────────────────
 ; Return the length of any String or Array value. Dispatches on type_tag at offset 0.
-;   tag=5 (Array):  loads %suru.Array field index 2 (len, i64, offset 16)
-;   tag=6 (String): loads %suru.String field index 1 (len, i64, offset 8)
-;   other:          returns 0
+;   tag=5 (Array):        loads %suru.Array field index 2 (len, i64, offset 16)
+;   tag=6/8 (String):     loads %suru.String field index 1 (len, i64, offset 8)
+;   other:                returns 0
 %suru.String.dyn = type { i64, i64, ptr }
 %suru.Array.dyn  = type { i64, i64, i64, i64, ptr }
 define i64 @suru_dyn_len(ptr %v) {
@@ -268,6 +349,7 @@ dispatch:
   switch i64 %tag, label %unknown [
     i64 5, label %is_array
     i64 6, label %is_string
+    i64 8, label %is_string
   ]
 is_array:
   %agep = getelementptr %suru.Array.dyn, ptr %v, i32 0, i32 2

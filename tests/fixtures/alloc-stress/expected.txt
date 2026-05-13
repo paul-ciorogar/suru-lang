@@ -1,0 +1,7 @@
+string loop ok
+30
+array add ok
+3
+clone drop ok
+5
+matrix ok

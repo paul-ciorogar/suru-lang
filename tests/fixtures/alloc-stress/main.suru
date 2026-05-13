@@ -1,0 +1,38 @@
+fn main(args Array<String>) {
+    let i Int64: 0
+    while i.lt(50) {
+        let s String: "prefix-".append(i.toString())
+        drop(s)
+        i: i.add(1)
+    }
+    printLn("string loop ok")
+
+    let arr Array<String>: []
+    let j Int64: 0
+    while j.lt(30) {
+        let s String: "item-".append(j.toString())
+        arr.add(s)
+        j: j.add(1)
+    }
+    printLn(arr.len())
+    drop(arr)
+    printLn("array add ok")
+
+    let base Array<String>: ["alpha", "beta", "gamma"]
+    let copy Array<String>: clone(base)
+    printLn(copy.len())
+    drop(copy)
+    drop(base)
+    printLn("clone drop ok")
+
+    let matrix Array<Array<Int64>>: []
+    let k Int64: 0
+    while k.lt(5) {
+        let row Array<Int64>: [k, k.add(1), k.add(2)]
+        matrix.add(row)
+        k: k.add(1)
+    }
+    printLn(matrix.len())
+    drop(matrix)
+    printLn("matrix ok")
+}

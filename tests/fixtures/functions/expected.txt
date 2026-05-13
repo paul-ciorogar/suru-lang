@@ -1,0 +1,8 @@
+42
+10
+14
+true
+false
+hello, world
+7
+5

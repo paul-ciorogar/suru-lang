@@ -13,4 +13,6 @@ fn main(args Array<String>) {
     printLn(a.ord())
     let z String: "0"
     printLn(z.ord())
+    drop(a)
+    drop(z)
 }

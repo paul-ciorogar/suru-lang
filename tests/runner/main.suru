@@ -3,20 +3,24 @@ type TestCase: { name String, source String, args String, expected String }
 fn main(args Array<String>) {
     let runtime String: "/usr/local/lib/suru/runtime"
     let cases Array<TestCase>: [
-        { name: "arithmetic",  source: "tests/fixtures/arithmetic",  args: "",                                        expected: readFile("/work/tests/fixtures/arithmetic/expected.txt")  },
-        { name: "fibonacci",   source: "tests/fixtures/fibonacci",   args: "",                                        expected: readFile("/work/tests/fixtures/fibonacci/expected.txt")   },
-        { name: "while-loop",  source: "tests/fixtures/while-loop",  args: "",                                        expected: readFile("/work/tests/fixtures/while-loop/expected.txt")  },
-        { name: "strings",     source: "tests/fixtures/strings",     args: "",                                        expected: readFile("/work/tests/fixtures/strings/expected.txt")     },
-        { name: "sum-types",   source: "tests/fixtures/sum-types",   args: "",                                        expected: readFile("/work/tests/fixtures/sum-types/expected.txt")   },
-        { name: "comparisons", source: "tests/fixtures/comparisons", args: "",                                        expected: readFile("/work/tests/fixtures/comparisons/expected.txt") },
-        { name: "arrays",      source: "tests/fixtures/arrays",      args: "",                                        expected: readFile("/work/tests/fixtures/arrays/expected.txt")      },
-        { name: "types",       source: "tests/fixtures/types",       args: "",                                        expected: readFile("/work/tests/fixtures/types/expected.txt")       },
-        { name: "file_io",     source: "tests/fixtures/file_io",     args: " /work/tests/fixtures/file_io/input.txt", expected: readFile("/work/tests/fixtures/file_io/expected.txt")     },
-        { name: "exec-test",   source: "tests/fixtures/exec-test",   args: "",                                        expected: readFile("/work/tests/fixtures/exec-test/expected.txt")   },
+        { name: "simple",   source: "tests/fixtures/simple",   args: "",                                        expected: readFile("/work/tests/fixtures/simple/expected.txt")   },
+        { name: "arithmetic",   source: "tests/fixtures/arithmetic",   args: "",                                        expected: readFile("/work/tests/fixtures/arithmetic/expected.txt")   },
+        { name: "fibonacci",    source: "tests/fixtures/fibonacci",    args: "",                                        expected: readFile("/work/tests/fixtures/fibonacci/expected.txt")    },
+        { name: "while-loop",   source: "tests/fixtures/while-loop",   args: "",                                        expected: readFile("/work/tests/fixtures/while-loop/expected.txt")   },
+        { name: "strings",      source: "tests/fixtures/strings",      args: "",                                        expected: readFile("/work/tests/fixtures/strings/expected.txt")      },
+        { name: "sum-types",    source: "tests/fixtures/sum-types",    args: "",                                        expected: readFile("/work/tests/fixtures/sum-types/expected.txt")    },
+        { name: "comparisons",  source: "tests/fixtures/comparisons",  args: "",                                        expected: readFile("/work/tests/fixtures/comparisons/expected.txt")  },
+        { name: "arrays",       source: "tests/fixtures/arrays",       args: "",                                        expected: readFile("/work/tests/fixtures/arrays/expected.txt")       },
+        { name: "types",        source: "tests/fixtures/types",        args: "",                                        expected: readFile("/work/tests/fixtures/types/expected.txt")        },
+        { name: "file_io",      source: "tests/fixtures/file_io",      args: " /work/tests/fixtures/file_io/input.txt", expected: readFile("/work/tests/fixtures/file_io/expected.txt")      },
+        { name: "exec-test",    source: "tests/fixtures/exec-test",    args: "",                                        expected: readFile("/work/tests/fixtures/exec-test/expected.txt")    },
+        { name: "alloc-stress", source: "tests/fixtures/alloc-stress", args: "",                                        expected: readFile("/work/tests/fixtures/alloc-stress/expected.txt") },
+        { name: "functions",    source: "tests/fixtures/functions",    args: "",                                        expected: readFile("/work/tests/fixtures/functions/expected.txt")    },
     ]
 
     let passed Int64: 0
     let failed Int64: 0
+    let memFailed Int64: 0
     let i Int64: 0
 
     while i.lt(cases.len()) {
@@ -30,15 +34,28 @@ fn main(args Array<String>) {
         exec(bin.append(tc.args).append(" > ").append(outFile).append(" 2>&1"))
 
         let actual String: readFile(outFile)
+        let memCheck Int64: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))
 
         match actual.equals(tc.expected) {
             true: {
-                printLn("PASS ".append(tc.name))
                 passed: passed.add(1)
+                match memCheck.equals(0) {
+                    true: { printLn("PASS ".append(tc.name).append("  memcheck ok")) }
+                    _: {
+                        printLn("PASS ".append(tc.name).append("  memcheck FAIL"))
+                        memFailed: memFailed.add(1)
+                    }
+                }
             }
             _: {
-                printLn("FAIL ".append(tc.name))
                 failed: failed.add(1)
+                match memCheck.equals(0) {
+                    true: { printLn("FAIL ".append(tc.name).append("  memcheck ok")) }
+                    _: {
+                        printLn("FAIL ".append(tc.name).append("  memcheck FAIL"))
+                        memFailed: memFailed.add(1)
+                    }
+                }
             }
         }
 
@@ -46,9 +63,13 @@ fn main(args Array<String>) {
     }
 
     printLn("")
-    printLn("Results: ".append(passed.toString()).append(" passed, ").append(failed.toString()).append(" failed"))
+    printLn("Results: ".append(passed.toString()).append(" passed, ").append(failed.toString()).append(" failed, ").append(memFailed.toString()).append(" memcheck failures"))
 
     match failed.gt(0) {
+        true: { exit(1) }
+        _: {}
+    }
+    match memFailed.gt(0) {
         true: { exit(1) }
         _: {}
     }

@@ -121,10 +121,27 @@ fn emitArgAt(ctx IrCodegenContext, argvPtr String, idx String) CodegenResult {
     let lenR IrResult: ir.emitCall(ctx.builder, "i64", "strlen", strlenArgs)
     ctx.builder: lenR.builder
 
-    // Step 5: wrap the C string in a Suru String header via the runtime constructor.
+    // Step 5: copy the argv C string into a heap buffer so the result is
+    // fully owned and safe to drop with suru_string_drop.
+    // Buffer size = len + 1 (includes null terminator).
+    ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
+    let bufSzR IrResult: ir.emitBinop(ctx.builder, "add", "i64", lenR.name, "1")
+    ctx.builder: bufSzR.builder
+    let mallocArgs Array<String>: []
+    mallocArgs.add("i64 ".append(bufSzR.name))
+    let bufR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", mallocArgs)
+    ctx.builder: bufR.builder
+    ctx: types.addDecl(ctx, "declare ptr @memcpy(ptr, ptr, i64)\n")
+    let mcArgs Array<String>: []
+    mcArgs.add("ptr ".append(bufR.name))
+    mcArgs.add("ptr ".append(cstrR.name))
+    mcArgs.add("i64 ".append(bufSzR.name))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "ptr", "memcpy", mcArgs)
+
+    // Step 6: wrap the owned heap buffer in a Suru String header.
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_create(ptr, i64)\n")
     let createArgs Array<String>: []
-    createArgs.add("ptr ".append(cstrR.name))
+    createArgs.add("ptr ".append(bufR.name))
     createArgs.add("i64 ".append(lenR.name))
     let createR IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_create", createArgs)
     ctx.builder: createR.builder
@@ -229,6 +246,73 @@ fn emitReadFile(ctx IrCodegenContext, pathPtr String) CodegenResult {
     return { ctx: ctx, name: createR.name, llvmType: "ptr", suruType: "String" }
 }
 
+// Emit readFile("literal") — path is a raw string-literal global, no suru.String wrapper.
+// gname is the interned @.str_N constant ptr (already null-terminated).
+fn emitReadFileLit(ctx IrCodegenContext, gname String) CodegenResult {
+    ctx: types.addDecl(ctx, "declare ptr @fopen(ptr, ptr)\n")
+    ctx: addModeR(ctx)
+    let fopenArgs Array<String>: []
+    fopenArgs.add("ptr ".append(gname))
+    fopenArgs.add("ptr @.mode_r")
+    let fileR IrResult: ir.emitCall(ctx.builder, "ptr", "fopen", fopenArgs)
+    ctx.builder: fileR.builder
+    let filePtr String: fileR.name
+
+    ctx: types.addDecl(ctx, "declare i32 @fseek(ptr, i64, i32)\n")
+    let fseekArgs Array<String>: []
+    fseekArgs.add("ptr ".append(filePtr))
+    fseekArgs.add("i64 0")
+    fseekArgs.add("i32 2")
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "fseek", fseekArgs)
+
+    ctx: types.addDecl(ctx, "declare i64 @ftell(ptr)\n")
+    let ftellArgs Array<String>: []
+    ftellArgs.add("ptr ".append(filePtr))
+    let sizeR IrResult: ir.emitCall(ctx.builder, "i64", "ftell", ftellArgs)
+    ctx.builder: sizeR.builder
+    let fileSize String: sizeR.name
+
+    ctx: types.addDecl(ctx, "declare void @rewind(ptr)\n")
+    let rewindArgs Array<String>: []
+    rewindArgs.add("ptr ".append(filePtr))
+    ctx.builder: ir.emitVoidCall(ctx.builder, "rewind", rewindArgs)
+
+    ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
+    let bufSizeR IrResult: ir.emitBinop(ctx.builder, "add", "i64", fileSize, "1")
+    ctx.builder: bufSizeR.builder
+    let mallocArgs Array<String>: []
+    mallocArgs.add("i64 ".append(bufSizeR.name))
+    let bufR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", mallocArgs)
+    ctx.builder: bufR.builder
+    let buf String: bufR.name
+
+    ctx: types.addDecl(ctx, "declare i64 @fread(ptr, i64, i64, ptr)\n")
+    let freadArgs Array<String>: []
+    freadArgs.add("ptr ".append(buf))
+    freadArgs.add("i64 1")
+    freadArgs.add("i64 ".append(fileSize))
+    freadArgs.add("ptr ".append(filePtr))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i64", "fread", freadArgs)
+
+    let nullSlotR IrResult: ir.emitGEP(ctx.builder, "i8", buf, "i64 ".append(fileSize))
+    ctx.builder: nullSlotR.builder
+    ctx.builder: ir.emitStore(ctx.builder, "i8", "0", nullSlotR.name)
+
+    ctx: types.addDecl(ctx, "declare i32 @fclose(ptr)\n")
+    let fcloseArgs Array<String>: []
+    fcloseArgs.add("ptr ".append(filePtr))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "fclose", fcloseArgs)
+
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_create(ptr, i64)\n")
+    let createArgs Array<String>: []
+    createArgs.add("ptr ".append(buf))
+    createArgs.add("i64 ".append(fileSize))
+    let createR IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_create", createArgs)
+    ctx.builder: createR.builder
+
+    return { ctx: ctx, name: createR.name, llvmType: "ptr", suruType: "String" }
+}
+
 // Emit writeFile(path, content) — write (truncating) content to a file.
 //
 // pathData:   pre-extracted raw char* for the path (caller did extractStringData first).
@@ -269,6 +353,34 @@ fn emitWriteFile(ctx IrCodegenContext, pathData String, contentPtr String) IrCod
     ctx.builder: ir.emitCallDiscard(ctx.builder, "i64", "fwrite", fwriteArgs)
 
     // Close the file handle.
+    ctx: types.addDecl(ctx, "declare i32 @fclose(ptr)\n")
+    let fcloseArgs Array<String>: []
+    fcloseArgs.add("ptr ".append(filePtr))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "fclose", fcloseArgs)
+
+    return ctx
+}
+
+// Emit writeFile(path, "literal") — content is a raw string-literal global.
+// pathData is a pre-extracted raw char*; gname is the interned content global; charLen is the char count.
+fn emitWriteFileLit(ctx IrCodegenContext, pathData String, gname String, charLen Int64) IrCodegenContext {
+    ctx: types.addDecl(ctx, "declare ptr @fopen(ptr, ptr)\n")
+    ctx: addModeW(ctx)
+    let fopenArgs Array<String>: []
+    fopenArgs.add("ptr ".append(pathData))
+    fopenArgs.add("ptr @.mode_w")
+    let fileR IrResult: ir.emitCall(ctx.builder, "ptr", "fopen", fopenArgs)
+    ctx.builder: fileR.builder
+    let filePtr String: fileR.name
+
+    ctx: types.addDecl(ctx, "declare i64 @fwrite(ptr, i64, i64, ptr)\n")
+    let fwriteArgs Array<String>: []
+    fwriteArgs.add("ptr ".append(gname))
+    fwriteArgs.add("i64 1")
+    fwriteArgs.add("i64 ".append(charLen.toString()))
+    fwriteArgs.add("ptr ".append(filePtr))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i64", "fwrite", fwriteArgs)
+
     ctx: types.addDecl(ctx, "declare i32 @fclose(ptr)\n")
     let fcloseArgs Array<String>: []
     fcloseArgs.add("ptr ".append(filePtr))
@@ -320,6 +432,34 @@ fn emitAppendToFile(ctx IrCodegenContext, pathData String, contentPtr String) Ir
     let fcloseArgs Array<String>: []
     fcloseArgs.add("ptr ".append(filePtr))
     ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "fclose", fcloseArgs)
+
+    return ctx
+}
+
+// Emit appendToFile(path, "literal") — content is a raw string-literal global.
+// pathData is a pre-extracted raw char*; gname is the interned content global; charLen is the char count.
+fn emitAppendToFileLit(ctx IrCodegenContext, pathData String, gname String, charLen Int64) IrCodegenContext {
+    ctx: types.addDecl(ctx, "declare ptr @fopen(ptr, ptr)\n")
+    ctx: addModeA(ctx)
+    let fopenArgsL Array<String>: []
+    fopenArgsL.add("ptr ".append(pathData))
+    fopenArgsL.add("ptr @.mode_a")
+    let fileRL IrResult: ir.emitCall(ctx.builder, "ptr", "fopen", fopenArgsL)
+    ctx.builder: fileRL.builder
+    let filePtrL String: fileRL.name
+
+    ctx: types.addDecl(ctx, "declare i64 @fwrite(ptr, i64, i64, ptr)\n")
+    let fwriteArgsL Array<String>: []
+    fwriteArgsL.add("ptr ".append(gname))
+    fwriteArgsL.add("i64 1")
+    fwriteArgsL.add("i64 ".append(charLen.toString()))
+    fwriteArgsL.add("ptr ".append(filePtrL))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i64", "fwrite", fwriteArgsL)
+
+    ctx: types.addDecl(ctx, "declare i32 @fclose(ptr)\n")
+    let fcloseArgsL Array<String>: []
+    fcloseArgsL.add("ptr ".append(filePtrL))
+    ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "fclose", fcloseArgsL)
 
     return ctx
 }

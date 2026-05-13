@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Zero-Cost Static String Literals
+
+String literals (`"hello"`) are now zero-allocation static globals instead of heap-allocated values:
+- Each unique literal emits a pair of module-level LLVM `constant` globals: a raw byte buffer
+  (`@.str_N`) and a `%suru.String` header (`@.str_hdr_N`) with `type_tag=8` (StaticString).
+- No `malloc`, no `memcpy`, no ownership — returning or passing a literal is a pointer to `.rodata`.
+- `suru_string_drop` (and `suru_drop_dyn`) treat `type_tag=8` as a no-op; `drop()` on a literal
+  is safe and free.
+- `suru_println`, `suru_printerror`, and `suru_dyn_len` dispatch `type_tag=8` identically to
+  tag=6 (heap String).
+- `isPrintTempString` no longer includes `StrLitNode`; static globals never need dropping after use.
+- Existing heap Strings (tag=6) are unchanged; clone/append/slice all produce owned heap copies.
+
 ### Typed Element Sizes in Arrays
 
 Arrays now store elements at their native size — no heap boxing for scalars:

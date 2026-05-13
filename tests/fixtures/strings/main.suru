@@ -18,4 +18,10 @@ fn main(args Array<String>) {
 
     let c String: s.at(0)
     printLn(c)
+
+    drop(s)
+    drop(s2)
+    drop(s3)
+    drop(str)
+    drop(c)
 }

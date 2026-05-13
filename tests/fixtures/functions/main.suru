@@ -1,0 +1,48 @@
+// Exercises function definitions with parameters, variable returns, and
+// method calls on variable receivers — patterns that previously caused
+// use-after-free in the bootstrapped compiler (isPrintTempString / CallNode).
+
+fn identity(x Int64) Int64 {
+    return x
+}
+
+fn addOne(x Int64) Int64 {
+    return x.add(1)
+}
+
+fn double(x Int64) Int64 {
+    return x.multiply(2)
+}
+
+fn isPositive(x Int64) Bool {
+    return x.gt(0)
+}
+
+fn greet(name String) String {
+    return "hello, ".append(name)
+}
+
+fn strLen(s String) Int64 {
+    return s.len()
+}
+
+fn main(args Array<String>) {
+    printLn(identity(42))
+    printLn(addOne(9))
+    printLn(double(7))
+    printLn(isPositive(5))
+    printLn(isPositive(-3))
+
+    let g String: greet("world")
+    printLn(g)
+    drop(g)
+
+    let x Int64: 4
+    let y Int64: x.add(3)
+    printLn(y)
+
+    let s String: "hello"
+    let n Int64: s.len()
+    printLn(n)
+    drop(s)
+}

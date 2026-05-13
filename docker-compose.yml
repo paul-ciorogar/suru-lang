@@ -1,0 +1,8 @@
+services:
+  suru:
+    image: suru
+    working_dir: /work
+    volumes:
+      - .:/work
+      - ./bin/suru-build:/usr/local/bin/suru-build
+      - ./runtime:/usr/local/lib/suru/runtime

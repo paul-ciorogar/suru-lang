@@ -467,6 +467,7 @@ fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
     let n Int64: ctx.strIndex.len()
     let gname String: "@.str_".append(n.toString())
     let byteLen Int64: text.len().add(1)
+    let charLen Int64: text.len()
     let escaped String: irEscapeStr(text)
     // Emit: @.str_N = private unnamed_addr constant [byteLen x i8] c"escaped\00"
     let line String: gname
@@ -475,9 +476,18 @@ fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
         .append(" x i8] c\"")
         .append(escaped)
         .append("\\00\"\n")
+    // Emit: @.str_hdr_N = private unnamed_addr constant %suru.String { i64 8, i64 charLen, ptr @.str_N }
+    // type_tag=8 marks this as a static literal so suru_string_drop skips freeing it.
+    let hdrName String: "@.str_hdr_".append(n.toString())
+    let hdrLine String: hdrName
+        .append(" = private unnamed_addr constant %suru.String { i64 8, i64 ")
+        .append(charLen.toString())
+        .append(", ptr ")
+        .append(gname)
+        .append(" }\n")
     let strEntry StrIndexEntry: { text: text, globalName: gname, byteLen: byteLen }
     ctx.strIndex.add(strEntry)
-    ctx.strLiterals: ctx.strLiterals.append(line)
+    ctx.strLiterals: ctx.strLiterals.append(line).append(hdrLine)
     return ctx
 }
 
@@ -488,6 +498,26 @@ fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)
         match e.text.equals(text) { true: { return e.globalName } _: {} }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// Look up the pre-interned static header global name for a string literal text.
+// @.str_hdr_N is the companion to @.str_N — emitted together by internString.
+// Returns "" if the text was not previously passed to internString.
+fn lookupStrHdrGlobal(ctx IrCodegenContext, text String) String {
+    let i Int64: 0
+    while i.lt(ctx.strIndex.len()) {
+        let e StrIndexEntry: ctx.strIndex.at(i)
+        match e.text.equals(text) {
+            true: {
+                // e.globalName = "@.str_N"; strip "@.str_" (6 chars) to get "N".
+                let n String: e.globalName.slice(6, e.globalName.len())
+                return "@.str_hdr_".append(n)
+            }
+            _: {}
+        }
         i: i.add(1)
     }
     return ""

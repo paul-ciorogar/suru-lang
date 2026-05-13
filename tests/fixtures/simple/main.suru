@@ -1,0 +1,13 @@
+fn greet(name String) String {
+    let a String: "hello, "
+    let result String: a.append(name)
+    drop(a)
+    drop(name)
+    return result
+    // return "hello, ".append(name)
+}
+
+fn main(args Array<String>) {
+    let g String: greet("world")
+    drop(g)
+}

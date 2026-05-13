@@ -22,4 +22,6 @@ fn main(args Array<String>) {
     printLn(c.radius.toString())
     printLn(getCircleInfo(c))
     printLn(getSquareInfo(s))
+    drop(c)
+    drop(s)
 }

@@ -1,9 +1,11 @@
 ; Suru string runtime — compiled to suru_string.o and linked with every Suru program.
 ;
-; Every Suru String is a ptr to a heap-allocated
+; Every Suru String is a ptr to a %suru.String header:
 ;   %suru.String = { i64 type_tag, i64 len, ptr data }  (24 bytes)
-; type_tag is always 6 (TYPE_STRING). Placing it first means any heap ptr can be
-; inspected at offset 0 to determine its Suru kind at runtime.
+; type_tag = 6: heap-allocated (malloc'd header + malloc'd data buffer).
+; type_tag = 8: static literal (global constant in .rodata — never freed).
+; Placing type_tag first means any heap ptr can be inspected at offset 0 to
+; determine its Suru kind at runtime.
 
 ; ModuleID = 'suru_string.ll'
 source_filename = "suru_string.ll"
@@ -58,12 +60,20 @@ entry:
 }
 
 ; ─── suru_string_drop ──────────────────────────────────────────────────────────
+; Static literals (type_tag=8) live in .rodata — skip free entirely.
 define void @suru_string_drop(ptr %s) {
 entry:
+  %tgep = getelementptr %suru.String, ptr %s, i32 0, i32 0
+  %tag  = load i64, ptr %tgep
+  %is_static = icmp eq i64 %tag, 8
+  br i1 %is_static, label %done, label %heap_free
+heap_free:
   %dgep = getelementptr %suru.String, ptr %s, i32 0, i32 2
   %data = load ptr, ptr %dgep
   call void @free(ptr %data)
   call void @free(ptr %s)
+  br label %done
+done:
   ret void
 }
 
@@ -84,6 +94,33 @@ entry:
   call ptr @memcpy(ptr %buf, ptr %ldat, i64 %llen)
   %mid  = getelementptr i8, ptr %buf, i64 %llen
   call ptr @memcpy(ptr %mid, ptr %rdat, i64 %rlen)
+  %nulp = getelementptr i8, ptr %buf, i64 %tot
+  store i8 0, ptr %nulp
+  %seq  = call ptr @malloc(i64 24)
+  %tg   = getelementptr %suru.String, ptr %seq, i32 0, i32 0
+  store i64 6, ptr %tg
+  %sl   = getelementptr %suru.String, ptr %seq, i32 0, i32 1
+  store i64 %tot, ptr %sl
+  %sd   = getelementptr %suru.String, ptr %seq, i32 0, i32 2
+  store ptr %buf, ptr %sd
+  ret ptr %seq
+}
+
+; ─── suru_string_append_lit ───────────────────────────────────────────────────
+; Append a raw byte buffer (e.g. a string-literal global) to lhs.
+; %data is ptr to raw i8 bytes (NOT a %suru.String); %rlen is the char count.
+define ptr @suru_string_append_lit(ptr %lhs, ptr %data, i64 %rlen) {
+entry:
+  %ll   = getelementptr %suru.String, ptr %lhs, i32 0, i32 1
+  %llen = load i64, ptr %ll
+  %ld   = getelementptr %suru.String, ptr %lhs, i32 0, i32 2
+  %ldat = load ptr, ptr %ld
+  %tot  = add i64 %llen, %rlen
+  %bsz  = add i64 %tot, 1
+  %buf  = call ptr @malloc(i64 %bsz)
+  call ptr @memcpy(ptr %buf, ptr %ldat, i64 %llen)
+  %mid  = getelementptr i8, ptr %buf, i64 %llen
+  call ptr @memcpy(ptr %mid, ptr %data, i64 %rlen)
   %nulp = getelementptr i8, ptr %buf, i64 %tot
   store i8 0, ptr %nulp
   %seq  = call ptr @malloc(i64 24)

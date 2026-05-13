@@ -8,7 +8,7 @@
 ; clone_fn and drop_fn are per-type LLVM functions emitted in the user module.
 ; suru_clone_dyn/drop_dyn call them via function pointer for tag=4 and tag=7.
 ;
-; type_tag: 0=Bool 1=Int32 2=Int64 3=Float64 4=Struct 5=Array 6=String 7=SumType
+; type_tag: 0=Bool 1=Int32 2=Int64 3=Float64 4=Struct 5=Array 6=String 7=SumType 8=StaticString
 
 ; ModuleID = 'suru_struct.ll'
 source_filename = "suru_struct.ll"
@@ -27,7 +27,7 @@ declare void @suru_array_drop_dyn(ptr)
 ;
 ; Clone any Suru heap value by reading type_tag at offset 0.
 ;   tag 0-3 (Box): suru_box_clone   tag 5 (Array): suru_array_clone_dyn
-;   tag 6 (String): suru_string_clone
+;   tag 6 (String): suru_string_clone   tag 8 (StaticString): suru_string_clone
 ;   tag 4 (Struct) / tag 7 (Variant): call clone_fn from vtable at offset 16
 ; null guard: zero-initialized struct fields store i64 0; inttoptr gives null —
 ; return null for null input so the cloned struct also carries a null field.
@@ -44,6 +44,7 @@ dispatch:
     i64 5, label %clone_array
     i64 6, label %clone_string
     i64 7, label %clone_struct
+    i64 8, label %clone_string
   ]
 clone_box:
   %r0 = call ptr @suru_box_clone(ptr %val)
@@ -65,7 +66,7 @@ clone_array:
 ;
 ; Drop any Suru heap value by reading type_tag at offset 0.
 ;   tag 0-3 (Box): free   tag 5 (Array): suru_array_drop_dyn
-;   tag 6 (String): suru_string_drop
+;   tag 6 (String): suru_string_drop   tag 8 (StaticString): suru_string_drop (no-op)
 ;   tag 4 (Struct) / tag 7 (Variant): call drop_fn from vtable at offset 24
 ; null guard: zero-initialized struct fields store i64 0; inttoptr gives null —
 ; treat null as a no-op so partial/empty struct literals don't crash on drop.
@@ -80,6 +81,7 @@ dispatch:
     i64 5, label %drop_array
     i64 6, label %drop_string
     i64 7, label %drop_struct
+    i64 8, label %drop_string
   ]
 drop_box:
   call void @free(ptr %val)
