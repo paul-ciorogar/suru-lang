@@ -5,15 +5,18 @@
 // import suru-parser.suru for the parse() entry point.
 //
 // AstNode variant indices (0-based, in declaration order):
+//   Statements:
 //   0  IncludeNode     1  FnDeclNode      2  LetNode
 //   3  AssignNode      4  FieldAssignNode 5  ReturnNode
 //   6  WhileNode       7  ExprStmtNode    8  TypeDeclNode
-//   9  SumTypeDeclNode 10 MatchStmtNode   11 BoolLitNode
-//  12  IntLitNode      13 FloatLitNode    14 StrLitNode
-//  15  WildcardNode    16 VarRefNode      17 CallNode
-//  18  MethodCallNode  19 FieldAccessNode 20 ArrayLitNode
-//  21  StructLitNode   22 MatchExprNode   23 UnaryNode
-//  24  BinaryNode
+//   9  SumTypeDeclNode 10 MatchStmtNode   11 BlockNode
+//  12  IfNode
+//   Expressions:
+//  13  BoolLitNode     14 IntLitNode      15 FloatLitNode
+//  16  StrLitNode      17 WildcardNode    18 VarRefNode
+//  19  CallNode        20 MethodCallNode  21 FieldAccessNode
+//  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
+//  25  UnaryNode       26 BinaryNode
 
 include "../lexer/lexer.suru" as lexer
 
@@ -46,8 +49,15 @@ type ExprStmtNode:    { expr AstNode }
 type TypeDeclNode:    { name String, fields Array<Param> }
 type SumTypeDeclNode: { name String, variants Array<String> }
 type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
+// BlockNode: a brace-delimited sequence of statements.
+// Used as the then/else branches of IfNode; stmts empty means the branch is absent.
+type BlockNode:       { stmts Array<AstNode> }
+// IfNode: if/else if/else statement.
+// elseBranch.stmts empty    → no else clause.
+// elseBranch.stmts = [IfNode] → else-if chain (recursive).
+type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch BlockNode }
 
-// ─── Expression node types (AstNode variants 11–24) ───────────────────────────
+// ─── Expression node types (AstNode variants 13–26) ───────────────────────────
 
 type BoolLitNode:     { boolVal Bool }
 type IntLitNode:      { text String }
@@ -66,7 +76,7 @@ type BinaryNode:      { op Int64, left AstNode, right AstNode }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode
+type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode
 
 // ─── Module and result types ───────────────────────────────────────────────────
 
@@ -79,3 +89,4 @@ type ArmResult:     { parser Parser, arm MatchArm }
 type StmtArmResult: { parser Parser, arm MatchStmtArm }
 type PatResult:     { parser Parser, pat AstNode }
 type StmtResult:    { parser Parser, stmt AstNode }
+type BlockResult:   { parser Parser, block BlockNode }

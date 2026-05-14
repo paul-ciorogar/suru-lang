@@ -443,6 +443,7 @@ fn parseStatement(parser Parser) StmtResult {
         TOK_INCLUDE: parseIncludeDirective(parser)
         TOK_FN:      parseFnDecl(parser)
         TOK_WHILE:   parseWhileStmt(parser)
+        TOK_IF:      parseIfStmt(parser)
         TOK_RETURN:  parseReturnStmt(parser)
         TOK_LET:     parseLetStmt(parser)
         TOK_TYPE:    parseTypeDeclaration(parser)
@@ -668,6 +669,87 @@ fn parseWhileStmt(parser Parser) StmtResult {
     return { parser: parser, stmt: n }
 }
 
+// Parse a brace-delimited block: { stmt* }
+fn parseBlock(parser Parser) BlockResult {
+    parser: consume(parser, TOK_LBRACE)
+    let stmts Array<AstNode>: []
+    while not currentTokenIs(parser, TOK_RBRACE) and not currentTokenIs(parser, TOK_EOF) {
+        let r StmtResult: parseStatement(parser)
+        stmts.add(r.stmt)
+        parser: r.parser
+        r.stmt:   {}
+        r.parser: {}
+        drop(r)
+    }
+    parser: consume(parser, TOK_RBRACE)
+    let block BlockNode: { stmts: stmts }
+    return { parser: parser, block: block }
+}
+
+// Parse the optional else / else-if tail of an if statement.
+// Returns a BlockResult whose block is empty when there is no else clause.
+fn parseElseBranch(parser Parser) BlockResult {
+    match currentTokenIs(parser, TOK_ELSE) {
+        true:  { return parseElseBranchPresent(parser) }
+        _:     {
+            let empty Array<AstNode>: []
+            let noElse BlockNode: { stmts: empty }
+            return { parser: parser, block: noElse }
+        }
+    }
+}
+
+// Consume the `else` token and dispatch to else-if or plain else block.
+fn parseElseBranchPresent(parser Parser) BlockResult {
+    parser: consume(parser, TOK_ELSE)
+    match currentTokenIs(parser, TOK_IF) {
+        true:  { return parseElseIfBranch(parser) }
+        _:     { return parseBlock(parser) }
+    }
+}
+
+// Parse `else if <cond> <block> [else ...]` — wraps the recursive IfNode in a BlockNode.
+fn parseElseIfBranch(parser Parser) BlockResult {
+    let nested StmtResult: parseIfStmt(parser)
+    parser: nested.parser
+    let nestedStmt AstNode: nested.stmt
+    nested.parser: {}
+    nested.stmt:   {}
+    drop(nested)
+    let elseStmts Array<AstNode>: []
+    elseStmts.add(nestedStmt)
+    let block BlockNode: { stmts: elseStmts }
+    return { parser: parser, block: block }
+}
+
+// Parse `if <condition> <thenBlock> [else [if ...] <elseBlock>]`
+fn parseIfStmt(parser Parser) StmtResult {
+    parser: consume(parser, TOK_IF)
+    // Parse condition expression
+    let cr ParseResult: parseExpr(parser)
+    parser: cr.parser
+    let cond AstNode: cr.expr
+    cr.parser: {}
+    cr.expr:   {}
+    drop(cr)
+    // Parse then branch
+    let tbr BlockResult: parseBlock(parser)
+    parser: tbr.parser
+    let thenBranch BlockNode: tbr.block
+    tbr.parser: {}
+    tbr.block:  {}
+    drop(tbr)
+    // Parse optional else / else-if branch
+    let ebr BlockResult: parseElseBranch(parser)
+    parser: ebr.parser
+    let elseBranch BlockNode: ebr.block
+    ebr.parser: {}
+    ebr.block:  {}
+    drop(ebr)
+    let n IfNode: { condition: cond, thenBranch: thenBranch, elseBranch: elseBranch }
+    return { parser: parser, stmt: n }
+}
+
 fn parseReturnStmt(parser Parser) StmtResult {
     parser: consume(parser, TOK_RETURN)
     let atEnd Bool: currentTokenIs(parser, TOK_RBRACE) or currentTokenIs(parser, TOK_EOF)
@@ -827,6 +909,7 @@ fn printStmt(stmt AstNode, indent String) {
         TypeDeclNode:    { printStmtTypeDecl(stmt, indent) }
         SumTypeDeclNode: { printStmtSumTypeDecl(stmt, indent) }
         MatchStmtNode:   { printStmtMatchStatement(stmt, indent) }
+        IfNode:          { printStmtIf(stmt, indent) }
         _:               { printLn(indent.append("UnknownStatement")) }
     }
 }
@@ -934,6 +1017,35 @@ fn printStmtMatchStatement(stmt MatchStmtNode, indent String) {
             j: j.add(1)
         }
         i: i.add(1)
+    }
+}
+
+// Print an IfNode: header, condition, then block, and optional else/else-if block.
+fn printStmtIf(stmt IfNode, indent String) {
+    printLn(indent.append("IfStatement"))
+    let bodyIndent String: makeIndent(indent)
+    printExpr(stmt.condition, bodyIndent)
+    printLn(bodyIndent.append("Then"))
+    let thenIndent String: makeIndent(bodyIndent)
+    let i Int64: 0
+    while i.lt(stmt.thenBranch.stmts.len()) {
+        let s AstNode: stmt.thenBranch.stmts.at(i)
+        printStmt(s, thenIndent)
+        i: i.add(1)
+    }
+    let hasElse Bool: stmt.elseBranch.stmts.len().gt(0)
+    match hasElse {
+        true: {
+            printLn(bodyIndent.append("Else"))
+            let elseIndent String: makeIndent(bodyIndent)
+            let j Int64: 0
+            while j.lt(stmt.elseBranch.stmts.len()) {
+                let s AstNode: stmt.elseBranch.stmts.at(j)
+                printStmt(s, elseIndent)
+                j: j.add(1)
+            }
+        }
+        _: {}
     }
 }
 

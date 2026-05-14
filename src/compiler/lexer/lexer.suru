@@ -31,6 +31,8 @@ let TOK_WHILE    Int64: 28
 let TOK_INCLUDE  Int64: 29
 let TOK_TYPE     Int64: 30
 let TOK_AS       Int64: 31
+let TOK_IF       Int64: 32
+let TOK_ELSE     Int64: 33
 
 type Token:          { kind Int64, text String, line Int64, col Int64 }
 type TextPos:        { text String, pos Int64 }
@@ -83,6 +85,8 @@ fn keywordKind(text String) Int64 {
         "include": TOK_INCLUDE
         "type":    TOK_TYPE
         "as":      TOK_AS
+        "if":      TOK_IF
+        "else":    TOK_ELSE
         _:         TOK_IDENT
     }
 }
@@ -284,6 +288,8 @@ fn tokenKindName(kind Int64) String {
     match kind.equals(29) { true: { return "INCLUDE"  } _: {} }
     match kind.equals(30) { true: { return "TYPE"     } _: {} }
     match kind.equals(31) { true: { return "AS"       } _: {} }
+    match kind.equals(32) { true: { return "IF"       } _: {} }
+    match kind.equals(33) { true: { return "ELSE"     } _: {} }
     return "UNKNOWN"
 }
 

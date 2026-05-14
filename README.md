@@ -14,6 +14,7 @@ A minimalist, library-driven, general-purpose programming language — staticall
   - [Boolean operators](#boolean-operators)
   - [Comparison methods](#comparison-methods)
   - [Control flow — while](#control-flow--while)
+  - [Control flow — if / else](#control-flow--if--else)
   - [Control flow — match](#control-flow--match)
   - [Functions](#functions)
   - [Named types](#named-types)
@@ -49,7 +50,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
 - Types: `Bool`, `Int32`, `Int64`, `Float64`, `String`, `Array<T>`, named types, sum types
-- Control flow: `while`, `match` (statement and expression forms)
+- Control flow: `while`, `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
 - Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `exit`, `exec`
@@ -149,6 +150,40 @@ let i Int64: 0
 while i.lt(5) {
     printLn(i)
     i: i.add(1)
+}
+```
+
+### Control flow — if / else
+
+`if` evaluates a `Bool` condition and runs the matching brace block. The `else` clause is optional, and `else if` chains arbitrarily many conditions. Each branch is its own scope — `let` bindings inside a branch are not visible after the `if`.
+
+```suru
+fn classify(n Int64) String {
+    if n.lt(0) {
+        return "negative"
+    } else if n.equals(0) {
+        return "zero"
+    } else {
+        return "positive"
+    }
+}
+
+let n Int64: 10
+if n.gt(0) {
+    printLn("positive")
+}
+```
+
+The condition must be `Bool` — passing an `Int64` or other type is a compile-time error (`if condition must be Bool, got Int64`).
+
+When used inside a non-void function, an `if` only counts as "all paths return" when it has an `else` branch **and** both branches transitively return. An `if` with no `else`, or with one branch falling through, still requires a trailing `return` after the statement:
+
+```suru
+fn absVal(n Int64) Int64 {
+    if n.lt(0) {
+        return n.invert()
+    }
+    return n   // required: the false path of the `if` falls through
 }
 ```
 

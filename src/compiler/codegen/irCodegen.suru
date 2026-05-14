@@ -1693,11 +1693,100 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
     return ctx
 }
 
+// Emit an `if` / `else if` / `else` chain.
+//
+// LLVM CFG layout (id is a fresh label number from nextLabelNum):
+//
+//     <current block>
+//        |
+//        v
+//     evaluate condition → unbox to i1 if needed
+//        |
+//        v
+//     condbr cond, %if_then_<id>, %if_else_<id>
+//
+//   if_then_<id>:
+//        emitStmts(thenBranch.stmts)
+//        br %if_merge_<id>          ; suppressed when block already terminated
+//
+//   if_else_<id>:
+//        emitStmts(elseBranch.stmts)  ; no-op if elseBranch.stmts is empty
+//        br %if_merge_<id>          ; suppressed when block already terminated
+//
+//   if_merge_<id>:
+//        <continues with next statement>
+//
+// `else if` chains are handled naturally by recursion: the parser stores
+// elseBranch as `BlockNode { stmts: [IfNode] }`, so emitStmts on the else
+// branch dispatches back into emitIf for the chained condition.
+//
+// `ctx.blockOpen` is the codegen's terminator-tracking flag — it is cleared
+// to false by terminating instructions (return/unreachable). When the then or
+// else branch contains a guaranteed return, we must skip the trailing branch
+// to merge to avoid emitting a second terminator into the same basic block,
+// which is a verifier error in LLVM IR.
+fn emitIf(ctx IrCodegenContext, node IfNode) IrCodegenContext {
+    let inR IrResult: ir.nextLabelNum(ctx.builder)
+    ctx.builder: inR.builder
+    let id String: inR.name
+
+    let thenLabel String: "if_then_".append(id)
+    let elseLabel String: "if_else_".append(id)
+    let mergeLabel String: "if_merge_".append(id)
+
+    // 1. Evaluate the condition expression and unbox it to an i1 if necessary.
+    let condR CodegenResult: emitValue(ctx, node.condition)
+    ctx: condR.ctx
+    let condI1 String: condR.name
+    match box.isScalarType(condR.suruType) {
+        true: {}
+        _: {
+            let ur CodegenResult: box.unboxBool(ctx, condR.name)
+            ctx: ur.ctx
+            condI1: ur.name
+        }
+    }
+
+    // 2. Branch to either the then or else block.
+    ctx.builder: ir.emitCondBr(ctx.builder, condI1, thenLabel, elseLabel)
+
+    // 3. then block: emit the then branch's statements.
+    ctx.builder: ir.emitLabel(ctx.builder, thenLabel)
+    ctx.blockOpen: true
+    let thenBlock BlockNode: node.thenBranch
+    let thenStmts Array<AstNode>: thenBlock.stmts
+    ctx: emitStmts(ctx, thenStmts)
+    match ctx.blockOpen {
+        true: { ctx.builder: ir.emitBr(ctx.builder, mergeLabel) }
+        _: {}
+    }
+
+    // 4. else block: emit the else branch's statements.
+    //    An empty else branch (no else clause in source) still gets a labeled
+    //    block that simply branches straight to the merge — the LLVM CFG always
+    //    needs both targets of the condbr to be defined.
+    ctx.builder: ir.emitLabel(ctx.builder, elseLabel)
+    ctx.blockOpen: true
+    let elseBlock BlockNode: node.elseBranch
+    let elseStmts Array<AstNode>: elseBlock.stmts
+    ctx: emitStmts(ctx, elseStmts)
+    match ctx.blockOpen {
+        true: { ctx.builder: ir.emitBr(ctx.builder, mergeLabel) }
+        _: {}
+    }
+
+    // 5. merge block: subsequent statements continue here.
+    ctx.builder: ir.emitLabel(ctx.builder, mergeLabel)
+    ctx.blockOpen: true
+    return ctx
+}
+
 // Emit a single statement.
 fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
     match stmt {
         MatchStmtNode: { return emitMatchStmt(ctx, stmt) }
         WhileNode:     { return emitWhile(ctx, stmt.condition, stmt.body) }
+        IfNode:        { return emitIf(ctx, stmt) }
         ReturnNode: {
             let retVal String: box.defaultReturnValue(ctx.currentReturnSuruType)
             match stmt.hasValue {

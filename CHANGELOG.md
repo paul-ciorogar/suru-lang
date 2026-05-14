@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added `if` / `else if` / `else` to the language
+
+Added two new AST node types to `src/compiler/parser/parserAst.suru`:
+- `BlockNode { stmts Array<AstNode> }` — a brace-delimited statement block; empty `stmts` signals an absent branch
+- `IfNode { condition AstNode, thenBranch BlockNode, elseBranch BlockNode }` — if/else if/else statement; `else if` chains are represented recursively as a single `IfNode` inside `elseBranch.stmts`
+
+
 ### User-Facing CLI (`suru`)
 
 A new user-facing CLI entry point (`src/cli/main.suru`) wraps the compiler pipeline:

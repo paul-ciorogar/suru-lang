@@ -195,6 +195,45 @@ fn analyzeWhileStatement(state AnalyzerState, stmt WhileNode) AnalyzerState {
     return state
 }
 
+// analyzeIfStatement — type-check the condition and analyze each branch in its own scope.
+//
+// Mirrors analyzeWhileStatement's scope discipline:
+//   1. Analyze + type-check condition; emit error if inferred type is non-empty and not Bool.
+//   2. Push scope, analyze thenBranch.stmts, pop scope.
+//   3. If elseBranch.stmts is non-empty, repeat the push/analyze/pop for the else branch.
+//
+// elseBranch.stmts empty means there is no else clause (parser convention from
+// parserAst.suru) — skip the second scope/analyze pair entirely.
+//
+// else-if chains arrive here as elseBranch.stmts = [IfNode]; the recursive
+// analyzeStatements → analyzeStatement → analyzeIfStatement handles them naturally.
+fn analyzeIfStatement(state AnalyzerState, stmt IfNode) AnalyzerState {
+    let cond AstNode: stmt.condition
+    exprs.analyzeExpr(state, cond)
+    let condType String: exprs.inferType(state, cond)
+    match not condType.equals("") and not condType.equals("Bool") {
+        true: semantic.addError(state, "if condition must be Bool, got ".append(condType))
+        _: {}
+    }
+    let thenBlock BlockNode: stmt.thenBranch
+    let thenStmts Array<AstNode>: thenBlock.stmts
+    semantic.pushScope(state)
+    analyzeStatements(state, thenStmts)
+    semantic.popScope(state)
+
+    let elseBlock BlockNode: stmt.elseBranch
+    let elseStmts Array<AstNode>: elseBlock.stmts
+    match elseStmts.len().gt(0) {
+        true: {
+            semantic.pushScope(state)
+            analyzeStatements(state, elseStmts)
+            semantic.popScope(state)
+        }
+        _: {}
+    }
+    return state
+}
+
 // analyzeStatement — dispatch over AstNode statement variants.
 // Mirrors SemanticAnalyzer.AnalyzeStatement (lines 101–136).
 //
@@ -207,6 +246,7 @@ fn analyzeStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
         FieldAssignNode: { analyzeFieldAssignmentStatement(state, stmt) }
         ReturnNode:      { analyzeReturnStatement(state, stmt) }
         WhileNode:       { analyzeWhileStatement(state, stmt) }
+        IfNode:          { analyzeIfStatement(state, stmt) }
         ExprStmtNode: {
             let typed ExprStmtNode: stmt
             let innerExpr AstNode: typed.expr

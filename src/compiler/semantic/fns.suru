@@ -70,9 +70,33 @@ fn isExitCall(stmt ExprStmtNode) Bool {
     return false
 }
 
+// checkHasReturnInIf — true when an IfNode guarantees a return on every path.
+//
+// Two conditions must hold:
+//   1. The else branch is non-empty.  Without an else clause the false path
+//      falls through past the if, so the statement cannot guarantee return.
+//   2. Both the then and else branches transitively contain a return.
+//
+// Typed bridge analogous to checkHasReturnInMatchStmt: accepts AstNode and
+// casts to IfNode internally so .thenBranch / .elseBranch resolve.
+fn checkHasReturnInIf(node AstNode) Bool {
+    let ifNode IfNode: node
+    let elseBlock BlockNode: ifNode.elseBranch
+    let elseStmts Array<AstNode>: elseBlock.stmts
+    match elseStmts.len().gt(0) {
+        true: {
+            let thenBlock BlockNode: ifNode.thenBranch
+            let thenStmts Array<AstNode>: thenBlock.stmts
+            return checkHasReturnAt(thenStmts, 0) and checkHasReturnAt(elseStmts, 0)
+        }
+        _: { return false }
+    }
+}
+
 // checkHasReturnAt — linear scan starting at index i.
 // Returns true on ReturnNode, a WhileNode that transitively contains a return,
-// or an ExprStmtNode that is a direct call to exit().
+// an ExprStmtNode that is a direct call to exit(), a MatchStmtNode whose every
+// arm returns, or an IfNode whose then+else branches both return.
 fn checkHasReturnAt(stmts Array<AstNode>, i Int64) Bool {
     return match i.lt(stmts.len()) {
         true: match stmts.at(i) {
@@ -86,6 +110,10 @@ fn checkHasReturnAt(stmts Array<AstNode>, i Int64) Bool {
                 _: checkHasReturnAt(stmts, i.add(1))
             }
             MatchStmtNode: match checkHasReturnInMatchStmt(stmts.at(i)) {
+                true: true
+                _: checkHasReturnAt(stmts, i.add(1))
+            }
+            IfNode: match checkHasReturnInIf(stmts.at(i)) {
                 true: true
                 _: checkHasReturnAt(stmts, i.add(1))
             }

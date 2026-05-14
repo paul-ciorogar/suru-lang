@@ -1,0 +1,72 @@
+// Fixture: if / else if / else statements.
+//
+// Exercises every codegen path of `emitIf`:
+//   - Plain `if` with no else, both true and false outcomes
+//   - `if / else` with both branches taken across calls
+//   - `if / else if / else` chain — every arm reached
+//   - `if` nested inside a `while`
+//   - `if` inside a non-void function whose return-path analysis
+//     depends on both branches returning
+
+fn classify(n Int64) String {
+    if n.lt(0) {
+        return "negative"
+    } else if n.equals(0) {
+        return "zero"
+    } else {
+        return "positive"
+    }
+}
+
+fn absVal(n Int64) Int64 {
+    if n.lt(0) {
+        return n.invert()
+    }
+    return n
+}
+
+fn describe(flag Bool) String {
+    if flag {
+        return "on"
+    } else {
+        return "off"
+    }
+}
+
+// Sums every odd number in [1, limit].
+// Demonstrates an `if` nested inside a `while`.
+fn sumOdds(limit Int64) Int64 {
+    let total Int64: 0
+    let i Int64: 1
+    while i.lte(limit) {
+        if i.take(i.split(2).multiply(2)).equals(1) {
+            total: total.add(i)
+        }
+        i: i.add(1)
+    }
+    return total
+}
+
+fn main(args Array<String>) {
+    printLn(classify(-7))
+    printLn(classify(0))
+    printLn(classify(42))
+
+    printLn(absVal(-3))
+    printLn(absVal(5))
+
+    printLn(describe(true))
+    printLn(describe(false))
+
+    // Plain `if` with no else — message printed only when condition holds.
+    let n Int64: 10
+    if n.gt(0) {
+        printLn("positive-only branch")
+    }
+    if n.lt(0) {
+        printLn("should-not-print")
+    }
+
+    // 1 + 3 + 5 + 7 + 9 = 25
+    printLn(sumOdds(10))
+}

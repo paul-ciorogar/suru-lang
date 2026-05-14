@@ -1,0 +1,9 @@
+negative
+zero
+positive
+3
+5
+on
+off
+positive-only branch
+25
