@@ -86,8 +86,30 @@ fn resolveTypeName(state AnalyzerState, name String) Bool {
 
 // ─── Pass 1: collect type declarations ───────────────────────────────────────
 
+// recordTypeDecl — copy a parser TypeDeclNode into a semantic-layer
+// SemTypeEntry and append it to state.typeDecls. Used so resolveTypes.suru can
+// look up struct field types without importing the parser AST into the leaf
+// semantic.suru file.
+fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
+    let semFields Array<SemFieldEntry>: []
+    let params Array<Param>: typed.fields
+    let fi Int64: 0
+    while fi.lt(params.len()) {
+        let p Param: params.at(fi)
+        let entry SemFieldEntry: { name: p.name, typeName: p.typeName }
+        semFields.add(entry)
+        fi: fi.add(1)
+    }
+    let typeDecls Array<SemTypeEntry>: state.typeDecls
+    let teEntry SemTypeEntry: { name: typed.name, fields: semFields }
+    typeDecls.add(teEntry)
+    return state
+}
+
 // collectTypeDeclarations — walk stmts; for each TypeDeclNode either add its
-// name to state.typeNames or report a duplicate-type error.
+// name to state.typeNames or report a duplicate-type error. Non-duplicate
+// TypeDeclNodes are also copied into state.typeDecls so resolveTypes can
+// recurse into nested struct literals with the right field-type expectations.
 fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let typeNames Array<String>: state.typeNames
     let i Int64: 0
@@ -98,7 +120,10 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
                 let typed TypeDeclNode: stmt
                 match typeNameExistsAt(typeNames, typed.name, 0) {
                     true: appendError(state, "type '".append(typed.name).append("' is already declared"))
-                    _: typeNames.add(typed.name)
+                    _: {
+                        typeNames.add(typed.name)
+                        recordTypeDecl(state, typed)
+                    }
                 }
             }
             SumTypeDeclNode: {

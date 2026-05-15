@@ -37,6 +37,7 @@
 // Imported by ir-codegen.suru (the mutual-recursion hub).
 
 include "irCodegenTypes.suru" as types
+include "irCodegenTypeHelpers.suru" as tyh
 include "irBuilder.suru" as ir
 include "irBoxCodegen.suru" as box
 
@@ -251,7 +252,7 @@ fn emitFieldAccess(ctx IrCodegenContext, recv String, recvSuruType String, field
     // makeSuruType converts annotation strings (e.g. "Array<Token>") to encoding
     // (e.g. "Array:Token") matching VarEntry.suruType conventions.
     let annotation String: decl.fields.at(fIdx).typeName
-    let fieldSuruType String: types.makeSuruType(annotation)
+    let fieldSuruType String: tyh.makeSuruType(annotation)
     return structFieldFromI64(ctx, rawR.name, fieldSuruType)
 }
 

@@ -18,6 +18,7 @@ include "semantic/semantic.suru"     as semantic
 include "semantic/passes.suru"       as passes
 include "semantic/stmts.suru"        as semstmts
 include "semantic/fns.suru"          as fns
+include "semantic/resolveTypes.suru" as semresolve
 
 // ─── Path utilities ────────────────────────────────────────────────────────────
 
@@ -323,7 +324,11 @@ fn collectTypeNames(stmts Array<AstNode>) Array<String> {
 
 // Compile a single source file and write its .ll to outDir/<stem>.ll.
 // Own functions get full definitions; functions from includes get declare stubs.
-// Semantic analysis is skipped — library files are validated by the root file.
+// Semantic *error reporting* is skipped — library files are validated by the
+// root file — but the resolved-type annotation pass still runs so that every
+// expression node carries its `resolvedType` for codegen to read. Without
+// this, struct/array literals in included files would emit with an empty
+// type name and crash the compiler.
 fn compileOneFile(sourcePath String, outDir String) {
     let src String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(src)
@@ -331,6 +336,9 @@ fn compileOneFile(sourcePath String, outDir String) {
     let ownFnNames Array<String>: collectFnNames(mod.stmts)
     let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
     let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath))
+    let state AnalyzerState: semantic.makeAnalyzerState()
+    passes.runPrePasses(state, resolved.stmts)
+    semresolve.resolveModuleTypes(state, resolved.stmts)
     let irText String: irCodegen.generate(resolved.stmts, baseName(sourcePath), ownFnNames, ownTypeNames)
     writeFile(outDir.append(fileNameStem(sourcePath)).append(".ll"), irText)
 }
@@ -352,6 +360,11 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     let stmts Array<AstNode>: resolved.stmts
     let state AnalyzerState: semantic.makeAnalyzerState()
     passes.runPrePasses(state, stmts)
+    // Annotate every expression node with its resolvedType BEFORE the regular
+    // statement analyzer runs. The annotation pass runs over the full resolved
+    // statement list (including transitively-included functions) so that
+    // codegen — which sees every function's body — finds populated types.
+    semresolve.resolveModuleTypes(state, stmts)
     let ownStmts Array<AstNode>: collectNonInclude(mod.stmts)
     analyzeModuleStatements(state, ownStmts)
     printErrorsFrom(state, sourcePath, 0)

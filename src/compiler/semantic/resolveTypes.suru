@@ -1,0 +1,575 @@
+// Semantic Analyzer: Resolved-Type Annotation Pass
+//
+// Walks an AstModule after pre-passes and writes a `resolvedType` String onto
+// every expression AST node. The annotation is a SuruType string in the
+// codegen-canonical form so codegen can read it directly without further
+// conversion:
+//
+//   primitives : "Bool" | "Int32" | "Int64" | "Float64" | "String"
+//   arrays     : "Array:<elem>" (e.g. "Array:Int64", "Array:Foo")
+//   structs    : the declared type name (e.g. "Outer")
+//   unknown    : "" (sentinel — parser initialises every node to this)
+//
+// Resolution is combined bottom-up + top-down:
+//   • Literals and variable references produce their type from scope/keyword.
+//   • Compound nodes (struct/array literal, match expression) inherit an
+//     "expected" type from the surrounding context — let annotation, return
+//     type, struct field type, array element type, call parameter type — and
+//     propagate it inward so deeply nested struct literals know their type.
+//
+// This replaces the brittle `ctx.currentReturnTypeName` save/restore dance in
+// the codegen with a single read from `expr.resolvedType`. See todo.md task 3
+// for the full plan.
+//
+// Implementation notes
+//   • The pass mutates AST nodes in place. The Suru pattern is to bind the
+//     specific variant via `let typed XNode: expr` and write the field on
+//     `typed`, which references the same heap object as `expr`.
+//   • Suru function names are globally unique across the transitive include
+//     graph, so every helper here is prefixed `rt` / `resolve` to avoid
+//     collisions with `analyze*` and `infer*` helpers in stmts.suru / exprs.suru.
+//   • Struct field type lookup uses `state.typeDecls` (SemTypeEntry array
+//     populated by collectTypeDeclarations in passes.suru). Keeping the type
+//     registry inside AnalyzerState avoids importing parser AST into the leaf
+//     semantic.suru.
+
+include "semantic.suru" as sem
+include "passes.suru" as passes
+include "exprs.suru" as exprs
+include "../codegen/irCodegenTypeHelpers.suru" as tyh
+
+// ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
+
+// rtLookupTypeEntryAt — linear search through state.typeDecls.
+fn rtLookupTypeEntryAt(decls Array<SemTypeEntry>, name String, i Int64) SemTypeEntry {
+    return match i.lt(decls.len()) {
+        true: match decls.at(i).name.equals(name) {
+            true: decls.at(i)
+            _: rtLookupTypeEntryAt(decls, name, i.add(1))
+        }
+        _: { name: "", fields: [] }
+    }
+}
+
+// rtLookupTypeEntry — returns the SemTypeEntry for `name`, or an empty entry
+// (name="") when none is registered. Callers must check the returned name.
+fn rtLookupTypeEntry(state AnalyzerState, name String) SemTypeEntry {
+    let decls Array<SemTypeEntry>: state.typeDecls
+    return rtLookupTypeEntryAt(decls, name, 0)
+}
+
+// rtLookupFieldTypeAt — linear search through a SemTypeEntry's fields.
+fn rtLookupFieldTypeAt(fields Array<SemFieldEntry>, name String, i Int64) String {
+    return match i.lt(fields.len()) {
+        true: match fields.at(i).name.equals(name) {
+            true: fields.at(i).typeName
+            _: rtLookupFieldTypeAt(fields, name, i.add(1))
+        }
+        _: ""
+    }
+}
+
+// rtLookupFieldType — declared type annotation for `fieldName` on `decl`,
+// or "" if the field is missing.
+fn rtLookupFieldType(decl SemTypeEntry, fieldName String) String {
+    let fields Array<SemFieldEntry>: decl.fields
+    return rtLookupFieldTypeAt(fields, fieldName, 0)
+}
+
+// ─── Function param type lookup ──────────────────────────────────────────────
+
+// rtParamAt — read the idx-th paramType of a FunctionSig, or "" if oob.
+fn rtParamAt(sig FunctionSig, idx Int64) String {
+    let pts Array<String>: sig.paramTypes
+    return match idx.lt(pts.len()) {
+        true: pts.at(idx)
+        _: ""
+    }
+}
+
+// rtFnParamTypeAt — linear search; returns the i-th paramType of the named
+// function, or "" if the function or index doesn't exist.
+fn rtFnParamTypeAt(fns Array<FunctionSig>, fnName String, idx Int64, i Int64) String {
+    return match i.lt(fns.len()) {
+        true: match fns.at(i).name.equals(fnName) {
+            true: rtParamAt(fns.at(i), idx)
+            _: rtFnParamTypeAt(fns, fnName, idx, i.add(1))
+        }
+        _: ""
+    }
+}
+
+// rtFnParamType — public wrapper.
+fn rtFnParamType(state AnalyzerState, fnName String, idx Int64) String {
+    let fns Array<FunctionSig>: state.functions
+    return rtFnParamTypeAt(fns, fnName, idx, 0)
+}
+
+// ─── Read resolvedType back off any expression node ──────────────────────────
+
+// rtNodeResolvedType — reads the resolvedType field by pattern-matching the
+// AstNode variant. Returns "" for non-expression variants (statements,
+// wildcards) — those have no value type.
+fn rtNodeResolvedType(expr AstNode) String {
+    match expr {
+        BoolLitNode:     { let t BoolLitNode: expr     return t.resolvedType }
+        IntLitNode:      { let t IntLitNode: expr      return t.resolvedType }
+        FloatLitNode:    { let t FloatLitNode: expr    return t.resolvedType }
+        StrLitNode:      { let t StrLitNode: expr      return t.resolvedType }
+        VarRefNode:      { let t VarRefNode: expr      return t.resolvedType }
+        CallNode:        { let t CallNode: expr        return t.resolvedType }
+        MethodCallNode:  { let t MethodCallNode: expr  return t.resolvedType }
+        FieldAccessNode: { let t FieldAccessNode: expr return t.resolvedType }
+        ArrayLitNode:    { let t ArrayLitNode: expr    return t.resolvedType }
+        StructLitNode:   { let t StructLitNode: expr   return t.resolvedType }
+        MatchExprNode:   { let t MatchExprNode: expr   return t.resolvedType }
+        UnaryNode:       { let t UnaryNode: expr       return t.resolvedType }
+        BinaryNode:      { let t BinaryNode: expr      return t.resolvedType }
+        _: {}
+    }
+    return ""
+}
+
+// ─── Array / struct / arm / call-arg recursion helpers ───────────────────────
+
+// rtResolveArrayElems — recursively resolve each element with `elemExpected`.
+fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected String, i Int64) AnalyzerState {
+    match i.lt(elems.len()) {
+        true: {
+            resolveExpr(state, elems.at(i), elemExpected)
+            rtResolveArrayElems(state, elems, elemExpected, i.add(1))
+        }
+        _: {}
+    }
+    return state
+}
+
+// rtResolveStructFields — recurse into each StructFieldNode's value, looking
+// up the declared field type on `decl` and using `makeSuruType` to canonicalise
+// the annotation into the codegen-form expected by resolveExpr.
+fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, i Int64) AnalyzerState {
+    match i.lt(fields.len()) {
+        true: {
+            let field StructFieldNode: fields.at(i)
+            let fieldName String: field.name
+            let annot String: rtLookupFieldType(decl, fieldName)
+            let expected String: tyh.makeSuruType(annot)
+            let val AstNode: field.value
+            resolveExpr(state, val, expected)
+            rtResolveStructFields(state, fields, decl, i.add(1))
+        }
+        _: {}
+    }
+    return state
+}
+
+// rtResolveMatchArms — resolve each arm body with the outer-match expected
+// type. Pattern expressions are resolved with no expectation.
+fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String, i Int64) AnalyzerState {
+    match i.lt(arms.len()) {
+        true: {
+            let arm MatchArm: arms.at(i)
+            match arm.isWildcard {
+                true: {}
+                _: {
+                    let pat AstNode: arm.pattern
+                    resolveExpr(state, pat, "")
+                }
+            }
+            let body AstNode: arm.body
+            resolveExpr(state, body, expected)
+            rtResolveMatchArms(state, arms, expected, i.add(1))
+        }
+        _: {}
+    }
+    return state
+}
+
+// rtResolveCallArgs — resolve each argument with the i-th parameter's declared
+// type as the expectation. Built-in calls (printLn, exec, etc.) have no entry
+// in state.functions so `rtFnParamType` returns "" — fine, args fall back to
+// pure bottom-up resolution.
+fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String, i Int64) AnalyzerState {
+    match i.lt(args.len()) {
+        true: {
+            let paramAnn String: rtFnParamType(state, fnName, i)
+            let expected String: tyh.makeSuruType(paramAnn)
+            resolveExpr(state, args.at(i), expected)
+            rtResolveCallArgs(state, args, fnName, i.add(1))
+        }
+        _: {}
+    }
+    return state
+}
+
+// ─── Main expression resolver ────────────────────────────────────────────────
+
+// resolveExpr — recursive expression resolver. Reads the surrounding-context
+// expected type, computes a SuruType for the node, mutates the node's
+// resolvedType field, and recurses into sub-expressions threading the right
+// expectation down.
+//
+// `expected = ""` means "no surrounding expectation; resolve bottom-up only".
+// For literal / var-ref / call / method-call / field-access / unary / binary
+// nodes the expected value is unused — those produce their own type from
+// scope or a fixed table. It matters for ArrayLitNode, StructLitNode and
+// MatchExprNode, where the surrounding context picks the type.
+fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState {
+    match expr {
+        BoolLitNode: {
+            let typed BoolLitNode: expr
+            typed.resolvedType: "Bool"
+        }
+
+        IntLitNode: {
+            let typed IntLitNode: expr
+            // Int32 literals are upgraded only when the surrounding context
+            // explicitly expects Int32. Default stays Int64 to preserve the
+            // existing inferType behaviour from exprs.suru.
+            match expected.equals("Int32") {
+                true: { typed.resolvedType: "Int32" }
+                _:    { typed.resolvedType: "Int64" }
+            }
+        }
+
+        FloatLitNode: {
+            let typed FloatLitNode: expr
+            typed.resolvedType: "Float64"
+        }
+
+        StrLitNode: {
+            let typed StrLitNode: expr
+            typed.resolvedType: "String"
+        }
+
+        VarRefNode: {
+            let typed VarRefNode: expr
+            let raw String: sem.lookupSymbol(state, typed.name)
+            typed.resolvedType: tyh.makeSuruType(raw)
+        }
+
+        CallNode: {
+            let typed CallNode: expr
+            let name String: typed.name
+            let args Array<AstNode>: typed.args
+            rtResolveCallArgs(state, args, name, 0)
+            // readFile is a builtin that returns String; everything else falls
+            // through to the function-signature lookup. exit/printLn return
+            // nothing meaningful for type-inference purposes — leave "".
+            match name.equals("readFile") {
+                true: { typed.resolvedType: "String" }
+                _: {
+                    let raw String: exprs.lookupFnReturnType(state, name)
+                    typed.resolvedType: tyh.makeSuruType(raw)
+                }
+            }
+        }
+
+        MethodCallNode: {
+            let typed MethodCallNode: expr
+            let rcv AstNode: typed.receiver
+            resolveExpr(state, rcv, "")
+            let args Array<AstNode>: typed.args
+            rtResolveArrayElems(state, args, "", 0)
+            // Reuse the method-name → return-type table already maintained in
+            // exprs.suru. inferTypeFromMethod handles the special "from" case
+            // for Int32/Int64/Float64 static receivers.
+            typed.resolvedType: exprs.inferTypeFromMethod(state, typed)
+        }
+
+        FieldAccessNode: {
+            let typed FieldAccessNode: expr
+            let rcv AstNode: typed.receiver
+            resolveExpr(state, rcv, "")
+            let rcvType String: rtNodeResolvedType(rcv)
+            let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+            let annot String: rtLookupFieldType(decl, typed.fieldName)
+            typed.resolvedType: tyh.makeSuruType(annot)
+        }
+
+        ArrayLitNode: {
+            let typed ArrayLitNode: expr
+            let elems Array<AstNode>: typed.elems
+            // Element-type expectation: prefer the surrounding context's
+            // "Array:T" form; otherwise peek the first element (after first
+            // resolving it bottom-up) and use its inferred type.
+            let elemType String: ""
+            match tyh.isArraySuruType(expected) {
+                true: { elemType: tyh.elemSuruType(expected) }
+                _: {}
+            }
+            match elemType.equals("") and elems.len().gt(0) {
+                true: {
+                    resolveExpr(state, elems.at(0), "")
+                    elemType: rtNodeResolvedType(elems.at(0))
+                }
+                _: {}
+            }
+            // Empty arrays without context default to Int64 — matches the
+            // codegen fallback at irCodegen.suru:395.
+            match elemType.equals("") {
+                true: { elemType: "Int64" }
+                _: {}
+            }
+            rtResolveArrayElems(state, elems, elemType, 0)
+            typed.resolvedType: "Array:".append(elemType)
+        }
+
+        StructLitNode: {
+            let typed StructLitNode: expr
+            typed.resolvedType: expected
+            let fields Array<StructFieldNode>: typed.fields
+            let decl SemTypeEntry: rtLookupTypeEntry(state, expected)
+            // When `expected` is "" or names an unknown type, `decl.name` is
+            // "" and rtResolveStructFields will pass "" expectations down — no
+            // type information is invented, the AST simply stays under-typed.
+            rtResolveStructFields(state, fields, decl, 0)
+        }
+
+        MatchExprNode: {
+            let typed MatchExprNode: expr
+            let cond AstNode: typed.condition
+            resolveExpr(state, cond, "")
+            let arms Array<MatchArm>: typed.arms
+            rtResolveMatchArms(state, arms, expected, 0)
+            match expected.equals("") and arms.len().gt(0) {
+                true: { typed.resolvedType: rtNodeResolvedType(arms.at(0).body) }
+                _:    { typed.resolvedType: expected }
+            }
+        }
+
+        UnaryNode: {
+            let typed UnaryNode: expr
+            let operand AstNode: typed.operand
+            resolveExpr(state, operand, "")
+            // The only unary operator today is logical `not`; semantic.suru's
+            // inferType already returns "Bool" for every UnaryNode.
+            typed.resolvedType: "Bool"
+        }
+
+        BinaryNode: {
+            let typed BinaryNode: expr
+            let left AstNode: typed.left
+            resolveExpr(state, left, "")
+            let right AstNode: typed.right
+            resolveExpr(state, right, "")
+            // Mirrors the current inferType behaviour: every binary operator
+            // produces Bool. Expanded to arithmetic in a future task.
+            typed.resolvedType: "Bool"
+        }
+
+        _: {}
+    }
+    return state
+}
+
+// ─── Statement walker ────────────────────────────────────────────────────────
+
+// rtResolveBody — walk a list of statements inside a function body, threading
+// `expectedReturn` down to ReturnNodes. Manages its own scope frames so that
+// VarRef lookups resolve correctly inside loops and if/else branches.
+fn rtResolveBody(state AnalyzerState, stmts Array<AstNode>, expectedReturn String) AnalyzerState {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        rtResolveStmt(state, stmts.at(i), expectedReturn)
+        i: i.add(1)
+    }
+    return state
+}
+
+// rtResolveStmt — dispatch one statement, picking the right expected type for
+// each contained expression.
+fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) AnalyzerState {
+    match stmt {
+        LetNode: {
+            let typed LetNode: stmt
+            let expected String: tyh.makeSuruType(typed.typeName)
+            let val AstNode: typed.value
+            resolveExpr(state, val, expected)
+            // Declare the symbol so later VarRefs inside this scope resolve.
+            // collectTypeDeclarations doesn't touch state.scopes, and the
+            // statement-analysis pass runs after us — but it re-declares the
+            // same symbols, so there's no risk of double-binding. We avoid
+            // duplicating sem.existsInCurrentScope errors here.
+            match sem.existsInCurrentScope(state, typed.name) {
+                true: {}
+                _: { sem.declareSymbol(state, typed.name, typed.typeName) }
+            }
+        }
+
+        AssignNode: {
+            let typed AssignNode: stmt
+            let varType String: sem.lookupSymbol(state, typed.name)
+            let expected String: tyh.makeSuruType(varType)
+            let val AstNode: typed.value
+            resolveExpr(state, val, expected)
+        }
+
+        FieldAssignNode: {
+            let typed FieldAssignNode: stmt
+            let rcv AstNode: typed.receiver
+            resolveExpr(state, rcv, "")
+            let rcvType String: rtNodeResolvedType(rcv)
+            let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+            let annot String: rtLookupFieldType(decl, typed.fieldName)
+            let expected String: tyh.makeSuruType(annot)
+            let val AstNode: typed.value
+            resolveExpr(state, val, expected)
+        }
+
+        ReturnNode: {
+            let typed ReturnNode: stmt
+            match typed.hasValue {
+                true: {
+                    let val AstNode: typed.value
+                    resolveExpr(state, val, expectedReturn)
+                }
+                _: {}
+            }
+        }
+
+        WhileNode: {
+            let typed WhileNode: stmt
+            let cond AstNode: typed.condition
+            resolveExpr(state, cond, "Bool")
+            sem.pushScope(state)
+            let body Array<AstNode>: typed.body
+            rtResolveBody(state, body, expectedReturn)
+            sem.popScope(state)
+        }
+
+        IfNode: {
+            let typed IfNode: stmt
+            let cond AstNode: typed.condition
+            resolveExpr(state, cond, "Bool")
+            let thenBlock BlockNode: typed.thenBranch
+            let thenStmts Array<AstNode>: thenBlock.stmts
+            sem.pushScope(state)
+            rtResolveBody(state, thenStmts, expectedReturn)
+            sem.popScope(state)
+            let elseBlock BlockNode: typed.elseBranch
+            let elseStmts Array<AstNode>: elseBlock.stmts
+            match elseStmts.len().gt(0) {
+                true: {
+                    sem.pushScope(state)
+                    rtResolveBody(state, elseStmts, expectedReturn)
+                    sem.popScope(state)
+                }
+                _: {}
+            }
+        }
+
+        MatchStmtNode: {
+            let typed MatchStmtNode: stmt
+            let cond AstNode: typed.condition
+            resolveExpr(state, cond, "")
+            let arms Array<MatchStmtArm>: typed.arms
+            rtResolveMatchStmtArms(state, arms, expectedReturn, 0)
+        }
+
+        BlockNode: {
+            let typed BlockNode: stmt
+            let body Array<AstNode>: typed.stmts
+            rtResolveBody(state, body, expectedReturn)
+        }
+
+        ExprStmtNode: {
+            let typed ExprStmtNode: stmt
+            let innerExpr AstNode: typed.expr
+            resolveExpr(state, innerExpr, "")
+        }
+
+        _: {}
+    }
+    return state
+}
+
+// rtResolveMatchStmtArms — iterate MatchStmtNode arms; each arm body is a
+// statement list (not a single expression) so we recurse via rtResolveBody.
+// Pattern expressions are resolved with no expectation.
+fn rtResolveMatchStmtArms(state AnalyzerState, arms Array<MatchStmtArm>, expectedReturn String, i Int64) AnalyzerState {
+    match i.lt(arms.len()) {
+        true: {
+            let arm MatchStmtArm: arms.at(i)
+            match arm.isWildcard {
+                true: {}
+                _: {
+                    let pat AstNode: arm.pattern
+                    resolveExpr(state, pat, "")
+                }
+            }
+            let armStmts Array<AstNode>: arm.stmts
+            sem.pushScope(state)
+            rtResolveBody(state, armStmts, expectedReturn)
+            sem.popScope(state)
+            rtResolveMatchStmtArms(state, arms, expectedReturn, i.add(1))
+        }
+        _: {}
+    }
+    return state
+}
+
+// ─── Module driver ───────────────────────────────────────────────────────────
+
+// rtResolveFnDecl — set up a function scope with parameter symbols and walk
+// the body with the function's declared return type as the return-expectation.
+// Mirrors the scope discipline in fns.suru:analyzeFunctionDeclaration but
+// without the error-checking responsibilities (that pass runs separately).
+fn rtResolveFnDecl(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
+    sem.pushScope(state)
+    let params Array<Param>: stmt.params
+    let pi Int64: 0
+    while pi.lt(params.len()) {
+        let p Param: params.at(pi)
+        sem.declareSymbol(state, p.name, p.typeName)
+        pi: pi.add(1)
+    }
+    let returnType String: stmt.returnType
+    let expectedReturn String: tyh.makeSuruType(returnType)
+    let body Array<AstNode>: stmt.body
+    rtResolveBody(state, body, expectedReturn)
+    sem.popScope(state)
+    return state
+}
+
+// resolveModuleTypes — top-level driver. Walks `stmts` and writes
+// `resolvedType` on every expression node. Must run *after* runPrePasses (so
+// state.typeDecls and state.functions are populated) and *before* the regular
+// statement analyzer (so the AST is fully annotated when any later pass or
+// codegen reads expr.resolvedType).
+//
+// Scope discipline: this pass declares its own symbols into state.scopes so
+// VarRef resolution works inside function bodies. To avoid polluting the
+// scope stack seen by the downstream `analyzeModuleStatements` pass (which
+// re-declares each module-level `let` and would then report duplicates), we
+// swap in a fresh scope stack for the duration of the pass and restore the
+// caller's stack on exit.
+fn resolveModuleTypes(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+    let savedScopes Array<Scope>: state.scopes
+    let myScopes Array<Scope>: []
+    let modScope Scope: { symbols: [], parent: 0.take(1) }
+    myScopes.add(modScope)
+    state.scopes: myScopes
+
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            FnDeclNode: {
+                let typedFn FnDeclNode: stmt
+                rtResolveFnDecl(state, typedFn)
+            }
+            LetNode: {
+                // Module-level constants — same shape as inside a function
+                // body. rtResolveStmt declares the symbol so later top-level
+                // VarRefs resolve.
+                rtResolveStmt(state, stmt, "")
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+
+    state.scopes: savedScopes
+    return state
+}

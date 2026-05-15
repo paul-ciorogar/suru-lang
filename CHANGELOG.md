@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### AST: `resolvedType` field on expression nodes
+
+Refactor that replaces the brittle `ctx.currentReturnTypeName`
+fallback in codegen with a `resolvedType String` field carried by every
+expression AST node, written during semantic analysis via combined top-down
+and bottom-up type inference. This fixes the nested-struct-literal segfault
+and unblocks nested arrays of structs, struct literals as arguments, and
+match-expression struct results.
+
+The AST field is declared and parser-init'd to `""`; a
+new semantic pass (`resolveTypes.suru`) walks each function body and writes
+a canonical SuruType onto every expression node using top-down expectations
+from `let` annotations, return types, struct field types, array element
+types, and call parameter types; codegen reads `resolvedType` directly for
+struct literals, array literals, and return values; the legacy
+`ctx.currentReturnTypeName` field and its save/restore dance are deleted;
+the original segfault is covered by a dedicated regression fixture.
+
+
 ### Added `if` / `else if` / `else` to the language
 
 Added two new AST node types to `src/compiler/parser/parserAst.suru`:

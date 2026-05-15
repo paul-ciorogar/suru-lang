@@ -90,7 +90,6 @@ type SumTypeDecl: { name String, variants Array<String> }
 //   blockOpen             — false after a terminator (ret/br); guards double-terminators
 //   currentReturnLlvmType — LLVM type of the current function's return ("i64", "ptr", …)
 //   currentReturnSuruType — Suru type name of the current function's return
-//   currentReturnTypeName — struct type name for struct-literal return codegen
 //
 // builder: accumulates the current function's IR text and the three SSA/label
 //   counters (tmpCount, labelCount, whileCount) from ir-builder.suru.
@@ -116,7 +115,6 @@ type IrCodegenContext: {
     blockOpen         Bool
     currentReturnLlvmType String
     currentReturnSuruType String
-    currentReturnTypeName String
     builder           IrBuilder
     declares          Array<String>
 }
@@ -162,7 +160,6 @@ fn makeIrContext() IrCodegenContext {
         blockOpen:         false
         currentReturnLlvmType: ""
         currentReturnSuruType: ""
-        currentReturnTypeName: ""
         builder:           ir.makeBuilder()
         declares:          declares
     }
@@ -428,188 +425,9 @@ fn isOwnType(ctx IrCodegenContext, name String) Bool {
     return false
 }
 
+// String literal interning helpers (irEscapeStr, internString, lookupStrGlobal,
+// lookupStrHdrGlobal) moved to irCodegenStrIntern.suru.
+// Type-name classification helpers (isScalarSuruType, isArraySuruType,
+// elemSuruType, isArrayTypeName, extractElemType, makeSuruType, irLlvmTypeOf,
+// suruTypeTag, isBuiltinSuruType) moved to irCodegenTypeHelpers.suru.
 
-// ─── String literal interning ─────────────────────────────────────────────────
-
-// Escape a Suru string for inclusion in an LLVM c-string constant.
-// Printable ASCII (32–126) except '"' and '\' pass through unchanged.
-// All other characters are encoded as \HH (two-digit uppercase hex).
-fn irEscapeStr(text String) String {
-    let r String: ""
-    let i Int64: 0
-    while i.lt(text.len()) {
-        let c String: text.at(i)
-        let ec String: match c.equals("\n") { true: "\\0A", _: match c.equals("\t") { true: "\\09", _: match c.equals("\\") { true: "\\5C", _: match c.equals("\"") { true: "\\22", _: c } } } }
-        r: r.append(ec)
-        i: i.add(1)
-    }
-    return r
-}
-
-// Intern a string literal text into ctx.strLiterals.
-// If the text is already interned, returns ctx unchanged (idempotent).
-// Otherwise: allocates the next @.str_N name, emits the private global constant
-// line into ctx.strLiterals, and records the mapping in ctx.strIndex.
-// The byteLen stored includes the null terminator so callers can use it for malloc.
-// ctx.strLiterals is separate from ctx.strGlobals (mode/format strings) so the
-// generate function can add a blank line after user literals but not after mode strings.
-fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
-    // Dedup: if this text was already interned, nothing to do.
-    let i Int64: 0
-    while i.lt(ctx.strIndex.len()) {
-        match ctx.strIndex.at(i).text.equals(text) { true: { return ctx } _: {} }
-        i: i.add(1)
-    }
-    let n Int64: ctx.strIndex.len()
-    let gname String: "@.str_".append(n.toString())
-    let byteLen Int64: text.len().add(1)
-    let charLen Int64: text.len()
-    let escaped String: irEscapeStr(text)
-    // Emit: @.str_N = private unnamed_addr constant [byteLen x i8] c"escaped\00"
-    let line String: gname
-        .append(" = private unnamed_addr constant [")
-        .append(byteLen.toString())
-        .append(" x i8] c\"")
-        .append(escaped)
-        .append("\\00\"\n")
-    // Emit: @.str_hdr_N = private unnamed_addr constant %suru.String { i64 8, i64 charLen, ptr @.str_N }
-    // type_tag=8 marks this as a static literal so suru_string_drop skips freeing it.
-    let hdrName String: "@.str_hdr_".append(n.toString())
-    let hdrLine String: hdrName
-        .append(" = private unnamed_addr constant %suru.String { i64 8, i64 ")
-        .append(charLen.toString())
-        .append(", ptr ")
-        .append(gname)
-        .append(" }\n")
-    let strEntry StrIndexEntry: { text: text, globalName: gname, byteLen: byteLen }
-    ctx.strIndex.add(strEntry)
-    ctx.strLiterals: ctx.strLiterals.append(line).append(hdrLine)
-    return ctx
-}
-
-// Look up the pre-interned global name for a string literal text.
-// Returns "" if the text was not previously passed to internString.
-fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
-    let i Int64: 0
-    while i.lt(ctx.strIndex.len()) {
-        let e StrIndexEntry: ctx.strIndex.at(i)
-        match e.text.equals(text) { true: { return e.globalName } _: {} }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// Look up the pre-interned static header global name for a string literal text.
-// @.str_hdr_N is the companion to @.str_N — emitted together by internString.
-// Returns "" if the text was not previously passed to internString.
-fn lookupStrHdrGlobal(ctx IrCodegenContext, text String) String {
-    let i Int64: 0
-    while i.lt(ctx.strIndex.len()) {
-        let e StrIndexEntry: ctx.strIndex.at(i)
-        match e.text.equals(text) {
-            true: {
-                // e.globalName = "@.str_N"; strip "@.str_" (6 chars) to get "N".
-                let n String: e.globalName.slice(6, e.globalName.len())
-                return "@.str_hdr_".append(n)
-            }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// ─── Type classification helpers ──────────────────────────────────────────────
-
-// True for the four scalar types that use raw LLVM values (not ptr).
-fn isScalarSuruType(suruType String) Bool {
-    return match suruType {
-        "Int64"   : true
-        "Bool"    : true
-        "Int32"   : true
-        "Float64" : true
-        _ : false
-    }
-}
-
-// True when suruType encodes an array (e.g. "Array:Int64", "Array:Lvl1").
-fn isArraySuruType(suruType String) Bool {
-    match suruType.len().lt(6) { true: { return false } _: {} }
-    return suruType.slice(0, 6).equals("Array:")
-}
-
-// Extract the element Suru type from an array suruType like "Array:Int64" → "Int64".
-fn elemSuruType(suruType String) String {
-    return suruType.slice(6, suruType.len())
-}
-
-// True when a type annotation string names an Array (e.g. "Array<Int64>").
-// Must check for "Array<" (with angle bracket) to avoid matching user-defined
-// types whose names begin with "Array" (e.g. ArrayLitNode).
-fn isArrayTypeName(typeName String) Bool {
-    match typeName.len().lt(6) { true: { return false } _: {} }
-    return typeName.slice(0, 6).equals("Array<")
-}
-
-// Extract the element type from a generic type annotation: "Array<Int64>" → "Int64".
-fn extractElemType(typeName String) String {
-    let i Int64: 0
-    let start Int64: -1
-    while i.lt(typeName.len()) {
-        match typeName.at(i).equals("<") { true: { start: i } _: {} }
-        i: i.add(1)
-    }
-    match start.equals(-1) { true: { return "" } _: {} }
-    return typeName.slice(start.add(1), typeName.len().take(1))
-}
-
-// Convert a Suru type annotation name to the suruType encoding used in VarEntry.
-// "Array<Int64>" → "Array:Int64"; all other types pass through unchanged.
-fn makeSuruType(typeName String) String {
-    match isArrayTypeName(typeName) {
-        true: { return "Array:".append(extractElemType(typeName)) }
-        _: {}
-    }
-    return typeName
-}
-
-// LLVM type string for a Suru type name.
-// Scalars use raw LLVM types; all heap types and void use ptr.
-fn irLlvmTypeOf(suruType String) String {
-    // Void functions return `ret ptr null` per Suru's IR convention.
-    return match suruType {
-        "void":     "ptr"    
-        "Int64":    "i64"    
-        "Bool":     "i1"     
-        "Int32":    "i32"    
-        "Float64":  "double" 
-        _:          "ptr"
-    }
-}
-
-// Integer type_tag for a Suru type (used for array elem_tag and struct type_tag).
-// Values must stay in sync with the Suru runtime's type_tag encoding.
-fn suruTypeTag(suruType String) String {
-    match isArraySuruType(suruType) { true: { return "5" } _: {} }
-    return match suruType {
-        "Bool":    "0"
-        "Int32":   "1"
-        "Int64":   "2"
-        "Float64": "3"
-        "String":  "6"
-        _:         "4"
-    }
-}
-
-// True when name is one of the six builtin Suru type names (or a generic array).
-fn isBuiltinSuruType(name String) Bool {
-    match isArrayTypeName(name) { true: { return true } _: {} }
-    return match name {
-        "Int64":   true
-        "Bool":    true
-        "Int32":   true
-        "Float64": true
-        "String":  true
-        _:         false
-    }
-}

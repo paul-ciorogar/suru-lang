@@ -1,0 +1,146 @@
+// irRegisterPasses.suru — module-level pre-passes for codegen.
+//
+// Three registration passes plus the emit for module-level constants.
+// All four functions run before any function-body IR emission and never
+// call into emitValue, so they live outside irCodegen.suru's
+// mutual-recursion cluster.
+//
+// Include DAG: depends on parserAst.suru, irCodegenTypes.suru,
+// irCodegenTypeHelpers.suru, and irBoxCodegen.suru. Imported by irCodegen.suru.
+
+include "../parser/parserAst.suru" as ast
+include "irCodegenTypes.suru" as types
+include "irCodegenTypeHelpers.suru" as tyh
+include "irBoxCodegen.suru" as box
+
+// Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
+fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            TypeDeclNode: {
+                let fields Array<TypeFieldEntry>: []
+                let j Int64: 0
+                while j.lt(s.fields.len()) {
+                    let p Param: s.fields.at(j)
+                    let fe TypeFieldEntry: { name: p.name, typeName: p.typeName }
+                    fields.add(fe)
+                    j: j.add(1)
+                }
+                let td TypeDecl: { name: s.name, fields: fields }
+                ctx: types.addType(ctx, td)
+            }
+            SumTypeDeclNode: {
+                let sd SumTypeDecl: { name: s.name, variants: s.variants }
+                ctx: types.addSumType(ctx, sd)
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ctx
+}
+
+// Pre-pass 1: register same-file function signatures into ctx.functions.
+// Only functions whose names are in ctx.ownFnNames get registered — external
+// (included) functions are excluded here; they may be added by the caller.
+fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            FnDeclNode: {
+                match types.isOwnFn(ctx, s.name) {
+                    true: {
+                        let retSuru String: tyh.makeSuruType(s.returnType)
+                        let retLlvm String: match s.returnType.equals("void") {
+                            true: "ptr"
+                            _:    box.llvmTypeOf(retSuru)
+                        }
+                        let paramTypes Array<String>: []
+                        let j Int64: 0
+                        while j.lt(s.params.len()) {
+                            paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
+                            j: j.add(1)
+                        }
+                        let fe2 FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
+                        ctx: types.addFn(ctx, fe2)
+                    }
+                    _: {}
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ctx
+}
+
+// Pre-pass 2: register module-level scalar constant names in ctx.globalVars.
+fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            LetNode: {
+                let val AstNode: s.value
+                let suruTy String: ""
+                match val {
+                    BoolLitNode:  { suruTy: "Bool" }
+                    IntLitNode:   { suruTy: "Int64" }
+                    FloatLitNode: { suruTy: "Float64" }
+                    _: {}
+                }
+                match suruTy.equals("") {
+                    true: {}
+                    _: {
+                        let gv GlobalVar: { suruName: s.name, globalName: "@".append(s.name), suruType: suruTy }
+                        ctx.globalVars.add(gv)
+                    }
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ctx
+}
+
+// Emit LLVM global constant declarations for all registered module-level scalars.
+// Called during assembly in generate() — reads ctx.globalVars, matches back to stmts
+// to get the literal text.
+fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
+    let out String: ""
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            LetNode: {
+                let g GlobalVar: types.lookupGlobal(ctx, s.name)
+                match g.suruName.equals("") {
+                    true: {}
+                    _: {
+                        let val AstNode: s.value
+                        match val {
+                            BoolLitNode: {
+                                let bstr String: match val.boolVal { true: "1", _: "0" }
+                                out: out.append(g.globalName).append(" = internal constant i1 ").append(bstr).append("\n")
+                            }
+                            IntLitNode: {
+                                out: out.append(g.globalName).append(" = internal constant i64 ").append(val.text).append("\n")
+                            }
+                            FloatLitNode: {
+                                out: out.append(g.globalName).append(" = internal constant double ").append(val.text).append("\n")
+                            }
+                            _: {}
+                        }
+                    }
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return out
+}

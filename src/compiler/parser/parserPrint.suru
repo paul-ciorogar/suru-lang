@@ -1,0 +1,337 @@
+// parserPrint.suru — AST pretty-printer.
+//
+// Renders an AstModule as an indented tree. Used by the CLI's `parse` command
+// (src/cli/main.suru). Independent of parsing logic: depends only on
+// parserAst.suru for the AST type definitions.
+
+include "parserAst.suru" as ast
+
+fn makeIndent(indent String) String {
+    return indent.append("  ")
+}
+
+fn printModule(ast AstModule, path String) {
+    printLn("Module [".append(path).append("]"))
+    let nstmts Int64: ast.stmts.len()
+    let i Int64: 0
+    while i.lt(nstmts) {
+        let s AstNode: ast.stmts.at(i)
+        printStmt(s, "  ")
+        i: i.add(1)
+    }
+}
+
+fn printStmt(stmt AstNode, indent String) {
+    match stmt {
+        IncludeNode:     { printLn(indent.append("IncludeDirective [\"").append(stmt.path).append("\"] as [").append(stmt.ns).append("]")) }
+        FnDeclNode:      { printStmtFnDecl(stmt, indent) }
+        LetNode:         { printStmtLet(stmt, indent) }
+        AssignNode:      { printStmtAssign(stmt, indent) }
+        FieldAssignNode: { printStmtFieldAssign(stmt, indent) }
+        ReturnNode:      { printStmtReturn(stmt, indent) }
+        WhileNode:       { printStmtWhile(stmt, indent) }
+        ExprStmtNode:    { printStmtExpr(stmt, indent) }
+        TypeDeclNode:    { printStmtTypeDecl(stmt, indent) }
+        SumTypeDeclNode: { printStmtSumTypeDecl(stmt, indent) }
+        MatchStmtNode:   { printStmtMatchStatement(stmt, indent) }
+        IfNode:          { printStmtIf(stmt, indent) }
+        _:               { printLn(indent.append("UnknownStatement")) }
+    }
+}
+
+fn printStmtFnDecl(stmt FnDeclNode, indent String) {
+    let paramStr String: buildParamStr(stmt.params)
+    printLn(indent.append("FunctionDeclaration [").append(stmt.name).append("](").append(paramStr).append(") -> ").append(stmt.returnType))
+    let bodyIndent String: makeIndent(indent)
+    let nbody Int64: stmt.body.len()
+    let i Int64: 0
+    while i.lt(nbody) {
+        let s AstNode: stmt.body.at(i)
+        printStmt(s, bodyIndent)
+        i: i.add(1)
+    }
+}
+
+fn printStmtLet(stmt LetNode, indent String) {
+    printLn(indent.append("LetStatement [").append(stmt.name).append("] : ").append(stmt.typeName))
+    printExpr(stmt.value, makeIndent(indent))
+}
+
+fn printStmtAssign(stmt AssignNode, indent String) {
+    printLn(indent.append("AssignmentStatement [").append(stmt.name).append("]"))
+    printExpr(stmt.value, makeIndent(indent))
+}
+
+fn printStmtFieldAssign(stmt FieldAssignNode, indent String) {
+    printLn(indent.append("FieldAssignment [.").append(stmt.fieldName).append("]"))
+    printExpr(stmt.receiver, makeIndent(indent))
+    printExpr(stmt.value, makeIndent(indent))
+}
+
+fn printStmtReturn(stmt ReturnNode, indent String) {
+    printLn(indent.append("ReturnStatement"))
+    match stmt.hasValue {
+        true: printExpr(stmt.value, makeIndent(indent))
+    }
+}
+
+fn printStmtWhile(stmt WhileNode, indent String) {
+    printLn(indent.append("WhileStatement"))
+    let bodyIndent String: makeIndent(indent)
+    printExpr(stmt.condition, bodyIndent)
+    let i Int64: 0
+    while i.lt(stmt.body.len()) {
+        let s AstNode: stmt.body.at(i)
+        printStmt(s, bodyIndent)
+        i: i.add(1)
+    }
+}
+
+fn printStmtExpr(stmt ExprStmtNode, indent String) {
+    printLn(indent.append("ExpressionStatement"))
+    printExpr(stmt.expr, makeIndent(indent))
+}
+
+fn printStmtTypeDecl(stmt TypeDeclNode, indent String) {
+    printLn(indent.append("TypeDeclaration [").append(stmt.name).append("]"))
+    let fieldIndent String: makeIndent(indent)
+    let fields Array<Param>: stmt.fields
+    let i Int64: 0
+    while i.lt(fields.len()) {
+        let f Param: fields.at(i)
+        printLn(fieldIndent.append("Field [").append(f.name).append("] Type [").append(f.typeName).append("]"))
+        i: i.add(1)
+    }
+}
+
+fn printStmtSumTypeDecl(stmt SumTypeDeclNode, indent String) {
+    let variants Array<String>: stmt.variants
+    let i Int64: 0
+    let varStr String: ""
+    while i.lt(variants.len()) {
+        let vname String: variants.at(i)
+        let sep String: match i.gt(0) { true: ", ", _: "" }
+        varStr: varStr.append(sep).append(vname)
+        i: i.add(1)
+    }
+    printLn(indent.append("SumType [").append(stmt.name).append("] Variants: [").append(varStr).append("]"))
+}
+
+fn printStmtMatchStatement(stmt MatchStmtNode, indent String) {
+    let narms Int64: stmt.arms.len()
+    printLn(indent.append("MatchStatement [").append(narms.toString()).append(" arms]"))
+    let bodyIndent String: makeIndent(indent)
+    let armIndent String: makeIndent(bodyIndent)
+    printExpr(stmt.condition, bodyIndent)
+    let i Int64: 0
+    while i.lt(narms) {
+        let arm MatchStmtArm: stmt.arms.at(i)
+        let isWc Bool: arm.isWildcard
+        let pat AstNode: arm.pattern
+        let patLabel String: matchPatternLabel(pat, isWc)
+        printLn(bodyIndent.append("Arm [").append(patLabel).append("]"))
+        let stmts Array<AstNode>: arm.stmts
+        let bodyLen Int64: stmts.len()
+        match bodyLen.equals(0) {
+            true: printLn(armIndent.append("(empty)"))
+        }
+        let j Int64: 0
+        while j.lt(bodyLen) {
+            let s AstNode: stmts.at(j)
+            printStmt(s, armIndent)
+            j: j.add(1)
+        }
+        i: i.add(1)
+    }
+}
+
+// Print an IfNode: header, condition, then block, and optional else/else-if block.
+fn printStmtIf(stmt IfNode, indent String) {
+    printLn(indent.append("IfStatement"))
+    let bodyIndent String: makeIndent(indent)
+    printExpr(stmt.condition, bodyIndent)
+    printLn(bodyIndent.append("Then"))
+    let thenIndent String: makeIndent(bodyIndent)
+    let i Int64: 0
+    while i.lt(stmt.thenBranch.stmts.len()) {
+        let s AstNode: stmt.thenBranch.stmts.at(i)
+        printStmt(s, thenIndent)
+        i: i.add(1)
+    }
+    let hasElse Bool: stmt.elseBranch.stmts.len().gt(0)
+    match hasElse {
+        true: {
+            printLn(bodyIndent.append("Else"))
+            let elseIndent String: makeIndent(bodyIndent)
+            let j Int64: 0
+            while j.lt(stmt.elseBranch.stmts.len()) {
+                let s AstNode: stmt.elseBranch.stmts.at(j)
+                printStmt(s, elseIndent)
+                j: j.add(1)
+            }
+        }
+        _: {}
+    }
+}
+
+fn buildParamStr(params Array<Param>) String {
+    let result String: ""
+    let i Int64: 0
+    while i.lt(params.len()) {
+        let p Param: params.at(i)
+        let sep String: match i.gt(0) { true: ", ", _: "" }
+        result: result.append(sep).append(p.name).append(" : ").append(p.typeName)
+        i: i.add(1)
+    }
+    return result
+}
+
+fn printExpr(expr AstNode, indent String) {
+    match expr {
+        BoolLitNode:     { printExprBool(expr, indent) }
+        IntLitNode:      { printLn(indent.append("IntLiteral [").append(expr.text).append("]")) }
+        FloatLitNode:    { printLn(indent.append("FloatLiteral [").append(expr.text).append("]")) }
+        StrLitNode:      { printExprString(expr, indent) }
+        VarRefNode:      { printLn(indent.append("VariableRef [").append(expr.name).append("]")) }
+        CallNode:        { printExprCall(expr, indent) }
+        MethodCallNode:  { printExprMethodCall(expr, indent) }
+        FieldAccessNode: { printExprFieldAccess(expr, indent) }
+        ArrayLitNode:    { printExprArrayLit(expr, indent) }
+        StructLitNode:   { printExprStructLit(expr, indent) }
+        MatchExprNode:   { printExprMatch(expr, indent) }
+        UnaryNode:       { printExprUnary(expr, indent) }
+        BinaryNode:      { printExprBinary(expr, indent) }
+        _:               { printLn(indent.append("UnknownExpr")) }
+    }
+}
+
+fn printExprBool(expr BoolLitNode, indent String) {
+    let val String: match expr.boolVal { true: "true", _: "false" }
+    printLn(indent.append("BoolLiteral [").append(val).append("]"))
+}
+
+fn printExprString(expr StrLitNode, indent String) {
+    let escaped String: escapeForPrint(expr.text)
+    printLn(indent.append("StringLiteral [\"").append(escaped).append("\"]"))
+}
+
+fn printExprCall(expr CallNode, indent String) {
+    printLn(indent.append("CallExpression [").append(expr.name).append("]"))
+    let argIndent String: makeIndent(indent)
+    let i Int64: 0
+    while i.lt(expr.args.len()) {
+        let a AstNode: expr.args.at(i)
+        printExpr(a, argIndent)
+        i: i.add(1)
+    }
+}
+
+fn printExprMethodCall(expr MethodCallNode, indent String) {
+    printLn(indent.append("MethodCall [.").append(expr.methodName).append("]"))
+    let argIndent String: makeIndent(indent)
+    printExpr(expr.receiver, argIndent)
+    let i Int64: 0
+    while i.lt(expr.args.len()) {
+        let a AstNode: expr.args.at(i)
+        printExpr(a, argIndent)
+        i: i.add(1)
+    }
+}
+
+fn printExprFieldAccess(expr FieldAccessNode, indent String) {
+    printLn(indent.append("FieldAccess [.").append(expr.fieldName).append("]"))
+    printExpr(expr.receiver, makeIndent(indent))
+}
+
+fn printExprArrayLit(expr ArrayLitNode, indent String) {
+    let nelems Int64: expr.elems.len()
+    printLn(indent.append("ArrayLiteral [").append(nelems.toString()).append(" elements]"))
+    let argIndent String: makeIndent(indent)
+    let i Int64: 0
+    while i.lt(nelems) {
+        let e AstNode: expr.elems.at(i)
+        printExpr(e, argIndent)
+        i: i.add(1)
+    }
+}
+
+fn printExprStructLit(expr StructLitNode, indent String) {
+    let nfields Int64: expr.fields.len()
+    printLn(indent.append("StructLiteral [").append(nfields.toString()).append(" fields]"))
+    let fieldIndent String: makeIndent(indent)
+    let valIndent String: makeIndent(fieldIndent)
+    let i Int64: 0
+    while i.lt(nfields) {
+        let f StructFieldNode: expr.fields.at(i)
+        printLn(fieldIndent.append("Field [").append(f.name).append("]"))
+        printExpr(f.value, valIndent)
+        i: i.add(1)
+    }
+}
+
+fn printExprMatch(expr MatchExprNode, indent String) {
+    let narms Int64: expr.arms.len()
+    printLn(indent.append("MatchExpression [").append(narms.toString()).append(" arms]"))
+    let bodyIndent String: makeIndent(indent)
+    let armIndent String: makeIndent(bodyIndent)
+    printExpr(expr.condition, bodyIndent)
+    let i Int64: 0
+    while i.lt(narms) {
+        let arm MatchArm: expr.arms.at(i)
+        let wc Bool: arm.isWildcard
+        let pat AstNode: arm.pattern
+        let patLabel String: matchPatternLabel(pat, wc)
+        printLn(bodyIndent.append("Arm [").append(patLabel).append("]"))
+        printExpr(arm.body, armIndent)
+        i: i.add(1)
+    }
+}
+
+fn printExprUnary(expr UnaryNode, indent String) {
+    printLn(indent.append("UnaryExpression [Not]"))
+    printExpr(expr.operand, makeIndent(indent))
+}
+
+fn printExprBinary(expr BinaryNode, indent String) {
+    let opStr String: match expr.op.equals(OP_AND) { true: "And", _: "Or" }
+    printLn(indent.append("BinaryExpression [").append(opStr).append("]"))
+    let childIndent String: makeIndent(indent)
+    printExpr(expr.left, childIndent)
+    printExpr(expr.right, childIndent)
+}
+
+fn matchPatternLabel(pat AstNode, isWildcard Bool) String {
+    match isWildcard {
+        true: { return "_" }
+    }
+    return matchPatternLabelInner(pat)
+}
+
+fn matchPatternLabelInner(pat AstNode) String {
+    match pat {
+        BoolLitNode:  { return match pat.boolVal { true: "true", _: "false" } }
+        IntLitNode:   { return pat.text }
+        FloatLitNode: { return pat.text }
+        StrLitNode:   { return "\"".append(pat.text).append("\"") }
+        _:            { return "VariableReferenceExpression" }
+    }
+}
+
+fn escapeForPrint(s String) String {
+    let result String: ""
+    let i Int64: 0
+    while i.lt(s.len()) {
+        let ch String: s.at(i)
+        let out String: match ch.equals("\n") {
+            true: "\\n"
+            _:
+            match ch.equals("\t") {
+                true: "\\t"
+                _: ch
+            }
+        }
+        result: result.append(out)
+        i: i.add(1)
+    }
+    return result
+}

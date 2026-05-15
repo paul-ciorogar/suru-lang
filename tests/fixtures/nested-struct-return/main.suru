@@ -1,0 +1,24 @@
+// Regression fixture for the nested-struct-literal-return segfault.
+//
+// Before the resolved-type AST migration, `emitValue` for a nested struct
+// literal fell back to `ctx.currentReturnTypeName`, which named the
+// enclosing function's return type — so the inner literal `{ x: 42 }` here
+// was emitted with the layout of `Outer` instead of `Inner`, then read back
+// through `.inner.x`, segfaulting.
+//
+// Semantic analysis now writes `resolvedType` onto every expression node via
+// top-down expectation propagation, so the inner literal knows its true
+// type at codegen time.
+
+type Inner: { x Int64 }
+type Outer: { inner Inner }
+
+fn make() Outer {
+    return { inner: { x: 42 } }
+}
+
+fn main(args Array<String>) {
+    let o Outer: make()
+    printLn(o.inner.x)
+    drop(o)
+}

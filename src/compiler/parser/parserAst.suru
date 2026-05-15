@@ -17,6 +17,15 @@
 //  19  CallNode        20 MethodCallNode  21 FieldAccessNode
 //  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
 //  25  UnaryNode       26 BinaryNode
+//
+// Every expression variant (indices 13–26 except WildcardNode, which is
+// pattern-only and carries no value) has a trailing `resolvedType String`
+// field. The parser writes "" as a sentinel meaning "not yet resolved";
+// semantic analysis fills it in via top-down expected-type propagation
+// combined with bottom-up inference. Codegen reads `resolvedType` directly
+// instead of recomputing types or relying on the surrounding return-type
+// context. WildcardNode is intentionally excluded — wildcards are only
+// valid as match patterns and never appear in value position.
 
 include "../lexer/lexer.suru" as lexer
 
@@ -59,20 +68,26 @@ type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch Bloc
 
 // ─── Expression node types (AstNode variants 13–26) ───────────────────────────
 
-type BoolLitNode:     { boolVal Bool }
-type IntLitNode:      { text String }
-type FloatLitNode:    { text String }
-type StrLitNode:      { text String }
+// Each expression node ends with `resolvedType String`.
+// Parser initializes it to "" (sentinel for "not resolved"); semantic
+// analysis writes the canonical Suru type name (e.g. "Int64", "String",
+// "Array:Foo", a struct name, or a sum-type name). Codegen reads it
+// directly. See the header comment for the rationale.
+type BoolLitNode:     { boolVal Bool, resolvedType String }
+type IntLitNode:      { text String, resolvedType String }
+type FloatLitNode:    { text String, resolvedType String }
+type StrLitNode:      { text String, resolvedType String }
+// WildcardNode is pattern-only and has no value, so no resolvedType.
 type WildcardNode:    { }
-type VarRefNode:      { name String }
-type CallNode:        { name String, args Array<AstNode> }
-type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode> }
-type FieldAccessNode: { receiver AstNode, fieldName String }
-type ArrayLitNode:    { elems Array<AstNode> }
-type StructLitNode:   { fields Array<StructFieldNode> }
-type MatchExprNode:   { condition AstNode, arms Array<MatchArm> }
-type UnaryNode:       { op Int64, operand AstNode }
-type BinaryNode:      { op Int64, left AstNode, right AstNode }
+type VarRefNode:      { name String, resolvedType String }
+type CallNode:        { name String, args Array<AstNode>, resolvedType String }
+type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, resolvedType String }
+type FieldAccessNode: { receiver AstNode, fieldName String, resolvedType String }
+type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
+type StructLitNode:   { fields Array<StructFieldNode>, resolvedType String }
+type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, resolvedType String }
+type UnaryNode:       { op Int64, operand AstNode, resolvedType String }
+type BinaryNode:      { op Int64, left AstNode, right AstNode, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 

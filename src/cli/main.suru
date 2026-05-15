@@ -9,7 +9,8 @@
 
 include "../compiler/pipeline.suru"          as pipeline
 include "../compiler/lexer/lexer.suru"       as lex
-include "../compiler/parser/parser.suru"     as parser
+include "../compiler/parser/parser.suru"      as parser
+include "../compiler/parser/parserPrint.suru" as pprint
 
 // ─── Lex command ───────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ fn runParse(sourcePath String) {
     let source String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(source)
     let mod AstModule: parser.parse(tokens)
-    parser.printModule(mod, sourcePath)
+    pprint.printModule(mod, sourcePath)
 }
 
 // ─── IR command ────────────────────────────────────────────────────────────────

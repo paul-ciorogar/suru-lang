@@ -18,6 +18,8 @@ fn main(args Array<String>) {
         { name: "functions",    source: "tests/fixtures/functions",    args: "",                                        expected: readFile("/work/tests/fixtures/functions/expected.txt")    },
         { name: "control-flow", source: "tests/fixtures/control-flow", args: "",                                        expected: readFile("/work/tests/fixtures/control-flow/expected.txt") },
         { name: "if-statements", source: "tests/fixtures/if-statements", args: "",                                       expected: readFile("/work/tests/fixtures/if-statements/expected.txt") },
+        { name: "resolved-type-smoke", source: "tests/fixtures/resolved-type-smoke", args: "",                          expected: readFile("/work/tests/fixtures/resolved-type-smoke/expected.txt") },
+        { name: "nested-struct-return", source: "tests/fixtures/nested-struct-return", args: "",                       expected: readFile("/work/tests/fixtures/nested-struct-return/expected.txt") },
         { name: "cli-lex",      source: "src/cli",                     args: " lex /work/tests/fixtures/simple/main.suru", expected: readFile("/work/tests/fixtures/cli-lex/expected.txt")      },
     ]
 

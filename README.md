@@ -54,6 +54,12 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
 - Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `exit`, `exec`
+- Type expectations flow inward: struct and array literals take their type
+  from the surrounding context (the `let` annotation, the enclosing function's
+  return type, the parent struct's field type, or the surrounding array's
+  element type). Literals never need an inline type tag — the compiler resolves
+  them via a dedicated semantic pass that annotates every expression with its
+  `resolvedType`.
 
 ## Language guide
 

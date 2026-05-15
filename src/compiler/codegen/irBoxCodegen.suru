@@ -14,6 +14,7 @@
 // ir-fileio-codegen, ir-type-clone-drop-codegen, and ir-codegen.
 
 include "irCodegenTypes.suru" as types
+include "irCodegenTypeHelpers.suru" as tyh
 include "irBuilder.suru" as ir
 
 // ─── Type utility functions ───────────────────────────────────────────────────
@@ -23,12 +24,12 @@ include "irBuilder.suru" as ir
 // LLVM type string for a Suru type name.
 // Scalars → raw LLVM types; all heap types and void → "ptr".
 fn llvmTypeOf(suruType String) String {
-    return types.irLlvmTypeOf(suruType)
+    return tyh.irLlvmTypeOf(suruType)
 }
 
 // True for the four scalar types that use raw LLVM values (not heap ptr).
 fn isScalarType(suruType String) Bool {
-    return types.isScalarSuruType(suruType)
+    return tyh.isScalarSuruType(suruType)
 }
 
 // LLVM type for arithmetic/comparison operands.

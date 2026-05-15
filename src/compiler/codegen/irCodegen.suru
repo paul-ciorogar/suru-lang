@@ -13,310 +13,23 @@
 include "../parser/parserAst.suru" as ast
 include "irBuilder.suru" as ir
 include "irCodegenTypes.suru" as types
+include "irCodegenStrIntern.suru" as strIntern
+include "irCodegenTypeHelpers.suru" as tyh
 include "irBoxCodegen.suru" as box
 include "irStringCodegen.suru" as irStr
 include "irArrayCodegen.suru" as irArr
 include "irStructCodegen.suru" as irStruct
 include "irFileioCodegen.suru" as irFile
 include "irTypeCloneDropCodegen.suru" as irCD
+include "irRegisterPasses.suru" as passes
+include "irExprHelpers.suru" as eh
 
-// ─── Pre-passes ───────────────────────────────────────────────────────────────
-
-// Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
-fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
-    while i.lt(stmts.len()) {
-        let s AstNode: stmts.at(i)
-        match s {
-            TypeDeclNode: {
-                let fields Array<TypeFieldEntry>: []
-                let j Int64: 0
-                while j.lt(s.fields.len()) {
-                    let p Param: s.fields.at(j)
-                    let fe TypeFieldEntry: { name: p.name, typeName: p.typeName }
-                    fields.add(fe)
-                    j: j.add(1)
-                }
-                let td TypeDecl: { name: s.name, fields: fields }
-                ctx: types.addType(ctx, td)
-            }
-            SumTypeDeclNode: {
-                let sd SumTypeDecl: { name: s.name, variants: s.variants }
-                ctx: types.addSumType(ctx, sd)
-            }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return ctx
-}
-
-// Pre-pass 1: register same-file function signatures into ctx.functions.
-// Only functions whose names are in ctx.ownFnNames get registered — external
-// (included) functions are excluded here; they may be added by the caller.
-fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
-    while i.lt(stmts.len()) {
-        let s AstNode: stmts.at(i)
-        match s {
-            FnDeclNode: {
-                match types.isOwnFn(ctx, s.name) {
-                    true: {
-                        let retSuru String: types.makeSuruType(s.returnType)
-                        let retLlvm String: match s.returnType.equals("void") {
-                            true: "ptr"
-                            _:    box.llvmTypeOf(retSuru)
-                        }
-                        let paramTypes Array<String>: []
-                        let j Int64: 0
-                        while j.lt(s.params.len()) {
-                            paramTypes.add(types.makeSuruType(s.params.at(j).typeName))
-                            j: j.add(1)
-                        }
-                        let fe2 FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
-                        ctx: types.addFn(ctx, fe2)
-                    }
-                    _: {}
-                }
-            }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return ctx
-}
-
-// Pre-pass 2: register module-level scalar constant names in ctx.globalVars.
-fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
-    while i.lt(stmts.len()) {
-        let s AstNode: stmts.at(i)
-        match s {
-            LetNode: {
-                let val AstNode: s.value
-                let suruTy String: ""
-                match val {
-                    BoolLitNode:  { suruTy: "Bool" }
-                    IntLitNode:   { suruTy: "Int64" }
-                    FloatLitNode: { suruTy: "Float64" }
-                    _: {}
-                }
-                match suruTy.equals("") {
-                    true: {}
-                    _: {
-                        let gv GlobalVar: { suruName: s.name, globalName: "@".append(s.name), suruType: suruTy }
-                        ctx.globalVars.add(gv)
-                    }
-                }
-            }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return ctx
-}
-
-// Emit LLVM global constant declarations for all registered module-level scalars.
-// Called during assembly in generate() — reads ctx.globalVars, matches back to stmts
-// to get the literal text.
-fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
-    let out String: ""
-    let i Int64: 0
-    while i.lt(stmts.len()) {
-        let s AstNode: stmts.at(i)
-        match s {
-            LetNode: {
-                let g GlobalVar: types.lookupGlobal(ctx, s.name)
-                match g.suruName.equals("") {
-                    true: {}
-                    _: {
-                        let val AstNode: s.value
-                        match val {
-                            BoolLitNode: {
-                                let bstr String: match val.boolVal { true: "1", _: "0" }
-                                out: out.append(g.globalName).append(" = internal constant i1 ").append(bstr).append("\n")
-                            }
-                            IntLitNode: {
-                                out: out.append(g.globalName).append(" = internal constant i64 ").append(val.text).append("\n")
-                            }
-                            FloatLitNode: {
-                                out: out.append(g.globalName).append(" = internal constant double ").append(val.text).append("\n")
-                            }
-                            _: {}
-                        }
-                    }
-                }
-            }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return out
-}
-
-// ─── Variable load ─────────────────────────────────────────────────────────────
-
-// Load from a local alloca or module-level constant global.
-fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
-    let v VarEntry: types.lookupVar(ctx, name)
-    match v.name.equals("") {
-        true: {
-            let g GlobalVar: types.lookupGlobal(ctx, name)
-            let lt String: box.llvmTypeOf(g.suruType)
-            let lr IrResult: ir.emitLoad(ctx.builder, lt, g.globalName)
-            ctx.builder: lr.builder
-            return { ctx: ctx, name: lr.name, llvmType: lt, suruType: g.suruType }
-        }
-        _: {}
-    }
-    let lt String: box.llvmTypeOf(v.suruType)
-    let lr IrResult: ir.emitLoad(ctx.builder, lt, v.allocaName)
-    ctx.builder: lr.builder
-    return { ctx: ctx, name: lr.name, llvmType: lt, suruType: v.suruType }
-}
-
-// ─── Arithmetic helpers ─────────────────────────────────────────────────────────
-
-// For arithmetic/comparison, NamedType (struct field) is treated as Int64 at runtime.
-fn effectiveSuruType(suruType String) String {
-    match box.isScalarType(suruType) { true: { return suruType } _: {} }
-    match suruType.equals("String")  { true: { return "String"  } _: {} }
-    match types.isArraySuruType(suruType) { true: { return suruType } _: {} }
-    return "Int64"
-}
-
-// Unbox val to raw scalar if it is heap-boxed for the given suruType.
-// Returns val unchanged when suruType is already scalar.
-fn rawVal(ctx IrCodegenContext, val String, suruType String) CodegenResult {
-    match box.isScalarType(suruType) {
-        true: { return { ctx: ctx, name: val, llvmType: box.llvmTypeOf(suruType), suruType: suruType } }
-        _: {}
-    }
-    return box.unboxScalar(ctx, val, "Int64")
-}
-
-// Emit binary arithmetic operation.
-fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, ltype String, rval String, rtype String) CodegenResult {
-    let eff String: effectiveSuruType(ltype)
-    let rr1 CodegenResult: rawVal(ctx, lval, ltype)
-    ctx: rr1.ctx
-    let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
-    ctx: rr2.ctx
-    let op String: match eff.equals("Float64") { true: floatOp, _: intOp }
-    let rawT String: box.rawLlvmTypeOf(eff)
-    let br IrResult: ir.emitBinop(ctx.builder, op, rawT, rr1.name, rr2.name)
-    ctx.builder: br.builder
-    return { ctx: ctx, name: br.name, llvmType: rawT, suruType: eff }
-}
-
-// Emit comparison. Returns i1 result with suruType="Bool".
-fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String, ltype String, rval String, rtype String) CodegenResult {
-    let eff String: effectiveSuruType(ltype)
-    let rr1 CodegenResult: rawVal(ctx, lval, ltype)
-    ctx: rr1.ctx
-    let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
-    ctx: rr2.ctx
-    let rawT String: box.rawLlvmTypeOf(eff)
-    let cr IrResult: match eff.equals("Float64") {
-        true: ir.emitFCmp(ctx.builder, floatPred, rr1.name, rr2.name)
-        _:    ir.emitICmp(ctx.builder, intPred, rawT, rr1.name, rr2.name)
-    }
-    ctx.builder: cr.builder
-    return { ctx: ctx, name: cr.name, llvmType: "i1", suruType: "Bool" }
-}
-
-// Emit compare() → i64 -1/0/1.
-fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String) CodegenResult {
-    let eff String: effectiveSuruType(ltype)
-    let rawT String: box.rawLlvmTypeOf(eff)
-    let rr1 CodegenResult: rawVal(ctx, lval, ltype)
-    ctx: rr1.ctx
-    let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
-    ctx: rr2.ctx
-    let gtR IrResult: match eff.equals("Float64") {
-        true: ir.emitFCmp(ctx.builder, "ogt", rr1.name, rr2.name)
-        _:    ir.emitICmp(ctx.builder, "sgt", rawT, rr1.name, rr2.name)
-    }
-    ctx.builder: gtR.builder
-    let ltR IrResult: match eff.equals("Float64") {
-        true: ir.emitFCmp(ctx.builder, "olt", gtR.name, rr2.name)
-        _:    ir.emitICmp(ctx.builder, "slt", rawT, rr1.name, rr2.name)
-    }
-    ctx.builder: ltR.builder
-    let geR IrResult: ir.emitZext(ctx.builder, "i1", gtR.name, "i64")
-    ctx.builder: geR.builder
-    let leR IrResult: ir.emitZext(ctx.builder, "i1", ltR.name, "i64")
-    ctx.builder: leR.builder
-    let subR IrResult: ir.emitBinop(ctx.builder, "sub", "i64", geR.name, leR.name)
-    ctx.builder: subR.builder
-    return { ctx: ctx, name: subR.name, llvmType: "i64", suruType: "Int64" }
-}
-
-// Emit invert() — numeric negation. Bool invert is also numeric (xor not needed).
-fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
-    let eff String: effectiveSuruType(suruType)
-    let rr CodegenResult: rawVal(ctx, val, suruType)
-    ctx: rr.ctx
-    let res IrResult: match eff.equals("Float64") {
-        true: ir.emitBinop(ctx.builder, "fneg", "double", "", rr.name)
-        _:    ir.emitBinop(ctx.builder, "sub", box.rawLlvmTypeOf(eff), "0", rr.name)
-    }
-    ctx.builder: res.builder
-    return { ctx: ctx, name: res.name, llvmType: box.rawLlvmTypeOf(eff), suruType: eff }
-}
-
-// ─── clone/drop/not/binary helpers ─────────────────────────────────────────────
-
-fn emitCloneDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
-    match box.isScalarType(suruType) {
-        true: { return { ctx: ctx, name: val, llvmType: box.llvmTypeOf(suruType), suruType: suruType } }
-        _: {}
-    }
-    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_dyn(ptr)\n")
-    let args Array<String>: []
-    args.add("ptr ".append(val))
-    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_clone_dyn", args)
-    ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: suruType }
-}
-
-fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
-    match box.isScalarType(suruType) {
-        true: { return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" } }
-        _: {}
-    }
-    ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
-    let args Array<String>: []
-    args.add("ptr ".append(val))
-    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_drop_dyn", args)
-    return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
-}
-
-fn emitBoolNot(ctx IrCodegenContext, val String, suruType String) CodegenResult {
-    let rawB String: val
-    match box.isScalarType(suruType) {
-        true: {}
-        _: {
-            let ur CodegenResult: box.unboxBool(ctx, val)
-            ctx: ur.ctx
-            rawB: ur.name
-        }
-    }
-    let xr IrResult: ir.emitXor(ctx.builder, "i1", rawB, "true")
-    ctx.builder: xr.builder
-    return { ctx: ctx, name: xr.name, llvmType: "i1", suruType: "Bool" }
-}
-
-fn emitBinaryExpr(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String, op Int64) CodegenResult {
-    let rr1 CodegenResult: rawVal(ctx, lval, ltype)
-    ctx: rr1.ctx
-    let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
-    ctx: rr2.ctx
-    let opStr String: match op.equals(2) { true: "and", _: "or" }
-    let br IrResult: ir.emitBinop(ctx.builder, opStr, "i1", rr1.name, rr2.name)
-    ctx.builder: br.builder
-    return { ctx: ctx, name: br.name, llvmType: "i1", suruType: "Bool" }
-}
+// Module-level pre-passes (registerTypes/registerFunctions/registerConstants/
+// emitGlobalConstants) live in irRegisterPasses.suru. Low-level expression
+// helpers (emitVarLoad, effectiveSuruType, rawVal, emitArith, emitCmpOp,
+// emitCompare, emitInvert, emitCloneDyn, emitDropDyn, emitBoolNot,
+// emitBinaryExpr) live in irExprHelpers.suru. Both files are leaves with
+// respect to the mutual-recursion cluster that remains here.
 
 // ─── Static type methods ─────────────────────────────────────────────────────────
 
@@ -325,8 +38,8 @@ fn emitInt64Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
     let arg0 AstNode: args.at(0)
     match arg0 {
         StrLitNode: {
-            ctx: types.internString(ctx, arg0.text)
-            let gname String: types.lookupStrGlobal(ctx, arg0.text)
+            ctx: strIntern.internString(ctx, arg0.text)
+            let gname String: strIntern.lookupStrGlobal(ctx, arg0.text)
             ctx: types.addDecl(ctx, "declare i64 @strtol(ptr, ptr, i32)\n")
             let stArgs Array<String>: []
             stArgs.add("ptr ".append(gname))
@@ -358,8 +71,8 @@ fn emitFloat64Static(ctx IrCodegenContext, method String, args Array<AstNode>) C
     let arg0 AstNode: args.at(0)
     match arg0 {
         StrLitNode: {
-            ctx: types.internString(ctx, arg0.text)
-            let gname String: types.lookupStrGlobal(ctx, arg0.text)
+            ctx: strIntern.internString(ctx, arg0.text)
+            let gname String: strIntern.lookupStrGlobal(ctx, arg0.text)
             ctx: types.addDecl(ctx, "declare double @strtod(ptr, ptr)\n")
             let sdArgs Array<String>: []
             sdArgs.add("ptr ".append(gname))
@@ -513,7 +226,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
     ctx.builder: capNR.builder
     let dataNR IrResult: ir.nextTmp(ctx.builder)
     ctx.builder: dataNR.builder
-    let etag String: types.suruTypeTag(actualElemSuruType)
+    let etag String: tyh.suruTypeTag(actualElemSuruType)
     // Step 4: emit header field GEPs + stores.
     // ttagGep and etagGep use single space; lenGep and capGep use double space
     // (aligned formatting required for len/cap GEP SSA names).
@@ -669,7 +382,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
             return irStr.emitStringLiteralValue(ctx, expr.text)
         }
         VarRefNode: {
-            return emitVarLoad(ctx, expr.name)
+            return eh.emitVarLoad(ctx, expr.name)
         }
         FieldAccessNode: {
             let rr CodegenResult: emitValue(ctx, expr.receiver)
@@ -677,20 +390,18 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
             return irStruct.emitFieldAccess(ctx, rr.name, rr.suruType, expr.fieldName)
         }
         ArrayLitNode: {
-            // Infer element type from first element (if any), else use "Int64".
-            let elemSuruType String: "Int64"
-            match expr.elems.len().gt(0) {
-                true: {
-                    let peekR CodegenResult: peekTypeNode(ctx, expr.elems.at(0))
-                    elemSuruType: peekR.suruType
-                }
-                _: {}
-            }
+            // Element type derived from the resolvedType annotation written by
+            // semantic analysis (`Array:Foo` → `Foo`). Empty literals without a
+            // surrounding expectation still resolve to `Array:Int64` per the
+            // semantic pass fallback.
+            let elemSuruType String: tyh.elemSuruType(expr.resolvedType)
             return emitArrayLit(ctx, expr.elems, elemSuruType)
         }
         StructLitNode: {
-            // typeName resolved by caller via let annotation — use currentReturnTypeName fallback.
-            return emitStructLit(ctx, expr.fields, ctx.currentReturnTypeName)
+            // Resolved type comes from the semantic pass via top-down
+            // expectation propagation; no longer relies on the surrounding
+            // return-type context.
+            return emitStructLit(ctx, expr.fields, expr.resolvedType)
         }
         CallNode: {
             match expr.name.equals("readFile") {
@@ -698,8 +409,8 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                     let pathArg AstNode: expr.args.at(0)
                     match pathArg {
                         StrLitNode: {
-                            ctx: types.internString(ctx, pathArg.text)
-                            let gname String: types.lookupStrGlobal(ctx, pathArg.text)
+                            ctx: strIntern.internString(ctx, pathArg.text)
+                            let gname String: strIntern.lookupStrGlobal(ctx, pathArg.text)
                             return irFile.emitReadFileLit(ctx, gname)
                         }
                         _: {
@@ -715,7 +426,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                 true: {
                     let ar CodegenResult: emitValue(ctx, expr.args.at(0))
                     ctx: ar.ctx
-                    return emitCloneDyn(ctx, ar.name, ar.suruType)
+                    return eh.emitCloneDyn(ctx, ar.name, ar.suruType)
                 }
                 _: {}
             }
@@ -723,7 +434,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                 true: {
                     let ar CodegenResult: emitValue(ctx, expr.args.at(0))
                     ctx: ar.ctx
-                    return emitDropDyn(ctx, ar.name, ar.suruType)
+                    return eh.emitDropDyn(ctx, ar.name, ar.suruType)
                 }
                 _: {}
             }
@@ -733,8 +444,8 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                     let cmdArg AstNode: expr.args.at(0)
                     match cmdArg {
                         StrLitNode: {
-                            ctx: types.internString(ctx, cmdArg.text)
-                            let gname String: types.lookupStrGlobal(ctx, cmdArg.text)
+                            ctx: strIntern.internString(ctx, cmdArg.text)
+                            let gname String: strIntern.lookupStrGlobal(ctx, cmdArg.text)
                             let sysArgs Array<String>: []
                             sysArgs.add("ptr ".append(gname))
                             let cr IrResult: ir.emitCall(ctx.builder, "i32", "system", sysArgs)
@@ -778,14 +489,14 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         UnaryNode: {
             let opr CodegenResult: emitValue(ctx, expr.operand)
             ctx: opr.ctx
-            return emitBoolNot(ctx, opr.name, opr.suruType)
+            return eh.emitBoolNot(ctx, opr.name, opr.suruType)
         }
         BinaryNode: {
             let lr CodegenResult: emitValue(ctx, expr.left)
             ctx: lr.ctx
             let rr CodegenResult: emitValue(ctx, expr.right)
             ctx: rr.ctx
-            return emitBinaryExpr(ctx, lr.name, lr.suruType, rr.name, rr.suruType, expr.op)
+            return eh.emitBinaryExpr(ctx, lr.name, lr.suruType, rr.name, rr.suruType, expr.op)
         }
         _: {
             return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "" }
@@ -796,104 +507,27 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // Peek the Suru type of an expression node without emitting IR.
 // Used by emitMatchExpr to choose the result alloca LLVM type.
 // Returns CodegenResult with only suruType set (name/llvmType are irrelevant).
+//
+// After Task 4 of the resolved-type migration, every expression variant
+// carries a `resolvedType` field populated by semantic analysis. This
+// function simply reads it from each variant — no more per-method tables,
+// scope lookups, or recursive peeks.
 fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
     let st String: ""
     match expr {
-        BoolLitNode:  { st: "Bool"   }
-        IntLitNode:   { st: "Int64"  }
-        FloatLitNode: { st: "Float64" }
-        StrLitNode:   { st: "String" }
-        ArrayLitNode: { st: "Array:Int64" }
-        StructLitNode: { st: ctx.currentReturnTypeName }
-        VarRefNode: {
-            let v VarEntry: types.lookupVar(ctx, expr.name)
-            match v.name.equals("") {
-                true: {
-                    let g GlobalVar: types.lookupGlobal(ctx, expr.name)
-                    st: g.suruType
-                }
-                _: { st: v.suruType }
-            }
-        }
-        MethodCallNode: {
-            // Dispatch on method name for common cases; receiver lookup for user fns.
-            // Bind receiver to a local so NarrowCondVar can narrow it inside match arms.
-            let recvNode AstNode: expr.receiver
-            let method String: expr.methodName
-            match method.equals("add")      { true: { match recvNode { VarRefNode: { st: types.lookupVar(ctx, recvNode.name).suruType } _: {} } } _: {} }
-            match method.equals("take")     { true: { match recvNode { VarRefNode: { st: types.lookupVar(ctx, recvNode.name).suruType } _: {} } } _: {} }
-            match method.equals("multiply") { true: { match recvNode { VarRefNode: { st: types.lookupVar(ctx, recvNode.name).suruType } _: {} } } _: {} }
-            match method.equals("split")    { true: { match recvNode { VarRefNode: { st: types.lookupVar(ctx, recvNode.name).suruType } _: {} } } _: {} }
-            match method.equals("invert")   { true: { match recvNode { VarRefNode: { st: types.lookupVar(ctx, recvNode.name).suruType } _: {} } } _: {} }
-            match method.equals("compare")  { true: { st: "Int64" } _: {} }
-            match method.equals("len")      { true: { st: "Int64" } _: {} }
-            match method.equals("ord")      { true: { st: "Int64" } _: {} }
-            match method.equals("lt")       { true: { st: "Bool"  } _: {} }
-            match method.equals("gt")       { true: { st: "Bool"  } _: {} }
-            match method.equals("lte")      { true: { st: "Bool"  } _: {} }
-            match method.equals("gte")      { true: { st: "Bool"  } _: {} }
-            match method.equals("equals")   { true: { st: "Bool"  } _: {} }
-            match method.equals("toString") { true: { st: "String" } _: {} }
-            match method.equals("at") {
-                true: {
-                    // Return the element type of the receiver array rather than a fixed "String".
-                    // This lets FieldAccessNode peek resolve correctly for arrays of named types.
-                    let recvPeek CodegenResult: peekTypeNode(ctx, recvNode)
-                    let elemST String: types.elemSuruType(recvPeek.suruType)
-                    match elemST.equals("") { true: { st: "String" } _: { st: elemST } }
-                }
-                _: {}
-            }
-            match method.equals("append")   { true: { st: "String" } _: {} }
-            match method.equals("slice")    { true: { st: "String" } _: {} }
-            match st.equals("") {
-                true: {
-                    // Unknown method → look up function return type
-                    let sig FnEntry: types.lookupFn(ctx, method)
-                    st: sig.returnSuruType
-                }
-                _: {}
-            }
-        }
-        CallNode: {
-            let sig FnEntry: types.lookupFn(ctx, expr.name)
-            st: sig.returnSuruType
-        }
-        FieldAccessNode: {
-            // Resolve the field's declared type by peeking the receiver's Suru type.
-            let recvR CodegenResult: peekTypeNode(ctx, expr.receiver)
-            let decl TypeDecl: types.lookupType(ctx, recvR.suruType)
-            match decl.name.equals("") {
-                true: {}
-                _: {
-                    let fIdx Int64: types.fieldIndex(decl, expr.fieldName)
-                    let fLen Int64: decl.fields.len()
-                    match fIdx.lt(fLen) {
-                        true: {
-                            let ann String: decl.fields.at(fIdx).typeName
-                            st: types.makeSuruType(ann)
-                        }
-                        _: {}
-                    }
-                }
-            }
-        }
-        MatchExprNode: {
-            // Peek the type of the first non-wildcard arm
-            let i Int64: 0
-            while i.lt(expr.arms.len()) {
-                let arm MatchArm: expr.arms.at(i)
-                match arm.isWildcard {
-                    true: {}
-                    _: {
-                        let pr CodegenResult: peekTypeNode(ctx, arm.body)
-                        st: pr.suruType
-                        i: expr.arms.len()
-                    }
-                }
-                i: i.add(1)
-            }
-        }
+        BoolLitNode:     { st: expr.resolvedType }
+        IntLitNode:      { st: expr.resolvedType }
+        FloatLitNode:    { st: expr.resolvedType }
+        StrLitNode:      { st: expr.resolvedType }
+        VarRefNode:      { st: expr.resolvedType }
+        CallNode:        { st: expr.resolvedType }
+        MethodCallNode:  { st: expr.resolvedType }
+        FieldAccessNode: { st: expr.resolvedType }
+        ArrayLitNode:    { st: expr.resolvedType }
+        StructLitNode:   { st: expr.resolvedType }
+        MatchExprNode:   { st: expr.resolvedType }
+        UnaryNode:       { st: expr.resolvedType }
+        BinaryNode:      { st: expr.resolvedType }
         _: { st: "Int64" }
     }
     return { ctx: ctx, name: "", llvmType: box.llvmTypeOf(st), suruType: st }
@@ -914,7 +548,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             match lookupResult.name.equals("") {
                 true: {
                     // Not in local scope — check if static builtin type or namespace alias.
-                    let isBuiltin Bool: types.isBuiltinSuruType(recvName)
+                    let isBuiltin Bool: tyh.isBuiltinSuruType(recvName)
                     match isBuiltin {
                         true: {}
                         _: {
@@ -940,9 +574,9 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let recvSuruType String: rr.suruType
 
     // Array instance methods.
-    match types.isArraySuruType(recvSuruType) {
+    match tyh.isArraySuruType(recvSuruType) {
         true: {
-            let elemST String: types.elemSuruType(recvSuruType)
+            let elemST String: tyh.elemSuruType(recvSuruType)
             match method.equals("len")   { true: { return irArr.emitArrayLen(ctx, recvVal) } _: {} }
             match method.equals("clone") { true: { return irArr.emitArrayClone(ctx, recvVal, elemST) } _: {} }
             match method.equals("drop")  { true: { return irArr.emitArrayDrop(ctx, recvVal) } _: {} }
@@ -965,14 +599,11 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             }
             match method.equals("add") {
                 true: {
-                    // Thread elemST so struct literal arguments resolve to the element type,
-                    // not the enclosing function's return type.
-                    // Save/restore so the mutation doesn't leak to subsequent struct literals.
-                    let savedReturnTypeName String: ctx.currentReturnTypeName
-                    ctx.currentReturnTypeName: elemST
+                    // Struct-literal arguments carry their own resolvedType
+                    // (written by the semantic pass) so no context threading
+                    // is needed.
                     let vr CodegenResult: emitValue(ctx, expr.args.at(0))
                     ctx: vr.ctx
-                    ctx.currentReturnTypeName: savedReturnTypeName
                     ctx: irArr.emitArrayAdd(ctx, recvVal, vr.name, elemST)
                     return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
                 }
@@ -980,13 +611,8 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             }
             match method.equals("set") {
                 true: {
-                    // Thread elemST so struct literal arguments resolve to the element type.
-                    // Save/restore so the mutation doesn't leak to subsequent struct literals.
-                    let savedReturnTypeName String: ctx.currentReturnTypeName
-                    ctx.currentReturnTypeName: elemST
                     let vr CodegenResult: emitValue(ctx, expr.args.at(0))
                     ctx: vr.ctx
-                    ctx.currentReturnTypeName: savedReturnTypeName
                     let ir2 CodegenResult: emitValue(ctx, expr.args.at(1))
                     ctx: ir2.ctx
                     let idxRaw String: ir2.name
@@ -1078,8 +704,8 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                     let argNode AstNode: expr.args.at(0)
                     match argNode {
                         StrLitNode: {
-                            ctx: types.internString(ctx, argNode.text)
-                            let gname String: types.lookupStrGlobal(ctx, argNode.text)
+                            ctx: strIntern.internString(ctx, argNode.text)
+                            let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
                             let charLen Int64: argNode.text.len()
                             let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
                             ctx: result.ctx
@@ -1122,8 +748,8 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                     let eqArg AstNode: expr.args.at(0)
                     match eqArg {
                         StrLitNode: {
-                            ctx: types.internString(ctx, eqArg.text)
-                            let gname String: types.lookupStrGlobal(ctx, eqArg.text)
+                            ctx: strIntern.internString(ctx, eqArg.text)
+                            let gname String: strIntern.lookupStrGlobal(ctx, eqArg.text)
                             let result CodegenResult: irStr.emitStringEqualsLit(ctx, recvVal, gname)
                             ctx: result.ctx
                             match isOwnedStringTemp(ctx, recv) {
@@ -1282,12 +908,12 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     match method.equals("drop")  { true: { return irStruct.emitStructDrop(ctx, recvVal)  } _: {} }
 
     // invert / compare — arithmetic on receiver.
-    match method.equals("invert")  { true: { return emitInvert(ctx, recvVal, recvSuruType) } _: {} }
+    match method.equals("invert")  { true: { return eh.emitInvert(ctx, recvVal, recvSuruType) } _: {} }
     match method.equals("compare") {
         true: {
             let ar CodegenResult: emitValue(ctx, expr.args.at(0))
             ctx: ar.ctx
-            return emitCompare(ctx, recvVal, recvSuruType, ar.name, ar.suruType)
+            return eh.emitCompare(ctx, recvVal, recvSuruType, ar.name, ar.suruType)
         }
         _: {}
     }
@@ -1295,15 +921,15 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     // Arithmetic / comparison fallthrough.
     let ar CodegenResult: emitValue(ctx, expr.args.at(0))
     ctx: ar.ctx
-    match method.equals("add")      { true: { return emitArith(ctx, "add",  "fadd", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("take")     { true: { return emitArith(ctx, "sub",  "fsub", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("multiply") { true: { return emitArith(ctx, "mul",  "fmul", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("split")    { true: { return emitArith(ctx, "sdiv", "fdiv", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("lt")     { true: { return emitCmpOp(ctx, "slt", "olt", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("gt")     { true: { return emitCmpOp(ctx, "sgt", "ogt", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("lte")    { true: { return emitCmpOp(ctx, "sle", "ole", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("gte")    { true: { return emitCmpOp(ctx, "sge", "oge", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("equals") { true: { return emitCmpOp(ctx, "eq",  "oeq", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("add")      { true: { return eh.emitArith(ctx, "add",  "fadd", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("take")     { true: { return eh.emitArith(ctx, "sub",  "fsub", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("multiply") { true: { return eh.emitArith(ctx, "mul",  "fmul", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("split")    { true: { return eh.emitArith(ctx, "sdiv", "fdiv", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("lt")     { true: { return eh.emitCmpOp(ctx, "slt", "olt", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("gt")     { true: { return eh.emitCmpOp(ctx, "sgt", "ogt", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("lte")    { true: { return eh.emitCmpOp(ctx, "sle", "ole", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("gte")    { true: { return eh.emitCmpOp(ctx, "sge", "oge", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    match method.equals("equals") { true: { return eh.emitCmpOp(ctx, "eq",  "oeq", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
 
     // Unreachable: unknown method — return dummy value.
     return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "" }
@@ -1440,7 +1066,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
                     _: {
                         let pr CodegenResult: emitValue(ctx, pat)
                         ctx: pr.ctx
-                        let eff String: effectiveSuruType(condSuruType)
+                        let eff String: eh.effectiveSuruType(condSuruType)
                         let rawT String: box.rawLlvmTypeOf(eff)
                         let patRaw String: pr.name
                         match box.isScalarType(pr.suruType) { true: {} _: {
@@ -1795,7 +1421,10 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     let retValueNode AstNode: stmt.value
                     match retValueNode {
                         StructLitNode: {
-                            let sr CodegenResult: emitStructLit(ctx, retValueNode.fields, ctx.currentReturnTypeName)
+                            // Type name comes from the resolvedType annotation
+                            // written by semantic analysis (top-down from the
+                            // function's declared return type).
+                            let sr CodegenResult: emitStructLit(ctx, retValueNode.fields, retValueNode.resolvedType)
                             ctx: sr.ctx
                             retVal: sr.name
                         }
@@ -1825,22 +1454,19 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             return ctx
         }
         LetNode: {
-            let annSuruType String: types.makeSuruType(stmt.typeName)
+            let annSuruType String: tyh.makeSuruType(stmt.typeName)
             let annLlvm String: box.llvmTypeOf(annSuruType)
             // Struct literal let: thread type annotation name into emitStructLit.
             let letValueNode AstNode: stmt.value
             match letValueNode {
                 ArrayLitNode: {
-                    // Thread annotation element type into ctx so struct literal elements
-                    // inside the array literal resolve to the correct type name.
-                    // Handles both empty literals (annotation is sole type source) and
-                    // non-empty literals with struct elements (e.g. Array<TestCase>).
-                    let elemSuruType String: types.elemSuruType(annSuruType)
-                    let savedReturnTypeName String: ctx.currentReturnTypeName
-                    ctx.currentReturnTypeName: elemSuruType
+                    // Element type comes from the let annotation. Nested
+                    // struct-literal elements carry their own resolvedType
+                    // (written by the semantic pass), so no context threading
+                    // is needed.
+                    let elemSuruType String: tyh.elemSuruType(annSuruType)
                     let ar CodegenResult: emitArrayLit(ctx, letValueNode.elems, elemSuruType)
                     ctx: ar.ctx
-                    ctx.currentReturnTypeName: savedReturnTypeName
                     let arrPtr String: ar.name
                     let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, "ptr")
                     ctx.builder: ptrR.builder
@@ -1951,8 +1577,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let printArg AstNode: expr.args.at(0)
                             match printArg {
                                 StrLitNode: {
-                                    ctx: types.internString(ctx, printArg.text)
-                                    let gname String: types.lookupStrGlobal(ctx, printArg.text)
+                                    ctx: strIntern.internString(ctx, printArg.text)
+                                    let gname String: strIntern.lookupStrGlobal(ctx, printArg.text)
                                     ctx: types.addDecl(ctx, "declare i32 @puts(ptr)\n")
                                     let putsArgs Array<String>: []
                                     putsArgs.add("ptr ".append(gname))
@@ -2027,8 +1653,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let peArg AstNode: expr.args.at(0)
                             match peArg {
                                 StrLitNode: {
-                                    ctx: types.internString(ctx, peArg.text)
-                                    let gname String: types.lookupStrGlobal(ctx, peArg.text)
+                                    ctx: strIntern.internString(ctx, peArg.text)
+                                    let gname String: strIntern.lookupStrGlobal(ctx, peArg.text)
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_lit(ptr)\n")
                                     let peArgs Array<String>: []
                                     peArgs.add("ptr ".append(gname))
@@ -2115,8 +1741,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let wfPathData String: ""
                             match wfPath {
                                 StrLitNode: {
-                                    ctx: types.internString(ctx, wfPath.text)
-                                    wfPathData: types.lookupStrGlobal(ctx, wfPath.text)
+                                    ctx: strIntern.internString(ctx, wfPath.text)
+                                    wfPathData: strIntern.lookupStrGlobal(ctx, wfPath.text)
                                 }
                                 _: {
                                     let pr CodegenResult: emitValue(ctx, wfPath)
@@ -2129,8 +1755,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let wfContent AstNode: expr.args.at(1)
                             match wfContent {
                                 StrLitNode: {
-                                    ctx: types.internString(ctx, wfContent.text)
-                                    let gname String: types.lookupStrGlobal(ctx, wfContent.text)
+                                    ctx: strIntern.internString(ctx, wfContent.text)
+                                    let gname String: strIntern.lookupStrGlobal(ctx, wfContent.text)
                                     ctx: irFile.emitWriteFileLit(ctx, wfPathData, gname, wfContent.text.len())
                                 }
                                 _: {
@@ -2150,8 +1776,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let afPathData String: ""
                             match afPath {
                                 StrLitNode: {
-                                    ctx: types.internString(ctx, afPath.text)
-                                    afPathData: types.lookupStrGlobal(ctx, afPath.text)
+                                    ctx: strIntern.internString(ctx, afPath.text)
+                                    afPathData: strIntern.lookupStrGlobal(ctx, afPath.text)
                                 }
                                 _: {
                                     let pr CodegenResult: emitValue(ctx, afPath)
@@ -2164,8 +1790,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let afContent AstNode: expr.args.at(1)
                             match afContent {
                                 StrLitNode: {
-                                    ctx: types.internString(ctx, afContent.text)
-                                    let gname String: types.lookupStrGlobal(ctx, afContent.text)
+                                    ctx: strIntern.internString(ctx, afContent.text)
+                                    let gname String: strIntern.lookupStrGlobal(ctx, afContent.text)
                                     ctx: irFile.emitAppendToFileLit(ctx, afPathData, gname, afContent.text.len())
                                 }
                                 _: {
@@ -2209,12 +1835,12 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     match types.isOwnFn(ctx, fnDecl.name) {
         true: {}
         _: {
-            let retSuru String: types.makeSuruType(fnDecl.returnType)
+            let retSuru String: tyh.makeSuruType(fnDecl.returnType)
             let retLlvm String: match fnDecl.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
             let paramParts Array<String>: []
             let i Int64: 0
             while i.lt(fnDecl.params.len()) {
-                paramParts.add(box.llvmTypeOf(types.makeSuruType(fnDecl.params.at(i).typeName)))
+                paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
                 i: i.add(1)
             }
             ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(fnDecl.name).append("(").append(ir.joinArgs(paramParts)).append(")\n")
@@ -2235,30 +1861,28 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
         true: {
             ctx.currentReturnLlvmType: "i64"
             ctx.currentReturnSuruType: "Int64"
-            ctx.currentReturnTypeName: ""
             ctx.builder: ir.emitFnStart(ctx.builder, "internal i64", "suru_main", "ptr %args")
             ctx.builder: ir.emitFixedAlloca(ctx.builder, "args.addr", "ptr")
             ctx.builder: ir.emitStore(ctx.builder, "ptr", "%args", "%args.addr")
             ctx: types.addVar(ctx, "args", "%args.addr", "Array:String")
         }
         _: {
-            let retSuru String: types.makeSuruType(fnDecl.returnType)
+            let retSuru String: tyh.makeSuruType(fnDecl.returnType)
             let retLlvm String: match fnDecl.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
             ctx.currentReturnLlvmType: retLlvm
             ctx.currentReturnSuruType: retSuru
-            ctx.currentReturnTypeName: fnDecl.returnType
             let paramParts Array<String>: []
             let i Int64: 0
             while i.lt(fnDecl.params.len()) {
                 let p Param: fnDecl.params.at(i)
-                paramParts.add(box.llvmTypeOf(types.makeSuruType(p.typeName)).append(" %p.").append(p.name))
+                paramParts.add(box.llvmTypeOf(tyh.makeSuruType(p.typeName)).append(" %p.").append(p.name))
                 i: i.add(1)
             }
             ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, fnDecl.name, ir.joinArgs(paramParts))
             let j Int64: 0
             while j.lt(fnDecl.params.len()) {
                 let p Param: fnDecl.params.at(j)
-                let pSuru String: types.makeSuruType(p.typeName)
+                let pSuru String: tyh.makeSuruType(p.typeName)
                 let pLlvm String: box.llvmTypeOf(pSuru)
                 let allocName String: "%".append(p.name).append(".addr")
                 ctx.builder: ir.emitFixedAlloca(ctx.builder, p.name.append(".addr"), pLlvm)
@@ -2299,7 +1923,6 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // Flush builder to ctx.fns; reset output but preserve SSA counter for next function.
     ctx.fns: ctx.fns.append(ctx.builder.output)
     ctx.builder: ir.freshFnBuilder(ctx.builder)
-    ctx.currentReturnTypeName: ""
     return ctx
 }
 
@@ -2360,9 +1983,9 @@ fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
 fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     ctx: types.addDecl(ctx, "declare void @free(ptr)\n")
-    ctx: registerTypes(ctx, stmts)
-    ctx: registerConstants(ctx, stmts)
-    ctx: registerFunctions(ctx, stmts)
+    ctx: passes.registerTypes(ctx, stmts)
+    ctx: passes.registerConstants(ctx, stmts)
+    ctx: passes.registerFunctions(ctx, stmts)
     ctx: irCD.emitAllTypeCloneDrop(ctx)
     let i Int64: 0
     while i.lt(stmts.len()) {
@@ -2432,12 +2055,12 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                 match types.isOwnFn(ctx, s.name) {
                     true: {}
                     _: {
-                        let retSuru String: types.makeSuruType(s.returnType)
+                        let retSuru String: tyh.makeSuruType(s.returnType)
                         let retLlvm String: match s.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
                         let paramTypes Array<String>: []
                         let j Int64: 0
                         while j.lt(s.params.len()) {
-                            paramTypes.add(types.makeSuruType(s.params.at(j).typeName))
+                            paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
                             j: j.add(1)
                         }
                         let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
@@ -2462,7 +2085,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
         .append("%suru.Array  = type { i64, i64, i64, i64, ptr }\n")
         .append("%suru.Box    = type { i64, i64 }\n")
         .append("\n")
-    let globalConsts String: emitGlobalConstants(ctx, stmts)
+    let globalConsts String: passes.emitGlobalConstants(ctx, stmts)
     // Blank-line separators:
     //   sep1 — after globalVars (if any)
     //   sep2 — after user string literals (if any); NOT after mode/format globals

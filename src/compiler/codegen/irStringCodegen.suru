@@ -25,6 +25,8 @@
 // Imported by ir-codegen.suru (the mutual-recursion hub).
 
 include "irCodegenTypes.suru" as types
+include "irCodegenStrIntern.suru" as strIntern
+include "irCodegenTypeHelpers.suru" as tyh
 include "irBuilder.suru" as ir
 include "irBoxCodegen.suru" as box
 
@@ -61,8 +63,8 @@ fn emitExtractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
 // Returning a ptr to the global constant costs zero at runtime — no malloc, no memcpy.
 fn emitStringLiteralValue(ctx IrCodegenContext, text String) CodegenResult {
     // internString emits both @.str_N and @.str_hdr_N (idempotent).
-    ctx: types.internString(ctx, text)
-    let hdrName String: types.lookupStrHdrGlobal(ctx, text)
+    ctx: strIntern.internString(ctx, text)
+    let hdrName String: strIntern.lookupStrHdrGlobal(ctx, text)
     return { ctx: ctx, name: hdrName, llvmType: "ptr", suruType: "String" }
 }
 
@@ -291,7 +293,7 @@ fn emitStringMethod(ctx IrCodegenContext, method String, recv String, args Array
             // .at(idx) requires a raw i64 index; unbox from heap ptr if needed.
             let idxSsa String: args.at(0)
             let idxType String: argSuruTypes.at(0)
-            match types.isScalarSuruType(idxType) {
+            match tyh.isScalarSuruType(idxType) {
                 true: {}
                 _: {
                     let ur CodegenResult: box.unboxInt64(ctx, idxSsa)
@@ -311,7 +313,7 @@ fn emitStringMethod(ctx IrCodegenContext, method String, recv String, args Array
             // .slice(from, to) requires raw i64 indices; unbox each if needed.
             let fromSsa String: args.at(0)
             let fromType String: argSuruTypes.at(0)
-            match types.isScalarSuruType(fromType) {
+            match tyh.isScalarSuruType(fromType) {
                 true: {}
                 _: {
                     let ur CodegenResult: box.unboxInt64(ctx, fromSsa)
@@ -321,7 +323,7 @@ fn emitStringMethod(ctx IrCodegenContext, method String, recv String, args Array
             }
             let toSsa String: args.at(1)
             let toType String: argSuruTypes.at(1)
-            match types.isScalarSuruType(toType) {
+            match tyh.isScalarSuruType(toType) {
                 true: {}
                 _: {
                     let ur2 CodegenResult: box.unboxInt64(ctx, toSsa)

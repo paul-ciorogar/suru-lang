@@ -34,6 +34,7 @@
 // Imported by ir-codegen.suru (the mutual-recursion hub).
 
 include "irCodegenTypes.suru" as types
+include "irCodegenTypeHelpers.suru" as tyh
 include "irBuilder.suru" as ir
 include "irBoxCodegen.suru" as box
 
@@ -263,7 +264,7 @@ fn emitArrayLiteralAlloc(ctx IrCodegenContext, elemSuruType String, elemCount In
     ctx.builder: ttGr.builder
     ctx.builder: ir.emitStore(ctx.builder, "i64", "5", ttGr.name)
     // elem_tag encodes the element Suru type so the runtime can clone/drop correctly.
-    let etag String: types.suruTypeTag(elemSuruType)
+    let etag String: tyh.suruTypeTag(elemSuruType)
     let etGr IrResult: ir.emitGEP(ctx.builder, "%suru.Array", hdrPtr, "i32 0, i32 1")
     ctx.builder: etGr.builder
     ctx.builder: ir.emitStore(ctx.builder, "i64", etag, etGr.name)
@@ -311,7 +312,7 @@ fn emitArrayMethod(ctx IrCodegenContext, method String, recv String, args Array<
             // .at(idx) requires a raw i64 index; unbox from heap ptr if needed.
             let idxSsa String: args.at(0)
             let idxType String: argSuruTypes.at(0)
-            match types.isScalarSuruType(idxType) {
+            match tyh.isScalarSuruType(idxType) {
                 true: {}
                 _: {
                     let ur CodegenResult: box.unboxInt64(ctx, idxSsa)
@@ -331,7 +332,7 @@ fn emitArrayMethod(ctx IrCodegenContext, method String, recv String, args Array<
             let valType String: argSuruTypes.at(0)
             let idxSsa String: args.at(1)
             let idxType String: argSuruTypes.at(1)
-            match types.isScalarSuruType(idxType) {
+            match tyh.isScalarSuruType(idxType) {
                 true: {}
                 _: {
                     let ur CodegenResult: box.unboxInt64(ctx, idxSsa)

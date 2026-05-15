@@ -22,10 +22,19 @@ type FunctionSig: { name String, paramTypes Array<String>, returnType String }
 
 type AnalysisError: { message String }
 
+// SemFieldEntry / SemTypeEntry mirror parser TypeDeclNode + Param shape but live
+// inside the semantic layer so semantic.suru can stay a leaf (no parser/ast
+// include). collectTypeDeclarations copies each TypeDeclNode into a SemTypeEntry
+// at pre-pass time; resolveTypes.suru reads them when resolving StructLitNodes
+// and FieldAccessNodes.
+type SemFieldEntry: { name String, typeName String }
+type SemTypeEntry:  { name String, fields Array<SemFieldEntry> }
+
 type AnalyzerState: {
     scopes          Array<Scope>
     functions       Array<FunctionSig>
     typeNames       Array<String>
+    typeDecls       Array<SemTypeEntry>
     errors          Array<AnalysisError>
     currentReturnType String
     insideFunction  Int64
@@ -39,6 +48,7 @@ fn makeAnalyzerState() AnalyzerState {
         scopes: [],
         functions: [],
         typeNames: [],
+        typeDecls: [],
         errors: [],
         currentReturnType: "",
         insideFunction: 0,
