@@ -1,0 +1,44 @@
+// Smoke test for the resolved-type AST migration.
+//
+// Exercises the cases where `expr.resolvedType` must be populated by semantic
+// analysis so codegen can emit the right struct/array layout without falling
+// back to `ctx.currentReturnTypeName`:
+//
+//   - struct literal stored in a `let` binding
+//   - array literal of structs with element-type expectation propagation
+//   - struct literal returned from a function with explicit return type
+//   - `match` expression in `let` position (top-down expectation through arms)
+
+type Point: { x Int64, y Int64 }
+
+fn makePoint(x Int64, y Int64) Point {
+    return { x: x, y: y }
+}
+
+fn pickBoxSide(big Bool) Int64 {
+    return match big {
+        true: 100
+        _:    10
+    }
+}
+
+fn main(args Array<String>) {
+    let p Point: { x: 3, y: 4 }
+    printLn(p.x)
+    printLn(p.y)
+
+    let pts Array<Point>: [{ x: 1, y: 1 }, { x: 2, y: 2 }]
+    printLn(pts.at(0).x)
+    printLn(pts.at(1).y)
+
+    let q Point: makePoint(7, 8)
+    printLn(q.x)
+    printLn(q.y)
+
+    let side Int64: pickBoxSide(true)
+    printLn(side)
+
+    drop(p)
+    drop(pts)
+    drop(q)
+}

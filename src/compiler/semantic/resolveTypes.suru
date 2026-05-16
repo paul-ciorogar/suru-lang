@@ -270,7 +270,23 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             let rcv AstNode: typed.receiver
             resolveExpr(state, rcv, "")
             let args Array<AstNode>: typed.args
-            rtResolveArrayElems(state, args, "", 0)
+            // `arr.add(x)` on an Array<T> receiver: x is expected to be T.
+            // Without this, a struct-literal argument (e.g. params.add({...}))
+            // resolves with expected "" → resolvedType "" → codegen emits a
+            // bogus zero-field @suru_clone_ struct. (Pre-resolvedType codegen
+            // inferred this from context; the migration must do it explicitly.)
+            let rcvType String: rtNodeResolvedType(rcv)
+            let argExpected String: ""
+            match typed.methodName.equals("add") {
+                true: {
+                    match tyh.isArraySuruType(rcvType) {
+                        true:  { argExpected: tyh.elemSuruType(rcvType) }
+                        _:     {}
+                    }
+                }
+                _: {}
+            }
+            rtResolveArrayElems(state, args, argExpected, 0)
             // Reuse the method-name → return-type table already maintained in
             // exprs.suru. inferTypeFromMethod handles the special "from" case
             // for Int32/Int64/Float64 static receivers.

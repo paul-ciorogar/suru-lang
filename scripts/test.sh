@@ -5,6 +5,14 @@ docker compose run --rm suru \
   bash << 'DOCKER_EOF'
 set -euo pipefail
 
+# Clean any /tmp/ artifacts from previous runs. Stale test binaries there can
+# produce false-positive PASSes when a fresh compile silently fails (e.g. when
+# the runner's compile step is masked by `2>/dev/null`).
+rm -rf /tmp/suru-test-* /tmp/fresh-bin
+
+# Also wipe stale build outputs in the workspace — same hazard.
+rm -rf /work/src/cli/build /work/tests/runner/build /work/tests/fixtures/*/build
+
 # Step 1: compile a fresh CLI compiler from source using the bootstrap binary
 echo "--- Compiling fresh compiler from source ---"
 suru build /work/src/cli/main.suru

@@ -1,4 +1,9 @@
-type TestCase: { name String, source String, args String, expected String }
+// xfail marks a known-broken test that must NOT block the build: an xfail that
+// fails prints XFAIL (not counted as a failure); an xfail that unexpectedly
+// passes prints XPASS so the marker can be removed. No test is currently xfail
+// (cli-lex was, until the sum-type / Array<AstNode> clone-drop codegen bug was
+// fixed). Keep the field — it's the harness's escape hatch for future cases.
+type TestCase: { name String, source String, args String, expected String, xfail Bool }
 
 fn main(args Array<String>) {
     let runtime String: "/usr/local/lib/suru/runtime"
@@ -20,12 +25,14 @@ fn main(args Array<String>) {
         { name: "if-statements", source: "tests/fixtures/if-statements", args: "",                                       expected: readFile("/work/tests/fixtures/if-statements/expected.txt") },
         { name: "resolved-type-smoke", source: "tests/fixtures/resolved-type-smoke", args: "",                          expected: readFile("/work/tests/fixtures/resolved-type-smoke/expected.txt") },
         { name: "nested-struct-return", source: "tests/fixtures/nested-struct-return", args: "",                       expected: readFile("/work/tests/fixtures/nested-struct-return/expected.txt") },
-        { name: "cli-lex",      source: "src/cli",                     args: " lex /work/tests/fixtures/simple/main.suru", expected: readFile("/work/tests/fixtures/cli-lex/expected.txt")      },
+        { name: "cli-lex",      source: "src/cli",                     args: " lex /work/tests/fixtures/simple/main.suru", expected: readFile("/work/tests/fixtures/cli-lex/expected.txt"), xfail: false },
     ]
 
     let passed Int64: 0
     let failed Int64: 0
     let memFailed Int64: 0
+    let xfailed Int64: 0
+    let xpassed Int64: 0
     let i Int64: 0
 
     while i.lt(cases.len()) {
@@ -43,24 +50,43 @@ fn main(args Array<String>) {
         let actual String: readFile(outFile)
         let memCheck Int64: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))
 
-        match actual.equals(tc.expected) {
+        let ok Bool: actual.equals(tc.expected)
+        match tc.xfail {
             true: {
-                passed: passed.add(1)
-                match memCheck.equals(0) {
-                    true: { printLn("PASS ".append(tc.name).append("  memcheck ok")) }
+                // Known-broken test: a failure is expected (XFAIL, not counted);
+                // an unexpected pass (XPASS) is surfaced so the marker can go.
+                match ok {
+                    true:  {
+                        printLn("XPASS ".append(tc.name).append(" (unexpected pass — remove xfail)"))
+                        xpassed: xpassed.add(1)
+                    }
                     _: {
-                        printLn("PASS ".append(tc.name).append("  memcheck FAIL"))
-                        memFailed: memFailed.add(1)
+                        printLn("XFAIL ".append(tc.name).append(" (known-broken, not blocking — todo.md L2)"))
+                        xfailed: xfailed.add(1)
                     }
                 }
             }
             _: {
-                failed: failed.add(1)
-                match memCheck.equals(0) {
-                    true: { printLn("FAIL ".append(tc.name).append("  memcheck ok")) }
+                match ok {
+                    true: {
+                        passed: passed.add(1)
+                        match memCheck.equals(0) {
+                            true: { printLn("PASS ".append(tc.name).append("  memcheck ok")) }
+                            _: {
+                                printLn("PASS ".append(tc.name).append("  memcheck FAIL"))
+                                memFailed: memFailed.add(1)
+                            }
+                        }
+                    }
                     _: {
-                        printLn("FAIL ".append(tc.name).append("  memcheck FAIL"))
-                        memFailed: memFailed.add(1)
+                        failed: failed.add(1)
+                        match memCheck.equals(0) {
+                            true: { printLn("FAIL ".append(tc.name).append("  memcheck ok")) }
+                            _: {
+                                printLn("FAIL ".append(tc.name).append("  memcheck FAIL"))
+                                memFailed: memFailed.add(1)
+                            }
+                        }
                     }
                 }
             }
@@ -70,7 +96,7 @@ fn main(args Array<String>) {
     }
 
     printLn("")
-    printLn("Results: ".append(passed.toString()).append(" passed, ").append(failed.toString()).append(" failed, ").append(memFailed.toString()).append(" memcheck failures"))
+    printLn("Results: ".append(passed.toString()).append(" passed, ").append(failed.toString()).append(" failed, ").append(xfailed.toString()).append(" xfailed, ").append(xpassed.toString()).append(" xpassed, ").append(memFailed.toString()).append(" memcheck failures"))
 
     match failed.gt(0) {
         true: { exit(1) }

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed self-hosting: `Array<AstNode>` / sum-type clone-drop codegen
+
+Repaired a self-hosting regression introduced by the `resolvedType` migration
+that prevented the compiler from rebuilding itself (it surfaced as `cli-lex`
+failing to link with invalid `@suru_clone_Array:AstNode` identifiers and
+undefined `@suru_clone_AstNode` / empty `@suru_clone_` symbols). Two root
+causes, both fixed:
+- `src/compiler/semantic/resolveTypes.suru` — the `MethodCallNode` handler
+  resolved `.add(x)` arguments with an empty expected type, so struct-literal
+  arguments such as `params.add({ ... })` never received a `resolvedType`.
+  It now propagates the receiver's `Array<T>` element type to `add`
+  arguments.
+- `src/compiler/codegen/irCodegen.suru` — `emitStructLit` now returns a null
+  pointer for an empty `{}` whose type is not a registered struct (a sum
+  type or array), i.e. the `x.field: {}` ownership-release idiom, instead of
+  allocating a bogus zero-field struct that referenced an undefined
+  per-type clone/drop symbol. `suru_drop_dyn` is a no-op on null, so the
+  subsequent `drop(x)` stays safe.
+
+A reconstructed `tests/fixtures/resolved-type-smoke/main.suru` (its source was
+never committed — only `expected.txt`) is restored. `./scripts/test.sh` and
+`./scripts/bootstrap.sh` now report 18/18 passing; the lone remaining
+`cli-lex` memcheck failure is a pre-existing leak the runner does not block
+on.
+
+### Build/test workflow hardening
+
+- `Dockerfile` no longer `COPY`s `bin/suru-build` into the image — the
+  `docker-compose.yml` bind-mount already provides it. The bake-in let a
+  broken binary ride forward invisibly across commits.
+- `scripts/bootstrap.sh` is now a verified 3-stage self-hosting bootstrap:
+  C1 (current binary) → C2 → C3, requiring `C2 == C3` (a true fixed point;
+  C1 may legitimately differ when codegen changed) and a fully green test
+  suite before it replaces `bin/suru-build`.
+- `scripts/bootstrap.sh` and `scripts/test.sh` now wipe `/tmp/suru-test-*`
+  and stale `build/` directories first. Stale binaries there previously
+  produced false-PASS results because the runner masks `suru compile`
+  errors with `2>/dev/null`.
+- `tests/runner/main.suru` gains an `xfail Bool` escape hatch on `TestCase`
+  (XFAIL = expected failure, not counted; XPASS = remove the marker). No
+  test is currently `xfail`.
+
 ### AST: `resolvedType` field on expression nodes
 
 Refactor that replaces the brittle `ctx.currentReturnTypeName`

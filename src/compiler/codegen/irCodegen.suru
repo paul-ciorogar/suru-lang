@@ -253,6 +253,27 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
 // field value's intermediate SSA names (dominance invariant).
 // typeName is the declared struct type (from let annotation or current fn return type).
 fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName String) CodegenResult {
+    // `{}` against a field whose type is NOT a registered struct — i.e. a sum
+    // type (e.g. AstNode) or an array (e.g. Array:AstNode) — is the
+    // ownership-release idiom `x.field: {}` used before drop(x). There is no
+    // concrete struct layout to allocate, and emitting @suru_clone_<T> for a
+    // sum/array type produces an undefined symbol (and, for arrays, an invalid
+    // ':' in the LLVM identifier). Store a null pointer instead: suru_drop_dyn
+    // is a no-op on null, so the subsequent drop(x) is safe.
+    // Nested matches (no `and`) so the older bootstrap compiler — which predates
+    // `match <bool-and-expr>` — codegens this guard correctly.
+    let lt TypeDecl: types.lookupType(ctx, typeName)
+    match lt.name.equals("") {
+        true: {
+            match fields.len().equals(0) {
+                true: {
+                    return { ctx: ctx, name: "null", llvmType: "ptr", suruType: typeName }
+                }
+                _: {}
+            }
+        }
+        _: {}
+    }
     // Step 1: allocate struct memory and write the 32-byte header.
     let allocR CodegenResult: irStruct.emitStructLiteralAlloc(ctx, typeName)
     ctx: allocR.ctx
