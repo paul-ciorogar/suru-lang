@@ -9,6 +9,7 @@
 
 ; ModuleID = 'suru_string.ll'
 source_filename = "suru_string.ll"
+target triple = "x86_64-pc-linux-gnu"
 
 %suru.String = type { i64, i64, ptr }
 
@@ -196,6 +197,61 @@ entry:
   %b    = load i8, ptr %data
   %ext  = zext i8 %b to i64
   ret i64 %ext
+}
+
+; ─── suru_string_char_at ───────────────────────────────────────────────────────
+; Byte at index %i as a raw i8 Char — NO allocation, NO header.
+define i8 @suru_string_char_at(ptr %s, i64 %i) {
+entry:
+  %dgep = getelementptr %suru.String, ptr %s, i32 0, i32 2
+  %data = load ptr, ptr %dgep
+  %chp  = getelementptr i8, ptr %data, i64 %i
+  %ch   = load i8, ptr %chp
+  ret i8 %ch
+}
+
+; ─── suru_string_append_char ───────────────────────────────────────────────────
+; Append one byte to lhs → new heap String (like append_lit with rlen=1).
+define ptr @suru_string_append_char(ptr %lhs, i8 %c) {
+entry:
+  %ll   = getelementptr %suru.String, ptr %lhs, i32 0, i32 1
+  %llen = load i64, ptr %ll
+  %ld   = getelementptr %suru.String, ptr %lhs, i32 0, i32 2
+  %ldat = load ptr, ptr %ld
+  %tot  = add i64 %llen, 1
+  %bsz  = add i64 %tot, 1
+  %buf  = call ptr @malloc(i64 %bsz)
+  call ptr @memcpy(ptr %buf, ptr %ldat, i64 %llen)
+  %cp   = getelementptr i8, ptr %buf, i64 %llen
+  store i8 %c, ptr %cp
+  %nulp = getelementptr i8, ptr %buf, i64 %tot
+  store i8 0, ptr %nulp
+  %seq  = call ptr @malloc(i64 24)
+  %tg   = getelementptr %suru.String, ptr %seq, i32 0, i32 0
+  store i64 6, ptr %tg
+  %sl   = getelementptr %suru.String, ptr %seq, i32 0, i32 1
+  store i64 %tot, ptr %sl
+  %sd   = getelementptr %suru.String, ptr %seq, i32 0, i32 2
+  store ptr %buf, ptr %sd
+  ret ptr %seq
+}
+
+; ─── suru_string_from_char ─────────────────────────────────────────────────────
+; Materialize a Char into an owned heap String of length 1 (tag=6).
+define ptr @suru_string_from_char(i8 %c) {
+entry:
+  %buf = call ptr @malloc(i64 2)
+  store i8 %c, ptr %buf
+  %np  = getelementptr i8, ptr %buf, i64 1
+  store i8 0, ptr %np
+  %seq = call ptr @malloc(i64 24)
+  %tg  = getelementptr %suru.String, ptr %seq, i32 0, i32 0
+  store i64 6, ptr %tg
+  %sl  = getelementptr %suru.String, ptr %seq, i32 0, i32 1
+  store i64 1, ptr %sl
+  %sd  = getelementptr %suru.String, ptr %seq, i32 0, i32 2
+  store ptr %buf, ptr %sd
+  ret ptr %seq
 }
 
 ; ─── suru_int64_from_string ────────────────────────────────────────────────────

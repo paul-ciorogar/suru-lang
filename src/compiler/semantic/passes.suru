@@ -51,7 +51,7 @@ fn isArrayGeneric(name String) Bool {
 
 // isBuiltinType — true for the six primitive type names and generic Array forms.
 fn isBuiltinType(name String) Bool {
-    return name.equals("Bool") or name.equals("Int32") or name.equals("Int64") or name.equals("Float64") or name.equals("String") or name.equals("Array") or isArrayGeneric(name)
+    return name.equals("Bool") or name.equals("Int32") or name.equals("Int64") or name.equals("Float64") or name.equals("Char") or name.equals("String") or name.equals("Array") or isArrayGeneric(name)
 }
 
 // typeNameExistsAt — linear search from index i; true if name is in typeNames.
@@ -74,6 +74,25 @@ fn fnNameExistsAt(fns Array<FunctionSig>, name String, i Int64) Bool {
         }
         _: false
     }
+}
+
+// fnSigExistsAt — linear search from index i; true only when BOTH the source
+// file and the name match an existing FunctionSig. Two functions with the same
+// name in different files (e.g. `theFunction` in a.suru and b.suru reached via
+// `include … as alias`) are distinct and must NOT be reported as a duplicate;
+// a genuine re-declaration within one file still is.
+fn fnSigExistsAt(fns Array<FunctionSig>, srcPath String, name String, i Int64) Bool {
+    match i.lt(fns.len()) {
+        true: {}
+        _: { return false }
+    }
+    let sig FunctionSig: fns.at(i)
+    let hit Bool: sig.name.equals(name) and sig.srcPath.equals(srcPath)
+    match hit {
+        true: { return true }
+        _:    {}
+    }
+    return fnSigExistsAt(fns, srcPath, name, i.add(1))
 }
 
 // resolveTypeName — true when name is a built-in or a user-declared type.
@@ -130,7 +149,10 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
                 let sumTyped SumTypeDeclNode: stmt
                 match typeNameExistsAt(typeNames, sumTyped.name, 0) {
                     true: appendError(state, "type '".append(sumTyped.name).append("' is already declared"))
-                    _: typeNames.add(sumTyped.name)
+                    _: {
+                        typeNames.add(sumTyped.name)
+                        sem.recordSumType(state, sumTyped.name, sumTyped.variants)
+                    }
                 }
             }
             _: {}
@@ -162,7 +184,7 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
         true: {}
         _: appendError(state, "unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"))
     }
-    let sig FunctionSig: { name: stmt.name, paramTypes: paramTypes, returnType: returnType }
+    let sig FunctionSig: { name: stmt.name, paramTypes: paramTypes, returnType: returnType, srcPath: stmt.srcPath }
     let functions Array<FunctionSig>: state.functions
     functions.add(sig)
     return state
@@ -178,7 +200,7 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
         match stmt {
             FnDeclNode: {
                 let typed FnDeclNode: stmt
-                match fnNameExistsAt(functions, typed.name, 0) {
+                match fnSigExistsAt(functions, typed.srcPath, typed.name, 0) {
                     true: appendError(state, "function '".append(typed.name).append("' is already declared"))
                     _: registerFnDecl(state, stmt)
                 }

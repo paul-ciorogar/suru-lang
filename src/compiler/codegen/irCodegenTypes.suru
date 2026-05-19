@@ -111,6 +111,11 @@ type IrCodegenContext: {
     strIndex          Array<StrIndexEntry>
     ownFnNames        Array<String>
     ownTypeNames      Array<String>
+    fnSrcName         Array<String>
+    fnSrcPath         Array<String>
+    aliasNs           Array<String>
+    aliasSrc          Array<String>
+    rootPath          String
     vars              Array<VarEntry>
     blockOpen         Bool
     currentReturnLlvmType String
@@ -137,6 +142,10 @@ fn makeIrContext() IrCodegenContext {
     let strIndex    Array<StrIndexEntry>:[]
     let ownFnNames   Array<String>:       []
     let ownTypeNames Array<String>:       []
+    let fnSrcName    Array<String>:       []
+    let fnSrcPath    Array<String>:       []
+    let aliasNs      Array<String>:       []
+    let aliasSrc     Array<String>:       []
     let vars         Array<VarEntry>:     []
     let declares              Array<String>: []
     let extCloneDropTypeNames Array<String>: []
@@ -156,6 +165,11 @@ fn makeIrContext() IrCodegenContext {
         strIndex:          strIndex
         ownFnNames:        ownFnNames
         ownTypeNames:      ownTypeNames
+        fnSrcName:         fnSrcName
+        fnSrcPath:         fnSrcPath
+        aliasNs:           aliasNs
+        aliasSrc:          aliasSrc
+        rootPath:          ""
         vars:              vars
         blockOpen:         false
         currentReturnLlvmType: ""

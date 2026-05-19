@@ -73,6 +73,12 @@ fn structFieldToI64(ctx IrCodegenContext, val String, suruType String) CodegenRe
             ctx.builder: tR.builder
             return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
         }
+        "Char": {
+            // Zero-extend i8 → i64 (Char is an unsigned byte, matching ord()).
+            let tR IrResult: ir.emitZext(ctx.builder, "i8", val, "i64")
+            ctx.builder: tR.builder
+            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
+        }
         "Int64": {
             // Already i64 — pass through unchanged.
             return { ctx: ctx, name: val, llvmType: "i64", suruType: "Int64" }
@@ -107,6 +113,12 @@ fn structFieldFromI64(ctx IrCodegenContext, raw String, suruType String) Codegen
             let tR IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i32")
             ctx.builder: tR.builder
             return { ctx: ctx, name: tR.name, llvmType: "i32", suruType: "Int32" }
+        }
+        "Char": {
+            // Truncate i64 → i8 (recover the byte stored via zext).
+            let tR IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i8")
+            ctx.builder: tR.builder
+            return { ctx: ctx, name: tR.name, llvmType: "i8", suruType: "Char" }
         }
         "Int64": {
             // Already i64 — pass through unchanged.

@@ -3,7 +3,11 @@
 // passes prints XPASS so the marker can be removed. No test is currently xfail
 // (cli-lex was, until the sum-type / Array<AstNode> clone-drop codegen bug was
 // fixed). Keep the field — it's the harness's escape hatch for future cases.
-type TestCase: { name String, source String, args String, expected String, xfail Bool }
+// compileError: when true, the test asserts the COMPILER's output. The runner
+// runs `suru compile` capturing stdout+stderr and compares it to `expected`
+// (the exact diagnostic the compiler must emit); clang/run/valgrind are
+// skipped. Used to pin specific semantic-analysis errors.
+type TestCase: { name String, source String, args String, expected String, xfail Bool, compileError Bool }
 
 fn main(args Array<String>) {
     let runtime String: "/usr/local/lib/suru/runtime"
@@ -13,6 +17,7 @@ fn main(args Array<String>) {
         { name: "fibonacci",    source: "tests/fixtures/fibonacci",    args: "",                                        expected: readFile("/work/tests/fixtures/fibonacci/expected.txt")    },
         { name: "while-loop",   source: "tests/fixtures/while-loop",   args: "",                                        expected: readFile("/work/tests/fixtures/while-loop/expected.txt")   },
         { name: "strings",      source: "tests/fixtures/strings",      args: "",                                        expected: readFile("/work/tests/fixtures/strings/expected.txt")      },
+        { name: "string-append-inplace", source: "tests/fixtures/string-append-inplace", args: "",                       expected: readFile("/work/tests/fixtures/string-append-inplace/expected.txt") },
         { name: "sum-types",    source: "tests/fixtures/sum-types",    args: "",                                        expected: readFile("/work/tests/fixtures/sum-types/expected.txt")    },
         { name: "comparisons",  source: "tests/fixtures/comparisons",  args: "",                                        expected: readFile("/work/tests/fixtures/comparisons/expected.txt")  },
         { name: "arrays",       source: "tests/fixtures/arrays",       args: "",                                        expected: readFile("/work/tests/fixtures/arrays/expected.txt")       },
@@ -26,6 +31,8 @@ fn main(args Array<String>) {
         { name: "resolved-type-smoke", source: "tests/fixtures/resolved-type-smoke", args: "",                          expected: readFile("/work/tests/fixtures/resolved-type-smoke/expected.txt") },
         { name: "nested-struct-return", source: "tests/fixtures/nested-struct-return", args: "",                       expected: readFile("/work/tests/fixtures/nested-struct-return/expected.txt") },
         { name: "cli-lex",      source: "src/cli",                     args: " lex /work/tests/fixtures/simple/main.suru", expected: readFile("/work/tests/fixtures/cli-lex/expected.txt"), xfail: false },
+        { name: "modules",   source: "tests/fixtures/modules",   args: "",                                        expected: readFile("/work/tests/fixtures/modules/expected.txt")   },
+        { name: "xmod-error", source: "tests/fixtures/xmod-error", args: "",                                       expected: readFile("/work/tests/fixtures/xmod-error/expected.txt"), xfail: true, compileError: true },
     ]
 
     let passed Int64: 0
@@ -43,12 +50,20 @@ fn main(args Array<String>) {
         let outFile String: bin.append(".out")
 
         exec("mkdir -p ".append(dir))
-        exec("suru compile /work/".append(tc.source).append("/main.suru ").append(ll).append(" 2>/dev/null"))
-        exec("clang-18 ".append(dir).append("*.ll ").append(runtime).append("/*.ll -o ").append(bin).append(" 2>/dev/null"))
-        exec(bin.append(tc.args).append(" > ").append(outFile).append(" 2>&1"))
-
-        let actual String: readFile(outFile)
-        let memCheck Int64: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))
+        let actual String: ""
+        let memCheck Int64: 0
+        if tc.compileError {
+            // Assert the compiler's own diagnostic: capture stdout+stderr of
+            // `suru compile`; skip clang/run/valgrind.
+            exec("suru compile /work/".append(tc.source).append("/main.suru ").append(ll).append(" > ").append(outFile).append(" 2>&1"))
+            actual: readFile(outFile)
+        } else {
+            exec("suru compile /work/".append(tc.source).append("/main.suru ").append(ll).append(" 2>/dev/null"))
+            exec("clang-18 ".append(dir).append("*.ll ").append(runtime).append("/*.ll -o ").append(bin).append(" 2>/dev/null"))
+            exec(bin.append(tc.args).append(" > ").append(outFile).append(" 2>&1"))
+            actual: readFile(outFile)
+            memCheck: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))
+        }
 
         let ok Bool: actual.equals(tc.expected)
         match tc.xfail {

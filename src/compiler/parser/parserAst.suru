@@ -16,9 +16,13 @@
 //  16  StrLitNode      17 WildcardNode    18 VarRefNode
 //  19  CallNode        20 MethodCallNode  21 FieldAccessNode
 //  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
-//  25  UnaryNode       26 BinaryNode
+//  25  UnaryNode       26 BinaryNode      27 CharLitNode
 //
-// Every expression variant (indices 13–26 except WildcardNode, which is
+// CharLitNode is appended LAST (index 27): variant tags are derived from
+// declaration order, so appending keeps indices 0–26 stable and the
+// bootstrap fixed point intact. Never insert a variant mid-list.
+//
+// Every expression variant (indices 13–27 except WildcardNode, which is
 // pattern-only and carries no value) has a trailing `resolvedType String`
 // field. The parser writes "" as a sentinel meaning "not yet resolved";
 // semantic analysis fills it in via top-down expected-type propagation
@@ -48,7 +52,11 @@ type MatchStmtArm:   { isWildcard Bool, pattern AstNode, stmts Array<AstNode> }
 // ─── Statement node types (AstNode variants 0–10) ─────────────────────────────
 
 type IncludeNode:     { path String, ns String }
-type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode> }
+// One `include "path" as ns` mapping resolved to an absolute path. Shared by
+// the include resolver (pipeline.suru) and codegen (irCodegen.suru) so `ns.fn()`
+// can be mangled to the callee file's symbol.
+type IncludeAlias:    { ns String, srcPath String }
+type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String }
 type LetNode:         { name String, typeName String, value AstNode }
 type AssignNode:      { name String, value AstNode }
 type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode }
@@ -88,10 +96,14 @@ type StructLitNode:   { fields Array<StructFieldNode>, resolvedType String }
 type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, resolvedType String }
 type UnaryNode:       { op Int64, operand AstNode, resolvedType String }
 type BinaryNode:      { op Int64, left AstNode, right AstNode, resolvedType String }
+// CharLitNode: a single-quoted char literal. `text` holds the one decoded
+// character (same shape as a 1-char StrLitNode); codegen folds it to an i8.
+// Declared/appended LAST — see the header comment on variant ordering.
+type CharLitNode:     { text String, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode
+type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode
 
 // ─── Module and result types ───────────────────────────────────────────────────
 

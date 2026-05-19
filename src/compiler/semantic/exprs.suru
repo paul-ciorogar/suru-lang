@@ -92,6 +92,14 @@ fn inferTypeFromMethod(state AnalyzerState, expr MethodCallNode) String {
         true: { return "String" }
         _: {}
     }
+    match m.equals("__append") {
+        true: { return "String" }
+        _: {}
+    }
+    match m.equals("__at") {
+        true: { return "Char" }
+        _: {}
+    }
     match m.equals("from") {
         true: {
             let rcv AstNode: expr.receiver
@@ -130,6 +138,7 @@ fn inferType(state AnalyzerState, expr AstNode) String {
         IntLitNode:     { return "Int64"   }
         FloatLitNode:   { return "Float64" }
         StrLitNode:     { return "String"  }
+        CharLitNode:    { return "Char"    }
         VarRefNode: {
             let typed VarRefNode: expr
             return semantic.lookupSymbol(state, typed.name)
@@ -214,7 +223,7 @@ fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>, i I
 // isBuiltinTypeName — true for the static type-receiver names that appear as
 // VarRefNode without being declared in scope (e.g. Int64.from, Bool.toString).
 fn isBuiltinTypeName(name String) Bool {
-    return name.equals("Int32") or name.equals("Int64") or name.equals("Float64") or name.equals("Bool") or name.equals("String") or name.equals("Array")
+    return name.equals("Int32") or name.equals("Int64") or name.equals("Float64") or name.equals("Bool") or name.equals("Char") or name.equals("String") or name.equals("Array")
 }
 
 // analyzeExpr — analyzes one expression node, mutating state.errors for any
@@ -291,9 +300,9 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let cond AstNode: typed.condition
             analyzeExpr(state, cond)
             let condType String: inferType(state, cond)
-            let isValidCondType Bool: condType.equals("") or condType.equals("Bool") or condType.equals("Int64") or condType.equals("Float64") or condType.equals("String")
+            let isValidCondType Bool: condType.equals("") or condType.equals("Bool") or condType.equals("Int64") or condType.equals("Float64") or condType.equals("String") or condType.equals("Char")
             match not isValidCondType {
-                true: semantic.addError(state, "match condition must be Bool, Int64, Float64, or String, got ".append(condType))
+                true: semantic.addError(state, "match condition must be Bool, Int64, Float64, String, or Char, got ".append(condType))
                 _: {}
             }
             let arms Array<MatchArm>: typed.arms

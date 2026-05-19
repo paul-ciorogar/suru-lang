@@ -35,4 +35,20 @@ fn main(args Array<String>) {
     printLn(matrix.len())
     drop(matrix)
     printLn("matrix ok")
+
+    let some SumType: choseOne(1)
+    drop(some)
+}
+
+type SomeType: {name String, height Int64 }
+type OtherType: {otherName string, otherHeight Int64 }
+type SumType: SomeType, OtherType
+
+fn choseOne(index Int64) SumType {
+    if index.equals(1) {
+        let result SomeType: {name: "Suru", height: 2283 } 
+        return result
+    }
+    let result OtherType: {otherName: "still Suru", otherHeight: 2283 } 
+    return result
 }

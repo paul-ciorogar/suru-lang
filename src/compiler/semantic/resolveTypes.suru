@@ -116,6 +116,7 @@ fn rtNodeResolvedType(expr AstNode) String {
         IntLitNode:      { let t IntLitNode: expr      return t.resolvedType }
         FloatLitNode:    { let t FloatLitNode: expr    return t.resolvedType }
         StrLitNode:      { let t StrLitNode: expr      return t.resolvedType }
+        CharLitNode:     { let t CharLitNode: expr     return t.resolvedType }
         VarRefNode:      { let t VarRefNode: expr      return t.resolvedType }
         CallNode:        { let t CallNode: expr        return t.resolvedType }
         MethodCallNode:  { let t MethodCallNode: expr  return t.resolvedType }
@@ -240,6 +241,11 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
         StrLitNode: {
             let typed StrLitNode: expr
             typed.resolvedType: "String"
+        }
+
+        CharLitNode: {
+            let typed CharLitNode: expr
+            typed.resolvedType: "Char"
         }
 
         VarRefNode: {

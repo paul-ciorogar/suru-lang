@@ -192,6 +192,7 @@ fn printExpr(expr AstNode, indent String) {
         IntLitNode:      { printLn(indent.append("IntLiteral [").append(expr.text).append("]")) }
         FloatLitNode:    { printLn(indent.append("FloatLiteral [").append(expr.text).append("]")) }
         StrLitNode:      { printExprString(expr, indent) }
+        CharLitNode:     { printLn(indent.append("CharLiteral [").append(expr.text).append("]")) }
         VarRefNode:      { printLn(indent.append("VariableRef [").append(expr.name).append("]")) }
         CallNode:        { printExprCall(expr, indent) }
         MethodCallNode:  { printExprMethodCall(expr, indent) }

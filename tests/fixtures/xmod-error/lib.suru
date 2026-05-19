@@ -1,0 +1,3 @@
+fn needInt(n Int64) Bool {
+    return n.gt(0)
+}

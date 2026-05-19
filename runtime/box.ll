@@ -5,6 +5,7 @@
 
 ; ModuleID = 'suru_box.ll'
 source_filename = "suru_box.ll"
+target triple = "x86_64-pc-linux-gnu"
 
 %suru.Box    = type { i64, i64 }
 %suru.String = type { i64, i64, ptr }

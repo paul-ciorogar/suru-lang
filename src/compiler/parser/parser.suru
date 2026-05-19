@@ -82,7 +82,7 @@ fn parseFnDecl(parser Parser) StmtResult {
         drop(r)
     }
     parser: util.consume(parser, TOK_RBRACE)
-    let n FnDeclNode: { name: nameTok.text, params: params, returnType: returnType, body: body }
+    let n FnDeclNode: { name: nameTok.text, params: params, returnType: returnType, body: body, srcPath: "" }
     return { parser: parser, stmt: n }
 }
 

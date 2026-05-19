@@ -16,6 +16,7 @@ fn isScalarSuruType(suruType String) Bool {
         "Bool"    : true
         "Int32"   : true
         "Float64" : true
+        "Char"    : true
         _ : false
     }
 }
@@ -70,6 +71,7 @@ fn irLlvmTypeOf(suruType String) String {
         "Int64":    "i64"
         "Bool":     "i1"
         "Int32":    "i32"
+        "Char":     "i8"
         "Float64":  "double"
         _:          "ptr"
     }
@@ -85,6 +87,7 @@ fn suruTypeTag(suruType String) String {
         "Int64":   "2"
         "Float64": "3"
         "String":  "6"
+        "Char":    "9"
         _:         "4"
     }
 }
@@ -97,6 +100,7 @@ fn isBuiltinSuruType(name String) Bool {
         "Bool":    true
         "Int32":   true
         "Float64": true
+        "Char":    true
         "String":  true
         _:         false
     }

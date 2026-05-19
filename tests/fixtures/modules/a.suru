@@ -1,0 +1,3 @@
+include "b.suru" as b
+
+fn theFunction() {}

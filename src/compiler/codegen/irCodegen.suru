@@ -116,12 +116,80 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
     return { ctx: ctx, name: tr.name, llvmType: "i32", suruType: "Int32" }
 }
 
+// ─── Per-module symbol mangling ─────────────────────────────────────────────────
+
+// Replace every non-[A-Za-z0-9_] char with '_' so an absolute source path can
+// be used as an LLVM symbol prefix.
+fn sanitizePath(p String) String {
+    let out String: ""
+    let i Int64: 0
+    while i.lt(p.len()) {
+        let ch String: p.at(i)
+        let c Int64: ch.ord()
+        let isDig Bool: c.gte(48) and c.lt(58)
+        let isLow Bool: c.gte(97) and c.lt(123)
+        let isUp  Bool: c.gte(65) and c.lt(91)
+        let isUnd Bool: ch.equals("_")
+        let keep Bool: isDig or isLow or isUp or isUnd
+        match keep {
+            true: { out: out.append(ch) }
+            _:    { out: out.append("_") }
+        }
+        i: i.add(1)
+    }
+    return out
+}
+
+// The LLVM symbol for a function: `main` and runtime/builtin names (empty
+// srcPath) are emitted verbatim; every other user function is prefixed with a
+// per-source-file tag so same-named functions in different files don't collide.
+fn mangleSym(srcPath String, name String) String {
+    return match name.equals("main") {
+        true: "main"
+        _: match srcPath.equals("") {
+            true: name
+            _: sanitizePath(srcPath).append("__").append(name)
+        }
+    }
+}
+
+// name → owning source path (or "" when not a user function: runtime/builtin).
+fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
+    let names Array<String>: ctx.fnSrcName
+    let paths Array<String>: ctx.fnSrcPath
+    let i Int64: 0
+    while i.lt(names.len()) {
+        match names.at(i).equals(name) {
+            true: { return paths.at(i) }
+            _:    {}
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// include alias → resolved source path (or "" when the name is not an alias).
+fn lookupAliasSrc(ctx IrCodegenContext, ns String) String {
+    let aliasNs  Array<String>: ctx.aliasNs
+    let aliasSrc Array<String>: ctx.aliasSrc
+    let i Int64: 0
+    while i.lt(aliasNs.len()) {
+        match aliasNs.at(i).equals(ns) {
+            true: { return aliasSrc.at(i) }
+            _:    {}
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
 // ─── User function call ─────────────────────────────────────────────────────────
 
-// Emit a call to a user-defined (same-file or included) function.
-// Looks up the signature in ctx.functions, emits each arg, coerces scalar params.
-fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) CodegenResult {
-    let sig FnEntry: types.lookupFn(ctx, fnName)
+// Emit a call to a user-defined function. `lookupName` is the unqualified name
+// used for signature lookup in ctx.functions; `llvmSym` is the (mangled) symbol
+// actually called. Emits each arg and coerces scalar params.
+fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, args Array<AstNode>) CodegenResult {
+    let sig FnEntry: types.lookupFn(ctx, lookupName)
     let argParts Array<String>: []
     let i Int64: 0
     while i.lt(args.len()) {
@@ -150,9 +218,16 @@ fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) Code
         i: i.add(1)
     }
     let retLlvm String: sig.returnLlvmType
-    let rr IrResult: ir.emitCall(ctx.builder, retLlvm, fnName, argParts)
+    let rr IrResult: ir.emitCall(ctx.builder, retLlvm, llvmSym, argParts)
     ctx.builder: rr.builder
     return { ctx: ctx, name: rr.name, llvmType: retLlvm, suruType: sig.returnSuruType }
+}
+
+// Unqualified call `fn(...)`: mangle to the owning file's symbol (runtime and
+// builtin names have no srcPath entry and pass through unchanged).
+fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) CodegenResult {
+    let sym String: mangleSym(lookupFnSrcPath(ctx, fnName), fnName)
+    return emitUserFnCallSym(ctx, fnName, sym, args)
 }
 
 // ─── Array / struct literal helpers ────────────────────────────────────────────
@@ -378,6 +453,29 @@ fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) Bool {
     return false
 }
 
+// Walk a `__append` receiver chain down to its root lvalue. Returns the alloca
+// slot of the root VarRef when it is a bound local, else "". This lets every
+// link of `s.__append(a).__append(b)` rebind the same variable slot, so the
+// final result lands in `s` and intermediates are freed exactly once.
+fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
+    match node {
+        MethodCallNode: {
+            match node.methodName.equals("__append") {
+                true: { return appendRootSlot(ctx, node.receiver) }
+                _: { return "" }
+            }
+        }
+        VarRefNode: {
+            let entry VarEntry: types.lookupVar(ctx, node.name)
+            match entry.name.equals("") {
+                true: { return "" }
+                _: { return entry.allocaName }
+            }
+        }
+        _: { return "" }
+    }
+}
+
 // ─── Main value dispatch ────────────────────────────────────────────────────────
 
 // Emit IR for any expression node, returning the SSA name and Suru type.
@@ -401,6 +499,12 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         }
         StrLitNode: {
             return irStr.emitStringLiteralValue(ctx, expr.text)
+        }
+        CharLitNode: {
+            // expr.text is the one decoded character; fold its byte value to an
+            // i8 immediate at codegen time — no runtime call, no allocation.
+            let code Int64: expr.text.ord()
+            return { ctx: ctx, name: code.toString(), llvmType: "i8", suruType: "Char" }
         }
         VarRefNode: {
             return eh.emitVarLoad(ctx, expr.name)
@@ -540,6 +644,7 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
         IntLitNode:      { st: expr.resolvedType }
         FloatLitNode:    { st: expr.resolvedType }
         StrLitNode:      { st: expr.resolvedType }
+        CharLitNode:     { st: expr.resolvedType }
         VarRefNode:      { st: expr.resolvedType }
         CallNode:        { st: expr.resolvedType }
         MethodCallNode:  { st: expr.resolvedType }
@@ -574,7 +679,14 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                         true: {}
                         _: {
                             // Not in scope, not a builtin type name → namespace call.
-                            return emitUserFnCall(ctx, method, expr.args)
+                            // Resolve the alias to the callee file and mangle to
+                            // that file's symbol; fall back to name-based mangling
+                            // when the receiver isn't a known alias.
+                            let nsSrc String: lookupAliasSrc(ctx, recvName)
+                            match nsSrc.equals("") {
+                                true:  { return emitUserFnCall(ctx, method, expr.args) }
+                                _:     { return emitUserFnCallSym(ctx, method, mangleSym(nsSrc, method), expr.args) }
+                            }
                         }
                     }
                 }
@@ -742,6 +854,21 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                         _: {
                             let ar CodegenResult: emitValue(ctx, argNode)
                             ctx: ar.ctx
+                            match ar.suruType.equals("Char") {
+                                true: {
+                                    let cresult CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, ar.name)
+                                    ctx: cresult.ctx
+                                    match isOwnedStringTemp(ctx, recv) {
+                                        true: {
+                                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                                            ctx: dr.ctx
+                                        }
+                                        _: {}
+                                    }
+                                    return { ctx: ctx, name: cresult.name, llvmType: "ptr", suruType: "String" }
+                                }
+                                _: {}
+                            }
                             let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
                             ctx: result.ctx
                             match isOwnedStringTemp(ctx, argNode) {
@@ -761,6 +888,49 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                             return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
                         }
                     }
+                }
+                _: {}
+            }
+            match method.equals("__append") {
+                true: {
+                    // Observable in-place append: build the full result in a
+                    // fresh buffer, drop the old receiver, rebind the root slot.
+                    let rootSlot String: appendRootSlot(ctx, recv)
+                    let argNode AstNode: expr.args.at(0)
+                    let newPtr String: ""
+                    match argNode {
+                        StrLitNode: {
+                            ctx: strIntern.internString(ctx, argNode.text)
+                            let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
+                            let charLen Int64: argNode.text.len()
+                            let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
+                            ctx: result.ctx
+                            newPtr: result.name
+                        }
+                        _: {
+                            let ar CodegenResult: emitValue(ctx, argNode)
+                            ctx: ar.ctx
+                            let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
+                            ctx: result.ctx
+                            newPtr: result.name
+                            match isOwnedStringTemp(ctx, argNode) {
+                                true: {
+                                    let adr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                                    ctx: adr.ctx
+                                }
+                                _: {}
+                            }
+                        }
+                    }
+                    // Drop the old receiver value: no-op on type_tag=8 literals,
+                    // frees heap strings (bytes already copied into newPtr).
+                    let rdr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                    ctx: rdr.ctx
+                    match rootSlot.equals("") {
+                        true: {}
+                        _: { ctx.builder: ir.emitStore(ctx.builder, "ptr", newPtr, rootSlot) }
+                    }
+                    return { ctx: ctx, name: newPtr, llvmType: "ptr", suruType: "String" }
                 }
                 _: {}
             }
@@ -833,6 +1003,32 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 }
                 _: {}
             }
+            match method.equals("__at") {
+                true: {
+                    let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: ir2.ctx
+                    let idxRaw String: ir2.name
+                    match box.isScalarType(ir2.suruType) {
+                        true: {}
+                        _: {
+                            let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
+                            ctx: ur.ctx
+                            idxRaw: ur.name
+                        }
+                    }
+                    let result CodegenResult: irStr.emitStringCharAt(ctx, recvVal, idxRaw)
+                    ctx: result.ctx
+                    match isOwnedStringTemp(ctx, recv) {
+                        true: {
+                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                            ctx: dr.ctx
+                        }
+                        _: {}
+                    }
+                    return { ctx: ctx, name: result.name, llvmType: "i8", suruType: "Char" }
+                }
+                _: {}
+            }
             match method.equals("slice") {
                 true: {
                     let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
@@ -891,6 +1087,35 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                         _: {}
                     }
                     return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+                }
+                _: {}
+            }
+        }
+        _: {}
+    }
+
+    // Char receiver: scalar i8 value. Must precede the Float64/struct/generic
+    // tail so .ord/.toString/.equals aren't mis-routed (e.g. generic toString
+    // would unboxInt64 a Char). No drops — Char is never heap-allocated.
+    match recvSuruType.equals("Char") {
+        true: {
+            match method.equals("ord") {
+                true: {
+                    let zr IrResult: ir.emitZext(ctx.builder, "i8", recvVal, "i64")
+                    ctx.builder: zr.builder
+                    return { ctx: ctx, name: zr.name, llvmType: "i64", suruType: "Int64" }
+                }
+                _: {}
+            }
+            match method.equals("toString") {
+                true: { return irStr.emitStringFromChar(ctx, recvVal) }
+                _: {}
+            }
+            match method.equals("equals") {
+                true: {
+                    let ar CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: ar.ctx
+                    return eh.emitCmpOp(ctx, "eq", "oeq", recvVal, "Char", ar.name, ar.suruType)
                 }
                 _: {}
             }
@@ -1852,8 +2077,11 @@ fn emitStmts(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 // Emit a function definition or declare stub (for external/included functions).
 // Resets per-function state.
 fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
-    // External (included) function → emit declare stub only.
-    match types.isOwnFn(ctx, fnDecl.name) {
+    // A function is defined here only when it belongs to the file being
+    // compiled as root (by source path, not name — same-named functions in
+    // different included files are distinct). All others get a declare stub.
+    let isOwn Bool: fnDecl.srcPath.equals(ctx.rootPath)
+    match isOwn {
         true: {}
         _: {
             let retSuru String: tyh.makeSuruType(fnDecl.returnType)
@@ -1864,7 +2092,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
                 paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
                 i: i.add(1)
             }
-            ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(fnDecl.name).append("(").append(ir.joinArgs(paramParts)).append(")\n")
+            ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(mangleSym(fnDecl.srcPath, fnDecl.name)).append("(").append(ir.joinArgs(paramParts)).append(")\n")
             return ctx
         }
     }
@@ -1899,7 +2127,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
                 paramParts.add(box.llvmTypeOf(tyh.makeSuruType(p.typeName)).append(" %p.").append(p.name))
                 i: i.add(1)
             }
-            ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, fnDecl.name, ir.joinArgs(paramParts))
+            ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, mangleSym(fnDecl.srcPath, fnDecl.name), ir.joinArgs(paramParts))
             let j Int64: 0
             while j.lt(fnDecl.params.len()) {
                 let p Param: fnDecl.params.at(j)
@@ -2062,10 +2290,43 @@ fn sortStrings(arr Array<String>) Array<String> {
 
 // Top-level entry point: initialise context, run emit(), assemble .ll text.
 // ownFnNames: names of functions defined in THIS file (not from includes).
-fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>) String {
+fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, aliases Array<IncludeAlias>, rootPath String) String {
     let ctx IrCodegenContext: types.makeIrContext()
     ctx.ownFnNames: ownFnNames
     ctx.ownTypeNames: ownTypeNames
+    ctx.rootPath: rootPath
+
+    // name → owning source path, for mangling every user function symbol
+    // (definition, declare stub, and unqualified call site) per source file.
+    let fnSrcName Array<String>: []
+    let fnSrcPath Array<String>: []
+    let fi Int64: 0
+    while fi.lt(stmts.len()) {
+        let fs AstNode: stmts.at(fi)
+        match fs {
+            FnDeclNode: {
+                fnSrcName.add(fs.name)
+                fnSrcPath.add(fs.srcPath)
+            }
+            _: {}
+        }
+        fi: fi.add(1)
+    }
+    ctx.fnSrcName: fnSrcName
+    ctx.fnSrcPath: fnSrcPath
+
+    // alias → resolved source path, for `ns.fn()` calls in this file's bodies.
+    let aliasNs  Array<String>: []
+    let aliasSrc Array<String>: []
+    let ai Int64: 0
+    while ai.lt(aliases.len()) {
+        let al IncludeAlias: aliases.at(ai)
+        aliasNs.add(al.ns)
+        aliasSrc.add(al.srcPath)
+        ai: ai.add(1)
+    }
+    ctx.aliasNs:  aliasNs
+    ctx.aliasSrc: aliasSrc
 
     // Register external function signatures for namespace calls.
     let i Int64: 0
@@ -2101,6 +2362,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     let header String: "; ModuleID = '"
         .append(sourceName).append("'\n")
         .append("source_filename = \"").append(sourceName).append("\"\n")
+        .append("target triple = \"x86_64-pc-linux-gnu\"\n")
         .append("\n")
         .append("%suru.String = type { i64, i64, ptr }\n")
         .append("%suru.Array  = type { i64, i64, i64, i64, ptr }\n")

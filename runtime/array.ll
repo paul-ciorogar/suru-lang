@@ -9,6 +9,7 @@
 
 ; ModuleID = 'suru_array.ll'
 source_filename = "suru_array.ll"
+target triple = "x86_64-pc-linux-gnu"
 
 %suru.Array = type { i64, i64, i64, i64, ptr }
 

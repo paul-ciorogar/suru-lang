@@ -157,7 +157,8 @@ fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
             let retType String: exprs.inferType(state, val)
             let expected String: state.currentReturnType
             let typesKnown Bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-            match typesKnown and not retType.equals(expected) {
+            let assignable Bool: retType.equals(expected) or semantic.isSumVariant(state, expected, retType)
+            match typesKnown and not assignable {
                 true: semantic.addError(state, "return type mismatch: expected ".append(expected).append(", got ").append(retType))
                 _: {}
             }

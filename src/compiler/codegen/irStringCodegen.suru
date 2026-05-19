@@ -112,6 +112,40 @@ fn emitStringAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
 
+// .__at(idx) → Char (raw i8): byte at position idx. NO allocation — unlike
+// .at(), which mallocs a one-char String. The leak-free char accessor.
+// idx must already be a raw i64 SSA name (caller handles unboxing).
+fn emitStringCharAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
+    ctx: types.addSuruDecl(ctx, "declare i8   @suru_string_char_at(ptr, i64)\n")
+    let args Array<String>: []
+    args.add("ptr ".append(recv))
+    args.add("i64 ".append(idx))
+    let r IrResult: ir.emitCall(ctx.builder, "i8", "suru_string_char_at", args)
+    ctx.builder: r.builder
+    return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "Char" }
+}
+
+// .append(ch Char) → String: lhs with one byte appended (new heap String).
+fn emitStringAppendChar(ctx IrCodegenContext, recv String, ch String) CodegenResult {
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append_char(ptr, i8)\n")
+    let args Array<String>: []
+    args.add("ptr ".append(recv))
+    args.add("i8 ".append(ch))
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_append_char", args)
+    ctx.builder: r.builder
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
+}
+
+// Char.toString() → String: materialize a Char into an owned length-1 String.
+fn emitStringFromChar(ctx IrCodegenContext, ch String) CodegenResult {
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_from_char(i8)\n")
+    let args Array<String>: []
+    args.add("i8 ".append(ch))
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_string_from_char", args)
+    ctx.builder: r.builder
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
+}
+
 // .equals(other) → raw i1 Bool: byte-for-byte string comparison.
 // Both recv and other are ptr to suru.String.
 fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResult {

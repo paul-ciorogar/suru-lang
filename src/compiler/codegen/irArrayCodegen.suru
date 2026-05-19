@@ -46,6 +46,7 @@ include "irBoxCodegen.suru" as box
 fn elemStorageLlvmType(suruType String) String {
     return match suruType {
         "Bool":  "i8"
+        "Char":  "i8"
         "Int32": "i32"
         _:       "i64"
     }
@@ -56,6 +57,7 @@ fn elemStorageLlvmType(suruType String) String {
 fn elemSizeBytes(suruType String) Int64 {
     return match suruType {
         "Bool":  1
+        "Char":  1
         "Int32": 4
         _:       8
     }
@@ -77,6 +79,9 @@ fn emitElemEncode(ctx IrCodegenContext, val String, suruType String) CodegenResu
         }
         "Int32": {
             return { ctx: ctx, name: val, llvmType: "i32", suruType: "Int32" }
+        }
+        "Char": {
+            return { ctx: ctx, name: val, llvmType: "i8", suruType: "Char" }
         }
         "Int64": {
             return { ctx: ctx, name: val, llvmType: "i64", suruType: "Int64" }
@@ -106,6 +111,9 @@ fn emitElemDecode(ctx IrCodegenContext, raw String, elemSuruType String) Codegen
         }
         "Int32": {
             return { ctx: ctx, name: raw, llvmType: "i32", suruType: "Int32" }
+        }
+        "Char": {
+            return { ctx: ctx, name: raw, llvmType: "i8", suruType: "Char" }
         }
         "Int64": {
             return { ctx: ctx, name: raw, llvmType: "i64", suruType: "Int64" }
@@ -181,6 +189,13 @@ fn emitArrayAdd(ctx IrCodegenContext, recv String, val String, valSuruType Strin
     ctx: enc.ctx
     match valSuruType {
         "Bool": {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_array_add_i8(ptr, i8)\n")
+            let args Array<String>: []
+            args.add("ptr ".append(recv))
+            args.add("i8 ".append(enc.name))
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_array_add_i8", args)
+        }
+        "Char": {
             ctx: types.addSuruDecl(ctx, "declare void @suru_array_add_i8(ptr, i8)\n")
             let args Array<String>: []
             args.add("ptr ".append(recv))

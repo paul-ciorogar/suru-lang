@@ -146,6 +146,10 @@ fn parsePrimary(parser Parser) ParseResult {
             let n StrLitNode: { text: tok.text, resolvedType: "" }
             return { parser: util.advance(parser), expr: n }
         }
+        TOK_CHAR: {
+            let n CharLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
         _: {
             util.error(parser, "unexpected token in expression")
             let n BoolLitNode: { boolVal: false, resolvedType: "" }
@@ -308,6 +312,10 @@ fn parseMatchPattern(parser Parser) PatResult {
         }
         TOK_STRING: {
             let n StrLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_CHAR: {
+            let n CharLitNode: { text: tok.text, resolvedType: "" }
             return { parser: util.advance(parser), pat: n }
         }
         TOK_MINUS: { return parseNegativePattern(parser) }

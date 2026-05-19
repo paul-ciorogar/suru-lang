@@ -1,0 +1,1 @@
+/work/tests/fixtures/xmod-error/main.suru: undefined variable 'badArg'

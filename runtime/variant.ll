@@ -8,6 +8,7 @@
 
 ; ModuleID = 'suru_variant.ll'
 source_filename = "suru_variant.ll"
+target triple = "x86_64-pc-linux-gnu"
 
 declare void @free(ptr)
 

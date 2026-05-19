@@ -120,9 +120,13 @@ fn fileNameStem(path String) String {
 // paths so transitive and diamond includes are handled without re-processing.
 type ResolveState: { decls Array<AstNode>, resolved Array<String> }
 
+// IncludeAlias (one `include "path" as ns` mapping) is defined in parserAst.suru
+// so both this file and irCodegen.suru (an includee here) can name the type.
+
 // Return value of resolveIncludes: merged statement list + ordered deduplicated
-// list of included absolute source paths (in depth-first resolution order).
-type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String> }
+// list of included absolute source paths (in depth-first resolution order) +
+// the root file's direct include-alias map.
+type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String>, aliases Array<IncludeAlias> }
 
 // Linear scan: true if path already appears in the resolved list.
 fn pathResolved(resolved Array<String>, path String) Bool {
@@ -142,13 +146,17 @@ fn pathResolved(resolved Array<String>, path String) Bool {
 //   - otherwise mark as resolved, recurse into that file's own includes first,
 //     then add its FnDeclNode / TypeDeclNode / SumTypeDeclNode / scalar LetNode
 //     to state.decls.
-fn resolveIncludesRec(stmts Array<AstNode>, dir String, state ResolveState) ResolveState {
+fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state ResolveState) ResolveState {
     // Pass 1: add this file's own declarations first (pre-order DFS).
     let i Int64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
-            FnDeclNode:      { state.decls.add(s) }
+            FnDeclNode: {
+                let fd FnDeclNode: s
+                fd.srcPath: filePath
+                state.decls.add(fd)
+            }
             TypeDeclNode:    { state.decls.add(s) }
             SumTypeDeclNode: { state.decls.add(s) }
             LetNode: {
@@ -176,7 +184,7 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, state ResolveState) Reso
                         let src String: readFile(fullPath)
                         let toks Array<Token>: lex.tokenize(src)
                         let mod AstModule: parser.parse(toks)
-                        state: resolveIncludesRec(mod.stmts, dirName(fullPath), state)
+                        state: resolveIncludesRec(mod.stmts, dirName(fullPath), fullPath, state)
                     }
                     _: {}
                 }
@@ -191,21 +199,26 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, state ResolveState) Reso
 // Resolve all transitive includes from mainStmts.  Returns the merged statement
 // list (main file's own nodes FIRST, then transitive declarations) and the
 // ordered deduplicated list of included absolute source paths.
-fn resolveIncludes(mainStmts Array<AstNode>, dir String) ResolveResult {
+fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String) ResolveResult {
     let state ResolveState: { decls: [], resolved: [] }
+    let aliases Array<IncludeAlias>: []
     let i Int64: 0
     while i.lt(mainStmts.len()) {
         let s AstNode: mainStmts.at(i)
         match s {
             IncludeNode: {
                 let fullPath String: normalizePath(dir.append(s.path))
+                // Record the alias for the root file regardless of diamond
+                // dedup: codegen needs `ns` → path even when the file's decls
+                // were already merged via another include path.
+                aliases.add({ ns: s.ns, srcPath: fullPath })
                 match pathResolved(state.resolved, fullPath) {
                     false: {
                         state.resolved.add(fullPath)
                         let src String: readFile(fullPath)
                         let toks Array<Token>: lex.tokenize(src)
                         let mod AstModule: parser.parse(toks)
-                        state: resolveIncludesRec(mod.stmts, dirName(fullPath), state)
+                        state: resolveIncludesRec(mod.stmts, dirName(fullPath), fullPath, state)
                     }
                     _: {}
                 }
@@ -215,12 +228,19 @@ fn resolveIncludes(mainStmts Array<AstNode>, dir String) ResolveResult {
         i: i.add(1)
     }
     // Main file's own nodes FIRST, then transitive declarations.
+    // Stamp the root file's own functions with rootPath so their symbols are
+    // mangled consistently with the declares emitted in files that include it.
     let all Array<AstNode>: []
     let j Int64: 0
     while j.lt(mainStmts.len()) {
         let s AstNode: mainStmts.at(j)
         match s {
             IncludeNode: {}
+            FnDeclNode: {
+                let fd FnDeclNode: s
+                fd.srcPath: rootPath
+                all.add(fd)
+            }
             _: { all.add(s) }
         }
         j: j.add(1)
@@ -230,7 +250,7 @@ fn resolveIncludes(mainStmts Array<AstNode>, dir String) ResolveResult {
         all.add(state.decls.at(k))
         k: k.add(1)
     }
-    return { stmts: all, includedPaths: state.resolved }
+    return { stmts: all, includedPaths: state.resolved, aliases: aliases }
 }
 
 // ─── Semantic analysis helpers ─────────────────────────────────────────────────
@@ -335,11 +355,11 @@ fn compileOneFile(sourcePath String, outDir String) {
     let mod AstModule: parser.parse(tokens)
     let ownFnNames Array<String>: collectFnNames(mod.stmts)
     let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath))
+    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
     let state AnalyzerState: semantic.makeAnalyzerState()
     passes.runPrePasses(state, resolved.stmts)
     semresolve.resolveModuleTypes(state, resolved.stmts)
-    let irText String: irCodegen.generate(resolved.stmts, baseName(sourcePath), ownFnNames, ownTypeNames)
+    let irText String: irCodegen.generate(resolved.stmts, baseName(sourcePath), ownFnNames, ownTypeNames, resolved.aliases, sourcePath)
     writeFile(outDir.append(fileNameStem(sourcePath)).append(".ll"), irText)
 }
 
@@ -356,7 +376,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     let mod AstModule: parser.parse(tokens)
     let ownFnNames Array<String>: collectFnNames(mod.stmts)
     let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath))
+    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
     let stmts Array<AstNode>: resolved.stmts
     let state AnalyzerState: semantic.makeAnalyzerState()
     passes.runPrePasses(state, stmts)
@@ -373,7 +393,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
         true: exit(1)
         _:    {}
     }
-    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames)
+    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, resolved.aliases, sourcePath)
     return { irText: irText, includedPaths: resolved.includedPaths }
 }
 

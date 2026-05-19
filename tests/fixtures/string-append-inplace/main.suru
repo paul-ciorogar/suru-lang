@@ -1,0 +1,30 @@
+fn main(args Array<String>) {
+    // Heap receiver: __append rebinds `a` to the concatenated result.
+    let a String: "foo".append("bar")
+    a.__append("!")
+    printLn(a)
+
+    // Literal-bound builder: `""` is a read-only literal header; __append
+    // allocates fresh and drops-old (no-op on the literal), promoting `buf`.
+    let buf String: ""
+    buf.__append("a")
+    buf.__append("bc")
+    printLn(buf)
+
+    // Chaining: every link rebinds the same root variable `s`.
+    let s String: "x".append("")
+    s.__append("y").__append("z")
+    printLn(s)
+
+    // Non-literal argument: arg is borrowed from its own variable, not freed.
+    let p String: "a".append("b")
+    let q String: "c".append("d")
+    p.__append(q)
+    printLn(p)
+
+    drop(a)
+    drop(buf)
+    drop(s)
+    drop(p)
+    drop(q)
+}

@@ -123,6 +123,7 @@ fn emitModuleHeader(b IrBuilder, sourceName String) IrBuilder {
     let hdr String: "; ModuleID = '"
         .append(sourceName).append("'\n")
         .append("source_filename = \"").append(sourceName).append("\"\n")
+        .append("target triple = \"x86_64-pc-linux-gnu\"\n")
         .append("\n")
         .append("%suru.String = type { i64, i64, ptr }\n")
         .append("%suru.Array  = type { i64, i64, i64, i64, ptr }\n")

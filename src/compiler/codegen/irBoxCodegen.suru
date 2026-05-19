@@ -39,6 +39,7 @@ fn rawLlvmTypeOf(suruType String) String {
     return match suruType {
         "Bool":    "i1"
         "Int32":   "i32"
+        "Char":    "i8"
         "Int64":   "i64"
         "Float64": "double"
         _:         "ptr"
@@ -50,6 +51,7 @@ fn defaultReturnValue(suruType String) String {
     return match suruType {
         "Bool":    "0"
         "Int32":   "0"
+        "Char":    "0"
         "Int64":   "0"
         "Float64": "0.0"
         _:         "null"
@@ -90,6 +92,16 @@ fn boxInt32(ctx IrCodegenContext, val String) CodegenResult {
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Int32" }
 }
 
+// Box a raw i8 char into a heap ptr.
+fn boxChar(ctx IrCodegenContext, val String) CodegenResult {
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_box_char(i8)\n")
+    let args Array<String>: []
+    args.add("i8 ".append(val))
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_box_char", args)
+    ctx.builder: r.builder
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Char" }
+}
+
 // Box a raw i64 into a heap ptr.
 fn boxInt64(ctx IrCodegenContext, val String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_box_int64(i64)\n")
@@ -117,6 +129,7 @@ fn boxValue(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     match suruType {
         "Bool":    { return boxBool(ctx, val) }
         "Int32":   { return boxInt32(ctx, val) }
+        "Char":    { return boxChar(ctx, val) }
         "Int64":   { return boxInt64(ctx, val) }
         "Float64": { return boxFloat64(ctx, val) }
         _: {}
@@ -144,6 +157,16 @@ fn unboxInt32(ctx IrCodegenContext, ptr String) CodegenResult {
     let r IrResult: ir.emitCall(ctx.builder, "i32", "suru_unbox_int32", args)
     ctx.builder: r.builder
     return { ctx: ctx, name: r.name, llvmType: "i32", suruType: "Int32" }
+}
+
+// Unbox a heap ptr into a raw i8 char.
+fn unboxChar(ctx IrCodegenContext, ptr String) CodegenResult {
+    ctx: types.addSuruDecl(ctx, "declare i8   @suru_unbox_char(ptr)\n")
+    let args Array<String>: []
+    args.add("ptr ".append(ptr))
+    let r IrResult: ir.emitCall(ctx.builder, "i8", "suru_unbox_char", args)
+    ctx.builder: r.builder
+    return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "Char" }
 }
 
 // Unbox a heap ptr into a raw i64.
@@ -174,6 +197,7 @@ fn unboxScalar(ctx IrCodegenContext, ptr String, suruType String) CodegenResult 
     return match suruType {
         "Bool":    unboxBool(ctx, ptr)
         "Int32":   unboxInt32(ctx, ptr)
+        "Char":    unboxChar(ctx, ptr)
         "Int64":   unboxInt64(ctx, ptr)
         "Float64": unboxFloat64(ctx, ptr)
         _:         unboxInt64(ctx, ptr)

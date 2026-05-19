@@ -12,6 +12,7 @@
 
 ; ModuleID = 'suru_struct.ll'
 source_filename = "suru_struct.ll"
+target triple = "x86_64-pc-linux-gnu"
 
 declare ptr  @malloc(i64)
 declare void @free(ptr)

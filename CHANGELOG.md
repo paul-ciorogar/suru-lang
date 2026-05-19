@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added `Char` value type
+
+Introduces a `Char` value type (an `i8`, scalar, never heap-allocated, never
+dropped) to give the language an allocation-free way to read a character.
+`String.at(i)` allocates a fresh one-character heap `String` on every call.
+
+
+Added:
+- `Char` scalar type — `i8` LLVM type, type_tag `9`, box/unbox, array
+  (`i8` storage) and struct (`zext`/`trunc`) encoding, recognised as a
+  builtin type name by the parser and semantic passes.
+- Single-quote char literals: `'x'`, `'\n'`, `'\t'`, `'\\'`, `'\''`. A new
+  `CharLitNode` is **appended last** in the `AstNode` sum type — variant tags
+  are derived from declaration order, so appending keeps every existing
+  variant index stable and the bootstrap fixed point intact.
+- `String.__at(i) -> Char` — the interim, allocation-free character accessor
+  (mirrors the existing `__append` interim-name convention). `String.at(i)
+  -> String` is **unchanged**.
+- `Char.equals(Char) -> Bool` (`icmp eq i8`), `Char.ord() -> Int64`
+  (`zext i8` to `i64`), `Char.toString() -> String`, and a
+  `String.append(Char) -> String` overload.
+- Runtime (`runtime/string.ll`): `suru_string_char_at` (no allocation),
+  `suru_string_append_char`, `suru_string_from_char`.
+
+
 ### Fixed self-hosting: `Array<AstNode>` / sum-type clone-drop codegen
 
 Repaired a self-hosting regression introduced by the `resolvedType` migration

@@ -21,6 +21,7 @@ A minimalist, library-driven, general-purpose programming language — staticall
   - [Sum types](#sum-types-discriminated-unions)
   - [Arrays](#arrays)
   - [Strings](#strings)
+  - [Characters](#characters)
   - [Type conversions](#type-conversions)
   - [File I/O](#file-io)
   - [Exit](#exit)
@@ -49,7 +50,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
-- Types: `Bool`, `Int32`, `Int64`, `Float64`, `String`, `Array<T>`, named types, sum types
+- Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types
 - Control flow: `while`, `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
@@ -422,15 +423,17 @@ let s String: "hello\nworld"
 printLn(s)
 ```
 
-| Method | Description | Example |
-|---|---|---|
-| `len()` | byte length | `s.len()` → `5` |
-| `at(i)` | single-char `String` at index | `s.at(0)` → `"h"` |
-| `equals(other)` | string equality | `s.equals("hello")` → `true` |
-| `append(other)` | concatenate, new string | `s.append(" world")` |
-| `slice(from, to)` | substring copy of `[from, to)` | `s.slice(1, 3)` → `"el"` |
-| `ord()` | ASCII code of first byte | `"A".ord()` → `65` |
-| `toString()` | identity — returns itself | `s.toString()` |
+| Method | Description | Returns | Example |
+|---|---|---|---|
+| `len()` | byte length | value | `s.len()` → `5` |
+| `at(i)` | single-char `String` at index (allocates) | new instance | `s.at(0)` → `"h"` |
+| `__at(i)` | byte at index as a `Char` (no allocation) | value | `s.__at(0)` → `'h'` |
+| `equals(other)` | string equality | value | `s.equals("hello")` → `true` |
+| `append(other)` | concatenate `String` or `Char`, new string | new instance | `s.append(" world")`, `s.append('!')` |
+| `__append(other)` | append in place, returns self | rebound self | `s.__append("!")` mutates `s` |
+| `slice(from, to)` | substring copy of `[from, to)` | new instance | `s.slice(1, 3)` → `"el"` |
+| `ord()` | ASCII code of first byte | value | `"A".ord()` → `65` |
+| `toString()` | identity — returns itself | reference (self) | `s.toString()` |
 
 ```suru
 let s String: "hello"
@@ -440,6 +443,52 @@ let s2 String: s.append(" world")
 printLn(s2)                 // hello world
 printLn(s.at(0))            // h
 ```
+
+`__append` is the in-place counterpart of `append`: it builds the full result
+in a fresh allocation, **drops the old receiver string**, and rebinds the
+receiver variable so the mutation is observable without an explicit reassign.
+It also returns the new string, so calls chain
+(`s.__append("y").__append("z")`). Because the previous value is freed, any
+other binding still pointing at the old string is left dangling — treat
+`__append` as taking ownership of the receiver variable.
+
+### Characters
+
+`Char` is a value type — a single byte. Unlike `String`, a `Char` is never
+heap-allocated and never needs `drop`. Char literals use single quotes;
+supported escapes are `\n`, `\t`, `\\`, `\'`.
+
+```suru
+let c Char: 'h'
+let nl Char: '\n'
+```
+
+Read a character out of a `String` with `__at(i)`, which returns a `Char`
+without allocating (contrast `at(i)`, which mallocs a one-character
+`String`):
+
+```suru
+let s String: "hello"
+let first Char: s.__at(0)
+printLn(first.equals('h'))   // true
+printLn(s.__at(1).ord())     // 101  (ASCII 'e')
+```
+
+| Method | Description | Returns | Example |
+|---|---|---|---|
+| `equals(other)` | char equality | value | `c.equals('h')` → `true` |
+| `ord()` | byte value as `Int64` | value | `'A'.ord()` → `65` |
+| `toString()` | owned one-char `String` | new instance | `'h'.toString()` → `"h"` |
+
+A `Char` can be appended to a `String` with `append`:
+
+```suru
+let s String: "ab".append('c')   // "abc"
+```
+
+> Migration note: `String.__at` is an interim accessor. `String.at` still
+> returns a `String` today; a later step replaces it with the `Char`-returning
+> form and retires `__at`.
 
 ### Type conversions
 

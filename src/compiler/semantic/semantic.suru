@@ -18,7 +18,7 @@ type SymbolEntry: { name String, typeName String }
 
 type Scope: { symbols Array<SymbolEntry>, parent Int64 }
 
-type FunctionSig: { name String, paramTypes Array<String>, returnType String }
+type FunctionSig: { name String, paramTypes Array<String>, returnType String, srcPath String }
 
 type AnalysisError: { message String }
 
@@ -35,6 +35,7 @@ type AnalyzerState: {
     functions       Array<FunctionSig>
     typeNames       Array<String>
     typeDecls       Array<SemTypeEntry>
+    sumTypes        Array<SemTypeEntry>
     errors          Array<AnalysisError>
     currentReturnType String
     insideFunction  Int64
@@ -49,6 +50,7 @@ fn makeAnalyzerState() AnalyzerState {
         functions: [],
         typeNames: [],
         typeDecls: [],
+        sumTypes: [],
         errors: [],
         currentReturnType: "",
         insideFunction: 0,
@@ -138,6 +140,55 @@ fn existsInCurrentScope(state AnalyzerState, name String) Bool {
     let idx Int64: scopes.len().take(1)
     let scope Scope: scopes.at(idx)
     return not lookupInScope(scope, name).equals("")
+}
+
+// ─── Sum type variant registry ────────────────────────────────────────────────
+
+// recordSumType — register a sum type and its variant names so the return-type
+// check can recognise that a variant is assignable to its sum type. Variants
+// are stored as SemFieldEntry rows (name = variant, typeName = variant) to
+// reuse the SemTypeEntry shape without importing the parser AST here.
+fn recordSumType(state AnalyzerState, name String, variants Array<String>) AnalyzerState {
+    let semVariants Array<SemFieldEntry>: []
+    let vi Int64: 0
+    while vi.lt(variants.len()) {
+        let v String: variants.at(vi)
+        let entry SemFieldEntry: { name: v, typeName: v }
+        semVariants.add(entry)
+        vi: vi.add(1)
+    }
+    let sumTypes Array<SemTypeEntry>: state.sumTypes
+    let teEntry SemTypeEntry: { name: name, fields: semVariants }
+    sumTypes.add(teEntry)
+    return state
+}
+
+// sumHasVariantAt — linear search through a sum type's variant rows.
+fn sumHasVariantAt(variants Array<SemFieldEntry>, candidate String, i Int64) Bool {
+    return match i.lt(variants.len()) {
+        true: match variants.at(i).name.equals(candidate) {
+            true: true
+            _: sumHasVariantAt(variants, candidate, i.add(1))
+        }
+        _: false
+    }
+}
+
+// isSumVariantAt — linear search through state.sumTypes for `sumName`, then
+// check whether `candidate` is one of its variants.
+fn isSumVariantAt(sumTypes Array<SemTypeEntry>, sumName String, candidate String, i Int64) Bool {
+    return match i.lt(sumTypes.len()) {
+        true: match sumTypes.at(i).name.equals(sumName) {
+            true: sumHasVariantAt(sumTypes.at(i).fields, candidate, 0)
+            _: isSumVariantAt(sumTypes, sumName, candidate, i.add(1))
+        }
+        _: false
+    }
+}
+
+// isSumVariant — true when `candidate` is a declared variant of sum type `sumName`.
+fn isSumVariant(state AnalyzerState, sumName String, candidate String) Bool {
+    return isSumVariantAt(state.sumTypes, sumName, candidate, 0)
 }
 
 // ─── Error accumulation ───────────────────────────────────────────────────────
