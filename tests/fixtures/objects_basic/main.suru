@@ -1,0 +1,24 @@
+type Greeter: { name String, fn greet(prefix String) String, fn rename(n String) }
+
+fn shout(g Greeter) String {
+    return g.greet("HEY ")
+}
+
+fn main() Int64 {
+    let a Greeter: {
+        name: "World",
+        fn greet(prefix String) String { return prefix.append(this.name) }
+        fn rename(n String) { this.name: n }
+    }
+    let b Greeter: {
+        name: "Suru",
+        fn greet(prefix String) String { return prefix.append("!").append(this.name) }
+        fn rename(n String) { this.name: n }
+    }
+    printLn(a.greet("Hello "))
+    a.rename("Earth")
+    printLn(a.greet("Hello "))
+    printLn(b.greet("Hi "))
+    printLn(shout(a))
+    return 0
+}

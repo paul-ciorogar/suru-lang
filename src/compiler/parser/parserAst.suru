@@ -17,10 +17,15 @@
 //  19  CallNode        20 MethodCallNode  21 FieldAccessNode
 //  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
 //  25  UnaryNode       26 BinaryNode      27 CharLitNode
+//  28  VtableRefNode
 //
-// CharLitNode is appended LAST (index 27): variant tags are derived from
-// declaration order, so appending keeps indices 0–26 stable and the
-// bootstrap fixed point intact. Never insert a variant mid-list.
+// CharLitNode (27) then VtableRefNode (28) are appended LAST: variant tags
+// are derived from declaration order, so appending keeps indices 0–27 stable
+// and the bootstrap fixed point intact. Never insert a variant mid-list.
+//
+// `this` is NOT a distinct variant — the parser emits VarRefNode{name:"this"};
+// the method lambda-lift (pipeline.suru) introduces a real `this` param so it
+// resolves like any other variable.
 //
 // Every expression variant (indices 13–27 except WildcardNode, which is
 // pattern-only and carries no value) has a trailing `resolvedType String`
@@ -45,7 +50,15 @@ type Parser: { pos Int64, tokens Array<Token> }
 // ─── Helper types (not AstNode variants) ──────────────────────────────────────
 
 type Param:          { name String, typeName String }
-type StructFieldNode: { name String, value AstNode }
+// MethodSig: a method signature in a `type` body (`fn name(params) Ret`, no body).
+type MethodSig:      { name String, params Array<Param>, returnType String }
+// StructFieldNode: one member of a `{ ... }` literal.
+// Data field: isMethod=false, `value` holds the field expression.
+// Method def:  isMethod=true, `name`/`methodParams`/`methodRet`/`methodBody`
+//   hold the supplied implementation; `value` is unused until the method
+//   lambda-lift (pipeline.suru) rewrites the whole member into a single
+//   synthetic `__vtable` data field whose `value` is a VtableRefNode.
+type StructFieldNode: { name String, value AstNode, isMethod Bool, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
 type MatchArm:       { isWildcard Bool, pattern AstNode, body AstNode }
 type MatchStmtArm:   { isWildcard Bool, pattern AstNode, stmts Array<AstNode> }
 
@@ -63,7 +76,9 @@ type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode }
 type ReturnNode:      { hasValue Bool, value AstNode }
 type WhileNode:       { condition AstNode, body Array<AstNode> }
 type ExprStmtNode:    { expr AstNode }
-type TypeDeclNode:    { name String, fields Array<Param> }
+// TypeDeclNode: a struct/interface type. `fields` are data members; `methods`
+// are declared method signatures (empty for a plain data record).
+type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig> }
 type SumTypeDeclNode: { name String, variants Array<String> }
 type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
 // BlockNode: a brace-delimited sequence of statements.
@@ -100,10 +115,19 @@ type BinaryNode:      { op Int64, left AstNode, right AstNode, resolvedType Stri
 // character (same shape as a 1-char StrLitNode); codegen folds it to an i8.
 // Declared/appended LAST — see the header comment on variant ordering.
 type CharLitNode:     { text String, resolvedType String }
+// VtableRefNode: a reference to a module-level vtable constant. Produced only
+// by the method lambda-lift (pipeline.suru) as the value of the synthetic
+// `__vtable` struct field. `sym` is the LLVM global name (e.g.
+// "@vtable.Greeter.0"); `entries` are the mangled lifted-method symbols in the
+// type's declared-method order. Codegen emits
+// `<sym> = constant [N x ptr] [ptr <e0>, ...]` and stores
+// `ptrtoint (ptr <sym> to i64)` into the slot.
+// Appended LAST — see the header comment on variant ordering.
+type VtableRefNode:   { sym String, entries Array<String>, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode
+type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode
 
 // ─── Module and result types ───────────────────────────────────────────────────
 

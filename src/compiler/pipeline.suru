@@ -271,6 +271,289 @@ fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
     return result
 }
 
+// ─── Object method lambda-lift ─────────────────────────────────────────────────
+//
+// Runs after resolveModuleTypes (so every StructLitNode.resolvedType and every
+// method-body expression is type-annotated) and before codegen. For each
+// struct literal of a type that declares methods it:
+//   • synthesises one top-level FnDeclNode per declared method, with an
+//     implicit leading `this` param, body = the per-instance method body;
+//   • builds a constant vtable reference listing those functions in the type's
+//     declared-method order;
+//   • rewrites the literal's members to a single leading `__vtable` data field
+//     (value = VtableRefNode) followed by the original data fields.
+// Synthetic FnDeclNodes are appended to the module statement list so the normal
+// codegen function loop emits them.
+
+fn loSrcPathOr(fnSrc String, root String) String {
+    return match fnSrc.equals("") { true: root, _: fnSrc }
+}
+
+// Declared methods of a type (in declaration order), from the analyzer state.
+fn loTypeMethods(state AnalyzerState, typeName String) Array<SemMethodEntry> {
+    let decls Array<SemTypeEntry>: state.typeDecls
+    let i Int64: 0
+    while i.lt(decls.len()) {
+        match decls.at(i).name.equals(typeName) {
+            true: { return decls.at(i).methods }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    let empty Array<SemMethodEntry>: []
+    return empty
+}
+
+fn loHasMethodMembers(fields Array<StructFieldNode>) Bool {
+    let i Int64: 0
+    while i.lt(fields.len()) {
+        match fields.at(i).isMethod { true: { return true } _: {} }
+        i: i.add(1)
+    }
+    return false
+}
+
+// Find the method member named `name` in a literal, or a sentinel whose
+// name is "" when absent (strict-contract violation).
+fn loFindMethodMember(fields Array<StructFieldNode>, name String) StructFieldNode {
+    let i Int64: 0
+    while i.lt(fields.len()) {
+        let f StructFieldNode: fields.at(i)
+        match f.isMethod {
+            true: { match f.name.equals(name) { true: { return f } _: {} } }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    let dummy WildcardNode: {}
+    let none StructFieldNode: { name: "", value: dummy, isMethod: false, methodParams: [], methodRet: "", methodBody: [] }
+    return none
+}
+
+fn lowerObjectsBody(state AnalyzerState, stmts Array<AstNode>, newDecls Array<AstNode>, ctr Array<Int64>, srcPath String, root String) {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        lowerObjectsStmt(state, stmts.at(i), newDecls, ctr, srcPath, root)
+        i: i.add(1)
+    }
+}
+
+fn lowerObjectsStmt(state AnalyzerState, stmt AstNode, newDecls Array<AstNode>, ctr Array<Int64>, srcPath String, root String) {
+    match stmt {
+        FnDeclNode: {
+            let f FnDeclNode: stmt
+            let sp String: loSrcPathOr(f.srcPath, root)
+            lowerObjectsBody(state, f.body, newDecls, ctr, sp, root)
+        }
+        LetNode: {
+            let l LetNode: stmt
+            lowerObjectsExpr(state, l.value, newDecls, ctr, srcPath, root)
+        }
+        AssignNode: {
+            let a AssignNode: stmt
+            lowerObjectsExpr(state, a.value, newDecls, ctr, srcPath, root)
+        }
+        FieldAssignNode: {
+            let fa FieldAssignNode: stmt
+            lowerObjectsExpr(state, fa.receiver, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, fa.value, newDecls, ctr, srcPath, root)
+        }
+        ReturnNode: {
+            let r ReturnNode: stmt
+            match r.hasValue {
+                true: { lowerObjectsExpr(state, r.value, newDecls, ctr, srcPath, root) }
+                _: {}
+            }
+        }
+        WhileNode: {
+            let w WhileNode: stmt
+            lowerObjectsExpr(state, w.condition, newDecls, ctr, srcPath, root)
+            lowerObjectsBody(state, w.body, newDecls, ctr, srcPath, root)
+        }
+        IfNode: {
+            let n IfNode: stmt
+            lowerObjectsExpr(state, n.condition, newDecls, ctr, srcPath, root)
+            let tb BlockNode: n.thenBranch
+            lowerObjectsBody(state, tb.stmts, newDecls, ctr, srcPath, root)
+            let eb BlockNode: n.elseBranch
+            lowerObjectsBody(state, eb.stmts, newDecls, ctr, srcPath, root)
+        }
+        MatchStmtNode: {
+            let ms MatchStmtNode: stmt
+            lowerObjectsExpr(state, ms.condition, newDecls, ctr, srcPath, root)
+            let arms Array<MatchStmtArm>: ms.arms
+            let ai Int64: 0
+            while ai.lt(arms.len()) {
+                lowerObjectsBody(state, arms.at(ai).stmts, newDecls, ctr, srcPath, root)
+                ai: ai.add(1)
+            }
+        }
+        BlockNode: {
+            let b BlockNode: stmt
+            lowerObjectsBody(state, b.stmts, newDecls, ctr, srcPath, root)
+        }
+        ExprStmtNode: {
+            let e ExprStmtNode: stmt
+            lowerObjectsExpr(state, e.expr, newDecls, ctr, srcPath, root)
+        }
+        _: {}
+    }
+}
+
+fn lowerObjectsExprList(state AnalyzerState, xs Array<AstNode>, newDecls Array<AstNode>, ctr Array<Int64>, srcPath String, root String) {
+    let i Int64: 0
+    while i.lt(xs.len()) {
+        lowerObjectsExpr(state, xs.at(i), newDecls, ctr, srcPath, root)
+        i: i.add(1)
+    }
+}
+
+fn lowerObjectsExpr(state AnalyzerState, expr AstNode, newDecls Array<AstNode>, ctr Array<Int64>, srcPath String, root String) {
+    match expr {
+        StructLitNode: {
+            let lit StructLitNode: expr
+            lowerObjectsStructLit(state, lit, newDecls, ctr, srcPath, root)
+        }
+        ArrayLitNode: {
+            let a ArrayLitNode: expr
+            lowerObjectsExprList(state, a.elems, newDecls, ctr, srcPath, root)
+        }
+        CallNode: {
+            let c CallNode: expr
+            lowerObjectsExprList(state, c.args, newDecls, ctr, srcPath, root)
+        }
+        MethodCallNode: {
+            let mc MethodCallNode: expr
+            lowerObjectsExpr(state, mc.receiver, newDecls, ctr, srcPath, root)
+            lowerObjectsExprList(state, mc.args, newDecls, ctr, srcPath, root)
+        }
+        FieldAccessNode: {
+            let fa FieldAccessNode: expr
+            lowerObjectsExpr(state, fa.receiver, newDecls, ctr, srcPath, root)
+        }
+        MatchExprNode: {
+            let me MatchExprNode: expr
+            lowerObjectsExpr(state, me.condition, newDecls, ctr, srcPath, root)
+            let arms Array<MatchArm>: me.arms
+            let ai Int64: 0
+            while ai.lt(arms.len()) {
+                lowerObjectsExpr(state, arms.at(ai).body, newDecls, ctr, srcPath, root)
+                ai: ai.add(1)
+            }
+        }
+        UnaryNode: {
+            let u UnaryNode: expr
+            lowerObjectsExpr(state, u.operand, newDecls, ctr, srcPath, root)
+        }
+        BinaryNode: {
+            let b BinaryNode: expr
+            lowerObjectsExpr(state, b.left, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, b.right, newDecls, ctr, srcPath, root)
+        }
+        _: {}
+    }
+}
+
+fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<AstNode>, ctr Array<Int64>, srcPath String, root String) {
+    let typeName String: lit.resolvedType
+    let fields Array<StructFieldNode>: lit.fields
+    let methods Array<SemMethodEntry>: loTypeMethods(state, typeName)
+    let hasM Bool: loHasMethodMembers(fields)
+    match hasM and methods.len().equals(0) {
+        true: {
+            printLn("error: struct literal supplies a method body but type '".append(typeName).append("' declares no methods"))
+            exit(1)
+        }
+        _: {}
+    }
+    match methods.len().equals(0) {
+        true: {
+            // Plain data struct — just recurse field values for nested objects.
+            let d Int64: 0
+            while d.lt(fields.len()) {
+                lowerObjectsExpr(state, fields.at(d).value, newDecls, ctr, srcPath, root)
+                d: d.add(1)
+            }
+            return
+        }
+        _: {}
+    }
+    let site Int64: ctr.at(0)
+    ctr.set(site.add(1), 0)
+    let siteStr String: site.toString()
+    let entrySyms Array<String>: []
+    let j Int64: 0
+    while j.lt(methods.len()) {
+        let m SemMethodEntry: methods.at(j)
+        let member StructFieldNode: loFindMethodMember(fields, m.name)
+        match member.name.equals("") {
+            true: {
+                printLn("error: type '".append(typeName).append("' requires an implementation of method '").append(m.name).append("'"))
+                exit(1)
+            }
+            _: {}
+        }
+        let synth String: "__m_".append(typeName).append("_").append(m.name).append("_").append(siteStr)
+        let params Array<Param>: []
+        params.add({ name: "this", typeName: typeName })
+        let mp Array<Param>: member.methodParams
+        let k Int64: 0
+        while k.lt(mp.len()) {
+            params.add(mp.at(k))
+            k: k.add(1)
+        }
+        let body Array<AstNode>: member.methodBody
+        // Lift nested object literals inside the method body too.
+        lowerObjectsBody(state, body, newDecls, ctr, srcPath, root)
+        let fnDecl FnDeclNode: { name: synth, params: params, returnType: member.methodRet, body: body, srcPath: srcPath }
+        newDecls.add(fnDecl)
+        entrySyms.add(irCodegen.mangleSym(srcPath, synth))
+        j: j.add(1)
+    }
+    // Include the owning file in the vtable global's symbol so two files that
+    // each declare a literal of the same type at the same site index don't
+    // mint colliding `@vtable.<Type>.<n>` definitions. Each .ll only emits its
+    // own vtable globals (codegen of an included file's literal is skipped in
+    // the root compilation), so this naming guarantees link-time uniqueness.
+    let vtsym String: "@vtable.".append(irCodegen.sanitizePath(srcPath)).append(".").append(typeName).append(".").append(siteStr)
+    let newFields Array<StructFieldNode>: []
+    let vr VtableRefNode: { sym: vtsym, entries: entrySyms, resolvedType: typeName }
+    let noP Array<Param>: []
+    let noB Array<AstNode>: []
+    newFields.add({ name: "__vtable", value: vr, isMethod: false, methodParams: noP, methodRet: "", methodBody: noB })
+    let d Int64: 0
+    while d.lt(fields.len()) {
+        let f StructFieldNode: fields.at(d)
+        match f.isMethod {
+            true: {}
+            _: {
+                newFields.add(f)
+                lowerObjectsExpr(state, f.value, newDecls, ctr, srcPath, root)
+            }
+        }
+        d: d.add(1)
+    }
+    lit.fields: newFields
+}
+
+// lowerObjects — module driver. Walks `stmts`, lifts object methods, and
+// appends every synthesised FnDeclNode to `stmts`.
+fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String) {
+    let newDecls Array<AstNode>: []
+    let ctr Array<Int64>: [0]
+    let n Int64: stmts.len()
+    let i Int64: 0
+    while i.lt(n) {
+        lowerObjectsStmt(state, stmts.at(i), newDecls, ctr, root, root)
+        i: i.add(1)
+    }
+    let a Int64: 0
+    while a.lt(newDecls.len()) {
+        stmts.add(newDecls.at(a))
+        a: a.add(1)
+    }
+}
+
 // analyzeModuleStatement — pass-3 dispatch for top-level statements.
 fn analyzeModuleStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
     match stmt {
@@ -359,6 +642,7 @@ fn compileOneFile(sourcePath String, outDir String) {
     let state AnalyzerState: semantic.makeAnalyzerState()
     passes.runPrePasses(state, resolved.stmts)
     semresolve.resolveModuleTypes(state, resolved.stmts)
+    lowerObjects(state, resolved.stmts, sourcePath)
     let irText String: irCodegen.generate(resolved.stmts, baseName(sourcePath), ownFnNames, ownTypeNames, resolved.aliases, sourcePath)
     writeFile(outDir.append(fileNameStem(sourcePath)).append(".ll"), irText)
 }
@@ -385,6 +669,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     // statement list (including transitively-included functions) so that
     // codegen — which sees every function's body — finds populated types.
     semresolve.resolveModuleTypes(state, stmts)
+    lowerObjects(state, stmts, sourcePath)
     let ownStmts Array<AstNode>: collectNonInclude(mod.stmts)
     analyzeModuleStatements(state, ownStmts)
     printErrorsFrom(state, sourcePath, 0)

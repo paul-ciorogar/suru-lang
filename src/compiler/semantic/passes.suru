@@ -119,8 +119,24 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
         semFields.add(entry)
         fi: fi.add(1)
     }
+    let semMethods Array<SemMethodEntry>: []
+    let methodSigs Array<MethodSig>: typed.methods
+    let mi Int64: 0
+    while mi.lt(methodSigs.len()) {
+        let ms MethodSig: methodSigs.at(mi)
+        let ptypes Array<String>: []
+        let mps Array<Param>: ms.params
+        let pj Int64: 0
+        while pj.lt(mps.len()) {
+            ptypes.add(mps.at(pj).typeName)
+            pj: pj.add(1)
+        }
+        let me SemMethodEntry: { name: ms.name, paramTypes: ptypes, returnType: ms.returnType }
+        semMethods.add(me)
+        mi: mi.add(1)
+    }
     let typeDecls Array<SemTypeEntry>: state.typeDecls
-    let teEntry SemTypeEntry: { name: typed.name, fields: semFields }
+    let teEntry SemTypeEntry: { name: typed.name, fields: semFields, methods: semMethods }
     typeDecls.add(teEntry)
     return state
 }

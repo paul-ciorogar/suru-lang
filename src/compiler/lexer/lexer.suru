@@ -34,6 +34,7 @@ let TOK_AS       Int64: 31
 let TOK_IF       Int64: 32
 let TOK_ELSE     Int64: 33
 let TOK_CHAR     Int64: 34
+let TOK_THIS     Int64: 35
 
 type Token: { kind Int64, text String, line Int64, col Int64 }
 
@@ -91,6 +92,7 @@ fn keywordKind(text String) Int64 {
         "as":      TOK_AS
         "if":      TOK_IF
         "else":    TOK_ELSE
+        "this":    TOK_THIS
         _:         TOK_IDENT
     }
 }
@@ -323,6 +325,7 @@ fn tokenKindName(kind Int64) String {
     match kind.equals(32) { true: { return "IF"       } _: {} }
     match kind.equals(33) { true: { return "ELSE"     } _: {} }
     match kind.equals(34) { true: { return "CHAR"     } _: {} }
+    match kind.equals(35) { true: { return "THIS"     } _: {} }
     return "UNKNOWN"
 }
 

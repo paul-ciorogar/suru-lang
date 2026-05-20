@@ -21,6 +21,14 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
         match s {
             TypeDeclNode: {
                 let fields Array<TypeFieldEntry>: []
+                // Object types (declare ≥1 method) reserve slot 0 for the
+                // single per-instance vtable pointer; data fields follow. The
+                // method lambda-lift rewrites literals to match this layout.
+                let ms Array<MethodSig>: s.methods
+                match ms.len().gt(0) {
+                    true: { fields.add({ name: "__vtable", typeName: "__vtable" }) }
+                    _: {}
+                }
                 let j Int64: 0
                 while j.lt(s.fields.len()) {
                     let p Param: s.fields.at(j)
@@ -28,7 +36,21 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                     fields.add(fe)
                     j: j.add(1)
                 }
-                let td TypeDecl: { name: s.name, fields: fields }
+                let tmethods Array<TypeMethodEntry>: []
+                let mj Int64: 0
+                while mj.lt(ms.len()) {
+                    let msig MethodSig: ms.at(mj)
+                    let ptys Array<String>: []
+                    let mps Array<Param>: msig.params
+                    let pk Int64: 0
+                    while pk.lt(mps.len()) {
+                        ptys.add(mps.at(pk).typeName)
+                        pk: pk.add(1)
+                    }
+                    tmethods.add({ name: msig.name, paramTypes: ptys, returnType: msig.returnType })
+                    mj: mj.add(1)
+                }
+                let td TypeDecl: { name: s.name, fields: fields, methods: tmethods }
                 ctx: types.addType(ctx, td)
             }
             SumTypeDeclNode: {

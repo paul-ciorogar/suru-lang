@@ -528,6 +528,24 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
             // return-type context.
             return emitStructLit(ctx, expr.fields, expr.resolvedType)
         }
+        VtableRefNode: {
+            // Emit the module-level vtable constant (once; addDecl dedups) and
+            // yield its global symbol. emitStructLit's structFieldToI64 will
+            // ptrtoint it into the object's `__vtable` slot.
+            let vr VtableRefNode: expr
+            let ents Array<String>: vr.entries
+            let n Int64: ents.len()
+            let body String: ""
+            let ei Int64: 0
+            while ei.lt(n) {
+                let sep String: match ei.gt(0) { true: ", ", _: "" }
+                body: body.append(sep).append("ptr @").append(ents.at(ei))
+                ei: ei.add(1)
+            }
+            let line String: vr.sym.append(" = private constant [").append(n.toString()).append(" x ptr] [").append(body).append("]\n")
+            ctx: types.addDecl(ctx, line)
+            return { ctx: ctx, name: vr.sym, llvmType: "ptr", suruType: "__vtable" }
+        }
         CallNode: {
             match expr.name.equals("readFile") {
                 true: {
@@ -662,6 +680,65 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // ─── Method call dispatch ────────────────────────────────────────────────────────
 
 // Dispatch a MethodCallNode to the appropriate helper.
+// Emit a virtual method call: load the object's vtable pointer, index to the
+// method's slot, and indirect-call it with `this` (the receiver ptr) as the
+// implicit first argument. `decl` is the receiver's object TypeDecl, `mIdx`
+// the method's vtable index (== declared-method order).
+fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal String, decl TypeDecl, method String, mIdx Int64) CodegenResult {
+    let me TypeMethodEntry: types.methodEntry(decl, method)
+    // __vtable is field slot 0: load the i64 slot and turn it into a ptr.
+    let vtOff Int64: irStruct.fieldOffset(0)
+    let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
+    ctx.builder: slotR.builder
+    let rawR IrResult: ir.emitLoad(ctx.builder, "i64", slotR.name)
+    ctx.builder: rawR.builder
+    let vtR IrResult: ir.emitIntToPtr(ctx.builder, rawR.name)
+    ctx.builder: vtR.builder
+    // GEP to the method's pointer slot in the vtable array, then load the fp.
+    let fpSlotR IrResult: ir.emitGEP(ctx.builder, "ptr", vtR.name, "i64 ".append(mIdx.toString()))
+    ctx.builder: fpSlotR.builder
+    let fpR IrResult: ir.emitLoad(ctx.builder, "ptr", fpSlotR.name)
+    ctx.builder: fpR.builder
+    // Build the argument list: `this` first, then coerced declared params.
+    let argParts Array<String>: []
+    argParts.add("ptr ".append(recvVal))
+    let args Array<AstNode>: expr.args
+    let pts Array<String>: me.paramTypes
+    let i Int64: 0
+    while i.lt(args.len()) {
+        let ar CodegenResult: emitValue(ctx, args.at(i))
+        ctx: ar.ctx
+        let pSuru String: match i.lt(pts.len()) {
+            true: tyh.makeSuruType(pts.at(i))
+            _:    ar.suruType
+        }
+        let pLlvm String: box.llvmTypeOf(pSuru)
+        let finalVal String: ar.name
+        match box.isScalarType(pSuru) {
+            true: {
+                match box.isScalarType(ar.suruType) {
+                    true: {}
+                    _: {
+                        let ur CodegenResult: box.unboxScalar(ctx, ar.name, pSuru)
+                        ctx: ur.ctx
+                        finalVal: ur.name
+                    }
+                }
+            }
+            _: {}
+        }
+        argParts.add(pLlvm.append(" ").append(finalVal))
+        i: i.add(1)
+    }
+    let isVoid Bool: me.returnType.equals("void")
+    let retSuru String: tyh.makeSuruType(me.returnType)
+    let retLlvm String: match isVoid { true: "ptr", _: box.llvmTypeOf(retSuru) }
+    let callR IrResult: ir.emitIndirectCall(ctx.builder, retLlvm, fpR.name, argParts)
+    ctx.builder: callR.builder
+    let outSuru String: match isVoid { true: "void", _: retSuru }
+    return { ctx: ctx, name: callR.name, llvmType: retLlvm, suruType: outSuru }
+}
+
 fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let method String: expr.methodName
     let recv AstNode: expr.receiver
@@ -705,6 +782,15 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     ctx: rr.ctx
     let recvVal String: rr.name
     let recvSuruType String: rr.suruType
+
+    // User-defined object method: receiver type declares this method → dispatch
+    // through the per-instance vtable pointer in the object's `__vtable` slot.
+    let objDecl TypeDecl: types.lookupType(ctx, recvSuruType)
+    let omi Int64: types.methodIndex(objDecl, method)
+    match omi.lt(0) {
+        true: {}
+        _: { return emitObjectMethodCall(ctx, expr, recvVal, objDecl, method, omi) }
+    }
 
     // Array instance methods.
     match tyh.isArraySuruType(recvSuruType) {

@@ -47,7 +47,7 @@ fn rtLookupTypeEntryAt(decls Array<SemTypeEntry>, name String, i Int64) SemTypeE
             true: decls.at(i)
             _: rtLookupTypeEntryAt(decls, name, i.add(1))
         }
-        _: { name: "", fields: [] }
+        _: { name: "", fields: [], methods: [] }
     }
 }
 
@@ -74,6 +74,24 @@ fn rtLookupFieldTypeAt(fields Array<SemFieldEntry>, name String, i Int64) String
 fn rtLookupFieldType(decl SemTypeEntry, fieldName String) String {
     let fields Array<SemFieldEntry>: decl.fields
     return rtLookupFieldTypeAt(fields, fieldName, 0)
+}
+
+// rtLookupMethodReturnAt — linear search through a SemTypeEntry's methods.
+fn rtLookupMethodReturnAt(methods Array<SemMethodEntry>, name String, i Int64) String {
+    return match i.lt(methods.len()) {
+        true: match methods.at(i).name.equals(name) {
+            true: methods.at(i).returnType
+            _: rtLookupMethodReturnAt(methods, name, i.add(1))
+        }
+        _: ""
+    }
+}
+
+// rtLookupMethodReturn — declared return type of `methodName` on `decl`, or ""
+// if the type has no such declared method (then it is a builtin method call).
+fn rtLookupMethodReturn(decl SemTypeEntry, methodName String) String {
+    let methods Array<SemMethodEntry>: decl.methods
+    return rtLookupMethodReturnAt(methods, methodName, 0)
 }
 
 // ─── Function param type lookup ──────────────────────────────────────────────
@@ -158,6 +176,41 @@ fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, dec
             let val AstNode: field.value
             resolveExpr(state, val, expected)
             rtResolveStructFields(state, fields, decl, i.add(1))
+        }
+        _: {}
+    }
+    return state
+}
+
+// rtResolveStructMethods — resolve the body of each method member of a struct
+// literal. Each body is analysed in a fresh scope where `this` is bound to the
+// literal's struct type and the method's declared params are in scope, with
+// the method's declared return type as the return-expectation. This annotates
+// the body expression nodes in place so the later method lambda-lift
+// (pipeline.suru) can move them into top-level functions already type-resolved.
+fn rtResolveStructMethods(state AnalyzerState, fields Array<StructFieldNode>, structType String, i Int64) AnalyzerState {
+    match i.lt(fields.len()) {
+        true: {
+            let field StructFieldNode: fields.at(i)
+            match field.isMethod {
+                true: {
+                    sem.pushScope(state)
+                    sem.declareSymbol(state, "this", structType)
+                    let mps Array<Param>: field.methodParams
+                    let pj Int64: 0
+                    while pj.lt(mps.len()) {
+                        let p Param: mps.at(pj)
+                        sem.declareSymbol(state, p.name, p.typeName)
+                        pj: pj.add(1)
+                    }
+                    let expectedReturn String: tyh.makeSuruType(field.methodRet)
+                    let body Array<AstNode>: field.methodBody
+                    rtResolveBody(state, body, expectedReturn)
+                    sem.popScope(state)
+                }
+                _: {}
+            }
+            rtResolveStructMethods(state, fields, structType, i.add(1))
         }
         _: {}
     }
@@ -293,10 +346,16 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
                 _: {}
             }
             rtResolveArrayElems(state, args, argExpected, 0)
-            // Reuse the method-name → return-type table already maintained in
-            // exprs.suru. inferTypeFromMethod handles the special "from" case
-            // for Int32/Int64/Float64 static receivers.
-            typed.resolvedType: exprs.inferTypeFromMethod(state, typed)
+            // User-defined object method: if the receiver's resolved type is a
+            // declared struct with a method of this name, the return type comes
+            // from the declared signature. Otherwise fall back to the builtin
+            // method-name → return-type table in exprs.suru.
+            let mdecl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+            let userRet String: rtLookupMethodReturn(mdecl, typed.methodName)
+            match userRet.equals("") {
+                true:  { typed.resolvedType: exprs.inferTypeFromMethod(state, typed) }
+                _:     { typed.resolvedType: tyh.makeSuruType(userRet) }
+            }
         }
 
         FieldAccessNode: {
@@ -346,6 +405,10 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // "" and rtResolveStructFields will pass "" expectations down — no
             // type information is invented, the AST simply stays under-typed.
             rtResolveStructFields(state, fields, decl, 0)
+            // Method members (isMethod=true) carry a body that references
+            // `this` and the method params. Resolve them now so the lift can
+            // hoist already-typed bodies into top-level functions.
+            rtResolveStructMethods(state, fields, expected, 0)
         }
 
         MatchExprNode: {

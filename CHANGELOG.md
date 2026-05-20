@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added objects: interface types with per-instance methods
+
+Types can now declare method signatures (`fn name(params) Ret`, no body)
+alongside data fields, and a struct literal supplies both field values and
+per-instance method bodies:
+
+```
+type Greeter: { name String, fn greet(p String) String }
+
+let g Greeter: { name: "World", fn greet(p String) String { return p.append(this.name) } }
+g.greet("Hello ")          // "Hello World"
+```
+
+Added:
+- New `this` keyword (`TOK_THIS`, ordinal 35 — appended last; ordinals are
+  bootstrap-stable). Inside a method body `this` is the receiver; it is
+  lowered to an ordinary `this` parameter so `this.field` reads and
+  `this.field: x` writes reuse existing field access/assignment.
+- `MethodSig` on `TypeDeclNode`; method members on `StructFieldNode`; a
+  `VtableRefNode` AST variant (**appended last**) carrying the vtable symbol
+  and its entry list.
+- **vtable object model:** each object stores a single per-instance vtable
+  pointer in a synthetic leading `__vtable` slot; one
+  `@vtable.<sanitised-srcPath>.<Type>.<n> = private constant [N x ptr]` is
+  emitted per struct-literal site (so two literals of one type may carry
+  different bodies; instances from the same site share a vtable). The
+  symbol includes the owning file's sanitised path so two `include`d files
+  that each declare a literal of the same type don't mint colliding globals
+  at link time. Method calls load the vtable, index by declared-method
+  order, and indirect-call with `this` first.
+- Method lambda-lift (`lowerObjects` in pipeline.suru, after the
+  resolved-type pass): each method body becomes a top-level `FnDeclNode` with
+  an implicit `this` param; the literal is rewritten to a `__vtable` field.
+- `@suru_clone_T` / `@suru_drop_T` treat the `__vtable` slot as **non-owned**
+  (shallow copy on clone, never dropped — it is a static constant pointer).
+- Strict interface contract: a literal must implement every declared method;
+  a method body for a type that declares none is rejected.
+
+Self-hosting note: `parserExpr.suru` was **merged into `parser.suru`**.
+Method bodies make expression parsing depend on statement parsing
+(`parsePrimaryStruct → parseBlock`) while statement parsing already depends on
+expressions; Suru's acyclic per-file include model requires mutually recursive
+functions to share one file. Behaviour is unchanged and the 3-stage bootstrap
+fixed point (C2 == C3) holds.
+
 ### Added `Char` value type
 
 Introduces a `Char` value type (an `i8`, scalar, never heap-allocated, never

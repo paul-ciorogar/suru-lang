@@ -4,19 +4,18 @@
 // Include DAG:
 //   parserAst.suru       — AST type definitions (leaf)
 //   parserUtil.suru      — token cursor + type-annotation parsing (depends on ast)
-//   parserExpr.suru      — expression parsing (depends on ast + util)
 //   parserPrint.suru     — AST pretty-printer (depends on ast)
-//   parser.suru          — this file, statement layer + parse() (depends on all above)
+//   parser.suru          — this file: expression + statement parsing + parse()
 //
-// Why this layering: expression parsing is self-contained — primary forms like
-// match expressions, struct literals, array literals only call back into parseExpr.
-// Statement parsing depends on expressions (let bindings, return values, match
-// conditions, while/if conditions) but not vice versa. Putting expressions in
-// their own file before statements keeps the include DAG acyclic.
+// Expression and statement parsing live in ONE file because they are mutually
+// recursive: statements contain expressions (let/return/conditions) AND
+// expressions now contain statements (method bodies inside struct literals —
+// `{ field: v, fn m(p) R { stmts } }`). Suru's per-file compilation cannot
+// split mutually recursive functions across an acyclic include DAG, so the
+// former parserExpr.suru was merged here (see CHANGELOG).
 
 include "parserAst.suru" as ast
 include "parserUtil.suru" as util
-include "parserExpr.suru" as expr
 include "parserPrint.suru" as pprint
 
 fn parseStatement(parser Parser) StmtResult {
@@ -31,6 +30,7 @@ fn parseStatement(parser Parser) StmtResult {
         TOK_TYPE:    parseTypeDeclaration(parser)
         TOK_MATCH:   parseMatchStatement(parser)
         TOK_IDENT:   parseIdentStmt(parser)
+        TOK_THIS:    parseIdentStmt(parser)
         _:           parseExprStmt(parser)
     }
 }
@@ -120,21 +120,80 @@ fn parseTypeDeclaration(parser Parser) StmtResult {
 fn parseStructTypeBody(parser Parser, typeName String) StmtResult {
     parser: util.consume(parser, TOK_LBRACE)
     let fields Array<Param>: []
+    let methods Array<MethodSig>: []
     while not util.currentTokenIs(parser, TOK_RBRACE) and not util.currentTokenIs(parser, TOK_EOF) {
-        let fieldNameTok Token: util.currentToken(parser)
-        parser: util.consume(parser, TOK_IDENT)
-        let tr TypeAnnResult: util.parseTypeAnnotation(parser)
-        parser: tr.parser
-        let fType String: tr.typeName
-        tr.parser:   {}
-        tr.typeName: ""
-        drop(tr)
-        fields.add({ name: fieldNameTok.text, typeName: fType })
+        parser: parseStructTypeMemberInto(parser, fields, methods)
         parser: util.consumeIf(parser, TOK_COMMA)
     }
     parser: util.consume(parser, TOK_RBRACE)
-    let n TypeDeclNode: { name: typeName, fields: fields }
+    let n TypeDeclNode: { name: typeName, fields: fields, methods: methods }
     return { parser: parser, stmt: n }
+}
+
+fn parseStructTypeMemberInto(parser Parser, fields Array<Param>, methods Array<MethodSig>) Parser {
+    return match util.currentTokenIs(parser, TOK_FN) {
+        true: parseMethodSigInto(parser, methods)
+        _:    parseDataFieldInto(parser, fields)
+    }
+}
+
+fn parseDataFieldInto(parser Parser, fields Array<Param>) Parser {
+    let fieldNameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+    parser: tr.parser
+    let fType String: tr.typeName
+    tr.parser:   {}
+    tr.typeName: ""
+    drop(tr)
+    fields.add({ name: fieldNameTok.text, typeName: fType })
+    return parser
+}
+
+// Parse a signature-only method member in a `type` body: `fn name(params) Ret`
+// (no body — the body is supplied per-instance in the struct literal).
+fn parseMethodSigInto(parser Parser, methods Array<MethodSig>) Parser {
+    parser: util.consume(parser, TOK_FN)
+    let mNameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    parser: util.consume(parser, TOK_LPAREN)
+    let mparams Array<Param>: []
+    while not util.currentTokenIs(parser, TOK_RPAREN) and not util.currentTokenIs(parser, TOK_EOF) {
+        let pNameTok Token: util.currentToken(parser)
+        parser: util.consume(parser, TOK_IDENT)
+        let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+        parser: tr.parser
+        let pType String: tr.typeName
+        tr.parser:   {}
+        tr.typeName: ""
+        drop(tr)
+        mparams.add({ name: pNameTok.text, typeName: pType })
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RPAREN)
+    let rtr RetTypeResult: parseMethodSigReturn(parser)
+    parser: rtr.parser
+    let mret String: rtr.returnType
+    rtr.parser:     {}
+    rtr.returnType: ""
+    drop(rtr)
+    methods.add({ name: mNameTok.text, params: mparams, returnType: mret })
+    return parser
+}
+
+// Return type for a signature-only method. Unlike parseFnReturnType there is
+// no `{` body to mark the end, so an absent return type is signalled by the
+// member separator/terminator (`,`, `}`, next `fn`, or EOF) → "void".
+fn parseMethodSigReturn(parser Parser) RetTypeResult {
+    match util.currentTokenIs(parser, TOK_VOID) {
+        true: { return { parser: util.advance(parser), returnType: "void" } }
+        _: {}
+    }
+    let noRet Bool: util.currentTokenIs(parser, TOK_COMMA) or util.currentTokenIs(parser, TOK_RBRACE) or util.currentTokenIs(parser, TOK_FN) or util.currentTokenIs(parser, TOK_EOF)
+    return match noRet {
+        true: { parser: parser, returnType: "void" }
+        _:    parseFnReturnTypeAnnotation(parser)
+    }
 }
 
 fn parseSumTypeBody(parser Parser, typeName String) StmtResult {
@@ -154,7 +213,7 @@ fn parseSumTypeBody(parser Parser, typeName String) StmtResult {
 
 fn parseMatchStatement(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_MATCH)
-    let cr ParseResult: expr.parseExpr(parser)
+    let cr ParseResult: parseExpr(parser)
     parser: cr.parser
     let cond AstNode: cr.expr
     cr.parser: {}
@@ -177,7 +236,7 @@ fn parseMatchStatement(parser Parser) StmtResult {
 }
 
 fn parseMatchStmtArm(parser Parser) StmtArmResult {
-    let patR PatResult: expr.parseMatchPattern(parser)
+    let patR PatResult: parseMatchPattern(parser)
     parser: patR.parser
     let pat AstNode: patR.pat
     patR.parser: {}
@@ -216,7 +275,7 @@ fn parseMatchStmtArmSimple(parser Parser, pat AstNode, stmts Array<AstNode>) Stm
 }
 
 fn parseMatchStmtArmExprBody(parser Parser, pat AstNode, stmts Array<AstNode>, isWc Bool) StmtArmResult {
-    let er ParseResult: expr.parseExpr(parser)
+    let er ParseResult: parseExpr(parser)
     parser: er.parser
     let val AstNode: er.expr
     er.parser: {}
@@ -230,7 +289,7 @@ fn parseMatchStmtArmExprBody(parser Parser, pat AstNode, stmts Array<AstNode>, i
 
 fn parseWhileStmt(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_WHILE)
-    let cr ParseResult: expr.parseExpr(parser)
+    let cr ParseResult: parseExpr(parser)
     parser: cr.parser
     let cond AstNode: cr.expr
     cr.parser: {}
@@ -308,7 +367,7 @@ fn parseElseIfBranch(parser Parser) BlockResult {
 fn parseIfStmt(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_IF)
     // Parse condition expression
-    let cr ParseResult: expr.parseExpr(parser)
+    let cr ParseResult: parseExpr(parser)
     parser: cr.parser
     let cond AstNode: cr.expr
     cr.parser: {}
@@ -346,7 +405,7 @@ fn parseReturnStmt(parser Parser) StmtResult {
 }
 
 fn parseReturnValue(parser Parser) StmtResult {
-    let er ParseResult: expr.parseExpr(parser)
+    let er ParseResult: parseExpr(parser)
     parser: er.parser
     let val AstNode: er.expr
     er.parser: {}
@@ -367,7 +426,7 @@ fn parseLetStmt(parser Parser) StmtResult {
     tr.typeName: ""
     drop(tr)
     parser: util.consume(parser, TOK_COLON)
-    let er ParseResult: expr.parseExpr(parser)
+    let er ParseResult: parseExpr(parser)
     parser: er.parser
     let val AstNode: er.expr
     er.parser: {}
@@ -389,7 +448,7 @@ fn parseAssignStmt(parser Parser) StmtResult {
     let name String: util.currentToken(parser).text
     parser: util.advance(parser)
     parser: util.consume(parser, TOK_COLON)
-    let er ParseResult: expr.parseExpr(parser)
+    let er ParseResult: parseExpr(parser)
     parser: er.parser
     let val AstNode: er.expr
     er.parser: {}
@@ -400,7 +459,7 @@ fn parseAssignStmt(parser Parser) StmtResult {
 }
 
 fn parseIdentExprOrFieldAssign(parser Parser) StmtResult {
-    let pr ParseResult: expr.parsePostfixChain(parser, expr.parsePrimary(parser))
+    let pr ParseResult: parsePostfixChain(parser, parsePrimary(parser))
     parser: pr.parser
     let e AstNode: pr.expr
     pr.parser: {}
@@ -419,7 +478,7 @@ fn parseIdentExprOrFieldAssign(parser Parser) StmtResult {
 
 fn parseFieldAssignStmt(parser Parser, fieldExpr AstNode) StmtResult {
     parser: util.consume(parser, TOK_COLON)
-    let er ParseResult: expr.parseExpr(parser)
+    let er ParseResult: parseExpr(parser)
     parser: er.parser
     let val AstNode: er.expr
     er.parser: {}
@@ -439,7 +498,7 @@ fn parseFieldAssignStmt(parser Parser, fieldExpr AstNode) StmtResult {
 }
 
 fn parseExprStmt(parser Parser) StmtResult {
-    let er ParseResult: expr.parseExpr(parser)
+    let er ParseResult: parseExpr(parser)
     parser: er.parser
     let val AstNode: er.expr
     er.parser: {}
@@ -461,4 +520,438 @@ fn parse(tokens Array<Token>) AstModule {
         drop(r)
     }
     return { stmts: stmts }
+}
+
+// ─── Expression layer (formerly parserExpr.suru) ──────────────────────────────
+// Merged here because method bodies in struct literals make the expression and
+// statement parsers mutually recursive (parsePrimaryStruct → parseBlock).
+
+fn parseExpr(parser Parser) ParseResult {
+    return parseOrExpr(parser)
+}
+
+fn parseOrExpr(parser Parser) ParseResult {
+    let lr ParseResult: parseAndExpr(parser)
+    parser: lr.parser
+    let left AstNode: lr.expr
+    lr.parser: {}
+    lr.expr:   {}
+    drop(lr)
+    while util.currentTokenIs(parser, TOK_OR) {
+        parser: util.advance(parser)
+        let rr ParseResult: parseAndExpr(parser)
+        parser: rr.parser
+        let right AstNode: rr.expr
+        rr.parser: {}
+        rr.expr:   {}
+        drop(rr)
+        let n BinaryNode: { op: OP_OR, left: left, right: right, resolvedType: "" }
+        left: n
+    }
+    return { parser: parser, expr: left }
+}
+
+fn parseAndExpr(parser Parser) ParseResult {
+    let lr ParseResult: parseNotExpr(parser)
+    parser: lr.parser
+    let left AstNode: lr.expr
+    lr.parser: {}
+    lr.expr:   {}
+    drop(lr)
+    while util.currentTokenIs(parser, TOK_AND) {
+        parser: util.advance(parser)
+        let rr ParseResult: parseNotExpr(parser)
+        parser: rr.parser
+        let right AstNode: rr.expr
+        rr.parser: {}
+        rr.expr:   {}
+        drop(rr)
+        let n BinaryNode: { op: OP_AND, left: left, right: right, resolvedType: "" }
+        left: n
+    }
+    return { parser: parser, expr: left }
+}
+
+fn parseNotExpr(parser Parser) ParseResult {
+    return match util.currentTokenIs(parser, TOK_NOT) {
+        true: parseNotExprBody(util.advance(parser))
+        _:    parsePostfixChain(parser, parsePrimary(parser))
+    }
+}
+
+fn parseNotExprBody(parser Parser) ParseResult {
+    let r ParseResult: parseNotExpr(parser)
+    parser: r.parser
+    let inner AstNode: r.expr
+    r.parser: {}
+    r.expr:   {}
+    drop(r)
+    let n UnaryNode: { op: OP_NOT, operand: inner, resolvedType: "" }
+    return { parser: parser, expr: n }
+}
+
+fn parsePostfixChain(parser Parser, pr ParseResult) ParseResult {
+    parser: pr.parser
+    let expr AstNode: pr.expr
+    pr.parser: {}
+    pr.expr:   {}
+    drop(pr)
+    while util.currentTokenIs(parser, TOK_DOT) {
+        let step ParseResult: processPostfixStep(parser, expr)
+        parser: step.parser
+        expr: step.expr
+        step.parser: {}
+        step.expr:   {}
+        drop(step)
+    }
+    return { parser: parser, expr: expr }
+}
+
+fn processPostfixStep(parser Parser, expr AstNode) ParseResult {
+    parser: util.advance(parser)
+    let nameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    let memberName String: nameTok.text
+    match util.currentTokenIs(parser, TOK_LPAREN) {
+        true: { return parseMethodCallPart(parser, expr, memberName) }
+        _: {
+            let n FieldAccessNode: { receiver: expr, fieldName: memberName, resolvedType: "" }
+            return { parser: parser, expr: n }
+        }
+    }
+}
+
+fn parseMethodCallPart(parser Parser, expr AstNode, memberName String) ParseResult {
+    parser: util.advance(parser)
+    let ar ArgsResult: parseArgs(parser)
+    parser: ar.parser
+    let args Array<AstNode>: ar.args
+    ar.parser: {}
+    ar.args:   {}
+    drop(ar)
+    parser: util.consume(parser, TOK_RPAREN)
+    let n MethodCallNode: { receiver: expr, methodName: memberName, args: args, resolvedType: "" }
+    return { parser: parser, expr: n }
+}
+
+fn parsePrimary(parser Parser) ParseResult {
+    let tok Token: util.currentToken(parser)
+    let k Int64: tok.kind
+    match k {
+        TOK_LBRACKET: { return parsePrimaryArray(parser) }
+        TOK_LBRACE:   { return parsePrimaryStruct(parser) }
+        TOK_MATCH:    { return parsePrimaryMatch(parser) }
+        TOK_IDENT:    { return parsePrimaryIdent(parser, tok) }
+        TOK_MINUS:    { return parsePrimaryMinus(parser) }
+        TOK_THIS: {
+            let n VarRefNode: { name: "this", resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_TRUE: {
+            let n BoolLitNode: { boolVal: true, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_FALSE: {
+            let n BoolLitNode: { boolVal: false, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_INT: {
+            let n IntLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_FLOAT: {
+            let n FloatLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_STRING: {
+            let n StrLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_CHAR: {
+            let n CharLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        _: {
+            util.error(parser, "unexpected token in expression")
+            let n BoolLitNode: { boolVal: false, resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+    }
+}
+
+fn parsePrimaryArray(parser Parser) ParseResult {
+    parser: util.advance(parser)
+    let elems Array<AstNode>: []
+    while not util.currentTokenIs(parser, TOK_RBRACKET) and not util.currentTokenIs(parser, TOK_EOF) {
+        let er ParseResult: parseExpr(parser)
+        parser: er.parser
+        elems.add(er.expr)
+        er.parser: {}
+        er.expr:   {}
+        drop(er)
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RBRACKET)
+    let n ArrayLitNode: { elems: elems, resolvedType: "" }
+    return { parser: parser, expr: n }
+}
+
+// Struct/object literal: `{ field: expr, ..., fn name(params) Ret { stmts } }`.
+// Data fields and method definitions may interleave; methods are recognized by
+// a leading `fn` and carry their parsed body (statement list). The method
+// lambda-lift in pipeline.suru later rewrites method members into a single
+// synthetic `__vtable` data field.
+fn parsePrimaryStruct(parser Parser) ParseResult {
+    parser: util.advance(parser)
+    let fields Array<StructFieldNode>: []
+    while not util.currentTokenIs(parser, TOK_RBRACE) and not util.currentTokenIs(parser, TOK_EOF) {
+        parser: parseStructLitMemberInto(parser, fields)
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RBRACE)
+    let n StructLitNode: { fields: fields, resolvedType: "" }
+    return { parser: parser, expr: n }
+}
+
+fn parseStructLitMemberInto(parser Parser, fields Array<StructFieldNode>) Parser {
+    return match util.currentTokenIs(parser, TOK_FN) {
+        true: parseStructLitMethodInto(parser, fields)
+        _:    parseStructLitFieldInto(parser, fields)
+    }
+}
+
+fn parseStructLitFieldInto(parser Parser, fields Array<StructFieldNode>) Parser {
+    let fieldNameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    parser: util.consume(parser, TOK_COLON)
+    let vr ParseResult: parseExpr(parser)
+    parser: vr.parser
+    let val AstNode: vr.expr
+    vr.parser: {}
+    vr.expr:   {}
+    drop(vr)
+    let noParams Array<Param>: []
+    let noBody Array<AstNode>: []
+    let f StructFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, methodParams: noParams, methodRet: "", methodBody: noBody }
+    fields.add(f)
+    return parser
+}
+
+fn parseStructLitMethodInto(parser Parser, fields Array<StructFieldNode>) Parser {
+    parser: util.consume(parser, TOK_FN)
+    let mNameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    parser: util.consume(parser, TOK_LPAREN)
+    let mparams Array<Param>: []
+    while not util.currentTokenIs(parser, TOK_RPAREN) and not util.currentTokenIs(parser, TOK_EOF) {
+        let pNameTok Token: util.currentToken(parser)
+        parser: util.consume(parser, TOK_IDENT)
+        let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+        parser: tr.parser
+        let pType String: tr.typeName
+        tr.parser:   {}
+        tr.typeName: ""
+        drop(tr)
+        mparams.add({ name: pNameTok.text, typeName: pType })
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RPAREN)
+    let rtr RetTypeResult: parseFnReturnType(parser)
+    parser: rtr.parser
+    let mret String: rtr.returnType
+    rtr.parser:     {}
+    rtr.returnType: ""
+    drop(rtr)
+    let br BlockResult: parseBlock(parser)
+    parser: br.parser
+    let bodyBlock BlockNode: br.block
+    br.parser: {}
+    br.block:  {}
+    drop(br)
+    let dummy WildcardNode: {}
+    let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
+    fields.add(m)
+    return parser
+}
+
+fn parsePrimaryMatch(parser Parser) ParseResult {
+    parser: util.advance(parser)
+    let cr ParseResult: parseExpr(parser)
+    parser: cr.parser
+    let cond AstNode: cr.expr
+    cr.parser: {}
+    cr.expr:   {}
+    drop(cr)
+    parser: util.consume(parser, TOK_LBRACE)
+    let arms Array<MatchArm>: []
+    while not util.currentTokenIs(parser, TOK_RBRACE) and not util.currentTokenIs(parser, TOK_EOF) {
+        let armR ArmResult: parseMatchArm(parser)
+        parser: armR.parser
+        arms.add(armR.arm)
+        armR.parser: {}
+        armR.arm:    {}
+        drop(armR)
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RBRACE)
+    let n MatchExprNode: { condition: cond, arms: arms, resolvedType: "" }
+    return { parser: parser, expr: n }
+}
+
+fn parsePrimaryIdent(parser Parser, tok Token) ParseResult {
+    let name String: tok.text
+    parser: util.advance(parser)
+    match util.currentTokenIs(parser, TOK_LPAREN) {
+        true: { return parsePrimaryCall(parser, name) }
+        _: {
+            let n VarRefNode: { name: name, resolvedType: "" }
+            return { parser: parser, expr: n }
+        }
+    }
+}
+
+fn parsePrimaryCall(parser Parser, name String) ParseResult {
+    parser: util.advance(parser)
+    let ar ArgsResult: parseArgs(parser)
+    parser: ar.parser
+    let args Array<AstNode>: ar.args
+    ar.parser: {}
+    ar.args:   {}
+    drop(ar)
+    parser: util.consume(parser, TOK_RPAREN)
+    let n CallNode: { name: name, args: args, resolvedType: "" }
+    return { parser: parser, expr: n }
+}
+
+fn parsePrimaryMinus(parser Parser) ParseResult {
+    parser: util.advance(parser)
+    let numTok Token: util.currentToken(parser)
+    let k Int64: numTok.kind
+    match k {
+        TOK_INT: {
+            let n IntLitNode: { text: "-".append(numTok.text), resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        TOK_FLOAT: {
+            let n FloatLitNode: { text: "-".append(numTok.text), resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+        _: {
+            util.error(parser, "expected number after '-'")
+            let n IntLitNode: { text: "0", resolvedType: "" }
+            return { parser: util.advance(parser), expr: n }
+        }
+    }
+}
+
+fn parseMatchArm(parser Parser) ArmResult {
+    let patR PatResult: parseMatchPattern(parser)
+    parser: patR.parser
+    let pat AstNode: patR.pat
+    patR.parser: {}
+    patR.pat:    {}
+    drop(patR)
+    parser: util.consume(parser, TOK_COLON)
+    let br ParseResult: parseExpr(parser)
+    parser: br.parser
+    let body AstNode: br.expr
+    br.parser: {}
+    br.expr:   {}
+    drop(br)
+    let isWc Bool: match pat { WildcardNode: true, _: false }
+    let arm MatchArm: { isWildcard: isWc, pattern: pat, body: body }
+    return { parser: parser, arm: arm }
+}
+
+fn parseMatchPattern(parser Parser) PatResult {
+    let tok Token: util.currentToken(parser)
+    let k Int64: tok.kind
+    match k {
+        TOK_WILDCARD: {
+            let n WildcardNode: {}
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_TRUE: {
+            let n BoolLitNode: { boolVal: true, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_FALSE: {
+            let n BoolLitNode: { boolVal: false, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_INT: {
+            let n IntLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_FLOAT: {
+            let n FloatLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_STRING: {
+            let n StrLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_CHAR: {
+            let n CharLitNode: { text: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_MINUS: { return parseNegativePattern(parser) }
+        TOK_IDENT: {
+            let n VarRefNode: { name: tok.text, resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        _: {
+            util.error(parser, "expected match pattern")
+            let n WildcardNode: {}
+            return { parser: util.advance(parser), pat: n }
+        }
+    }
+}
+
+fn parseNegativePattern(parser Parser) PatResult {
+    parser: util.advance(parser)
+    let num Token: util.currentToken(parser)
+    let k Int64: num.kind
+    match k {
+        TOK_INT: {
+            let n IntLitNode: { text: "-".append(num.text), resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        TOK_FLOAT: {
+            let n FloatLitNode: { text: "-".append(num.text), resolvedType: "" }
+            return { parser: util.advance(parser), pat: n }
+        }
+        _: {
+            util.error(parser, "expected number after '-' in match pattern")
+            let n WildcardNode: {}
+            return { parser: util.advance(parser), pat: n }
+        }
+    }
+}
+
+fn parseArgs(parser Parser) ArgsResult {
+    return match util.currentTokenIs(parser, TOK_RPAREN) {
+        true: { parser: parser, args: [] }
+        _:    parseArgsList(parser)
+    }
+}
+
+fn parseArgsList(parser Parser) ArgsResult {
+    let args Array<AstNode>: []
+    let er ParseResult: parseExpr(parser)
+    parser: er.parser
+    args.add(er.expr)
+    er.parser: {}
+    er.expr:   {}
+    drop(er)
+    while util.currentTokenIs(parser, TOK_COMMA) {
+        parser: util.advance(parser)
+        let er2 ParseResult: parseExpr(parser)
+        parser: er2.parser
+        args.add(er2.expr)
+        er2.parser: {}
+        er2.expr:   {}
+        drop(er2)
+    }
+    return { parser: parser, args: args }
 }

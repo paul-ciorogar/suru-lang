@@ -275,6 +275,22 @@ fn emitCallDiscard(b IrBuilder, retType String, fnName String, args Array<String
     return withOutput(b, b.output.append(line))
 }
 
+// %tN = call callType fpReg(args...)  — indirect call through a loaded
+// function pointer (callee is an SSA register, not a @symbol).
+fn emitIndirectCall(b IrBuilder, callType String, fpReg String, args Array<String>) IrResult {
+    let r IrResult: nextTmp(b)
+    let line String: "  ".append(r.name).append(" = call ").append(callType)
+        .append(" ").append(fpReg).append("(").append(joinArgs(args)).append(")\n")
+    return { builder: withOutput(r.builder, r.builder.output.append(line)), name: r.name }
+}
+
+// call retType fpReg(args...)  — indirect call discarding the result
+// (used for void-returning methods).
+fn emitIndirectCallDiscard(b IrBuilder, retType String, fpReg String, args Array<String>) IrBuilder {
+    let line String: "  call ".append(retType).append(" ").append(fpReg).append("(").append(joinArgs(args)).append(")\n")
+    return withOutput(b, b.output.append(line))
+}
+
 // ret type val
 fn emitRet(b IrBuilder, ty String, val String) IrBuilder {
     let line String: "  ret ".append(ty).append(" ").append(val).append("\n")

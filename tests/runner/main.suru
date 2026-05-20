@@ -32,6 +32,8 @@ fn main(args Array<String>) {
         { name: "nested-struct-return", source: "tests/fixtures/nested-struct-return", args: "",                       expected: readFile("/work/tests/fixtures/nested-struct-return/expected.txt") },
         { name: "cli-lex",      source: "src/cli",                     args: " lex /work/tests/fixtures/simple/main.suru", expected: readFile("/work/tests/fixtures/cli-lex/expected.txt"), xfail: false },
         { name: "modules",   source: "tests/fixtures/modules",   args: "",                                        expected: readFile("/work/tests/fixtures/modules/expected.txt")   },
+        { name: "objects_basic", source: "tests/fixtures/objects_basic", args: "",                                  expected: readFile("/work/tests/fixtures/objects_basic/expected.txt") },
+        { name: "objects_modules", source: "tests/fixtures/objects_modules", args: "",                              expected: readFile("/work/tests/fixtures/objects_modules/expected.txt") },
         { name: "xmod-error", source: "tests/fixtures/xmod-error", args: "",                                       expected: readFile("/work/tests/fixtures/xmod-error/expected.txt"), xfail: true, compileError: true },
     ]
 

@@ -129,6 +129,12 @@ fn dropHeapField(byteOffset Int64, cgTmp Int64) CgTextResult {
 //
 // cgTmp is the shared counter threaded across all types — callers must use the
 // returned cgTmp for subsequent types so names stay globally unique.
+// A field needs no deep clone / drop when it is a scalar OR the synthetic
+// `__vtable` slot (a static constant pointer, not heap-owned).
+fn cdNonOwnedField(ann String, st String) Bool {
+    return tyh.isScalarSuruType(st) or ann.equals("__vtable")
+}
+
 fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDropResult {
     let decl TypeDecl: types.lookupType(ctx, typeName)
     let fc   Int64:    decl.fields.len()
@@ -146,7 +152,9 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
     while chi.lt(fc) {
         let ann String: decl.fields.at(chi).typeName
         let st  String: tyh.makeSuruType(ann)
-        match tyh.isScalarSuruType(st) {
+        // The synthetic `__vtable` slot holds a static constant pointer — it is
+        // NOT heap-owned: shallow-copy on clone, never drop.
+        match cdNonOwnedField(ann, st) {
             true: {}
             _:    { hasHeapField: true }
         }
@@ -188,7 +196,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
         let off  Int64:  32.add(fi.multiply(8))
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
-        match tyh.isScalarSuruType(st) {
+        match cdNonOwnedField(ann, st) {
             true: {
                 let rx CgTextResult: copyI64Field(mallocName, off, cgTmp)
                 h: h.append(rx.text)
@@ -212,7 +220,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
         let off  Int64:  32.add(fi.multiply(8))
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
-        match tyh.isScalarSuruType(st) {
+        match cdNonOwnedField(ann, st) {
             true: {}
             _: {
                 let rx CgTextResult: dropHeapField(off, cgTmp)
