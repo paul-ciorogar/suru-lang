@@ -1,0 +1,467 @@
+// monoInfer.suru — Collect InstantiationRequests from a resolved statement list.
+//
+// Runs after the first resolveModuleTypes pass so every expression node has its
+// resolvedType field populated.  Walks all statements and expressions to find:
+//   - explicit generic type annotations in LetNode.typeName, FnDeclNode.returnType,
+//     Param.typeName  (handled by inferFromAnnotation)
+//   - generic function call sites where arg resolvedTypes bind type vars
+//     (handled by inferFromCallSite)
+//
+// The entry point is collectInstantiations; it returns a deduplicated
+// Array<InstantiationRequest>.  Used by monoPass.suru (Task 7).
+
+include "monoInstantiate.suru" as inst
+include "monoSubst.suru"       as subst
+include "monoCollect.suru"     as collect
+
+// ─── Type-name string helpers ─────────────────────────────────────────────────
+
+// extractBaseTypeName — return the portion of typeName before the first '<'.
+// "Pair<Int64, String>" → "Pair";  "Int64" → "Int64".
+fn extractBaseTypeName(typeName String) String {
+    return typeName.slice(0, subst.indexOfLT(typeName))
+}
+
+// trimAndAddAt — append trimLeft(args[i..]) to out.
+fn trimAndAddAt(args Array<String>, out Array<String>, i Int64) Array<String> {
+    match i.lt(args.len()) {
+        _: { return out }
+        true: {}
+    }
+    out.add(subst.trimLeft(args.at(i)))
+    return trimAndAddAt(args, out, i.add(1))
+}
+
+// extractTypeArgs — parse the concrete type argument list from a generic
+// type-name annotation string.
+//   "Pair<Int64, String>" → ["Int64", "String"]
+//   "Array<Int64>"        → ["Int64"]
+//   "Int64"               → []
+fn extractTypeArgs(typeName String) Array<String> {
+    let ltIdx Int64: subst.indexOfLT(typeName)
+    let empty Array<String>: []
+    match ltIdx.equals(typeName.len()) {
+        true: { return empty }
+        _: {}
+    }
+    // inner = content between '<' and the closing '>'
+    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
+    let raw Array<String>: subst.splitByComma(inner)
+    let out Array<String>: []
+    return trimAndAddAt(raw, out, 0)
+}
+
+// ─── Registry lookup helpers ──────────────────────────────────────────────────
+
+// registryHasTypeAt — true if registry.types[i..] contains a type named `name`.
+fn registryHasTypeAt(registry GenericRegistry, name String, i Int64) Bool {
+    match i.lt(registry.types.len()) {
+        _: { return false }
+        true: {}
+    }
+    match registry.types.at(i).name.equals(name) {
+        true: { return true }
+        _: {}
+    }
+    return registryHasTypeAt(registry, name, i.add(1))
+}
+
+// findRegistryFnAt — return index of the first fn in registry.fns[i..] whose
+// name equals `name`, or registry.fns.len() if not found.
+fn findRegistryFnAt(registry GenericRegistry, name String, i Int64) Int64 {
+    match i.lt(registry.fns.len()) {
+        _: { return registry.fns.len() }
+        true: {}
+    }
+    match registry.fns.at(i).name.equals(name) {
+        true: { return i }
+        _: {}
+    }
+    return findRegistryFnAt(registry, name, i.add(1))
+}
+
+// ─── inferFromAnnotation ──────────────────────────────────────────────────────
+
+// inferFromAnnotation — if typeName is a generic application whose base name
+// appears in the registry as a type, return one InstantiationRequest.
+// Otherwise return an empty array.
+fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<InstantiationRequest> {
+    let empty Array<InstantiationRequest>: []
+    // Quick exit: no '<' means not a generic annotation.
+    let ltIdx Int64: subst.indexOfLT(typeName)
+    match ltIdx.equals(typeName.len()) {
+        true: { return empty }
+        _: {}
+    }
+    let base String: extractBaseTypeName(typeName)
+    match registryHasTypeAt(registry, base, 0) {
+        true: {}
+        _: { return empty }
+    }
+    let concretes Array<String>: extractTypeArgs(typeName)
+    let req InstantiationRequest: { genericName: base, concreteTypes: concretes }
+    let result Array<InstantiationRequest>: []
+    result.add(req)
+    return result
+}
+
+// ─── resolvedTypeOf ───────────────────────────────────────────────────────────
+
+// resolvedTypeOf — extract the resolvedType String from any expression AstNode.
+// Returns "" for non-expression variants (statements, WildcardNode).
+fn resolvedTypeOf(node AstNode) String {
+    match node {
+        BoolLitNode:     { let n BoolLitNode:     node    return n.resolvedType }
+        IntLitNode:      { let n IntLitNode:      node    return n.resolvedType }
+        FloatLitNode:    { let n FloatLitNode:    node    return n.resolvedType }
+        StrLitNode:      { let n StrLitNode:      node    return n.resolvedType }
+        CharLitNode:     { let n CharLitNode:     node    return n.resolvedType }
+        VarRefNode:      { let n VarRefNode:      node    return n.resolvedType }
+        CallNode:        { let n CallNode:        node    return n.resolvedType }
+        MethodCallNode:  { let n MethodCallNode:  node    return n.resolvedType }
+        FieldAccessNode: { let n FieldAccessNode: node    return n.resolvedType }
+        ArrayLitNode:    { let n ArrayLitNode:    node    return n.resolvedType }
+        StructLitNode:   { let n StructLitNode:   node    return n.resolvedType }
+        MatchExprNode:   { let n MatchExprNode:   node    return n.resolvedType }
+        UnaryNode:       { let n UnaryNode:       node    return n.resolvedType }
+        BinaryNode:      { let n BinaryNode:      node    return n.resolvedType }
+        VtableRefNode:   { let n VtableRefNode:   node    return n.resolvedType }
+        _: { return "" }
+    }
+    return ""
+}
+
+// ─── inferFromCallSite ────────────────────────────────────────────────────────
+
+// collectArgTypesAt — append resolvedTypeOf(args[i]) to out for each arg.
+fn collectArgTypesAt(args Array<AstNode>, out Array<String>, i Int64) Array<String> {
+    match i.lt(args.len()) {
+        _: { return out }
+        true: {}
+    }
+    out.add(resolvedTypeOf(args.at(i)))
+    return collectArgTypesAt(args, out, i.add(1))
+}
+
+// findBindingForVarAt — search params[i..] for the first param whose typeName
+// equals typeVar (bare type-variable match).  Return the corresponding argTypes
+// element, or "" if not found.
+fn findBindingForVarAt(typeVar String, params Array<Param>, argTypes Array<String>, i Int64) String {
+    match i.lt(params.len()) {
+        _: { return "" }
+        true: {}
+    }
+    match params.at(i).typeName.equals(typeVar) {
+        true: { return argTypes.at(i) }
+        _: {}
+    }
+    return findBindingForVarAt(typeVar, params, argTypes, i.add(1))
+}
+
+// buildConcreteTypesAt — for each typeParam[j..], find its binding and append.
+fn buildConcreteTypesAt(typeParams Array<String>, params Array<Param>, argTypes Array<String>, j Int64, out Array<String>) Array<String> {
+    match j.lt(typeParams.len()) {
+        _: { return out }
+        true: {}
+    }
+    let binding String: findBindingForVarAt(typeParams.at(j), params, argTypes, 0)
+    out.add(binding)
+    return buildConcreteTypesAt(typeParams, params, argTypes, j.add(1), out)
+}
+
+// allBoundAt — true if every concretes[i..] is non-empty.
+fn allBoundAt(concretes Array<String>, i Int64) Bool {
+    match i.lt(concretes.len()) {
+        _: { return true }
+        true: {}
+    }
+    match concretes.at(i).equals("") {
+        true: { return false }
+        _: {}
+    }
+    return allBoundAt(concretes, i.add(1))
+}
+
+// inferFromCallSite — if callNode.name matches a registered generic function,
+// unify its declared param types against the arg resolvedTypes to bind each
+// type variable.  Only bare type-variable params (e.g. typeName = "T") are
+// handled; nested forms like "Array<T>" are skipped.  Returns [] if the
+// function is not generic or any binding is unresolved.
+fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<InstantiationRequest> {
+    let empty Array<InstantiationRequest>: []
+    let fnIdx Int64: findRegistryFnAt(registry, callNode.name, 0)
+    match fnIdx.equals(registry.fns.len()) {
+        true: { return empty }
+        _: {}
+    }
+    let def GenericFnDef: registry.fns.at(fnIdx)
+    let argTypesOut Array<String>: []
+    let argTypes Array<String>: collectArgTypesAt(callNode.args, argTypesOut, 0)
+    let concretesOut Array<String>: []
+    let concretes Array<String>: buildConcreteTypesAt(def.typeParams, def.node.params, argTypes, 0, concretesOut)
+    match allBoundAt(concretes, 0) {
+        true: {}
+        _: { return empty }
+    }
+    let req InstantiationRequest: { genericName: def.name, concreteTypes: concretes }
+    let result Array<InstantiationRequest>: []
+    result.add(req)
+    return result
+}
+
+// ─── Accumulator helpers ──────────────────────────────────────────────────────
+
+// appendAllAt — append src[i..] to dst.
+fn appendAllAt(src Array<InstantiationRequest>, dst Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(src.len()) {
+        _: { return dst }
+        true: {}
+    }
+    dst.add(src.at(i))
+    return appendAllAt(src, dst, i.add(1))
+}
+
+// inferFromStmtsAt — recurse through stmts[i..].
+fn inferFromStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(stmts.len()) {
+        _: { return out }
+        true: {}
+    }
+    out: inferFromStmt(stmts.at(i), registry, out)
+    return inferFromStmtsAt(stmts, registry, out, i.add(1))
+}
+
+// inferFromExprsAt — recurse through exprs[i..].
+fn inferFromExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(exprs.len()) {
+        _: { return out }
+        true: {}
+    }
+    out: inferFromExpr(exprs.at(i), registry, out)
+    return inferFromExprsAt(exprs, registry, out, i.add(1))
+}
+
+// inferFromParamsAt — run inferFromAnnotation on each Param.typeName.
+fn inferFromParamsAt(params Array<Param>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(params.len()) {
+        _: { return out }
+        true: {}
+    }
+    out: appendAllAt(inferFromAnnotation(params.at(i).typeName, registry), out, 0)
+    return inferFromParamsAt(params, registry, out, i.add(1))
+}
+
+// inferFromStructFieldAt — recurse into a StructFieldNode's value and any
+// method body.
+fn inferFromStructFieldAt(field StructFieldNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    out: inferFromExpr(field.value, registry, out)
+    out: inferFromStmtsAt(field.methodBody, registry, out, 0)
+    return out
+}
+
+fn inferFromStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(fields.len()) {
+        _: { return out }
+        true: {}
+    }
+    out: inferFromStructFieldAt(fields.at(i), registry, out)
+    return inferFromStructFieldsAt(fields, registry, out, i.add(1))
+}
+
+// inferFromMatchArmsAt — recurse into expression MatchArm bodies.
+fn inferFromMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(arms.len()) {
+        _: { return out }
+        true: {}
+    }
+    let arm MatchArm: arms.at(i)
+    out: inferFromExpr(arm.body, registry, out)
+    return inferFromMatchArmsAt(arms, registry, out, i.add(1))
+}
+
+// inferFromMatchStmtArmsAt — recurse into statement MatchStmtArm bodies.
+fn inferFromMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(arms.len()) {
+        _: { return out }
+        true: {}
+    }
+    let arm MatchStmtArm: arms.at(i)
+    out: inferFromStmtsAt(arm.stmts, registry, out, 0)
+    return inferFromMatchStmtArmsAt(arms, registry, out, i.add(1))
+}
+
+// ─── Expression walker ────────────────────────────────────────────────────────
+
+// inferFromExpr — walk an expression node and collect all generic
+// instantiation sites into out.
+fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    match expr {
+        CallNode: {
+            let cn CallNode: expr
+            out: appendAllAt(inferFromCallSite(cn, registry), out, 0)
+            out: inferFromExprsAt(cn.args, registry, out, 0)
+            return out
+        }
+        MethodCallNode: {
+            let mcn MethodCallNode: expr
+            out: inferFromExpr(mcn.receiver, registry, out)
+            out: inferFromExprsAt(mcn.args, registry, out, 0)
+            return out
+        }
+        FieldAccessNode: {
+            let fan FieldAccessNode: expr
+            out: inferFromExpr(fan.receiver, registry, out)
+            return out
+        }
+        ArrayLitNode: {
+            let aln ArrayLitNode: expr
+            out: inferFromExprsAt(aln.elems, registry, out, 0)
+            return out
+        }
+        StructLitNode: {
+            let sln StructLitNode: expr
+            // resolvedType may be a generic application (e.g. set by top-down
+            // propagation from a LetNode annotation).
+            out: appendAllAt(inferFromAnnotation(sln.resolvedType, registry), out, 0)
+            out: inferFromStructFieldsAt(sln.fields, registry, out, 0)
+            return out
+        }
+        MatchExprNode: {
+            let men MatchExprNode: expr
+            out: inferFromExpr(men.condition, registry, out)
+            out: inferFromMatchArmsAt(men.arms, registry, out, 0)
+            return out
+        }
+        UnaryNode: {
+            let un UnaryNode: expr
+            out: inferFromExpr(un.operand, registry, out)
+            return out
+        }
+        BinaryNode: {
+            let bn BinaryNode: expr
+            out: inferFromExpr(bn.left, registry, out)
+            out: inferFromExpr(bn.right, registry, out)
+            return out
+        }
+        _: { return out }
+    }
+    return out
+}
+
+// ─── Statement walker ─────────────────────────────────────────────────────────
+
+// inferFromStmt — walk a statement node and collect all generic instantiation
+// sites into out.
+fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    match stmt {
+        LetNode: {
+            let ln LetNode: stmt
+            out: appendAllAt(inferFromAnnotation(ln.typeName, registry), out, 0)
+            out: inferFromExpr(ln.value, registry, out)
+            return out
+        }
+        FnDeclNode: {
+            let fd FnDeclNode: stmt
+            out: appendAllAt(inferFromAnnotation(fd.returnType, registry), out, 0)
+            out: inferFromParamsAt(fd.params, registry, out, 0)
+            out: inferFromStmtsAt(fd.body, registry, out, 0)
+            return out
+        }
+        ReturnNode: {
+            let rn ReturnNode: stmt
+            match rn.hasValue {
+                true:  { out: inferFromExpr(rn.value, registry, out) }
+                _: {}
+            }
+            return out
+        }
+        AssignNode: {
+            let an AssignNode: stmt
+            out: inferFromExpr(an.value, registry, out)
+            return out
+        }
+        FieldAssignNode: {
+            let fan FieldAssignNode: stmt
+            out: inferFromExpr(fan.receiver, registry, out)
+            out: inferFromExpr(fan.value, registry, out)
+            return out
+        }
+        ExprStmtNode: {
+            let en ExprStmtNode: stmt
+            out: inferFromExpr(en.expr, registry, out)
+            return out
+        }
+        WhileNode: {
+            let wn WhileNode: stmt
+            out: inferFromExpr(wn.condition, registry, out)
+            out: inferFromStmtsAt(wn.body, registry, out, 0)
+            return out
+        }
+        IfNode: {
+            let ifn IfNode: stmt
+            out: inferFromExpr(ifn.condition, registry, out)
+            out: inferFromStmtsAt(ifn.thenBranch.stmts, registry, out, 0)
+            out: inferFromStmtsAt(ifn.elseBranch.stmts, registry, out, 0)
+            return out
+        }
+        MatchStmtNode: {
+            let mn MatchStmtNode: stmt
+            out: inferFromExpr(mn.condition, registry, out)
+            out: inferFromMatchStmtArmsAt(mn.arms, registry, out, 0)
+            return out
+        }
+        _: { return out }
+    }
+    return out
+}
+
+// ─── Deduplication ────────────────────────────────────────────────────────────
+
+// keyAlreadySeenAt — true if seen[i..] contains key.
+fn keyAlreadySeenAt(seen Array<String>, key String, i Int64) Bool {
+    match i.lt(seen.len()) {
+        _: { return false }
+        true: {}
+    }
+    match seen.at(i).equals(key) {
+        true: { return true }
+        _: {}
+    }
+    return keyAlreadySeenAt(seen, key, i.add(1))
+}
+
+// deduplicateAt — process raw[i..], skipping requests whose mangled key was
+// already seen, and append unique requests to out.
+fn deduplicateAt(raw Array<InstantiationRequest>, seen Array<String>, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
+    match i.lt(raw.len()) {
+        _: { return out }
+        true: {}
+    }
+    let req InstantiationRequest: raw.at(i)
+    let key String: inst.mangleGenericName(req.genericName, req.concreteTypes)
+    match keyAlreadySeenAt(seen, key, 0) {
+        true: {}
+        _: {
+            seen.add(key)
+            out.add(req)
+        }
+    }
+    return deduplicateAt(raw, seen, out, i.add(1))
+}
+
+fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationRequest> {
+    let seen Array<String>: []
+    let out Array<InstantiationRequest>: []
+    return deduplicateAt(raw, seen, out, 0)
+}
+
+// ─── Entry point ──────────────────────────────────────────────────────────────
+
+// collectInstantiations — walk all stmts, collect every generic instantiation
+// site, and return a deduplicated Array<InstantiationRequest>.
+// Call this after resolveModuleTypes so resolvedType fields are populated.
+fn collectInstantiations(stmts Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
+    let raw Array<InstantiationRequest>: []
+    raw: inferFromStmtsAt(stmts, registry, raw, 0)
+    return deduplicateRequests(raw)
+}

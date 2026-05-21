@@ -1807,14 +1807,17 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     return ctx
                 }
                 StructLitNode: {
-                    let sr CodegenResult: emitStructLit(ctx, letValueNode.fields, stmt.typeName)
+                    // Use annSuruType (mangled) so user-defined generic annotations like
+                    // "Box<Int64>" are resolved to "Box__Int64" before the type-registry
+                    // lookup inside emitStructLit and before the variable is registered.
+                    let sr CodegenResult: emitStructLit(ctx, letValueNode.fields, annSuruType)
                     ctx: sr.ctx
                     let structVal String: sr.name
                     // Tag variant in-place (type_tag=7, variant_idx) when annotation names a variant.
-                    match types.isVariant(ctx, stmt.typeName) {
+                    match types.isVariant(ctx, annSuruType) {
                         true: {
-                            let parent SumTypeDecl: types.findParentSumType(ctx, stmt.typeName)
-                            let idx Int64: types.variantIdx(parent, stmt.typeName)
+                            let parent SumTypeDecl: types.findParentSumType(ctx, annSuruType)
+                            let idx Int64: types.variantIdx(parent, annSuruType)
                             // Variant tagging: "{tagGep}  = getelementptr" (double space) for i64 0 GEP,
                             // "{vidxGep} = getelementptr" (single space) for i64 8 GEP.
                             let tgNameR IrResult: ir.nextTmp(ctx.builder)
@@ -1831,7 +1834,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, "ptr")
                     ctx.builder: ptrR.builder
                     ctx.builder: ir.emitStore(ctx.builder, "ptr", structVal, ptrR.name)
-                    ctx: types.addVar(ctx, stmt.name, ptrR.name, stmt.typeName)
+                    ctx: types.addVar(ctx, stmt.name, ptrR.name, annSuruType)
                     return ctx
                 }
                 _: {}
@@ -2326,7 +2329,9 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
-            FnDeclNode: { ctx: emitFunction(ctx, s) }
+            FnDeclNode: {
+                ctx: emitFunction(ctx, s)
+            }
             _: {}
         }
         i: i.add(1)

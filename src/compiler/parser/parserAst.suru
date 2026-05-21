@@ -69,7 +69,7 @@ type IncludeNode:     { path String, ns String }
 // the include resolver (pipeline.suru) and codegen (irCodegen.suru) so `ns.fn()`
 // can be mangled to the callee file's symbol.
 type IncludeAlias:    { ns String, srcPath String }
-type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String }
+type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String, typeParams Array<String> }
 type LetNode:         { name String, typeName String, value AstNode }
 type AssignNode:      { name String, value AstNode }
 type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode }
@@ -78,7 +78,7 @@ type WhileNode:       { condition AstNode, body Array<AstNode> }
 type ExprStmtNode:    { expr AstNode }
 // TypeDeclNode: a struct/interface type. `fields` are data members; `methods`
 // are declared method signatures (empty for a plain data record).
-type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig> }
+type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String> }
 type SumTypeDeclNode: { name String, variants Array<String> }
 type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
 // BlockNode: a brace-delimited sequence of statements.
@@ -139,5 +139,6 @@ type ArgsResult:    { parser Parser, args Array<AstNode> }
 type ArmResult:     { parser Parser, arm MatchArm }
 type StmtArmResult: { parser Parser, arm MatchStmtArm }
 type PatResult:     { parser Parser, pat AstNode }
-type StmtResult:    { parser Parser, stmt AstNode }
-type BlockResult:   { parser Parser, block BlockNode }
+type StmtResult:      { parser Parser, stmt AstNode }
+type BlockResult:     { parser Parser, block BlockNode }
+type TypeParamsResult: { parser Parser, typeParams Array<String> }

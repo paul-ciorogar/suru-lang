@@ -46,10 +46,39 @@ fn parseIncludeDirective(parser Parser) StmtResult {
     return { parser: parser, stmt: n }
 }
 
+// parseTypeParamList peeks for `<T, U, ...>` after a fn/type name.
+// Returns an empty typeParams array if no `<` is present.
+fn parseTypeParamList(parser Parser) TypeParamsResult {
+    let typeParams Array<String>: []
+    match util.currentTokenIs(parser, TOK_LT) {
+        true: {
+            parser: util.advance(parser)
+            let tok Token: util.currentToken(parser)
+            parser: util.consume(parser, TOK_IDENT)
+            typeParams.add(tok.text)
+            while util.currentTokenIs(parser, TOK_COMMA) {
+                parser: util.advance(parser)
+                let tok2 Token: util.currentToken(parser)
+                parser: util.consume(parser, TOK_IDENT)
+                typeParams.add(tok2.text)
+            }
+            parser: util.consume(parser, TOK_GT)
+        }
+        _: {}
+    }
+    return { parser: parser, typeParams: typeParams }
+}
+
 fn parseFnDecl(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_FN)
     let nameTok Token: util.currentToken(parser)
     parser: util.consume(parser, TOK_IDENT)
+    let tpr TypeParamsResult: parseTypeParamList(parser)
+    parser: tpr.parser
+    let typeParams Array<String>: tpr.typeParams
+    tpr.parser:     {}
+    tpr.typeParams: {}
+    drop(tpr)
     parser: util.consume(parser, TOK_LPAREN)
     let params Array<Param>: []
     while not util.currentTokenIs(parser, TOK_RPAREN) and not util.currentTokenIs(parser, TOK_EOF) {
@@ -82,7 +111,7 @@ fn parseFnDecl(parser Parser) StmtResult {
         drop(r)
     }
     parser: util.consume(parser, TOK_RBRACE)
-    let n FnDeclNode: { name: nameTok.text, params: params, returnType: returnType, body: body, srcPath: "" }
+    let n FnDeclNode: { name: nameTok.text, params: params, returnType: returnType, body: body, srcPath: "", typeParams: typeParams }
     return { parser: parser, stmt: n }
 }
 
@@ -110,14 +139,20 @@ fn parseTypeDeclaration(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_TYPE)
     let nameTok Token: util.currentToken(parser)
     parser: util.consume(parser, TOK_IDENT)
+    let tpr TypeParamsResult: parseTypeParamList(parser)
+    parser: tpr.parser
+    let typeParams Array<String>: tpr.typeParams
+    tpr.parser:     {}
+    tpr.typeParams: {}
+    drop(tpr)
     parser: util.consume(parser, TOK_COLON)
     return match util.currentTokenIs(parser, TOK_LBRACE) {
-        true: parseStructTypeBody(parser, nameTok.text)
+        true: parseStructTypeBody(parser, nameTok.text, typeParams)
         _:    parseSumTypeBody(parser, nameTok.text)
     }
 }
 
-fn parseStructTypeBody(parser Parser, typeName String) StmtResult {
+fn parseStructTypeBody(parser Parser, typeName String, typeParams Array<String>) StmtResult {
     parser: util.consume(parser, TOK_LBRACE)
     let fields Array<Param>: []
     let methods Array<MethodSig>: []
@@ -126,7 +161,7 @@ fn parseStructTypeBody(parser Parser, typeName String) StmtResult {
         parser: util.consumeIf(parser, TOK_COMMA)
     }
     parser: util.consume(parser, TOK_RBRACE)
-    let n TypeDeclNode: { name: typeName, fields: fields, methods: methods }
+    let n TypeDeclNode: { name: typeName, fields: fields, methods: methods, typeParams: typeParams }
     return { parser: parser, stmt: n }
 }
 

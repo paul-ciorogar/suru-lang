@@ -1,0 +1,65 @@
+// Unit test for monoInfer.suru.
+//
+// Constructs a minimal GenericRegistry containing Pair<T, U> and a statement
+// list containing:
+//   let x Pair<Int64, String>: <dummy-expr>
+//
+// Verifies that collectInstantiations produces exactly one InstantiationRequest
+// for "Pair" with concrete types ["Int64", "String"].
+//
+// Also verifies that a duplicate annotation produces only one request
+// (deduplication), and that inferFromAnnotation alone works correctly.
+
+include "../../../src/compiler/semantic/monoInfer.suru" as mono
+
+fn main() Int64 {
+    // ── Build a GenericRegistry with Pair<T, U> ──────────────────────────────
+
+    let fields Array<Param>: []
+    let f1 Param: { name: "first",  typeName: "T" }
+    let f2 Param: { name: "second", typeName: "U" }
+    fields.add(f1)
+    fields.add(f2)
+
+    let typeParams Array<String>: []
+    typeParams.add("T")
+    typeParams.add("U")
+
+    let methods Array<MethodSig>: []
+    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams }
+    let def GenericTypeDef: { name: "Pair", typeParams: typeParams, node: pairNode }
+
+    let regTypes Array<GenericTypeDef>: []
+    regTypes.add(def)
+    let regFns Array<GenericFnDef>: []
+    let registry GenericRegistry: { fns: regFns, types: regTypes }
+
+    // ── Build stmts: one LetNode with typeName "Pair<Int64, String>" ─────────
+    // The value is a bare IntLitNode (contents don't matter for annotation inference).
+
+    let litVal IntLitNode: { text: "0", resolvedType: "Int64" }
+    let letStmt LetNode: { name: "x", typeName: "Pair<Int64, String>", value: litVal }
+
+    let stmts Array<AstNode>: []
+    stmts.add(letStmt)
+
+    // ── collectInstantiations ─────────────────────────────────────────────────
+
+    let reqs Array<InstantiationRequest>: mono.collectInstantiations(stmts, registry)
+    printLn(reqs.len())
+
+    let req InstantiationRequest: reqs.at(0)
+    printLn(req.genericName)
+    printLn(req.concreteTypes.at(0))
+    printLn(req.concreteTypes.at(1))
+
+    // ── Deduplication: two identical LetNodes → still one request ─────────────
+
+    let letStmt2 LetNode: { name: "y", typeName: "Pair<Int64, String>", value: litVal }
+    stmts.add(letStmt2)
+
+    let reqs2 Array<InstantiationRequest>: mono.collectInstantiations(stmts, registry)
+    printLn(reqs2.len())
+
+    return 0
+}

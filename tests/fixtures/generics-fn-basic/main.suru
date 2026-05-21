@@ -1,0 +1,8 @@
+fn identity<T>(x T) T {
+    return x
+}
+
+fn main(args Array<String>) {
+    let r Int64: identity(42)
+    printLn(r)
+}

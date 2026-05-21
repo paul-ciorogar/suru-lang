@@ -50,7 +50,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
-- Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types
+- Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types, generic types
 - Control flow: `while`, `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
@@ -382,6 +382,29 @@ fn info(shape Shape) String {
     }
 }
 ```
+
+### Generics
+
+Types and functions can be parameterized with one or more type parameters. The compiler monomorphizes each concrete instantiation at compile time.
+
+```suru
+type Box<T>: { value T }
+
+fn identity<T>(x T) T {
+    return x
+}
+
+fn main(args Array<String>) {
+    let b Box<Int64>: { value: 42 }
+    printLn(b.value)    // 42
+    drop(b)
+
+    let r Int64: identity(42)
+    printLn(r)          // 42
+}
+```
+
+Type parameters are declared in `<...>` after the name. Concrete type arguments are inferred at each usage site — no explicit instantiation syntax is needed. Each unique combination of type arguments produces a separate concrete copy (e.g. `Box<Int64>` and `Box<String>` are distinct types). Because Suru has no GC, heap-allocated generic structs must be explicitly `drop`ped like any other struct.
 
 ### Arrays
 

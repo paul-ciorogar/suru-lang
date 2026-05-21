@@ -19,6 +19,7 @@ include "semantic/passes.suru"       as passes
 include "semantic/stmts.suru"        as semstmts
 include "semantic/fns.suru"          as fns
 include "semantic/resolveTypes.suru" as semresolve
+include "semantic/monoPass.suru"     as monoPass
 
 // ─── Path utilities ────────────────────────────────────────────────────────────
 
@@ -505,7 +506,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
         let body Array<AstNode>: member.methodBody
         // Lift nested object literals inside the method body too.
         lowerObjectsBody(state, body, newDecls, ctr, srcPath, root)
-        let fnDecl FnDeclNode: { name: synth, params: params, returnType: member.methodRet, body: body, srcPath: srcPath }
+        let fnDecl FnDeclNode: { name: synth, params: params, returnType: member.methodRet, body: body, srcPath: srcPath, typeParams: [] }
         newDecls.add(fnDecl)
         entrySyms.add(irCodegen.mangleSym(srcPath, synth))
         j: j.add(1)
@@ -664,13 +665,47 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     let stmts Array<AstNode>: resolved.stmts
     let state AnalyzerState: semantic.makeAnalyzerState()
     passes.runPrePasses(state, stmts)
-    // Annotate every expression node with its resolvedType BEFORE the regular
-    // statement analyzer runs. The annotation pass runs over the full resolved
-    // statement list (including transitively-included functions) so that
-    // codegen — which sees every function's body — finds populated types.
+    // Pass 1: annotate every expression node with its resolvedType so that
+    // monoInfer can read resolvedType fields from call-site arguments.
     semresolve.resolveModuleTypes(state, stmts)
+
+    // ─── Monomorphization pass ────────────────────────────────────────────────
+    // Collect all generic definitions, infer every instantiation site, produce
+    // concrete copies, inject them, then remove the original generic templates.
+    // After injection ownFnNames / ownTypeNames are augmented so codegen emits
+    // the concrete nodes as part of this file's IR.
+    let registry GenericRegistry: collect.collectGenericDefs(stmts)
+    let monoResult MonoResult: monoPass.runMonoPass(stmts, registry)
+    let ni Int64: 0
+    while ni.lt(monoResult.newNodes.len()) {
+        stmts.add(monoResult.newNodes.at(ni))
+        ni: ni.add(1)
+    }
+    stmts: monoPass.filterGenericDefs(stmts)
+    let fi Int64: 0
+    while fi.lt(monoResult.newFnNames.len()) {
+        ownFnNames.add(monoResult.newFnNames.at(fi))
+        fi: fi.add(1)
+    }
+    let ti Int64: 0
+    while ti.lt(monoResult.newTypeNames.len()) {
+        ownTypeNames.add(monoResult.newTypeNames.at(ti))
+        ti: ti.add(1)
+    }
+    // Pass 2: fresh state sees only concrete types (no generic templates).
+    state: semantic.makeAnalyzerState()
+    passes.runPrePasses(state, stmts)
+    semresolve.resolveModuleTypes(state, stmts)
+    // Rewrite generic call-site names to mangled forms now that pass-2
+    // resolvedTypes are populated on all arg expressions.
+    stmts: monoPass.rewriteCallSites(stmts, registry)
+    // ─────────────────────────────────────────────────────────────────────────
+
     lowerObjects(state, stmts, sourcePath)
-    let ownStmts Array<AstNode>: collectNonInclude(mod.stmts)
+    // Filter generic defs from ownStmts too: analyzeFunctionDeclaration would
+    // emit false "unknown type" errors on typeParam-annotated bodies.
+    let rawOwnStmts Array<AstNode>: collectNonInclude(mod.stmts)
+    let ownStmts Array<AstNode>: monoPass.filterGenericDefs(rawOwnStmts)
     analyzeModuleStatements(state, ownStmts)
     printErrorsFrom(state, sourcePath, 0)
     let errors Array<AnalysisError>: state.errors

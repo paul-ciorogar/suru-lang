@@ -1,0 +1,61 @@
+// Unit test for monoInstantiate.suru.
+//
+// Constructs a GenericTypeDef for Pair<T, U> by hand and verifies:
+//   - mangleGenericName produces the correct mangled identifier
+//   - instantiateType clones fields with substituted type names and clears typeParams
+//   - instantiateAll deduplicates repeated requests for the same instantiation
+
+include "../../../src/compiler/semantic/monoInstantiate.suru" as mono
+
+fn main() Int64 {
+    // Build the fields: first T, second U
+    let f1 Param: { name: "first",  typeName: "T" }
+    let f2 Param: { name: "second", typeName: "U" }
+    let fields Array<Param>: []
+    fields.add(f1)
+    fields.add(f2)
+
+    // Build the type-parameter list
+    let typeParams Array<String>: []
+    typeParams.add("T")
+    typeParams.add("U")
+
+    // Construct a bare TypeDeclNode (no methods)
+    let methods Array<MethodSig>: []
+    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams }
+
+    // Wrap in a GenericTypeDef
+    let def GenericTypeDef: { name: "Pair", typeParams: typeParams, node: pairNode }
+
+    // Concrete types for the instantiation
+    let concreteTypes Array<String>: []
+    concreteTypes.add("Int64")
+    concreteTypes.add("String")
+
+    // 1. mangleGenericName
+    printLn(mono.mangleGenericName("Pair", concreteTypes))
+
+    // 2. instantiateType
+    let concrete TypeDeclNode: mono.instantiateType(def, concreteTypes)
+    printLn(concrete.name)
+    printLn(concrete.fields.at(0).typeName)
+    printLn(concrete.fields.at(1).typeName)
+    printLn(concrete.typeParams.len())
+
+    // 3. instantiateAll — two identical requests → exactly one concrete node
+    let regTypes Array<GenericTypeDef>: []
+    regTypes.add(def)
+    let regFns Array<GenericFnDef>: []
+    let registry GenericRegistry: { fns: regFns, types: regTypes }
+
+    let req1 InstantiationRequest: { genericName: "Pair", concreteTypes: concreteTypes }
+    let req2 InstantiationRequest: { genericName: "Pair", concreteTypes: concreteTypes }
+    let reqs Array<InstantiationRequest>: []
+    reqs.add(req1)
+    reqs.add(req2)
+
+    let results Array<AstNode>: mono.instantiateAll(registry, reqs)
+    printLn(results.len())
+
+    return 0
+}

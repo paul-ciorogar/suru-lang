@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added generics (monomorphization)
+
+Suru now supports generic type and function definitions. The compiler
+monomorphizes all generic usage sites at compile time, producing concrete
+copies with mangled names (e.g. `Box<Int64>` → `Box__Int64`).
+
+```suru
+type Box<T>: { value T }
+
+fn identity<T>(x T) T { return x }
+
+fn main(args Array<String>) {
+    let b Box<Int64>: { value: 42 }
+    printLn(b.value)    // 42
+    drop(b)
+    let r Int64: identity(42)
+    printLn(r)          // 42
+}
+```
+
+Added:
+- `typeParams Array<String>` field on `TypeDeclNode` and `FnDeclNode` — parsed
+  from `<T, U, ...>` after the definition name.
+- **Mono pass** (`src/compiler/semantic/monoPass.suru`) — orchestrates four sub-modules:
+  - `monoCollect.suru` — collects generic definitions into a `GenericRegistry`
+    and filters them out of the statement list.
+  - `monoInfer.suru` — infers concrete type arguments at each call/usage site
+    and builds a list of `InstantiationRequest`s via a full AST walk.
+  - `monoInstantiate.suru` — deep-clones generic AST nodes with type-parameter
+    substitution (`monoSubst.suru`) and produces concrete `TypeDeclNode` /
+    `FnDeclNode` copies with mangled names.
+  - `monoSubst.suru` — recursive type-name and expression/statement rewriters
+    that replace type-parameter names with concrete counterparts throughout an
+    AST subtree.
+- **Name mangling**: `Box<Int64>` → `Box__Int64`, `Pair<Int64, String>` →
+  `Pair__Int64__String`. Mangling is applied consistently in:
+  - `passes.suru` `resolveTypeName` (semantic validation accepts both raw and
+    mangled forms)
+  - `irCodegenTypeHelpers.suru` `makeSuruType` (maps annotations to mangled
+    names for struct-type registry lookups)
+  - `irCodegen.suru` LetNode/StructLitNode handler (uses mangled `annSuruType`
+    for `emitStructLit` and `addVar` so field lookups resolve correctly)
+  - `monoPass.suru` `rewriteCallSites` (rewrites generic call-site names to
+    mangled form after pass-2 resolvedTypes are populated)
+- Pipeline integration (`pipeline.suru`): mono pass runs after pass 1 (name
+  resolution), concrete nodes are injected and originals filtered, then pass 2
+  (type resolution) sees only concrete types.
+
 ### Added objects: interface types with per-instance methods
 
 Types can now declare method signatures (`fn name(params) Ret`, no body)

@@ -1,0 +1,7 @@
+type Box<T>: { value T }
+
+fn main(args Array<String>) {
+    let b Box<Int64>: { value: 42 }
+    printLn(b.value)
+    drop(b)
+}

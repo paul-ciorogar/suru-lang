@@ -95,12 +95,102 @@ fn fnSigExistsAt(fns Array<FunctionSig>, srcPath String, name String, i Int64) B
     return fnSigExistsAt(fns, srcPath, name, i.add(1))
 }
 
+// ─── Generic type-annotation mangling ────────────────────────────────────────
+// These helpers let resolveTypeName recognise user-defined generic annotations
+// like "Box<Int64>" by looking up their mangled form "Box__Int64" in typeNames.
+
+// indexOfAngle — index of the first '<' in s, or s.len() when absent.
+fn indexOfAngle(s String) Int64 {
+    let i Int64: 0
+    while i.lt(s.len()) {
+        match s.at(i).equals("<") { true: { return i } _: {} }
+        i: i.add(1)
+    }
+    return s.len()
+}
+
+// ltrimStr — strip leading ASCII space characters from s.
+fn ltrimStr(s String) String {
+    let i Int64: 0
+    while i.lt(s.len()) {
+        match s.slice(i, i.add(1)).equals(" ") {
+            true: {}
+            _:    { return s.slice(i, s.len()) }
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// appendMangledArgsAt — scan inner[i..] for comma-separated type arguments and
+// append "__<arg>" for each to acc.  Used by mangleAnnotation.
+fn appendMangledArgsAt(inner String, start Int64, i Int64, acc String) String {
+    match i.lt(inner.len()) {
+        _: {
+            let seg String: ltrimStr(inner.slice(start, inner.len()))
+            return acc.append("__").append(seg)
+        }
+        true: {}
+    }
+    match inner.at(i).equals(",") {
+        true: {
+            let seg String: ltrimStr(inner.slice(start, i))
+            return appendMangledArgsAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
+        }
+        _: {}
+    }
+    return appendMangledArgsAt(inner, start, i.add(1), acc)
+}
+
+// mangleAnnotation — convert a generic type annotation string to its mangled
+// form.  "Box<Int64>" → "Box__Int64", "Pair<Int64, String>" → "Pair__Int64__String".
+fn mangleAnnotation(name String) String {
+    let ltIdx Int64: indexOfAngle(name)
+    let base String: name.slice(0, ltIdx)
+    let inner String: name.slice(ltIdx.add(1), name.len().take(1))
+    return appendMangledArgsAt(inner, 0, 0, base)
+}
+
+// isUserGenericAnnotation — true when name is a generic type annotation for a
+// user-defined type (i.e. contains '<' but is not the builtin Array<T> form).
+fn isUserGenericAnnotation(name String) Bool {
+    let ltIdx Int64: indexOfAngle(name)
+    match ltIdx.equals(name.len()) { true: { return false } _: {} }
+    match isArrayGeneric(name)     { true: { return false } _: {} }
+    return true
+}
+
 // resolveTypeName — true when name is a built-in or a user-declared type.
 // Passes state.typeNames as a typed argument; the callee's Array<String> annotation
 // ensures correct dispatch inside typeNameExistsAt.
+// Also accepts user-defined generic annotations like "Box<Int64>" by looking up
+// the mangled form "Box__Int64" in typeNames (injected by the mono pass).
+// Note: uses explicit match rather than `and` to guard the mangleAnnotation call
+// because Suru's boolean `and` is not short-circuit (both sides are always evaluated).
 fn resolveTypeName(state AnalyzerState, name String) Bool {
     let typeNames Array<String>: state.typeNames
-    return isBuiltinType(name) or typeNameExistsAt(typeNames, name, 0)
+    match isBuiltinType(name) or typeNameExistsAt(typeNames, name, 0) {
+        true: { return true }
+        _: {}
+    }
+    match isUserGenericAnnotation(name) {
+        true: { return typeNameExistsAt(typeNames, mangleAnnotation(name), 0) }
+        _:    { return false }
+    }
+}
+
+// isTypeParam — true when name matches one of the type-param names in typeParams.
+// Used by registerFnDecl to skip validation for generic parameter/return types.
+fn isTypeParam(name String, typeParams Array<String>) Bool {
+    let i Int64: 0
+    while i.lt(typeParams.len()) {
+        match typeParams.at(i).equals(name) {
+            true: { return true }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return false
 }
 
 // ─── Pass 1: collect type declarations ───────────────────────────────────────
@@ -182,21 +272,23 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
 
 // registerFnDecl — validate and register one FnDeclNode into state.functions.
 // Emits errors for unknown param/return types but still registers the signature.
-fn registerFnDecl(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
+// typeParams holds the generic type-param names for this function; any param or
+// return type that matches one of them is accepted without a resolveTypeName check.
+fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>) AnalyzerState {
     let paramTypes Array<String>: []
     let params Array<Param>: stmt.params
     let pi Int64: 0
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
-        match resolveTypeName(state, pType) {
+        match resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
             true: paramTypes.add(pType)
             _: appendError(state, "unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"))
         }
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
-    match returnType.equals("void") or resolveTypeName(state, returnType) {
+    match returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams) {
         true: {}
         _: appendError(state, "unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"))
     }
@@ -218,7 +310,7 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
                 let typed FnDeclNode: stmt
                 match fnSigExistsAt(functions, typed.srcPath, typed.name, 0) {
                     true: appendError(state, "function '".append(typed.name).append("' is already declared"))
-                    _: registerFnDecl(state, stmt)
+                    _: registerFnDecl(state, typed, typed.typeParams)
                 }
             }
             _: {}

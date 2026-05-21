@@ -52,11 +52,85 @@ fn extractElemType(typeName String) String {
     return typeName.slice(start.add(1), typeName.len().take(1))
 }
 
+// ─── User-defined generic type-name mangling ─────────────────────────────────
+// Map annotations like "Box<Int64>" to their mangled suruType "Box__Int64" so
+// that codegen's type-registry lookup finds the concrete TypeDeclNode injected
+// by the mono pass.  (These helpers duplicate the equivalent logic in passes.suru
+// because irCodegenTypeHelpers.suru is a leaf with no semantic includes.)
+
+// indexOfAngleCG — index of the first '<' in s, or s.len() when absent.
+fn indexOfAngleCG(s String) Int64 {
+    let i Int64: 0
+    while i.lt(s.len()) {
+        match s.at(i).equals("<") { true: { return i } _: {} }
+        i: i.add(1)
+    }
+    return s.len()
+}
+
+// ltrimCG — strip leading ASCII space characters from s.
+fn ltrimCG(s String) String {
+    let i Int64: 0
+    while i.lt(s.len()) {
+        match s.slice(i, i.add(1)).equals(" ") {
+            true: {}
+            _:    { return s.slice(i, s.len()) }
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// appendMangledCGAt — scan inner[i..] for comma-separated type args and append
+// "__<arg>" for each to acc.
+fn appendMangledCGAt(inner String, start Int64, i Int64, acc String) String {
+    match i.lt(inner.len()) {
+        _: {
+            let seg String: ltrimCG(inner.slice(start, inner.len()))
+            return acc.append("__").append(seg)
+        }
+        true: {}
+    }
+    match inner.at(i).equals(",") {
+        true: {
+            let seg String: ltrimCG(inner.slice(start, i))
+            return appendMangledCGAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
+        }
+        _: {}
+    }
+    return appendMangledCGAt(inner, start, i.add(1), acc)
+}
+
+// isUserGenericTypeName — true when typeName has a '<' but is not the builtin
+// "Array<...>" form.  Catches user-defined generics like "Box<Int64>".
+fn isUserGenericTypeName(typeName String) Bool {
+    match isArrayTypeName(typeName) { true: { return false } _: {} }
+    let i Int64: 0
+    while i.lt(typeName.len()) {
+        match typeName.at(i).equals("<") { true: { return true } _: {} }
+        i: i.add(1)
+    }
+    return false
+}
+
+// mangleGenericAnnotation — "Box<Int64>" → "Box__Int64".
+fn mangleGenericAnnotation(typeName String) String {
+    let ltIdx Int64: indexOfAngleCG(typeName)
+    let base String: typeName.slice(0, ltIdx)
+    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
+    return appendMangledCGAt(inner, 0, 0, base)
+}
+
 // Convert a Suru type annotation name to the suruType encoding used in VarEntry.
-// "Array<Int64>" → "Array:Int64"; all other types pass through unchanged.
+// "Array<Int64>" → "Array:Int64"; user-defined generics "Box<Int64>" → "Box__Int64";
+// all other types pass through unchanged.
 fn makeSuruType(typeName String) String {
     match isArrayTypeName(typeName) {
         true: { return "Array:".append(extractElemType(typeName)) }
+        _: {}
+    }
+    match isUserGenericTypeName(typeName) {
+        true: { return mangleGenericAnnotation(typeName) }
         _: {}
     }
     return typeName

@@ -1,0 +1,55 @@
+// monoCollect.suru — Collect generic function and type definitions from a
+// statement list into a GenericRegistry.
+//
+// collectGenericDefs is called once after the first resolveModuleTypes pass.
+// Any FnDeclNode or TypeDeclNode whose typeParams list is non-empty is a
+// generic definition; the registry is used by monoInfer and monoInstantiate
+// to drive monomorphization.
+
+include "../parser/parserAst.suru" as ast
+
+// ─── Registry types ───────────────────────────────────────────────────────────
+
+type GenericFnDef:    { name String, srcPath String, typeParams Array<String>, node FnDeclNode }
+type GenericTypeDef:  { name String, typeParams Array<String>, node TypeDeclNode }
+type GenericRegistry: { fns Array<GenericFnDef>, types Array<GenericTypeDef> }
+
+// ─── Collection ───────────────────────────────────────────────────────────────
+
+// collectGenericDefs — walks stmts once and collects every FnDeclNode /
+// TypeDeclNode that has a non-empty typeParams list into the returned registry.
+fn collectGenericDefs(stmts Array<AstNode>) GenericRegistry {
+    let fns Array<GenericFnDef>: []
+    let types Array<GenericTypeDef>: []
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            FnDeclNode: {
+                let fd FnDeclNode: stmt
+                let tp Array<String>: fd.typeParams
+                match tp.len().gt(0) {
+                    true: {
+                        let def GenericFnDef: { name: fd.name, srcPath: fd.srcPath, typeParams: tp, node: fd }
+                        fns.add(def)
+                    }
+                    _: {}
+                }
+            }
+            TypeDeclNode: {
+                let td TypeDeclNode: stmt
+                let tp Array<String>: td.typeParams
+                match tp.len().gt(0) {
+                    true: {
+                        let def GenericTypeDef: { name: td.name, typeParams: tp, node: td }
+                        types.add(def)
+                    }
+                    _: {}
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return { fns: fns, types: types }
+}
