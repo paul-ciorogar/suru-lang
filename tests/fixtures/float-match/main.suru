@@ -1,0 +1,28 @@
+fn classify(f Float64) String {
+    match f {
+        0.0:  { return "zero" }
+        1.0:  { return "one" }
+        -1.0: { return "neg-one" }
+        _:    { return "other" }
+    }
+}
+
+fn main(args Array<String>) {
+    printLn(classify(0.0))    // zero
+    printLn(classify(1.0))    // one
+    printLn(classify(-1.0))   // neg-one
+    printLn(classify(3.14))   // other
+
+    // match expression form
+    let f Float64: 2.5
+    let label String: match f {
+        2.5: "two-point-five"
+        _:   "unknown"
+    }
+    printLn(label)            // two-point-five
+    drop(label)
+
+    // Float64.compare() in match
+    let cmp Int64: 1.5.compare(2.5)
+    printLn(cmp)              // -1
+}

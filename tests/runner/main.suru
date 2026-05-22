@@ -39,6 +39,15 @@ fn main(args Array<String>) {
         { name: "generics-monoinfer-unit", source: "tests/fixtures/generics-monoinfer-unit", args: "", expected: readFile("/work/tests/fixtures/generics-monoinfer-unit/expected.txt") },
         { name: "generics-box-basic", source: "tests/fixtures/generics-box-basic", args: "", expected: readFile("/work/tests/fixtures/generics-box-basic/expected.txt") },
         { name: "generics-fn-basic", source: "tests/fixtures/generics-fn-basic", args: "", expected: readFile("/work/tests/fixtures/generics-fn-basic/expected.txt") },
+        { name: "char",              source: "tests/fixtures/char",              args: "", expected: readFile("/work/tests/fixtures/char/expected.txt") },
+        { name: "bool-ops",          source: "tests/fixtures/bool-ops",          args: "", expected: readFile("/work/tests/fixtures/bool-ops/expected.txt") },
+        { name: "sum-types-dispatch", source: "tests/fixtures/sum-types-dispatch", args: "", expected: readFile("/work/tests/fixtures/sum-types-dispatch/expected.txt") },
+        { name: "generics-advanced", source: "tests/fixtures/generics-advanced", args: "", expected: readFile("/work/tests/fixtures/generics-advanced/expected.txt") },
+        { name: "array-advanced",    source: "tests/fixtures/array-advanced",    args: "", expected: readFile("/work/tests/fixtures/array-advanced/expected.txt") },
+        { name: "string-advanced",   source: "tests/fixtures/string-advanced",   args: "", expected: readFile("/work/tests/fixtures/string-advanced/expected.txt") },
+        { name: "float-match",       source: "tests/fixtures/float-match",       args: "", expected: readFile("/work/tests/fixtures/float-match/expected.txt") },
+        { name: "file-io-write",     source: "tests/fixtures/file-io-write",     args: "", expected: readFile("/work/tests/fixtures/file-io-write/expected.txt") },
+        { name: "builtins-misc",     source: "tests/fixtures/builtins-misc",     args: "", expected: readFile("/work/tests/fixtures/builtins-misc/expected.txt") },
     ]
 
     let passed Int64: 0

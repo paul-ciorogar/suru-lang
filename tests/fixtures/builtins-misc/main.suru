@@ -1,0 +1,11 @@
+fn main(args Array<String>) {
+    // printError writes to stderr; captured as 2>&1 by the test runner
+    printError("error line 1")
+    printError("error line 2")
+
+    printLn("stdout line")
+
+    // exit terminates the program; code after this must not execute
+    exit(0)
+    printLn("should not print")
+}

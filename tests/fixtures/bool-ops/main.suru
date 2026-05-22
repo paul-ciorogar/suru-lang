@@ -1,0 +1,43 @@
+fn isBig(n Int64) Bool {
+    return n.gt(100)
+}
+
+fn main(args Array<String>) {
+    // not operator
+    printLn(not true)                    // false
+    printLn(not false)                   // true
+    printLn(not 5.gt(10))               // true
+
+    // and operator
+    printLn(true and true)              // true
+    printLn(true and false)             // false
+    printLn(false and true)             // false
+    printLn(false and false)            // false
+
+    // or operator
+    printLn(true or false)              // true
+    printLn(false or true)              // true
+    printLn(false or false)             // false
+    printLn(true or true)               // true
+
+    // combined
+    printLn(not true or false)          // false
+    printLn(not false and true)         // true
+    printLn(true and not false)         // true
+
+    // Bool.equals()
+    printLn(true.equals(true))          // true
+    printLn(true.equals(false))         // false
+    printLn(false.equals(false))        // true
+
+    // Bool.toString()
+    printLn(true.toString())            // true
+    printLn(false.toString())           // false
+
+    // with function calls
+    let big Bool: isBig(200)
+    let small Bool: isBig(50)
+    printLn(big and not small)          // true
+    printLn(big or small)               // true
+    printLn(not big or not small)       // true
+}

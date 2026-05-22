@@ -1,0 +1,47 @@
+// Generic struct with two type parameters
+type Pair<A, B>: { first A, second B }
+
+// Generic function with two type parameters
+fn fst<A, B>(p Pair<A, B>) A {
+    return p.first
+}
+
+fn snd<A, B>(p Pair<A, B>) B {
+    return p.second
+}
+
+// Nested generic: Box<T> wrapping another generic
+type Box<T>: { value T }
+
+fn unbox<T>(b Box<T>) T {
+    return b.value
+}
+
+fn main(args Array<String>) {
+    // Pair<Int64, String>
+    let p1 Pair<Int64, String>: { first: 42, second: "hello" }
+    printLn(fst(p1))      // 42
+    printLn(snd(p1))      // hello
+    drop(p1)
+
+    // Pair<Bool, Int64>
+    let p2 Pair<Bool, Int64>: { first: true, second: 99 }
+    printLn(fst(p2))      // true
+    printLn(snd(p2))      // 99
+    drop(p2)
+
+    // Nested: Box<Array<Int64>>
+    let arr Array<Int64>: [1, 2, 3]
+    let boxed Box<Array<Int64>>: { value: arr }
+    let inner Array<Int64>: unbox(boxed)
+    printLn(inner.len())  // 3
+    printLn(inner.at(0))  // 1
+    drop(inner)
+    drop(boxed)
+
+    // Pair<String, Bool>
+    let p3 Pair<String, Bool>: { first: "suru", second: false }
+    printLn(fst(p3))      // suru
+    printLn(snd(p3))      // false
+    drop(p3)
+}
