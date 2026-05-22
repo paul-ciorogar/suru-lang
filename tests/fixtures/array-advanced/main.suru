@@ -1,0 +1,40 @@
+type Point: { x Int64, y Int64 }
+
+fn main(args Array<String>) {
+    // Array<Int64>.equals()
+    let a Array<Int64>: [1, 2, 3]
+    let b Array<Int64>: [1, 2, 3]
+    let c Array<Int64>: [1, 2, 4]
+    printLn(a.equals(b))  // true
+    printLn(a.equals(c))  // false
+    drop(a)
+    drop(b)
+    drop(c)
+
+    // Array<String>.equals()
+    let s1 Array<String>: ["hello", "world"]
+    let s2 Array<String>: ["hello", "world"]
+    let s3 Array<String>: ["hello", "Suru"]
+    printLn(s1.equals(s2))  // true
+    printLn(s1.equals(s3))  // false
+    drop(s1)
+    drop(s2)
+    drop(s3)
+
+    // Array<UserStruct>: push, access fields, clone, drop
+    let pts Array<Point>: []
+    let p1 Point: { x: 10, y: 20 }
+    let p2 Point: { x: 30, y: 40 }
+    pts.add(p1)
+    pts.add(p2)
+    printLn(pts.len())           // 2
+    printLn(pts.at(0).x)        // 10
+    printLn(pts.at(1).y)        // 40
+
+    let pts2 Array<Point>: clone(pts)
+    printLn(pts2.len())          // 2
+    printLn(pts2.at(0).x)       // 10
+
+    drop(pts2)
+    drop(pts)
+}

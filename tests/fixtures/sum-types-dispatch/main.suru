@@ -1,0 +1,58 @@
+type Dog: { name String, age Int64 }
+type Cat: { lives Int64 }
+type Animal: Dog, Cat
+
+fn makeAnimal(kind Int64) Animal {
+    match kind {
+        0: {
+            let d Dog: { name: "Rex", age: 3 }
+            return d
+        }
+        _: {
+            let c Cat: { lives: 9 }
+            return c
+        }
+    }
+}
+
+// Dispatch on sum type: return variant name as String
+fn describe(a Animal) String {
+    match a {
+        Dog: { return "dog" }
+        Cat: { return "cat" }
+    }
+}
+
+// Access inner fields after narrowing
+fn dogYears(a Animal) Int64 {
+    match a {
+        Dog: { return a.age.multiply(7) }
+        Cat: { return a.lives }
+    }
+}
+
+fn main(args Array<String>) {
+    let dog Animal: makeAnimal(0)
+    let cat Animal: makeAnimal(1)
+
+    // dispatch
+    printLn(describe(dog))  // dog
+    printLn(describe(cat))  // cat
+
+    // field access inside match arm (narrowed type)
+    printLn(dogYears(dog))  // 21  (3 * 7)
+    printLn(dogYears(cat))  // 9
+
+    // match directly on the value
+    match dog {
+        Dog: { printLn(dog.name) }   // Rex
+        Cat: { printLn("cat") }
+    }
+    match cat {
+        Dog: { printLn("dog") }
+        Cat: { printLn(cat.lives.toString()) }  // 9
+    }
+
+    drop(dog)
+    drop(cat)
+}

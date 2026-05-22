@@ -1,0 +1,26 @@
+fn main(args Array<String>) {
+    let path String: "/tmp/suru-file-io-write-test.txt"
+
+    // writeFile: create/overwrite a file
+    writeFile(path, "hello\n")
+    let r1 String: readFile(path)
+    printLn(r1)       // hello
+    drop(r1)
+
+    // writeFile again: overwrites previous content
+    writeFile(path, "world\n")
+    let r2 String: readFile(path)
+    printLn(r2)       // world
+    drop(r2)
+
+    // appendToFile: add content to existing file
+    appendToFile(path, "appended\n")
+    let r3 String: readFile(path)
+    printLn(r3)       // world\nappended\n  (printed as two lines)
+    drop(r3)
+
+    // cleanup
+    exec("rm -f ".append(path))
+
+    printLn("done")
+}
