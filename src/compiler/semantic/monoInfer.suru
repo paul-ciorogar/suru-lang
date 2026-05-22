@@ -8,7 +8,7 @@
 //     (handled by inferFromCallSite)
 //
 // The entry point is collectInstantiations; it returns a deduplicated
-// Array<InstantiationRequest>.  Used by monoPass.suru (Task 7).
+// Array<InstantiationRequest>.  Used by monoPass.suru.
 
 include "monoInstantiate.suru" as inst
 include "monoSubst.suru"       as subst
@@ -22,7 +22,7 @@ fn extractBaseTypeName(typeName String) String {
     return typeName.slice(0, subst.indexOfLT(typeName))
 }
 
-// trimAndAddAt — append trimLeft(args[i..]) to out.
+// trimAndAddAt — trim leading spaces from each args[i..] entry and append to out.
 fn trimAndAddAt(args Array<String>, out Array<String>, i Int64) Array<String> {
     match i.lt(args.len()) {
         _: { return out }
@@ -259,6 +259,8 @@ fn inferFromStructFieldAt(field StructFieldNode, registry GenericRegistry, out A
     return out
 }
 
+// inferFromStructFieldsAt — recurse into each StructFieldNode in fields[i..],
+// including method bodies (which are statement lists, not just expressions).
 fn inferFromStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
     match i.lt(fields.len()) {
         _: { return out }
@@ -449,6 +451,8 @@ fn deduplicateAt(raw Array<InstantiationRequest>, seen Array<String>, out Array<
     return deduplicateAt(raw, seen, out, i.add(1))
 }
 
+// deduplicateRequests — remove duplicate InstantiationRequests from raw,
+// keyed by mangled name (e.g. "Box__Int64").  Preserves first occurrence order.
 fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationRequest> {
     let seen Array<String>: []
     let out Array<InstantiationRequest>: []

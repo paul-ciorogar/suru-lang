@@ -32,7 +32,15 @@ capture file_io /work/tests/fixtures/file_io/input.txt
 capture char
 capture bool-ops
 capture sum-types-dispatch
+capture generics-box-basic
+capture generics-fn-basic
+capture generics-type-basic
+capture generics-multi-param
+capture generics-nested
+capture generics-cross-module
 capture generics-advanced
+capture generics-monoinfer-unit
+capture generics-monoinstantiate-unit
 capture array-advanced
 capture string-advanced
 capture float-match

@@ -1,21 +1,16 @@
 include "lib.suru" as lib
 
-// Regression: cross-module qualified-call type leniency (XFAIL).
+// Regression: cross-module qualified-call argument type checking.
 //
-// `lib.needInt(badArg)` references the undefined variable `badArg`. The
-// SAME call written same-file (`needInt(badArg)`) is correctly rejected:
-//   <path>: undefined variable 'badArg'
+// `lib.needInt(args)` passes `args` (Array<String>) to a function that
+// expects Int64. Through a `ns.fn()` include alias the semantic analyzer's
+// namespace heuristic previously skipped the call entirely — no recursion
+// into arguments, no type checks — so this compiled cleanly and a
+// guaranteed runtime bug shipped.
 //
-// Through a `ns.fn()` include alias the semantic analyzer's namespace
-// heuristic (semantic/exprs.suru analyzeExpr, MethodCallNode arm) skips
-// the call entirely — no recursion into arguments, no arity/type checks —
-// so this compiles cleanly and a guaranteed runtime bug ships.
-//
-// This test (compileError mode) asserts the compiler emits that exact
-// diagnostic. CURRENT: compiler emits nothing, exits 0 -> XFAIL (known,
-// non-blocking). WHEN FIXED: analyzer reports it -> output matches
-// expected.txt -> XPASS, signalling the xfail marker should be removed.
+// This test (compileError mode) asserts the compiler emits the type-mismatch
+// diagnostic. Fixed in semantic/exprs.suru MethodCallNode namespace-alias arm.
 fn main(args Array<String>) {
-    let r Bool: lib.needInt(badArg)
+    let r Bool: lib.needInt(args)
     printLn(r)
 }

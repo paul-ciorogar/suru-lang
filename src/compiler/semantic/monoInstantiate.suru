@@ -8,8 +8,8 @@
 // instantiateAll orchestrates deduplication across a list of
 // InstantiationRequests and returns only newly produced concrete nodes.
 //
-// Used by monoPass.suru (Task 7) after monoInfer.suru has collected all
-// instantiation sites from the first resolveModuleTypes pass.
+// Used by monoPass.suru after monoInfer.suru has collected all instantiation
+// sites from the first resolveModuleTypes pass.
 
 include "monoCollect.suru" as collect
 include "monoSubst.suru"   as subst

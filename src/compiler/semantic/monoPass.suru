@@ -143,7 +143,7 @@ fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
     return inst.mangleGenericName(cn.name, concretes)
 }
 
-// Array-walking helpers for expressions and statements.
+// rewriteCallsInExprsAt — append rewritten copies of exprs[i..] to out.
 fn rewriteCallsInExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i Int64) Array<AstNode> {
     match i.lt(exprs.len()) {
         _: { return out }
@@ -153,11 +153,13 @@ fn rewriteCallsInExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Arr
     return rewriteCallsInExprsAt(exprs, registry, out, i.add(1))
 }
 
+// rewriteCallsInExprs — return a new expression array with all generic call names mangled.
 fn rewriteCallsInExprs(exprs Array<AstNode>, registry GenericRegistry) Array<AstNode> {
     let out Array<AstNode>: []
     return rewriteCallsInExprsAt(exprs, registry, out, 0)
 }
 
+// rewriteCallsInStmtsAt — append rewritten copies of stmts[i..] to out.
 fn rewriteCallsInStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i Int64) Array<AstNode> {
     match i.lt(stmts.len()) {
         _: { return out }
@@ -167,18 +169,21 @@ fn rewriteCallsInStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Arr
     return rewriteCallsInStmtsAt(stmts, registry, out, i.add(1))
 }
 
+// rewriteCallsInStmts — return a new statement array with all generic call names mangled.
 fn rewriteCallsInStmts(stmts Array<AstNode>, registry GenericRegistry) Array<AstNode> {
     let out Array<AstNode>: []
     return rewriteCallsInStmtsAt(stmts, registry, out, 0)
 }
 
-// MatchArm / MatchStmtArm helpers.
+// rewriteMatchArm — rewrite generic calls in a match-expression arm's
+// pattern and body expressions.
 fn rewriteMatchArm(arm MatchArm, registry GenericRegistry) MatchArm {
     let newPat AstNode: rewriteCallsInExpr(arm.pattern, registry)
     let newBody AstNode: rewriteCallsInExpr(arm.body, registry)
     return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
 }
 
+// rewriteMatchArmsAt — append rewritten copies of arms[i..] to out.
 fn rewriteMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<MatchArm>, i Int64) Array<MatchArm> {
     match i.lt(arms.len()) {
         _: { return out }
@@ -188,17 +193,21 @@ fn rewriteMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<
     return rewriteMatchArmsAt(arms, registry, out, i.add(1))
 }
 
+// rewriteMatchArms — return a new MatchArm array with all generic call names mangled.
 fn rewriteMatchArms(arms Array<MatchArm>, registry GenericRegistry) Array<MatchArm> {
     let out Array<MatchArm>: []
     return rewriteMatchArmsAt(arms, registry, out, 0)
 }
 
+// rewriteMatchStmtArm — rewrite generic calls in a match-statement arm's
+// pattern expression and body statement list.
 fn rewriteMatchStmtArm(arm MatchStmtArm, registry GenericRegistry) MatchStmtArm {
     let newPat AstNode: rewriteCallsInExpr(arm.pattern, registry)
     let newStmts Array<AstNode>: rewriteCallsInStmts(arm.stmts, registry)
     return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
 }
 
+// rewriteMatchStmtArmsAt — append rewritten copies of arms[i..] to out.
 fn rewriteMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<MatchStmtArm>, i Int64) Array<MatchStmtArm> {
     match i.lt(arms.len()) {
         _: { return out }
@@ -208,18 +217,21 @@ fn rewriteMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, ou
     return rewriteMatchStmtArmsAt(arms, registry, out, i.add(1))
 }
 
+// rewriteMatchStmtArms — return a new MatchStmtArm array with all generic call names mangled.
 fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
     return rewriteMatchStmtArmsAt(arms, registry, out, 0)
 }
 
-// StructFieldNode helper — rewrite the value expression and optional method body.
+// rewriteStructField — rewrite generic calls in a StructFieldNode's value expression
+// and optional inline method body.
 fn rewriteStructField(sf StructFieldNode, registry GenericRegistry) StructFieldNode {
     let newVal AstNode: rewriteCallsInExpr(sf.value, registry)
     let newMbody Array<AstNode>: rewriteCallsInStmts(sf.methodBody, registry)
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newMbody }
 }
 
+// rewriteStructFieldsAt — append rewritten copies of fields[i..] to out.
 fn rewriteStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<StructFieldNode>, i Int64) Array<StructFieldNode> {
     match i.lt(fields.len()) {
         _: { return out }
@@ -229,12 +241,13 @@ fn rewriteStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry
     return rewriteStructFieldsAt(fields, registry, out, i.add(1))
 }
 
+// rewriteStructFields — return a new StructFieldNode array with all generic call names mangled.
 fn rewriteStructFields(fields Array<StructFieldNode>, registry GenericRegistry) Array<StructFieldNode> {
     let out Array<StructFieldNode>: []
     return rewriteStructFieldsAt(fields, registry, out, 0)
 }
 
-// BlockNode helper.
+// rewriteBlock — rewrite generic calls in all statements of a BlockNode.
 fn rewriteBlock(block BlockNode, registry GenericRegistry) BlockNode {
     let newStmts Array<AstNode>: rewriteCallsInStmts(block.stmts, registry)
     return { stmts: newStmts }

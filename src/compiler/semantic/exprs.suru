@@ -67,6 +67,29 @@ fn lookupFnParamCount(state AnalyzerState, name String) Int64 {
     return lookupFnParamCountAt(fns, name, 0)
 }
 
+// lookupFnParamTypeAt — linear search from index i; returns the declared
+// type of parameter paramIdx in function name, or "" if not found.
+fn lookupFnParamTypeAt(fns Array<FunctionSig>, name String, paramIdx Int64, i Int64) String {
+    if i.lt(fns.len()) {
+        if fns.at(i).name.equals(name) {
+            let pts Array<String>: fns.at(i).paramTypes
+            if paramIdx.lt(pts.len()) {
+                return pts.at(paramIdx)
+            }
+            return ""
+        }
+        return lookupFnParamTypeAt(fns, name, paramIdx, i.add(1))
+    }
+    return ""
+}
+
+// lookupFnParamType — returns the declared type of parameter paramIdx in
+// function name, or "" if the function is not found.
+fn lookupFnParamType(state AnalyzerState, name String, paramIdx Int64) String {
+    let fns Array<FunctionSig>: state.functions
+    return lookupFnParamTypeAt(fns, name, paramIdx, 0)
+}
+
 // ─── Type inference ───────────────────────────────────────────────────────────
 
 // inferTypeFromMethod — infers the return type of a MethodCallNode from its
@@ -218,6 +241,23 @@ fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>, i I
     return state
 }
 
+// checkCallArgTypesAt — validates argument types against declared parameter
+// types for function fnName starting at index i.
+// Emits "argument type mismatch: expected X, got Y" when both types are known
+// and do not match (and the actual type is not a sum-type variant of expected).
+fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, i Int64) AnalyzerState {
+    if i.lt(args.len()) {
+        let expected String: lookupFnParamType(state, fnName, i)
+        let argType String: inferType(state, args.at(i))
+        let assignable Bool: argType.equals(expected) or semantic.isSumVariant(state, expected, argType)
+        if not expected.equals("") and not argType.equals("") and not assignable {
+            semantic.addError(state, "argument type mismatch: expected ".append(expected).append(", got ").append(argType))
+        }
+        checkCallArgTypesAt(state, fnName, args, i.add(1))
+    }
+    return state
+}
+
 // ─── Expression analysis ──────────────────────────────────────────────────────
 
 // isBuiltinTypeName — true for the static type-receiver names that appear as
@@ -256,7 +296,11 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                     let isStaticRcv Bool: rcvName.equals("Int32") or rcvName.equals("Int64") or rcvName.equals("Float64") or rcvName.equals("Bool")
                     let rcvInScope Bool: not semantic.lookupSymbol(state, rcvName).equals("")
                     match not isStaticRcv and not rcvInScope {
-                        true: {}
+                        true: {
+                            let args Array<AstNode>: typed.args
+                            analyzeExprAt(state, args, 0)
+                            checkCallArgTypesAt(state, typed.methodName, args, 0)
+                        }
                         _: {
                             analyzeExpr(state, rcv)
                             let args Array<AstNode>: typed.args

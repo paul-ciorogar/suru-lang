@@ -34,7 +34,7 @@ fn main(args Array<String>) {
         { name: "modules",   source: "tests/fixtures/modules",   args: "",                                        expected: readFile("/work/tests/fixtures/modules/expected.txt")   },
         { name: "objects_basic", source: "tests/fixtures/objects_basic", args: "",                                  expected: readFile("/work/tests/fixtures/objects_basic/expected.txt") },
         { name: "objects_modules", source: "tests/fixtures/objects_modules", args: "",                              expected: readFile("/work/tests/fixtures/objects_modules/expected.txt") },
-        { name: "xmod-error", source: "tests/fixtures/xmod-error", args: "",                                       expected: readFile("/work/tests/fixtures/xmod-error/expected.txt"), xfail: true, compileError: true },
+        { name: "xmod-error", source: "tests/fixtures/xmod-error", args: "",                                       expected: readFile("/work/tests/fixtures/xmod-error/expected.txt"), xfail: false, compileError: true },
         { name: "generics-monoinstantiate-unit", source: "tests/fixtures/generics-monoinstantiate-unit", args: "", expected: readFile("/work/tests/fixtures/generics-monoinstantiate-unit/expected.txt") },
         { name: "generics-monoinfer-unit", source: "tests/fixtures/generics-monoinfer-unit", args: "", expected: readFile("/work/tests/fixtures/generics-monoinfer-unit/expected.txt") },
         { name: "generics-box-basic", source: "tests/fixtures/generics-box-basic", args: "", expected: readFile("/work/tests/fixtures/generics-box-basic/expected.txt") },

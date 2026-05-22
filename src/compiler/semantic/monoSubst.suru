@@ -110,10 +110,12 @@ fn substituteType(typeName String, paramNames Array<String>, concreteTypes Array
 
 // ─── Param / MethodSig substitution ──────────────────────────────────────────
 
+// substParam — produce a new Param with its typeName rewritten.
 fn substParam(p Param, paramNames Array<String>, concreteTypes Array<String>) Param {
     return { name: p.name, typeName: substituteType(p.typeName, paramNames, concreteTypes) }
 }
 
+// substParamsAt — append substituted copies of params[i..] to out.
 fn substParamsAt(params Array<Param>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<Param>) Array<Param> {
     match i.lt(params.len()) {
         _: { return out }
@@ -123,17 +125,20 @@ fn substParamsAt(params Array<Param>, paramNames Array<String>, concreteTypes Ar
     return substParamsAt(params, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substParams — return a new Array<Param> with all typeName fields substituted.
 fn substParams(params Array<Param>, paramNames Array<String>, concreteTypes Array<String>) Array<Param> {
     let out Array<Param>: []
     return substParamsAt(params, paramNames, concreteTypes, 0, out)
 }
 
+// substMethodSig — produce a new MethodSig with all type annotations substituted.
 fn substMethodSig(ms MethodSig, paramNames Array<String>, concreteTypes Array<String>) MethodSig {
     let newParams Array<Param>: substParams(ms.params, paramNames, concreteTypes)
     let newRet String: substituteType(ms.returnType, paramNames, concreteTypes)
     return { name: ms.name, params: newParams, returnType: newRet }
 }
 
+// substMethodSigsAt — append substituted copies of methods[i..] to out.
 fn substMethodSigsAt(methods Array<MethodSig>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<MethodSig>) Array<MethodSig> {
     match i.lt(methods.len()) {
         _: { return out }
@@ -143,13 +148,18 @@ fn substMethodSigsAt(methods Array<MethodSig>, paramNames Array<String>, concret
     return substMethodSigsAt(methods, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substMethodSigs — return a new Array<MethodSig> with all type annotations substituted.
 fn substMethodSigs(methods Array<MethodSig>, paramNames Array<String>, concreteTypes Array<String>) Array<MethodSig> {
     let out Array<MethodSig>: []
     return substMethodSigsAt(methods, paramNames, concreteTypes, 0, out)
 }
 
 // ─── Array helpers (forward-reference substStmt / substExpr) ─────────────────
+// These wrappers call substStmt / substExpr, which are defined below.  In Suru,
+// functions are resolved at module scope, so forward references within a single
+// file are legal even though the callee appears later in the source.
 
+// substStmtsAt — append substituted copies of stmts[i..] to out.
 fn substStmtsAt(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<AstNode>) Array<AstNode> {
     match i.lt(stmts.len()) {
         _: { return out }
@@ -159,11 +169,13 @@ fn substStmtsAt(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Ar
     return substStmtsAt(stmts, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substStmts — return a new statement array with all type annotations substituted.
 fn substStmts(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>) Array<AstNode> {
     let out Array<AstNode>: []
     return substStmtsAt(stmts, paramNames, concreteTypes, 0, out)
 }
 
+// substExprsAt — append substituted copies of exprs[i..] to out.
 fn substExprsAt(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<AstNode>) Array<AstNode> {
     match i.lt(exprs.len()) {
         _: { return out }
@@ -173,6 +185,7 @@ fn substExprsAt(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Ar
     return substExprsAt(exprs, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substExprs — return a new expression array with all type annotations substituted.
 fn substExprs(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>) Array<AstNode> {
     let out Array<AstNode>: []
     return substExprsAt(exprs, paramNames, concreteTypes, 0, out)
@@ -180,6 +193,8 @@ fn substExprs(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Arra
 
 // ─── BlockNode helper ─────────────────────────────────────────────────────────
 
+// substBlock — substitute all type annotations in a BlockNode's statement list.
+// BlockNode is the container for if/else branch bodies.
 fn substBlock(block BlockNode, paramNames Array<String>, concreteTypes Array<String>) BlockNode {
     let newStmts Array<AstNode>: substStmts(block.stmts, paramNames, concreteTypes)
     return { stmts: newStmts }
@@ -187,6 +202,8 @@ fn substBlock(block BlockNode, paramNames Array<String>, concreteTypes Array<Str
 
 // ─── StructFieldNode substitution ────────────────────────────────────────────
 
+// substStructField — deep-clone a StructFieldNode, substituting type annotations
+// in its value expression and optional inline method signature/body.
 fn substStructField(sf StructFieldNode, paramNames Array<String>, concreteTypes Array<String>) StructFieldNode {
     let newVal AstNode: substExpr(sf.value, paramNames, concreteTypes)
     let newMparams Array<Param>: substParams(sf.methodParams, paramNames, concreteTypes)
@@ -195,6 +212,7 @@ fn substStructField(sf StructFieldNode, paramNames Array<String>, concreteTypes 
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, methodParams: newMparams, methodRet: newMret, methodBody: newMbody }
 }
 
+// substStructFieldsAt — append substituted copies of fields[i..] to out.
 fn substStructFieldsAt(fields Array<StructFieldNode>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<StructFieldNode>) Array<StructFieldNode> {
     match i.lt(fields.len()) {
         _: { return out }
@@ -204,6 +222,7 @@ fn substStructFieldsAt(fields Array<StructFieldNode>, paramNames Array<String>, 
     return substStructFieldsAt(fields, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substStructFields — return a new StructFieldNode array with all type annotations substituted.
 fn substStructFields(fields Array<StructFieldNode>, paramNames Array<String>, concreteTypes Array<String>) Array<StructFieldNode> {
     let out Array<StructFieldNode>: []
     return substStructFieldsAt(fields, paramNames, concreteTypes, 0, out)
@@ -211,12 +230,15 @@ fn substStructFields(fields Array<StructFieldNode>, paramNames Array<String>, co
 
 // ─── MatchArm / MatchStmtArm substitution ────────────────────────────────────
 
+// substMatchArm — substitute type annotations in a match-expression arm
+// (pattern + body are both expressions).
 fn substMatchArm(arm MatchArm, paramNames Array<String>, concreteTypes Array<String>) MatchArm {
     let newPat AstNode: substExpr(arm.pattern, paramNames, concreteTypes)
     let newBody AstNode: substExpr(arm.body, paramNames, concreteTypes)
     return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
 }
 
+// substMatchArmsAt — append substituted copies of arms[i..] to out.
 fn substMatchArmsAt(arms Array<MatchArm>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<MatchArm>) Array<MatchArm> {
     match i.lt(arms.len()) {
         _: { return out }
@@ -226,17 +248,21 @@ fn substMatchArmsAt(arms Array<MatchArm>, paramNames Array<String>, concreteType
     return substMatchArmsAt(arms, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substMatchArms — return a new MatchArm array with all type annotations substituted.
 fn substMatchArms(arms Array<MatchArm>, paramNames Array<String>, concreteTypes Array<String>) Array<MatchArm> {
     let out Array<MatchArm>: []
     return substMatchArmsAt(arms, paramNames, concreteTypes, 0, out)
 }
 
+// substMatchStmtArm — substitute type annotations in a match-statement arm
+// (pattern is an expression; stmts is a statement list).
 fn substMatchStmtArm(arm MatchStmtArm, paramNames Array<String>, concreteTypes Array<String>) MatchStmtArm {
     let newPat AstNode: substExpr(arm.pattern, paramNames, concreteTypes)
     let newStmts Array<AstNode>: substStmts(arm.stmts, paramNames, concreteTypes)
     return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
 }
 
+// substMatchStmtArmsAt — append substituted copies of arms[i..] to out.
 fn substMatchStmtArmsAt(arms Array<MatchStmtArm>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<MatchStmtArm>) Array<MatchStmtArm> {
     match i.lt(arms.len()) {
         _: { return out }
@@ -246,6 +272,7 @@ fn substMatchStmtArmsAt(arms Array<MatchStmtArm>, paramNames Array<String>, conc
     return substMatchStmtArmsAt(arms, paramNames, concreteTypes, i.add(1), out)
 }
 
+// substMatchStmtArms — return a new MatchStmtArm array with all type annotations substituted.
 fn substMatchStmtArms(arms Array<MatchStmtArm>, paramNames Array<String>, concreteTypes Array<String>) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
     return substMatchStmtArmsAt(arms, paramNames, concreteTypes, 0, out)
