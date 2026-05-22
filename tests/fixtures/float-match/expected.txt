@@ -1,0 +1,6 @@
+zero
+one
+neg-one
+other
+two-point-five
+-1

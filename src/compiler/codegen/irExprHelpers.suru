@@ -94,7 +94,7 @@ fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rty
     }
     ctx.builder: gtR.builder
     let ltR IrResult: match eff.equals("Float64") {
-        true: ir.emitFCmp(ctx.builder, "olt", gtR.name, rr2.name)
+        true: ir.emitFCmp(ctx.builder, "olt", rr1.name, rr2.name)
         _:    ir.emitICmp(ctx.builder, "slt", rawT, rr1.name, rr2.name)
     }
     ctx.builder: ltR.builder
