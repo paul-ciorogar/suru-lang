@@ -10,9 +10,13 @@ include "../parser/parserAst.suru" as ast
 
 // ─── Registry types ───────────────────────────────────────────────────────────
 
-type GenericFnDef:    { name String, srcPath String, typeParams Array<String>, node FnDeclNode }
-type GenericTypeDef:  { name String, typeParams Array<String>, node TypeDeclNode }
-type GenericRegistry: { fns Array<GenericFnDef>, types Array<GenericTypeDef> }
+type GenericFnDef:      { name String, srcPath String, typeParams Array<String>, node FnDeclNode }
+type GenericTypeDef:    { name String, typeParams Array<String>, node TypeDeclNode }
+// GenericSumTypeDef — a SumTypeDeclNode with a non-empty typeParams list.
+// Collected alongside generic structs/fns so the mono pass can instantiate
+// generic sum types (e.g. Option<T>, Result<T,E>) the same way.
+type GenericSumTypeDef: { name String, typeParams Array<String>, node SumTypeDeclNode }
+type GenericRegistry:   { fns Array<GenericFnDef>, types Array<GenericTypeDef>, sumTypes Array<GenericSumTypeDef> }
 
 // ─── Collection ───────────────────────────────────────────────────────────────
 
@@ -21,6 +25,7 @@ type GenericRegistry: { fns Array<GenericFnDef>, types Array<GenericTypeDef> }
 fn collectGenericDefs(stmts Array<AstNode>) GenericRegistry {
     let fns Array<GenericFnDef>: []
     let types Array<GenericTypeDef>: []
+    let sumTypes Array<GenericSumTypeDef>: []
     let i Int64: 0
     while i.lt(stmts.len()) {
         let stmt AstNode: stmts.at(i)
@@ -47,9 +52,20 @@ fn collectGenericDefs(stmts Array<AstNode>) GenericRegistry {
                     _: {}
                 }
             }
+            SumTypeDeclNode: {
+                let sd SumTypeDeclNode: stmt
+                let tp Array<String>: sd.typeParams
+                match tp.len().gt(0) {
+                    true: {
+                        let def GenericSumTypeDef: { name: sd.name, typeParams: tp, node: sd }
+                        sumTypes.add(def)
+                    }
+                    _: {}
+                }
+            }
             _: {}
         }
         i: i.add(1)
     }
-    return { fns: fns, types: types }
+    return { fns: fns, types: types, sumTypes: sumTypes }
 }

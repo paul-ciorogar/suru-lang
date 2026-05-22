@@ -104,6 +104,23 @@ fn printStmtTypeDecl(stmt TypeDeclNode, indent String) {
     }
 }
 
+// formatTypeParams — build a "<T, E>" string from a type-params array,
+// or "" when the array is empty.
+fn formatTypeParams(tp Array<String>) String {
+    match tp.len().equals(0) {
+        true: { return "" }
+        _: {}
+    }
+    let s String: "<"
+    let j Int64: 0
+    while j.lt(tp.len()) {
+        let sep String: match j.gt(0) { true: ", ", _: "" }
+        s: s.append(sep).append(tp.at(j))
+        j: j.add(1)
+    }
+    return s.append(">")
+}
+
 fn printStmtSumTypeDecl(stmt SumTypeDeclNode, indent String) {
     let variants Array<String>: stmt.variants
     let i Int64: 0
@@ -114,7 +131,8 @@ fn printStmtSumTypeDecl(stmt SumTypeDeclNode, indent String) {
         varStr: varStr.append(sep).append(vname)
         i: i.add(1)
     }
-    printLn(indent.append("SumType [").append(stmt.name).append("] Variants: [").append(varStr).append("]"))
+    let tpStr String: formatTypeParams(stmt.typeParams)
+    printLn(indent.append("SumType [").append(stmt.name).append(tpStr).append("] Variants: [").append(varStr).append("]"))
 }
 
 fn printStmtMatchStatement(stmt MatchStmtNode, indent String) {

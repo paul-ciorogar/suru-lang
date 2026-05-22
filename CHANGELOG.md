@@ -64,6 +64,64 @@ Added:
   (same type instantiated with three different args), `generics-cross-module`
   (generic type defined in an included file).
 
+### Added generic sum types and `src/stdlib/option.suru` / `src/stdlib/result.suru`
+
+Generic sum types are now fully supported. The compiler monomorphizes generic
+sum type definitions (e.g. `Option<T>`) into concrete instances (`Option__Int64`)
+and rewrites unmangled match-arm patterns (`Some:`, `None:`) to the mangled
+variant names expected by the codegen.
+
+```suru
+include "../../src/stdlib/option.suru" as opt
+
+fn describeOpt(x Option<Int64>) {
+    match x {
+        Some: { printLn(x.value) }    // arm pattern rewritten to Some__Int64
+        None: { printLn("none") }
+    }
+}
+
+fn main(args Array<String>) {
+    let s Option<Int64>: opt.some(42)  // namespace-qualified generic fn call
+    describeOpt(s)                     // 42
+    drop(s)
+}
+```
+
+Added:
+- `typeParams Array<String>` on `SumTypeDeclNode` — parsed from `<T, U, ...>` after
+  the type name, using `parseTypeAnnotation` so variant entries like `Some<T>` are
+  stored as full type expressions.
+- `GenericSumTypeDef` / `sumTypes Array<GenericSumTypeDef>` in `GenericRegistry`
+  (`monoCollect.suru`) — collects generic sum type definitions alongside structs.
+- `registryHasSumTypeAt` in `monoInfer.suru` — `inferFromAnnotation` now checks
+  both the struct and sum type registries so `Option<Int64>` annotations trigger
+  instantiation.
+- Namespace-qualified generic function call inference: `opt.some(42)` (a
+  `MethodCallNode` whose receiver has no `resolvedType`) is now detected and
+  inferred by `inferFromGenericFnCall` in `monoInfer.suru` and rewritten by
+  `rewriteCallSites` in `monoPass.suru`.
+- `instantiateSumType` / `wrapSumTypeDeclNode` / `findInstSumTypeAt` /
+  `instantiateVariantTypeAt` in `monoInstantiate.suru` — produce concrete
+  `SumTypeDeclNode` and variant struct `TypeDeclNode` copies (e.g. `Some<T>` →
+  `Some__Int64`) with `seen`-based deduplication.
+- `rewriteVariantArms` pass in `monoPass.suru` — called from `pipeline.suru`
+  after `rewriteCallSites`; maps unmangled arm names (`Some`, `None`) to the
+  concrete mangled variant names the codegen expects, using `resolvedType` of the
+  match condition to find the sum type's variant list.
+- `monoFnNames` field in `IrCodegenContext` and `monoFnNames` parameter on
+  `irCodegen.generate` — separates mono-instantiated function names from own
+  function names in the codegen. `emitFunction` uses this to emit full `define`
+  bodies for concrete instantiations whose `srcPath` points to an included file
+  (the generic template's origin), without incorrectly claiming ownership of
+  same-named functions from unrelated included files.
+- `compileOneFile` (pipeline.suru) now passes `filterGenericDefs(resolved.stmts)`
+  to codegen — prevents generic template bodies from being emitted in included
+  file IR.
+- `src/stdlib/option.suru` — `Some<T>`, `None`, `Option<T>`, `some<T>()`.
+- `src/stdlib/result.suru` — `Ok<T>`, `Err<E>`, `Result<T, E>`, `ok<T>()`, `err<E>()`.
+- Test fixtures: `stdlib-option`, `stdlib-result`.
+
 ### Added objects: interface types with per-instance methods
 
 Types can now declare method signatures (`fn name(params) Ret`, no body)

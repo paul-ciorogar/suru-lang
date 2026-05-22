@@ -79,7 +79,7 @@ type ExprStmtNode:    { expr AstNode }
 // TypeDeclNode: a struct/interface type. `fields` are data members; `methods`
 // are declared method signatures (empty for a plain data record).
 type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String> }
-type SumTypeDeclNode: { name String, variants Array<String> }
+type SumTypeDeclNode: { name String, variants Array<String>, typeParams Array<String> }
 type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
 // BlockNode: a brace-delimited sequence of statements.
 // Used as the then/else branches of IfNode; stmts empty means the branch is absent.

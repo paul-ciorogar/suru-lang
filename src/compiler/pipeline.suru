@@ -624,6 +624,22 @@ fn collectTypeNames(stmts Array<AstNode>) Array<String> {
     return names
 }
 
+// stampConcreteFnSrcPath — walk newNodes and set srcPath = rootPath on every
+// FnDeclNode.  Concrete instantiations inherit the generic template's srcPath
+// (the included file), but they are emitted in the root file's IR, so they
+// must carry the root file's path so emitFunction emits a full definition.
+fn stampConcreteFnSrcPath(newNodes Array<AstNode>, rootPath String, i Int64) {
+    if not i.lt(newNodes.len()) { return }
+    match newNodes.at(i) {
+        FnDeclNode: {
+            let fd FnDeclNode: newNodes.at(i)
+            fd.srcPath: rootPath
+        }
+        _: {}
+    }
+    stampConcreteFnSrcPath(newNodes, rootPath, i.add(1))
+}
+
 // ─── Per-file compilation helper ───────────────────────────────────────────────
 
 // Compile a single source file and write its .ll to outDir/<stem>.ll.
@@ -637,14 +653,23 @@ fn compileOneFile(sourcePath String, outDir String) {
     let src String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(src)
     let mod AstModule: parser.parse(tokens)
-    let ownFnNames Array<String>: collectFnNames(mod.stmts)
-    let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
     let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
     let state AnalyzerState: semantic.makeAnalyzerState()
     passes.runPrePasses(state, resolved.stmts)
     semresolve.resolveModuleTypes(state, resolved.stmts)
     lowerObjects(state, resolved.stmts, sourcePath)
-    let irText String: irCodegen.generate(resolved.stmts, baseName(sourcePath), ownFnNames, ownTypeNames, resolved.aliases, sourcePath)
+    // Filter generic templates (typeParams non-empty) from both the codegen
+    // stmts and the own-name lists.  emitFunction decides to emit a full
+    // definition based on fnDecl.srcPath == rootPath, so passing concreteStmts
+    // prevents generic function bodies (e.g. some<T>) from being emitted in the
+    // included file's IR.  Concrete instantiations are produced by the root
+    // file's mono pass and emitted in the root file's IR only.
+    let concreteStmts Array<AstNode>: monoPass.filterGenericDefs(resolved.stmts)
+    let concreteOwnStmts Array<AstNode>: monoPass.filterGenericDefs(mod.stmts)
+    let ownFnNames Array<String>: collectFnNames(concreteOwnStmts)
+    let ownTypeNames Array<String>: collectTypeNames(concreteOwnStmts)
+    let noMonoFns Array<String>: []
+    let irText String: irCodegen.generate(concreteStmts, baseName(sourcePath), ownFnNames, ownTypeNames, noMonoFns, resolved.aliases, sourcePath)
     writeFile(outDir.append(fileNameStem(sourcePath)).append(".ll"), irText)
 }
 
@@ -699,6 +724,10 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     // Rewrite generic call-site names to mangled forms now that pass-2
     // resolvedTypes are populated on all arg expressions.
     stmts: monoPass.rewriteCallSites(stmts, registry)
+    // Rewrite match-arm pattern names from unmangled base names (e.g. "Some")
+    // to the concrete mangled variant names (e.g. "Some__Int64") so the codegen
+    // can resolve the correct variant index for generic sum types.
+    stmts: monoPass.rewriteVariantArms(stmts)
     // ─────────────────────────────────────────────────────────────────────────
 
     lowerObjects(state, stmts, sourcePath)
@@ -713,7 +742,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
         true: exit(1)
         _:    {}
     }
-    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, resolved.aliases, sourcePath)
+    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, monoResult.newFnNames, resolved.aliases, sourcePath)
     return { irText: irText, includedPaths: resolved.includedPaths }
 }
 

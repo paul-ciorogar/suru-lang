@@ -32,7 +32,8 @@ fn main() Int64 {
     let regTypes Array<GenericTypeDef>: []
     regTypes.add(def)
     let regFns Array<GenericFnDef>: []
-    let registry GenericRegistry: { fns: regFns, types: regTypes }
+    let regSumTypes Array<GenericSumTypeDef>: []
+    let registry GenericRegistry: { fns: regFns, types: regTypes, sumTypes: regSumTypes }
 
     // ── Build stmts: one LetNode with typeName "Pair<Int64, String>" ─────────
     // The value is a bare IntLitNode (contents don't matter for annotation inference).

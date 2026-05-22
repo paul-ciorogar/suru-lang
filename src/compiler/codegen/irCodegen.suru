@@ -2167,23 +2167,24 @@ fn emitStmts(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 // Resets per-function state.
 fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // A function is defined here only when it belongs to the file being
-    // compiled as root (by source path, not name — same-named functions in
-    // different included files are distinct). All others get a declare stub.
+    // compiled as root (by source path) OR its name is in ownFnNames.
+    // The second condition handles concrete monomorphic instantiations: a
+    // generic template from an included file (e.g. opt.some<T>) produces a
+    // concrete copy (some__Int64) whose srcPath still points to the included
+    // file, but the instantiation belongs to the root's compilation unit.
     let isOwn Bool: fnDecl.srcPath.equals(ctx.rootPath)
-    match isOwn {
-        true: {}
-        _: {
-            let retSuru String: tyh.makeSuruType(fnDecl.returnType)
-            let retLlvm String: match fnDecl.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
-            let paramParts Array<String>: []
-            let i Int64: 0
-            while i.lt(fnDecl.params.len()) {
-                paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
-                i: i.add(1)
-            }
-            ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(mangleSym(fnDecl.srcPath, fnDecl.name)).append("(").append(ir.joinArgs(paramParts)).append(")\n")
-            return ctx
+    if not isOwn { isOwn: types.isMonoFn(ctx, fnDecl.name) }
+    if not isOwn {
+        let retSuru String: tyh.makeSuruType(fnDecl.returnType)
+        let retLlvm String: match fnDecl.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
+        let paramParts Array<String>: []
+        let i Int64: 0
+        while i.lt(fnDecl.params.len()) {
+            paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
+            i: i.add(1)
         }
+        ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(mangleSym(fnDecl.srcPath, fnDecl.name)).append("(").append(ir.joinArgs(paramParts)).append(")\n")
+        return ctx
     }
 
     // Reset per-function state, preserving the SSA counter across functions.
@@ -2380,10 +2381,16 @@ fn sortStrings(arr Array<String>) Array<String> {
 }
 
 // Top-level entry point: initialise context, run emit(), assemble .ll text.
-// ownFnNames: names of functions defined in THIS file (not from includes).
-fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, aliases Array<IncludeAlias>, rootPath String) String {
+// ownFnNames:  names of functions defined in THIS file (not from includes).
+// monoFnNames: names of concrete functions produced by the mono pass for this
+//              compilation unit.  These may have srcPath pointing to an included
+//              file (the generic template's origin), but should still get a full
+//              define in this file's IR.  Kept separate from ownFnNames to avoid
+//              false-positive "own" matches for same-named functions in includes.
+fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, monoFnNames Array<String>, aliases Array<IncludeAlias>, rootPath String) String {
     let ctx IrCodegenContext: types.makeIrContext()
     ctx.ownFnNames: ownFnNames
+    ctx.monoFnNames: monoFnNames
     ctx.ownTypeNames: ownTypeNames
     ctx.rootPath: rootPath
 

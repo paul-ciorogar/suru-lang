@@ -52,6 +52,8 @@ fn main(args Array<String>) {
         { name: "float-match",       source: "tests/fixtures/float-match",       args: "", expected: readFile("/work/tests/fixtures/float-match/expected.txt") },
         { name: "file-io-write",     source: "tests/fixtures/file-io-write",     args: "", expected: readFile("/work/tests/fixtures/file-io-write/expected.txt") },
         { name: "builtins-misc",     source: "tests/fixtures/builtins-misc",     args: "", expected: readFile("/work/tests/fixtures/builtins-misc/expected.txt") },
+        { name: "stdlib-option",     source: "tests/fixtures/stdlib-option",     args: "", expected: readFile("/work/tests/fixtures/stdlib-option/expected.txt") },
+        { name: "stdlib-result",     source: "tests/fixtures/stdlib-result",     args: "", expected: readFile("/work/tests/fixtures/stdlib-result/expected.txt") },
     ]
 
     let passed Int64: 0

@@ -93,6 +93,61 @@ fn wrapFnDeclNode(fd FnDeclNode) AstNode {
     return r
 }
 
+// ─── Sum type instantiation ───────────────────────────────────────────────────
+
+// mangleTypeExpr — convert a post-substitution type expression string into a
+// mangled identifier.  Plain names are returned unchanged; generic applications
+// are flattened to the mangled form.
+//   "None"        → "None"
+//   "Some<Int64>" → "Some__Int64"
+//   "Pair<Int64,String>" → "Pair__Int64__String"
+fn mangleTypeExpr(typeExpr String) String {
+    let ltIdx Int64: subst.indexOfLT(typeExpr)
+    // No '<': plain name — return as-is.
+    match ltIdx.equals(typeExpr.len()) {
+        true: { return typeExpr }
+        _: {}
+    }
+    let base String: typeExpr.slice(0, ltIdx)
+    // Strip the enclosing '<' and '>' and split the type args by comma.
+    let inner String: typeExpr.slice(ltIdx.add(1), typeExpr.len().take(1))
+    let args Array<String>: subst.splitByComma(inner)
+    return mangleAt(base, args, 0)
+}
+
+// substAndMangleVariantAt — for each variant in variants[i..], apply
+// substituteType then mangleTypeExpr, appending results to out.
+fn substAndMangleVariantAt(variants Array<String>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<String>) Array<String> {
+    match i.lt(variants.len()) {
+        _: { return out }
+        true: {}
+    }
+    let substituted String: subst.substituteType(variants.at(i), paramNames, concreteTypes)
+    out.add(mangleTypeExpr(substituted))
+    return substAndMangleVariantAt(variants, paramNames, concreteTypes, i.add(1), out)
+}
+
+// instantiateSumType — produce a concrete SumTypeDeclNode from a generic sum
+// type definition.  The result has the mangled name, empty typeParams, and all
+// variant type expressions substituted and mangled.
+fn instantiateSumType(def GenericSumTypeDef, concreteTypes Array<String>) SumTypeDeclNode {
+    let mangledName String: mangleGenericName(def.name, concreteTypes)
+    let outVariants Array<String>: []
+    let newVariants Array<String>: substAndMangleVariantAt(def.node.variants, def.typeParams, concreteTypes, 0, outVariants)
+    let emptyTp Array<String>: []
+    return { name: mangledName, variants: newVariants, typeParams: emptyTp }
+}
+
+// wrapSumTypeDeclNode — forced-copy workaround so the returned AstNode carries
+// the correct SumTypeDeclNode variant tag (same rationale as wrapTypeDeclNode).
+fn wrapSumTypeDeclNode(sd SumTypeDeclNode) AstNode {
+    let n String: sd.name
+    let v Array<String>: sd.variants
+    let tp Array<String>: sd.typeParams
+    let r SumTypeDeclNode: { name: n, variants: v, typeParams: tp }
+    return r
+}
+
 // ─── Dispatch helpers ─────────────────────────────────────────────────────────
 
 // findInstTypeAt — walk registry.types from index i; if the name matches,
@@ -137,6 +192,80 @@ fn findInstFnAt(registry GenericRegistry, genericName String, concreteTypes Arra
     }
 }
 
+// instantiateVariantTypeAt — for each variant in rawVariants[i..], if the
+// variant has type arguments (e.g. "Some<T>"), substitute the type params and
+// call findInstTypeAt to produce the concrete variant struct TypeDeclNode.
+// This ensures that when Option<T> is instantiated, the variant structs like
+// Some<T> → Some__Int64 are also generated (needed for field access in match arms).
+// seen is the same deduplication set used by instantiateAllAt so variant
+// structs are not added twice when the same generic struct is also inferred
+// from a direct type annotation.
+fn instantiateVariantTypeAt(registry GenericRegistry, rawVariants Array<String>, paramNames Array<String>, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>, i Int64) {
+    match i.lt(rawVariants.len()) {
+        _: {}
+        true: {
+            let raw String: rawVariants.at(i)
+            let ltIdx Int64: subst.indexOfLT(raw)
+            // Only process generic variants (those with '<' in raw template form).
+            match ltIdx.equals(raw.len()) {
+                true: {}
+                _: {
+                    // Substitute type params in the full variant expression, then
+                    // re-parse to extract base name and concrete arg list.
+                    // E.g. "Some<T>" + {T→Int64} → "Some<Int64>" → base="Some", args=["Int64"]
+                    let substituted String: subst.substituteType(raw, paramNames, concreteTypes)
+                    let subLtIdx Int64: subst.indexOfLT(substituted)
+                    match subLtIdx.equals(substituted.len()) {
+                        true: {}
+                        _: {
+                            let baseName String: substituted.slice(0, subLtIdx)
+                            let inner String: substituted.slice(subLtIdx.add(1), substituted.len().take(1))
+                            let variantArgs Array<String>: subst.splitByComma(inner)
+                            let mangledVariant String: mangleGenericName(baseName, variantArgs)
+                            // Skip if already instantiated (prevents duplicate TypeDeclNodes).
+                            match alreadySeen(seen, mangledVariant) {
+                                true: {}
+                                _: {
+                                    seen.add(mangledVariant)
+                                    findInstTypeAt(registry, baseName, variantArgs, out, 0)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            instantiateVariantTypeAt(registry, rawVariants, paramNames, concreteTypes, out, seen, i.add(1))
+        }
+    }
+}
+
+// findInstSumTypeAt — walk registry.sumTypes from index i; if the name matches,
+// instantiate and push the concrete SumTypeDeclNode into out (then stop).
+// Also instantiates the concrete variant struct TypeDeclNodes (e.g. Some<T> →
+// Some__Int64) so that field access inside match arms works correctly.
+// seen is the deduplication set from instantiateAllAt, shared to prevent
+// double-adding variant structs that were also directly inferred.
+fn findInstSumTypeAt(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>, i Int64) {
+    match i.lt(registry.sumTypes.len()) {
+        _: {}
+        true: {
+            match registry.sumTypes.at(i).name.equals(genericName) {
+                true: {
+                    let def GenericSumTypeDef: registry.sumTypes.at(i)
+                    let concrete SumTypeDeclNode: instantiateSumType(def, concreteTypes)
+                    let outArr Array<AstNode>: out
+                    outArr.add(wrapSumTypeDeclNode(concrete))
+                    // Instantiate the variant struct types (e.g. Some<T> → Some__Int64).
+                    instantiateVariantTypeAt(registry, def.node.variants, def.typeParams, concreteTypes, out, seen, 0)
+                }
+                _: {
+                    findInstSumTypeAt(registry, genericName, concreteTypes, out, seen, i.add(1))
+                }
+            }
+        }
+    }
+}
+
 // ─── Deduplication ────────────────────────────────────────────────────────────
 
 // alreadySeenAt — linear scan of seen[i..] for name.
@@ -175,6 +304,7 @@ fn instantiateAllAt(registry GenericRegistry, requests Array<InstantiationReques
             seen.add(mangledName)
             findInstTypeAt(registry, req.genericName, req.concreteTypes, out, 0)
             findInstFnAt(registry, req.genericName, req.concreteTypes, out, 0)
+            findInstSumTypeAt(registry, req.genericName, req.concreteTypes, out, seen, 0)
         }
     }
     return instantiateAllAt(registry, requests, seen, out, i.add(1))

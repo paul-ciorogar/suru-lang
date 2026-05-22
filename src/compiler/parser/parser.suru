@@ -148,7 +148,7 @@ fn parseTypeDeclaration(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_COLON)
     return match util.currentTokenIs(parser, TOK_LBRACE) {
         true: parseStructTypeBody(parser, nameTok.text, typeParams)
-        _:    parseSumTypeBody(parser, nameTok.text)
+        _:    parseSumTypeBody(parser, nameTok.text, typeParams)
     }
 }
 
@@ -231,18 +231,28 @@ fn parseMethodSigReturn(parser Parser) RetTypeResult {
     }
 }
 
-fn parseSumTypeBody(parser Parser, typeName String) StmtResult {
+// parseSumTypeBody — parse a comma-separated list of variant type expressions
+// after the colon in a sum-type declaration.  Each variant is parsed as a full
+// type annotation (e.g. "Some<T>" or "None") so generic sum types like
+// `type Option<T>: Some<T>, None` are correctly captured.
+fn parseSumTypeBody(parser Parser, typeName String, typeParams Array<String>) StmtResult {
     let variants Array<String>: []
-    let vtok Token: util.currentToken(parser)
-    parser: util.consume(parser, TOK_IDENT)
-    variants.add(vtok.text)
+    let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+    parser: tr.parser
+    variants.add(tr.typeName)
+    tr.parser:   {}
+    tr.typeName: ""
+    drop(tr)
     while util.currentTokenIs(parser, TOK_COMMA) {
         parser: util.advance(parser)
-        let vtok2 Token: util.currentToken(parser)
-        parser: util.consume(parser, TOK_IDENT)
-        variants.add(vtok2.text)
+        let tr2 TypeAnnResult: util.parseTypeAnnotation(parser)
+        parser: tr2.parser
+        variants.add(tr2.typeName)
+        tr2.parser:   {}
+        tr2.typeName: ""
+        drop(tr2)
     }
-    let n SumTypeDeclNode: { name: typeName, variants: variants }
+    let n SumTypeDeclNode: { name: typeName, variants: variants, typeParams: typeParams }
     return { parser: parser, stmt: n }
 }
 

@@ -419,6 +419,36 @@ fn main(args Array<String>) {
 }
 ```
 
+Generic sum types are also supported. Variant entries may themselves be generic structs:
+
+```suru
+type Some<T>: { value T }
+type None: {}
+type Option<T>: Some<T>, None
+
+fn describeOpt(x Option<Int64>) {
+    match x {
+        Some: { printLn(x.value) }   // arm pattern "Some" resolved automatically
+        None: { printLn("none") }
+    }
+}
+```
+
+The stdlib provides `Option<T>` and `Result<T, E>` in `src/stdlib/`:
+
+```suru
+include "../../src/stdlib/option.suru" as opt
+include "../../src/stdlib/result.suru" as res
+
+fn main(args Array<String>) {
+    let s Option<Int64>: opt.some(42)
+    let ok Result<Int64, String>: res.ok(99)
+    let err Result<Int64, String>: res.err("oops")
+    drop(s)
+    drop(ok)
+    drop(err)
+}
+```
 
 ### Arrays
 

@@ -1,0 +1,19 @@
+// option.suru — generic Option sum type.
+//
+// Option<T> represents a value that may or may not be present.
+// Some<T> holds a value; None signals absence.
+//
+// Usage:
+//   include "stdlib/option.suru" as opt
+//   let x Option<Int64>: opt.some(42)
+//   match x { Some: { printLn(x.value) }  None: { printLn("none") } }
+
+type Some<T>: { value T }
+type None: {}
+type Option<T>: Some<T>, None
+
+// some — wrap a value in Some, returning Option<T>.
+fn some<T>(value T) Option<T> {
+    let s Some<T>: { value: value }
+    return s
+}

@@ -118,6 +118,7 @@ type IrCodegenContext: {
     sumTypes          Array<SumTypeDecl>
     strIndex          Array<StrIndexEntry>
     ownFnNames        Array<String>
+    monoFnNames       Array<String>
     ownTypeNames      Array<String>
     fnSrcName         Array<String>
     fnSrcPath         Array<String>
@@ -149,6 +150,7 @@ fn makeIrContext() IrCodegenContext {
     let sumTypes    Array<SumTypeDecl>:  []
     let strIndex    Array<StrIndexEntry>:[]
     let ownFnNames   Array<String>:       []
+    let monoFnNames  Array<String>:       []
     let ownTypeNames Array<String>:       []
     let fnSrcName    Array<String>:       []
     let fnSrcPath    Array<String>:       []
@@ -172,6 +174,7 @@ fn makeIrContext() IrCodegenContext {
         sumTypes:          sumTypes
         strIndex:          strIndex
         ownFnNames:        ownFnNames
+        monoFnNames:       monoFnNames
         ownTypeNames:      ownTypeNames
         fnSrcName:         fnSrcName
         fnSrcPath:         fnSrcPath
@@ -448,6 +451,19 @@ fn fieldIndex(decl TypeDecl, fieldName String) Int64 {
         i: i.add(1)
     }
     return -1
+}
+
+// True when name is in ctx.monoFnNames (concrete instantiation produced by the
+// mono pass for this compilation unit).  Unlike ownFnNames, monoFnNames only
+// contains freshly-instantiated names, preventing same-named functions from
+// unrelated included files from being treated as own.
+fn isMonoFn(ctx IrCodegenContext, name String) Bool {
+    let i Int64: 0
+    while i.lt(ctx.monoFnNames.len()) {
+        match ctx.monoFnNames.at(i).equals(name) { true: { return true } _: {} }
+        i: i.add(1)
+    }
+    return false
 }
 
 // True when name is in ctx.ownFnNames (function defined in this module, not from includes).

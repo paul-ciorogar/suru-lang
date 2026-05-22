@@ -66,6 +66,19 @@ fn registryHasTypeAt(registry GenericRegistry, name String, i Int64) Bool {
     return registryHasTypeAt(registry, name, i.add(1))
 }
 
+// registryHasSumTypeAt — true if registry.sumTypes[i..] contains a sum type named `name`.
+fn registryHasSumTypeAt(registry GenericRegistry, name String, i Int64) Bool {
+    match i.lt(registry.sumTypes.len()) {
+        _: { return false }
+        true: {}
+    }
+    match registry.sumTypes.at(i).name.equals(name) {
+        true: { return true }
+        _: {}
+    }
+    return registryHasSumTypeAt(registry, name, i.add(1))
+}
+
 // findRegistryFnAt — return index of the first fn in registry.fns[i..] whose
 // name equals `name`, or registry.fns.len() if not found.
 fn findRegistryFnAt(registry GenericRegistry, name String, i Int64) Int64 {
@@ -83,8 +96,8 @@ fn findRegistryFnAt(registry GenericRegistry, name String, i Int64) Int64 {
 // ─── inferFromAnnotation ──────────────────────────────────────────────────────
 
 // inferFromAnnotation — if typeName is a generic application whose base name
-// appears in the registry as a type, return one InstantiationRequest.
-// Otherwise return an empty array.
+// appears in the registry as a struct type or sum type, return one
+// InstantiationRequest.  Otherwise return an empty array.
 fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
     // Quick exit: no '<' means not a generic annotation.
@@ -94,9 +107,15 @@ fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<Instanti
         _: {}
     }
     let base String: extractBaseTypeName(typeName)
+    // Return empty unless the base name is a generic struct type or sum type.
     match registryHasTypeAt(registry, base, 0) {
         true: {}
-        _: { return empty }
+        _: {
+            match registryHasSumTypeAt(registry, base, 0) {
+                true: {}
+                _: { return empty }
+            }
+        }
     }
     let concretes Array<String>: extractTypeArgs(typeName)
     let req InstantiationRequest: { genericName: base, concreteTypes: concretes }
@@ -182,21 +201,22 @@ fn allBoundAt(concretes Array<String>, i Int64) Bool {
     return allBoundAt(concretes, i.add(1))
 }
 
-// inferFromCallSite — if callNode.name matches a registered generic function,
-// unify its declared param types against the arg resolvedTypes to bind each
-// type variable.  Only bare type-variable params (e.g. typeName = "T") are
-// handled; nested forms like "Array<T>" are skipped.  Returns [] if the
-// function is not generic or any binding is unresolved.
-fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<InstantiationRequest> {
+// inferFromGenericFnCall — shared logic for inferring an instantiation request
+// from a generic function call.  Given the function name and arg list, looks up
+// the function in the registry, unifies arg resolvedTypes against declared param
+// types, and returns a single-element request array when all type vars bind.
+// Returns [] when the function is not registered as generic or any binding is
+// unresolved.
+fn inferFromGenericFnCall(fnName String, args Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
-    let fnIdx Int64: findRegistryFnAt(registry, callNode.name, 0)
+    let fnIdx Int64: findRegistryFnAt(registry, fnName, 0)
     match fnIdx.equals(registry.fns.len()) {
         true: { return empty }
         _: {}
     }
     let def GenericFnDef: registry.fns.at(fnIdx)
     let argTypesOut Array<String>: []
-    let argTypes Array<String>: collectArgTypesAt(callNode.args, argTypesOut, 0)
+    let argTypes Array<String>: collectArgTypesAt(args, argTypesOut, 0)
     let concretesOut Array<String>: []
     let concretes Array<String>: buildConcreteTypesAt(def.typeParams, def.node.params, argTypes, 0, concretesOut)
     match allBoundAt(concretes, 0) {
@@ -207,6 +227,15 @@ fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<Instanti
     let result Array<InstantiationRequest>: []
     result.add(req)
     return result
+}
+
+// inferFromCallSite — if callNode.name matches a registered generic function,
+// unify its declared param types against the arg resolvedTypes to bind each
+// type variable.  Only bare type-variable params (e.g. typeName = "T") are
+// handled; nested forms like "Array<T>" are skipped.  Returns [] if the
+// function is not generic or any binding is unresolved.
+fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<InstantiationRequest> {
+    return inferFromGenericFnCall(callNode.name, callNode.args, registry)
 }
 
 // ─── Accumulator helpers ──────────────────────────────────────────────────────
@@ -306,6 +335,17 @@ fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<Instantiation
         }
         MethodCallNode: {
             let mcn MethodCallNode: expr
+            // Namespace-qualified generic call (e.g. opt.some(42)): the receiver
+            // is a VarRefNode with resolvedType "" because namespace prefixes are
+            // not local variables.  In that case, treat the call as a direct
+            // generic fn call on mcn.methodName.
+            let recvType String: resolvedTypeOf(mcn.receiver)
+            match recvType.equals("") {
+                true: {
+                    out: appendAllAt(inferFromGenericFnCall(mcn.methodName, mcn.args, registry), out, 0)
+                }
+                _: {}
+            }
             out: inferFromExpr(mcn.receiver, registry, out)
             out: inferFromExprsAt(mcn.args, registry, out, 0)
             return out
