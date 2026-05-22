@@ -27,13 +27,9 @@ include "exprs.suru" as exprs
 
 // isConstantAt — recursive linear search from index i.
 fn isConstantAt(constants Array<String>, name String, i Int64) Bool {
-    return match i.lt(constants.len()) {
-        true: match constants.at(i).equals(name) {
-            true: true
-            _: isConstantAt(constants, name, i.add(1))
-        }
-        _: false
-    }
+    if not i.lt(constants.len()) { return false }
+    if constants.at(i).equals(name) { return true }
+    return isConstantAt(constants, name, i.add(1))
 }
 
 // isConstant — true when name is in state.constants (module-level constant).
@@ -55,10 +51,7 @@ fn addConstant(state AnalyzerState, name String) AnalyzerState {
 // would later produce a spurious "cannot reassign constant" error.
 fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate Bool) AnalyzerState {
     let scopes Array<Scope>: state.scopes
-    match scopes.len().equals(1) and not isDuplicate {
-        true: addConstant(state, name)
-        _: {}
-    }
+    if scopes.len().equals(1) and not isDuplicate { addConstant(state, name) }
     return state
 }
 
@@ -68,10 +61,7 @@ fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate Bool)
 // non-void function context.
 fn checkBareReturn(state AnalyzerState) AnalyzerState {
     let isVoid Bool: state.currentReturnType.equals("void") or state.currentReturnType.equals("")
-    match isVoid {
-        true: {}
-        _: semantic.addError(state, "bare 'return' in non-void function")
-    }
+    if not isVoid { semantic.addError(state, "bare 'return' in non-void function") }
     return state
 }
 
@@ -85,18 +75,11 @@ fn checkBareReturn(state AnalyzerState) AnalyzerState {
 // stmt fields: stmt.name (String), stmt.typeName (String), stmt.value (AstNode).
 fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
     let isDuplicate Bool: semantic.existsInCurrentScope(state, stmt.name)
-    match isDuplicate {
-        true: semantic.addError(state, "variable '".append(stmt.name).append("' is already declared"))
-        _: {}
-    }
+    if isDuplicate { semantic.addError(state, "variable '".append(stmt.name).append("' is already declared")) }
     let typeResolved Bool: passes.resolveTypeName(state, stmt.typeName)
-    match not isDuplicate and typeResolved {
-        true: semantic.declareSymbol(state, stmt.name, stmt.typeName)
-        _: {}
-    }
-    match not isDuplicate and not typeResolved {
-        true: semantic.addError(state, "unknown type '".append(stmt.typeName).append("' for variable '").append(stmt.name).append("'"))
-        _: {}
+    if not isDuplicate and typeResolved { semantic.declareSymbol(state, stmt.name, stmt.typeName) }
+    if not isDuplicate and not typeResolved {
+        semantic.addError(state, "unknown type '".append(stmt.typeName).append("' for variable '").append(stmt.name).append("'"))
     }
     markConstantIfModuleScope(state, stmt.name, isDuplicate)
     let val AstNode: stmt.value
@@ -108,14 +91,10 @@ fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
 // (lines 150–157). Constant reassignment takes priority over undefined-variable check.
 fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerState {
     let isConst Bool: isConstant(state, stmt.name)
-    match isConst {
-        true: semantic.addError(state, "cannot reassign constant '".append(stmt.name).append("'"))
-        _: {}
-    }
+    if isConst { semantic.addError(state, "cannot reassign constant '".append(stmt.name).append("'")) }
     let isDefined Bool: not semantic.lookupSymbol(state, stmt.name).equals("")
-    match not isConst and not isDefined {
-        true: semantic.addError(state, "undefined variable '".append(stmt.name).append("'"))
-        _: {}
+    if not isConst and not isDefined {
+        semantic.addError(state, "undefined variable '".append(stmt.name).append("'"))
     }
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
@@ -131,9 +110,8 @@ fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) An
     match rcv {
         VarRefNode: {
             let typedRcv VarRefNode: rcv
-            match semantic.lookupSymbol(state, typedRcv.name).equals("") {
-                true: semantic.addError(state, "undefined variable '".append(typedRcv.name).append("'"))
-                _: {}
+            if semantic.lookupSymbol(state, typedRcv.name).equals("") {
+                semantic.addError(state, "undefined variable '".append(typedRcv.name).append("'"))
             }
         }
         _: {}
@@ -150,20 +128,18 @@ fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) An
 // IMPORTANT: test ReturnNodes with hasValue: true must include a valid AstNode
 // value — analyzeExpr will be called on it.
 fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
-    match stmt.hasValue {
-        true: {
-            let val AstNode: stmt.value
-            exprs.analyzeExpr(state, val)
-            let retType String: exprs.inferType(state, val)
-            let expected String: state.currentReturnType
-            let typesKnown Bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-            let assignable Bool: retType.equals(expected) or semantic.isSumVariant(state, expected, retType)
-            match typesKnown and not assignable {
-                true: semantic.addError(state, "return type mismatch: expected ".append(expected).append(", got ").append(retType))
-                _: {}
-            }
+    if stmt.hasValue {
+        let val AstNode: stmt.value
+        exprs.analyzeExpr(state, val)
+        let retType String: exprs.inferType(state, val)
+        let expected String: state.currentReturnType
+        let typesKnown Bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
+        let assignable Bool: retType.equals(expected) or semantic.isSumVariant(state, expected, retType)
+        if typesKnown and not assignable {
+            semantic.addError(state, "return type mismatch: expected ".append(expected).append(", got ").append(retType))
         }
-        _: checkBareReturn(state)
+    } else {
+        checkBareReturn(state)
     }
     return state
 }
@@ -185,9 +161,8 @@ fn analyzeWhileStatement(state AnalyzerState, stmt WhileNode) AnalyzerState {
     let cond AstNode: stmt.condition
     exprs.analyzeExpr(state, cond)
     let condType String: exprs.inferType(state, cond)
-    match not condType.equals("") and not condType.equals("Bool") {
-        true: semantic.addError(state, "while condition must be Bool, got ".append(condType))
-        _: {}
+    if not condType.equals("") and not condType.equals("Bool") {
+        semantic.addError(state, "while condition must be Bool, got ".append(condType))
     }
     semantic.pushScope(state)
     let body Array<AstNode>: stmt.body
@@ -212,9 +187,8 @@ fn analyzeIfStatement(state AnalyzerState, stmt IfNode) AnalyzerState {
     let cond AstNode: stmt.condition
     exprs.analyzeExpr(state, cond)
     let condType String: exprs.inferType(state, cond)
-    match not condType.equals("") and not condType.equals("Bool") {
-        true: semantic.addError(state, "if condition must be Bool, got ".append(condType))
-        _: {}
+    if not condType.equals("") and not condType.equals("Bool") {
+        semantic.addError(state, "if condition must be Bool, got ".append(condType))
     }
     let thenBlock BlockNode: stmt.thenBranch
     let thenStmts Array<AstNode>: thenBlock.stmts
@@ -224,13 +198,10 @@ fn analyzeIfStatement(state AnalyzerState, stmt IfNode) AnalyzerState {
 
     let elseBlock BlockNode: stmt.elseBranch
     let elseStmts Array<AstNode>: elseBlock.stmts
-    match elseStmts.len().gt(0) {
-        true: {
-            semantic.pushScope(state)
-            analyzeStatements(state, elseStmts)
-            semantic.popScope(state)
-        }
-        _: {}
+    if elseStmts.len().gt(0) {
+        semantic.pushScope(state)
+        analyzeStatements(state, elseStmts)
+        semantic.popScope(state)
     }
     return state
 }

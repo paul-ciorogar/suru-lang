@@ -42,13 +42,9 @@ include "../codegen/irCodegenTypeHelpers.suru" as tyh
 
 // rtLookupTypeEntryAt — linear search through state.typeDecls.
 fn rtLookupTypeEntryAt(decls Array<SemTypeEntry>, name String, i Int64) SemTypeEntry {
-    return match i.lt(decls.len()) {
-        true: match decls.at(i).name.equals(name) {
-            true: decls.at(i)
-            _: rtLookupTypeEntryAt(decls, name, i.add(1))
-        }
-        _: { name: "", fields: [], methods: [] }
-    }
+    if not i.lt(decls.len()) { return { name: "", fields: [], methods: [] } }
+    if decls.at(i).name.equals(name) { return decls.at(i) }
+    return rtLookupTypeEntryAt(decls, name, i.add(1))
 }
 
 // rtLookupTypeEntry — returns the SemTypeEntry for `name`, or an empty entry
@@ -60,13 +56,9 @@ fn rtLookupTypeEntry(state AnalyzerState, name String) SemTypeEntry {
 
 // rtLookupFieldTypeAt — linear search through a SemTypeEntry's fields.
 fn rtLookupFieldTypeAt(fields Array<SemFieldEntry>, name String, i Int64) String {
-    return match i.lt(fields.len()) {
-        true: match fields.at(i).name.equals(name) {
-            true: fields.at(i).typeName
-            _: rtLookupFieldTypeAt(fields, name, i.add(1))
-        }
-        _: ""
-    }
+    if not i.lt(fields.len()) { return "" }
+    if fields.at(i).name.equals(name) { return fields.at(i).typeName }
+    return rtLookupFieldTypeAt(fields, name, i.add(1))
 }
 
 // rtLookupFieldType — declared type annotation for `fieldName` on `decl`,
@@ -78,13 +70,9 @@ fn rtLookupFieldType(decl SemTypeEntry, fieldName String) String {
 
 // rtLookupMethodReturnAt — linear search through a SemTypeEntry's methods.
 fn rtLookupMethodReturnAt(methods Array<SemMethodEntry>, name String, i Int64) String {
-    return match i.lt(methods.len()) {
-        true: match methods.at(i).name.equals(name) {
-            true: methods.at(i).returnType
-            _: rtLookupMethodReturnAt(methods, name, i.add(1))
-        }
-        _: ""
-    }
+    if not i.lt(methods.len()) { return "" }
+    if methods.at(i).name.equals(name) { return methods.at(i).returnType }
+    return rtLookupMethodReturnAt(methods, name, i.add(1))
 }
 
 // rtLookupMethodReturn — declared return type of `methodName` on `decl`, or ""
@@ -99,22 +87,16 @@ fn rtLookupMethodReturn(decl SemTypeEntry, methodName String) String {
 // rtParamAt — read the idx-th paramType of a FunctionSig, or "" if oob.
 fn rtParamAt(sig FunctionSig, idx Int64) String {
     let pts Array<String>: sig.paramTypes
-    return match idx.lt(pts.len()) {
-        true: pts.at(idx)
-        _: ""
-    }
+    if not idx.lt(pts.len()) { return "" }
+    return pts.at(idx)
 }
 
 // rtFnParamTypeAt — linear search; returns the i-th paramType of the named
 // function, or "" if the function or index doesn't exist.
 fn rtFnParamTypeAt(fns Array<FunctionSig>, fnName String, idx Int64, i Int64) String {
-    return match i.lt(fns.len()) {
-        true: match fns.at(i).name.equals(fnName) {
-            true: rtParamAt(fns.at(i), idx)
-            _: rtFnParamTypeAt(fns, fnName, idx, i.add(1))
-        }
-        _: ""
-    }
+    if not i.lt(fns.len()) { return "" }
+    if fns.at(i).name.equals(fnName) { return rtParamAt(fns.at(i), idx) }
+    return rtFnParamTypeAt(fns, fnName, idx, i.add(1))
 }
 
 // rtFnParamType — public wrapper.
@@ -153,13 +135,9 @@ fn rtNodeResolvedType(expr AstNode) String {
 
 // rtResolveArrayElems — recursively resolve each element with `elemExpected`.
 fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected String, i Int64) AnalyzerState {
-    match i.lt(elems.len()) {
-        true: {
-            resolveExpr(state, elems.at(i), elemExpected)
-            rtResolveArrayElems(state, elems, elemExpected, i.add(1))
-        }
-        _: {}
-    }
+    if not i.lt(elems.len()) { return state }
+    resolveExpr(state, elems.at(i), elemExpected)
+    rtResolveArrayElems(state, elems, elemExpected, i.add(1))
     return state
 }
 
@@ -167,18 +145,14 @@ fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected S
 // up the declared field type on `decl` and using `makeSuruType` to canonicalise
 // the annotation into the codegen-form expected by resolveExpr.
 fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, i Int64) AnalyzerState {
-    match i.lt(fields.len()) {
-        true: {
-            let field StructFieldNode: fields.at(i)
-            let fieldName String: field.name
-            let annot String: rtLookupFieldType(decl, fieldName)
-            let expected String: tyh.makeSuruType(annot)
-            let val AstNode: field.value
-            resolveExpr(state, val, expected)
-            rtResolveStructFields(state, fields, decl, i.add(1))
-        }
-        _: {}
-    }
+    if not i.lt(fields.len()) { return state }
+    let field StructFieldNode: fields.at(i)
+    let fieldName String: field.name
+    let annot String: rtLookupFieldType(decl, fieldName)
+    let expected String: tyh.makeSuruType(annot)
+    let val AstNode: field.value
+    resolveExpr(state, val, expected)
+    rtResolveStructFields(state, fields, decl, i.add(1))
     return state
 }
 
@@ -189,53 +163,39 @@ fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, dec
 // the body expression nodes in place so the later method lambda-lift
 // (pipeline.suru) can move them into top-level functions already type-resolved.
 fn rtResolveStructMethods(state AnalyzerState, fields Array<StructFieldNode>, structType String, i Int64) AnalyzerState {
-    match i.lt(fields.len()) {
-        true: {
-            let field StructFieldNode: fields.at(i)
-            match field.isMethod {
-                true: {
-                    sem.pushScope(state)
-                    sem.declareSymbol(state, "this", structType)
-                    let mps Array<Param>: field.methodParams
-                    let pj Int64: 0
-                    while pj.lt(mps.len()) {
-                        let p Param: mps.at(pj)
-                        sem.declareSymbol(state, p.name, p.typeName)
-                        pj: pj.add(1)
-                    }
-                    let expectedReturn String: tyh.makeSuruType(field.methodRet)
-                    let body Array<AstNode>: field.methodBody
-                    rtResolveBody(state, body, expectedReturn)
-                    sem.popScope(state)
-                }
-                _: {}
-            }
-            rtResolveStructMethods(state, fields, structType, i.add(1))
+    if not i.lt(fields.len()) { return state }
+    let field StructFieldNode: fields.at(i)
+    if field.isMethod {
+        sem.pushScope(state)
+        sem.declareSymbol(state, "this", structType)
+        let mps Array<Param>: field.methodParams
+        let pj Int64: 0
+        while pj.lt(mps.len()) {
+            let p Param: mps.at(pj)
+            sem.declareSymbol(state, p.name, p.typeName)
+            pj: pj.add(1)
         }
-        _: {}
+        let expectedReturn String: tyh.makeSuruType(field.methodRet)
+        let body Array<AstNode>: field.methodBody
+        rtResolveBody(state, body, expectedReturn)
+        sem.popScope(state)
     }
+    rtResolveStructMethods(state, fields, structType, i.add(1))
     return state
 }
 
 // rtResolveMatchArms — resolve each arm body with the outer-match expected
 // type. Pattern expressions are resolved with no expectation.
 fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String, i Int64) AnalyzerState {
-    match i.lt(arms.len()) {
-        true: {
-            let arm MatchArm: arms.at(i)
-            match arm.isWildcard {
-                true: {}
-                _: {
-                    let pat AstNode: arm.pattern
-                    resolveExpr(state, pat, "")
-                }
-            }
-            let body AstNode: arm.body
-            resolveExpr(state, body, expected)
-            rtResolveMatchArms(state, arms, expected, i.add(1))
-        }
-        _: {}
+    if not i.lt(arms.len()) { return state }
+    let arm MatchArm: arms.at(i)
+    if not arm.isWildcard {
+        let pat AstNode: arm.pattern
+        resolveExpr(state, pat, "")
     }
+    let body AstNode: arm.body
+    resolveExpr(state, body, expected)
+    rtResolveMatchArms(state, arms, expected, i.add(1))
     return state
 }
 
@@ -244,15 +204,11 @@ fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String
 // in state.functions so `rtFnParamType` returns "" — fine, args fall back to
 // pure bottom-up resolution.
 fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String, i Int64) AnalyzerState {
-    match i.lt(args.len()) {
-        true: {
-            let paramAnn String: rtFnParamType(state, fnName, i)
-            let expected String: tyh.makeSuruType(paramAnn)
-            resolveExpr(state, args.at(i), expected)
-            rtResolveCallArgs(state, args, fnName, i.add(1))
-        }
-        _: {}
-    }
+    if not i.lt(args.len()) { return state }
+    let paramAnn String: rtFnParamType(state, fnName, i)
+    let expected String: tyh.makeSuruType(paramAnn)
+    resolveExpr(state, args.at(i), expected)
+    rtResolveCallArgs(state, args, fnName, i.add(1))
     return state
 }
 
@@ -280,10 +236,7 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // Int32 literals are upgraded only when the surrounding context
             // explicitly expects Int32. Default stays Int64 to preserve the
             // existing inferType behaviour from exprs.suru.
-            match expected.equals("Int32") {
-                true: { typed.resolvedType: "Int32" }
-                _:    { typed.resolvedType: "Int64" }
-            }
+            if expected.equals("Int32") { typed.resolvedType: "Int32" } else { typed.resolvedType: "Int64" }
         }
 
         FloatLitNode: {
@@ -315,12 +268,11 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // readFile is a builtin that returns String; everything else falls
             // through to the function-signature lookup. exit/printLn return
             // nothing meaningful for type-inference purposes — leave "".
-            match name.equals("readFile") {
-                true: { typed.resolvedType: "String" }
-                _: {
-                    let raw String: exprs.lookupFnReturnType(state, name)
-                    typed.resolvedType: tyh.makeSuruType(raw)
-                }
+            if name.equals("readFile") {
+                typed.resolvedType: "String"
+            } else {
+                let raw String: exprs.lookupFnReturnType(state, name)
+                typed.resolvedType: tyh.makeSuruType(raw)
             }
         }
 
@@ -336,14 +288,8 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // inferred this from context; the migration must do it explicitly.)
             let rcvType String: rtNodeResolvedType(rcv)
             let argExpected String: ""
-            match typed.methodName.equals("add") {
-                true: {
-                    match tyh.isArraySuruType(rcvType) {
-                        true:  { argExpected: tyh.elemSuruType(rcvType) }
-                        _:     {}
-                    }
-                }
-                _: {}
+            if typed.methodName.equals("add") {
+                if tyh.isArraySuruType(rcvType) { argExpected: tyh.elemSuruType(rcvType) }
             }
             rtResolveArrayElems(state, args, argExpected, 0)
             // User-defined object method: if the receiver's resolved type is a
@@ -352,9 +298,10 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // method-name → return-type table in exprs.suru.
             let mdecl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
             let userRet String: rtLookupMethodReturn(mdecl, typed.methodName)
-            match userRet.equals("") {
-                true:  { typed.resolvedType: exprs.inferTypeFromMethod(state, typed) }
-                _:     { typed.resolvedType: tyh.makeSuruType(userRet) }
+            if userRet.equals("") {
+                typed.resolvedType: exprs.inferTypeFromMethod(state, typed)
+            } else {
+                typed.resolvedType: tyh.makeSuruType(userRet)
             }
         }
 
@@ -375,23 +322,14 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // "Array:T" form; otherwise peek the first element (after first
             // resolving it bottom-up) and use its inferred type.
             let elemType String: ""
-            match tyh.isArraySuruType(expected) {
-                true: { elemType: tyh.elemSuruType(expected) }
-                _: {}
-            }
-            match elemType.equals("") and elems.len().gt(0) {
-                true: {
-                    resolveExpr(state, elems.at(0), "")
-                    elemType: rtNodeResolvedType(elems.at(0))
-                }
-                _: {}
+            if tyh.isArraySuruType(expected) { elemType: tyh.elemSuruType(expected) }
+            if elemType.equals("") and elems.len().gt(0) {
+                resolveExpr(state, elems.at(0), "")
+                elemType: rtNodeResolvedType(elems.at(0))
             }
             // Empty arrays without context default to Int64 — matches the
             // codegen fallback at irCodegen.suru:395.
-            match elemType.equals("") {
-                true: { elemType: "Int64" }
-                _: {}
-            }
+            if elemType.equals("") { elemType: "Int64" }
             rtResolveArrayElems(state, elems, elemType, 0)
             typed.resolvedType: "Array:".append(elemType)
         }
@@ -417,9 +355,10 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             resolveExpr(state, cond, "")
             let arms Array<MatchArm>: typed.arms
             rtResolveMatchArms(state, arms, expected, 0)
-            match expected.equals("") and arms.len().gt(0) {
-                true: { typed.resolvedType: rtNodeResolvedType(arms.at(0).body) }
-                _:    { typed.resolvedType: expected }
+            if expected.equals("") and arms.len().gt(0) {
+                typed.resolvedType: rtNodeResolvedType(arms.at(0).body)
+            } else {
+                typed.resolvedType: expected
             }
         }
 
@@ -476,9 +415,8 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
             // statement-analysis pass runs after us — but it re-declares the
             // same symbols, so there's no risk of double-binding. We avoid
             // duplicating sem.existsInCurrentScope errors here.
-            match sem.existsInCurrentScope(state, typed.name) {
-                true: {}
-                _: { sem.declareSymbol(state, typed.name, typed.typeName) }
+            if not sem.existsInCurrentScope(state, typed.name) {
+                sem.declareSymbol(state, typed.name, typed.typeName)
             }
         }
 
@@ -504,12 +442,9 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
 
         ReturnNode: {
             let typed ReturnNode: stmt
-            match typed.hasValue {
-                true: {
-                    let val AstNode: typed.value
-                    resolveExpr(state, val, expectedReturn)
-                }
-                _: {}
+            if typed.hasValue {
+                let val AstNode: typed.value
+                resolveExpr(state, val, expectedReturn)
             }
         }
 
@@ -534,13 +469,10 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
             sem.popScope(state)
             let elseBlock BlockNode: typed.elseBranch
             let elseStmts Array<AstNode>: elseBlock.stmts
-            match elseStmts.len().gt(0) {
-                true: {
-                    sem.pushScope(state)
-                    rtResolveBody(state, elseStmts, expectedReturn)
-                    sem.popScope(state)
-                }
-                _: {}
+            if elseStmts.len().gt(0) {
+                sem.pushScope(state)
+                rtResolveBody(state, elseStmts, expectedReturn)
+                sem.popScope(state)
             }
         }
 
@@ -573,24 +505,17 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
 // statement list (not a single expression) so we recurse via rtResolveBody.
 // Pattern expressions are resolved with no expectation.
 fn rtResolveMatchStmtArms(state AnalyzerState, arms Array<MatchStmtArm>, expectedReturn String, i Int64) AnalyzerState {
-    match i.lt(arms.len()) {
-        true: {
-            let arm MatchStmtArm: arms.at(i)
-            match arm.isWildcard {
-                true: {}
-                _: {
-                    let pat AstNode: arm.pattern
-                    resolveExpr(state, pat, "")
-                }
-            }
-            let armStmts Array<AstNode>: arm.stmts
-            sem.pushScope(state)
-            rtResolveBody(state, armStmts, expectedReturn)
-            sem.popScope(state)
-            rtResolveMatchStmtArms(state, arms, expectedReturn, i.add(1))
-        }
-        _: {}
+    if not i.lt(arms.len()) { return state }
+    let arm MatchStmtArm: arms.at(i)
+    if not arm.isWildcard {
+        let pat AstNode: arm.pattern
+        resolveExpr(state, pat, "")
     }
+    let armStmts Array<AstNode>: arm.stmts
+    sem.pushScope(state)
+    rtResolveBody(state, armStmts, expectedReturn)
+    sem.popScope(state)
+    rtResolveMatchStmtArms(state, arms, expectedReturn, i.add(1))
     return state
 }
 

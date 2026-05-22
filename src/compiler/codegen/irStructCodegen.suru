@@ -215,22 +215,19 @@ fn emitStructLiteralFields(ctx IrCodegenContext, mem String, typeName String, fi
         let foundIdx Int64: -1
         let k Int64: 0
         while k.lt(fieldNames.len()) {
-            match fieldNames.at(k).equals(tdFieldName) { true: { foundIdx: k } _: {} }
+            if fieldNames.at(k).equals(tdFieldName) { foundIdx: k }
             k: k.add(1)
         }
-        match foundIdx.equals(-1) {
-            true: {
-                // Absent field — zero-initialize so heap-typed slots hold null (not garbage).
-                ctx.builder: ir.emitStore(ctx.builder, "i64", "0", fGr.name)
-            }
-            _: {
-                // Present field — encode value as i64 and store into the slot.
-                let fieldSsa String: fieldSSAs.at(foundIdx)
-                let fieldSuruType String: fieldSuruTypes.at(foundIdx)
-                let asI64 CodegenResult: structFieldToI64(ctx, fieldSsa, fieldSuruType)
-                ctx: asI64.ctx
-                ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
-            }
+        if foundIdx.equals(-1) {
+            // Absent field — zero-initialize so heap-typed slots hold null (not garbage).
+            ctx.builder: ir.emitStore(ctx.builder, "i64", "0", fGr.name)
+        } else {
+            // Present field — encode value as i64 and store into the slot.
+            let fieldSsa String: fieldSSAs.at(foundIdx)
+            let fieldSuruType String: fieldSuruTypes.at(foundIdx)
+            let asI64 CodegenResult: structFieldToI64(ctx, fieldSsa, fieldSuruType)
+            ctx: asI64.ctx
+            ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
         }
         i: i.add(1)
     }

@@ -54,12 +54,9 @@ fn emitInt64Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
             ctx: ar.ctx
             let result CodegenResult: irStr.emitInt64FromString(ctx, ar.name)
             ctx: result.ctx
-            match isPrintTempString(arg0) {
-                true: {
-                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                    ctx: dr.ctx
-                }
-                _: {}
+            if isPrintTempString(arg0) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                ctx: dr.ctx
             }
             return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
         }
@@ -86,12 +83,9 @@ fn emitFloat64Static(ctx IrCodegenContext, method String, args Array<AstNode>) C
             ctx: ar.ctx
             let result CodegenResult: irStr.emitFloat64FromString(ctx, ar.name)
             ctx: result.ctx
-            match isPrintTempString(arg0) {
-                true: {
-                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                    ctx: dr.ctx
-                }
-                _: {}
+            if isPrintTempString(arg0) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                ctx: dr.ctx
             }
             return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
         }
@@ -103,13 +97,10 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
     let ar CodegenResult: emitValue(ctx, args.at(0))
     ctx: ar.ctx
     let raw String: ar.name
-    match box.isScalarType(ar.suruType) {
-        true: {}
-        _: {
-            let ur CodegenResult: box.unboxInt64(ctx, ar.name)
-            ctx: ur.ctx
-            raw: ur.name
-        }
+    if not box.isScalarType(ar.suruType) {
+        let ur CodegenResult: box.unboxInt64(ctx, ar.name)
+        ctx: ur.ctx
+        raw: ur.name
     }
     let tr IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i32")
     ctx.builder: tr.builder
@@ -131,10 +122,7 @@ fn sanitizePath(p String) String {
         let isUp  Bool: c.gte(65) and c.lt(91)
         let isUnd Bool: ch.equals("_")
         let keep Bool: isDig or isLow or isUp or isUnd
-        match keep {
-            true: { out: out.append(ch) }
-            _:    { out: out.append("_") }
-        }
+        if keep { out: out.append(ch) } else { out: out.append("_") }
         i: i.add(1)
     }
     return out
@@ -159,10 +147,7 @@ fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
     let paths Array<String>: ctx.fnSrcPath
     let i Int64: 0
     while i.lt(names.len()) {
-        match names.at(i).equals(name) {
-            true: { return paths.at(i) }
-            _:    {}
-        }
+        if names.at(i).equals(name) { return paths.at(i) }
         i: i.add(1)
     }
     return ""
@@ -174,10 +159,7 @@ fn lookupAliasSrc(ctx IrCodegenContext, ns String) String {
     let aliasSrc Array<String>: ctx.aliasSrc
     let i Int64: 0
     while i.lt(aliasNs.len()) {
-        match aliasNs.at(i).equals(ns) {
-            true: { return aliasSrc.at(i) }
-            _:    {}
-        }
+        if aliasNs.at(i).equals(ns) { return aliasSrc.at(i) }
         i: i.add(1)
     }
     return ""
@@ -201,18 +183,10 @@ fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, ar
         }
         let pLlvm String: box.llvmTypeOf(pSuruType)
         let finalVal String: ar.name
-        match box.isScalarType(pSuruType) {
-            true: {
-                match box.isScalarType(ar.suruType) {
-                    true: {}
-                    _: {
-                        let ur CodegenResult: box.unboxScalar(ctx, ar.name, pSuruType)
-                        ctx: ur.ctx
-                        finalVal: ur.name
-                    }
-                }
-            }
-            _: {}
+        if box.isScalarType(pSuruType) and not box.isScalarType(ar.suruType) {
+            let ur CodegenResult: box.unboxScalar(ctx, ar.name, pSuruType)
+            ctx: ur.ctx
+            finalVal: ur.name
         }
         argParts.add(pLlvm.append(" ").append(finalVal))
         i: i.add(1)
@@ -255,39 +229,36 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
     let dataPtr String: "null"
     let actualElemSuruType String: elemSuruType
     // Step 2: for non-empty arrays, emit elements into raw data buffer.
-    match count.equals(0) {
-        true: {}
-        _: {
-            // Evaluate first element BEFORE malloc'ing rawData (preserves SSA ordering invariant).
-            let firstValR CodegenResult: emitValue(ctx, elems.at(0))
-            ctx: firstValR.ctx
-            actualElemSuruType: firstValR.suruType
-            let storeType String: irArr.elemStorageLlvmType(actualElemSuruType)
-            let elemBytes Int64: irArr.elemSizeBytes(actualElemSuruType)
-            // malloc raw data buffer: count * elemBytes.
-            let rawArgs Array<String>: []
-            rawArgs.add("i64 ".append(count.multiply(elemBytes).toString()))
-            let rawR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", rawArgs)
-            ctx.builder: rawR.builder
-            dataPtr: rawR.name
-            // Slot 0: GEP first, then encode firstVal, then store.
-            let slot0R IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 0")
-            ctx.builder: slot0R.builder
-            let enc0 CodegenResult: irArr.emitElemEncode(ctx, firstValR.name, firstValR.suruType)
-            ctx: enc0.ctx
-            ctx.builder: ir.emitStore(ctx.builder, storeType, enc0.name, slot0R.name)
-            // Slots 1..count-1: eval elem, GEP slot, encode, store.
-            let i Int64: 1
-            while i.lt(count) {
-                let elemValR CodegenResult: emitValue(ctx, elems.at(i))
-                ctx: elemValR.ctx
-                let slotR IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 ".append(i.toString()))
-                ctx.builder: slotR.builder
-                let enc CodegenResult: irArr.emitElemEncode(ctx, elemValR.name, elemValR.suruType)
-                ctx: enc.ctx
-                ctx.builder: ir.emitStore(ctx.builder, storeType, enc.name, slotR.name)
-                i: i.add(1)
-            }
+    if not count.equals(0) {
+        // Evaluate first element BEFORE malloc'ing rawData (preserves SSA ordering invariant).
+        let firstValR CodegenResult: emitValue(ctx, elems.at(0))
+        ctx: firstValR.ctx
+        actualElemSuruType: firstValR.suruType
+        let storeType String: irArr.elemStorageLlvmType(actualElemSuruType)
+        let elemBytes Int64: irArr.elemSizeBytes(actualElemSuruType)
+        // malloc raw data buffer: count * elemBytes.
+        let rawArgs Array<String>: []
+        rawArgs.add("i64 ".append(count.multiply(elemBytes).toString()))
+        let rawR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", rawArgs)
+        ctx.builder: rawR.builder
+        dataPtr: rawR.name
+        // Slot 0: GEP first, then encode firstVal, then store.
+        let slot0R IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 0")
+        ctx.builder: slot0R.builder
+        let enc0 CodegenResult: irArr.emitElemEncode(ctx, firstValR.name, firstValR.suruType)
+        ctx: enc0.ctx
+        ctx.builder: ir.emitStore(ctx.builder, storeType, enc0.name, slot0R.name)
+        // Slots 1..count-1: eval elem, GEP slot, encode, store.
+        let i Int64: 1
+        while i.lt(count) {
+            let elemValR CodegenResult: emitValue(ctx, elems.at(i))
+            ctx: elemValR.ctx
+            let slotR IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 ".append(i.toString()))
+            ctx.builder: slotR.builder
+            let enc CodegenResult: irArr.emitElemEncode(ctx, elemValR.name, elemValR.suruType)
+            ctx: enc.ctx
+            ctx.builder: ir.emitStore(ctx.builder, storeType, enc.name, slotR.name)
+            i: i.add(1)
         }
     }
     // Step 3: pre-allocate all 5 header GEP SSA names in one batch.
@@ -338,16 +309,8 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
     // Nested matches (no `and`) so the older bootstrap compiler — which predates
     // `match <bool-and-expr>` — codegens this guard correctly.
     let lt TypeDecl: types.lookupType(ctx, typeName)
-    match lt.name.equals("") {
-        true: {
-            match fields.len().equals(0) {
-                true: {
-                    return { ctx: ctx, name: "null", llvmType: "ptr", suruType: typeName }
-                }
-                _: {}
-            }
-        }
-        _: {}
+    if lt.name.equals("") and fields.len().equals(0) {
+        return { ctx: ctx, name: "null", llvmType: "ptr", suruType: typeName }
     }
     // Step 1: allocate struct memory and write the 32-byte header.
     let allocR CodegenResult: irStruct.emitStructLiteralAlloc(ctx, typeName)
@@ -367,20 +330,17 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
         let foundIdx Int64: -1
         let k Int64: 0
         while k.lt(fields.len()) {
-            match fields.at(k).name.equals(tdFieldName) { true: { foundIdx: k } _: {} }
+            if fields.at(k).name.equals(tdFieldName) { foundIdx: k }
             k: k.add(1)
         }
-        match foundIdx.equals(-1) {
-            true: {
-                ctx.builder: ir.emitStore(ctx.builder, "i64", "0", fGr.name)
-            }
-            _: {
-                let fr CodegenResult: emitValue(ctx, fields.at(foundIdx).value)
-                ctx: fr.ctx
-                let asI64 CodegenResult: irStruct.structFieldToI64(ctx, fr.name, fr.suruType)
-                ctx: asI64.ctx
-                ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
-            }
+        if foundIdx.equals(-1) {
+            ctx.builder: ir.emitStore(ctx.builder, "i64", "0", fGr.name)
+        } else {
+            let fr CodegenResult: emitValue(ctx, fields.at(foundIdx).value)
+            ctx: fr.ctx
+            let asI64 CodegenResult: irStruct.structFieldToI64(ctx, fr.name, fr.suruType)
+            ctx: asI64.ctx
+            ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
         }
         i: i.add(1)
     }
@@ -410,9 +370,9 @@ fn isExprTemp(node AstNode) Bool {
 fn isPrintTempString(node AstNode) Bool {
     match node {
         MethodCallNode: {
-            match node.methodName.equals("toString") { true: { return true } _: {} }
-            match node.methodName.equals("append")   { true: { return true } _: {} }
-            match node.methodName.equals("slice")    { true: { return true } _: {} }
+            if node.methodName.equals("toString") { return true }
+            if node.methodName.equals("append")   { return true }
+            if node.methodName.equals("slice")    { return true }
             return false
         }
         _: { return false }
@@ -425,27 +385,21 @@ fn isPrintTempString(node AstNode) Bool {
 // Checks the variable's type via lookupVar to distinguish String.at() from
 // Array.at() when both appear as .at() method calls.
 fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) Bool {
-    match isPrintTempString(node) { true: { return true } _: {} }
+    if isPrintTempString(node) { return true }
     match node {
         MethodCallNode: {
             let nodeMethod String: node.methodName
-            match nodeMethod.equals("at") {
-                true: {
-                    let nodeRecv AstNode: node.receiver
-                    match nodeRecv {
-                        VarRefNode: {
-                            let recvName String: nodeRecv.name
-                            let entry VarEntry: types.lookupVar(ctx, recvName)
-                            let recvType String: entry.suruType
-                            match recvType.equals("String") {
-                                true: { return true }
-                                _: {}
-                            }
-                        }
-                        _: {}
+            if nodeMethod.equals("at") {
+                let nodeRecv AstNode: node.receiver
+                match nodeRecv {
+                    VarRefNode: {
+                        let recvName String: nodeRecv.name
+                        let entry VarEntry: types.lookupVar(ctx, recvName)
+                        let recvType String: entry.suruType
+                        if recvType.equals("String") { return true }
                     }
+                    _: {}
                 }
-                _: {}
             }
         }
         _: {}
@@ -460,17 +414,13 @@ fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) Bool {
 fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
     match node {
         MethodCallNode: {
-            match node.methodName.equals("__append") {
-                true: { return appendRootSlot(ctx, node.receiver) }
-                _: { return "" }
-            }
+            if node.methodName.equals("__append") { return appendRootSlot(ctx, node.receiver) }
+            return ""
         }
         VarRefNode: {
             let entry VarEntry: types.lookupVar(ctx, node.name)
-            match entry.name.equals("") {
-                true: { return "" }
-                _: { return entry.allocaName }
-            }
+            if entry.name.equals("") { return "" }
+            return entry.allocaName
         }
         _: { return "" }
     }
@@ -608,12 +558,9 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                             ctx.builder: cr.builder
                             let sr IrResult: ir.emitSext(ctx.builder, "i32", cr.name, "i64")
                             ctx.builder: sr.builder
-                            match isPrintTempString(cmdArg) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
+                            if isPrintTempString(cmdArg) {
+                                let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                                ctx: dr.ctx
                             }
                             return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "Int64" }
                         }
@@ -714,18 +661,10 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
         }
         let pLlvm String: box.llvmTypeOf(pSuru)
         let finalVal String: ar.name
-        match box.isScalarType(pSuru) {
-            true: {
-                match box.isScalarType(ar.suruType) {
-                    true: {}
-                    _: {
-                        let ur CodegenResult: box.unboxScalar(ctx, ar.name, pSuru)
-                        ctx: ur.ctx
-                        finalVal: ur.name
-                    }
-                }
-            }
-            _: {}
+        if box.isScalarType(pSuru) and not box.isScalarType(ar.suruType) {
+            let ur CodegenResult: box.unboxScalar(ctx, ar.name, pSuru)
+            ctx: ur.ctx
+            finalVal: ur.name
         }
         argParts.add(pLlvm.append(" ").append(finalVal))
         i: i.add(1)
@@ -748,31 +687,23 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
         VarRefNode: {
             let recvName String: recv.name
             let lookupResult VarEntry: types.lookupVar(ctx, recvName)
-            match lookupResult.name.equals("") {
-                true: {
-                    // Not in local scope — check if static builtin type or namespace alias.
-                    let isBuiltin Bool: tyh.isBuiltinSuruType(recvName)
-                    match isBuiltin {
-                        true: {}
-                        _: {
-                            // Not in scope, not a builtin type name → namespace call.
-                            // Resolve the alias to the callee file and mangle to
-                            // that file's symbol; fall back to name-based mangling
-                            // when the receiver isn't a known alias.
-                            let nsSrc String: lookupAliasSrc(ctx, recvName)
-                            match nsSrc.equals("") {
-                                true:  { return emitUserFnCall(ctx, method, expr.args) }
-                                _:     { return emitUserFnCallSym(ctx, method, mangleSym(nsSrc, method), expr.args) }
-                            }
-                        }
-                    }
+            if lookupResult.name.equals("") {
+                // Not in local scope — check if static builtin type or namespace alias.
+                let isBuiltin Bool: tyh.isBuiltinSuruType(recvName)
+                if not isBuiltin {
+                    // Not in scope, not a builtin type name → namespace call.
+                    // Resolve the alias to the callee file and mangle to
+                    // that file's symbol; fall back to name-based mangling
+                    // when the receiver isn't a known alias.
+                    let nsSrc String: lookupAliasSrc(ctx, recvName)
+                    if nsSrc.equals("") { return emitUserFnCall(ctx, method, expr.args) }
+                    return emitUserFnCallSym(ctx, method, mangleSym(nsSrc, method), expr.args)
                 }
-                _: {}
             }
             // Static type methods.
-            match recvName.equals("Int64")   { true: { return emitInt64Static(ctx, method, expr.args)   } _: {} }
-            match recvName.equals("Float64") { true: { return emitFloat64Static(ctx, method, expr.args) } _: {} }
-            match recvName.equals("Int32")   { true: { return emitInt32Static(ctx, method, expr.args)   } _: {} }
+            if recvName.equals("Int64")   { return emitInt64Static(ctx, method, expr.args)   }
+            if recvName.equals("Float64") { return emitFloat64Static(ctx, method, expr.args) }
+            if recvName.equals("Int32")   { return emitInt32Static(ctx, method, expr.args)   }
         }
         _: {}
     }
@@ -787,481 +718,334 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     // through the per-instance vtable pointer in the object's `__vtable` slot.
     let objDecl TypeDecl: types.lookupType(ctx, recvSuruType)
     let omi Int64: types.methodIndex(objDecl, method)
-    match omi.lt(0) {
-        true: {}
-        _: { return emitObjectMethodCall(ctx, expr, recvVal, objDecl, method, omi) }
-    }
+    if not omi.lt(0) { return emitObjectMethodCall(ctx, expr, recvVal, objDecl, method, omi) }
 
     // Array instance methods.
-    match tyh.isArraySuruType(recvSuruType) {
-        true: {
-            let elemST String: tyh.elemSuruType(recvSuruType)
-            match method.equals("len")   { true: { return irArr.emitArrayLen(ctx, recvVal) } _: {} }
-            match method.equals("clone") { true: { return irArr.emitArrayClone(ctx, recvVal, elemST) } _: {} }
-            match method.equals("drop")  { true: { return irArr.emitArrayDrop(ctx, recvVal) } _: {} }
-            match method.equals("at") {
-                true: {
-                    let idxR CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: idxR.ctx
-                    let idxRaw String: idxR.name
-                    match box.isScalarType(idxR.suruType) {
-                        true: {}
-                        _: {
-                            let ur CodegenResult: box.unboxInt64(ctx, idxR.name)
-                            ctx: ur.ctx
-                            idxRaw: ur.name
-                        }
-                    }
-                    return irArr.emitArrayAt(ctx, recvVal, idxRaw, elemST)
-                }
-                _: {}
+    if tyh.isArraySuruType(recvSuruType) {
+        let elemST String: tyh.elemSuruType(recvSuruType)
+        if method.equals("len")   { return irArr.emitArrayLen(ctx, recvVal) }
+        if method.equals("clone") { return irArr.emitArrayClone(ctx, recvVal, elemST) }
+        if method.equals("drop")  { return irArr.emitArrayDrop(ctx, recvVal) }
+        if method.equals("at") {
+            let idxR CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: idxR.ctx
+            let idxRaw String: idxR.name
+            if not box.isScalarType(idxR.suruType) {
+                let ur CodegenResult: box.unboxInt64(ctx, idxR.name)
+                ctx: ur.ctx
+                idxRaw: ur.name
             }
-            match method.equals("add") {
-                true: {
-                    // Struct-literal arguments carry their own resolvedType
-                    // (written by the semantic pass) so no context threading
-                    // is needed.
-                    let vr CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: vr.ctx
-                    ctx: irArr.emitArrayAdd(ctx, recvVal, vr.name, elemST)
-                    return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
-                }
-                _: {}
-            }
-            match method.equals("set") {
-                true: {
-                    let vr CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: vr.ctx
-                    let ir2 CodegenResult: emitValue(ctx, expr.args.at(1))
-                    ctx: ir2.ctx
-                    let idxRaw String: ir2.name
-                    match box.isScalarType(ir2.suruType) {
-                        true: {}
-                        _: {
-                            let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
-                            ctx: ur.ctx
-                            idxRaw: ur.name
-                        }
-                    }
-                    ctx: irArr.emitArraySet(ctx, recvVal, vr.name, elemST, idxRaw)
-                    return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
-                }
-                _: {}
-            }
-            // .slice(from, to) → sub-array via suru_array_slice.
-            match method.equals("slice") {
-                true: {
-                    let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: s1.ctx
-                    let s2 CodegenResult: emitValue(ctx, expr.args.at(1))
-                    ctx: s2.ctx
-                    let i1r String: s1.name
-                    let i2r String: s2.name
-                    match box.isScalarType(s1.suruType) {
-                        true: {}
-                        _: {
-                            let u CodegenResult: box.unboxInt64(ctx, s1.name)
-                            ctx: u.ctx
-                            i1r: u.name
-                        }
-                    }
-                    match box.isScalarType(s2.suruType) {
-                        true: {}
-                        _: {
-                            let u2 CodegenResult: box.unboxInt64(ctx, s2.name)
-                            ctx: u2.ctx
-                            i2r: u2.name
-                        }
-                    }
-                    return irArr.emitArraySlice(ctx, recvVal, i1r, i2r, elemST)
-                }
-                _: {}
-            }
+            return irArr.emitArrayAt(ctx, recvVal, idxRaw, elemST)
         }
-        _: {}
+        if method.equals("add") {
+            // Struct-literal arguments carry their own resolvedType
+            // (written by the semantic pass) so no context threading
+            // is needed.
+            let vr CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: vr.ctx
+            ctx: irArr.emitArrayAdd(ctx, recvVal, vr.name, elemST)
+            return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
+        }
+        if method.equals("set") {
+            let vr CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: vr.ctx
+            let ir2 CodegenResult: emitValue(ctx, expr.args.at(1))
+            ctx: ir2.ctx
+            let idxRaw String: ir2.name
+            if not box.isScalarType(ir2.suruType) {
+                let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
+                ctx: ur.ctx
+                idxRaw: ur.name
+            }
+            ctx: irArr.emitArraySet(ctx, recvVal, vr.name, elemST, idxRaw)
+            return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
+        }
+        // .slice(from, to) → sub-array via suru_array_slice.
+        if method.equals("slice") {
+            let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: s1.ctx
+            let s2 CodegenResult: emitValue(ctx, expr.args.at(1))
+            ctx: s2.ctx
+            let i1r String: s1.name
+            let i2r String: s2.name
+            if not box.isScalarType(s1.suruType) {
+                let u CodegenResult: box.unboxInt64(ctx, s1.name)
+                ctx: u.ctx
+                i1r: u.name
+            }
+            if not box.isScalarType(s2.suruType) {
+                let u2 CodegenResult: box.unboxInt64(ctx, s2.name)
+                ctx: u2.ctx
+                i2r: u2.name
+            }
+            return irArr.emitArraySlice(ctx, recvVal, i1r, i2r, elemST)
+        }
     }
 
     // String instance methods.
-    match recvSuruType.equals("String") {
-        true: {
-            match method.equals("len") {
-                true: {
-                    let result CodegenResult: irStr.emitStringLen(ctx, recvVal)
+    if recvSuruType.equals("String") {
+        if method.equals("len") {
+            let result CodegenResult: irStr.emitStringLen(ctx, recvVal)
+            ctx: result.ctx
+            if isOwnedStringTemp(ctx, recv) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: dr.ctx
+            }
+            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+        }
+        if method.equals("clone")  { return irStr.emitStringClone(ctx, recvVal) }
+        if method.equals("drop")   { return irStr.emitStringDrop(ctx, recvVal) }
+        if method.equals("ord") {
+            let result CodegenResult: irStr.emitStringOrd(ctx, recvVal)
+            ctx: result.ctx
+            if isOwnedStringTemp(ctx, recv) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: dr.ctx
+            }
+            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+        }
+        if method.equals("toString") { return { ctx: ctx, name: recvVal, llvmType: "ptr", suruType: "String" } }
+        if method.equals("llvmHex") { return irStr.emitFloat64LlvmHex(ctx, recvVal) }
+        if method.equals("append") {
+            let argNode AstNode: expr.args.at(0)
+            match argNode {
+                StrLitNode: {
+                    ctx: strIntern.internString(ctx, argNode.text)
+                    let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
+                    let charLen Int64: argNode.text.len()
+                    let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
                     ctx: result.ctx
-                    match isOwnedStringTemp(ctx, recv) {
-                        true: {
-                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                            ctx: dr.ctx
-                        }
-                        _: {}
+                    if isOwnedStringTemp(ctx, recv) {
+                        let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                        ctx: dr.ctx
                     }
                     return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
                 }
-                _: {}
-            }
-            match method.equals("clone")  { true: { return irStr.emitStringClone(ctx, recvVal) } _: {} }
-            match method.equals("drop")   { true: { return irStr.emitStringDrop(ctx, recvVal) } _: {} }
-            match method.equals("ord") {
-                true: {
-                    let result CodegenResult: irStr.emitStringOrd(ctx, recvVal)
-                    ctx: result.ctx
-                    match isOwnedStringTemp(ctx, recv) {
-                        true: {
+                _: {
+                    let ar CodegenResult: emitValue(ctx, argNode)
+                    ctx: ar.ctx
+                    if ar.suruType.equals("Char") {
+                        let cresult CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, ar.name)
+                        ctx: cresult.ctx
+                        if isOwnedStringTemp(ctx, recv) {
                             let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                             ctx: dr.ctx
                         }
-                        _: {}
+                        return { ctx: ctx, name: cresult.name, llvmType: "ptr", suruType: "String" }
+                    }
+                    let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
+                    ctx: result.ctx
+                    if isOwnedStringTemp(ctx, argNode) {
+                        let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                        ctx: dr.ctx
+                    }
+                    if isOwnedStringTemp(ctx, recv) {
+                        let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                        ctx: dr.ctx
                     }
                     return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
                 }
-                _: {}
-            }
-            match method.equals("toString") { true: { return { ctx: ctx, name: recvVal, llvmType: "ptr", suruType: "String" } } _: {} }
-            match method.equals("llvmHex") { true: { return irStr.emitFloat64LlvmHex(ctx, recvVal) } _: {} }
-            match method.equals("append") {
-                true: {
-                    let argNode AstNode: expr.args.at(0)
-                    match argNode {
-                        StrLitNode: {
-                            ctx: strIntern.internString(ctx, argNode.text)
-                            let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
-                            let charLen Int64: argNode.text.len()
-                            let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
-                            ctx: result.ctx
-                            match isOwnedStringTemp(ctx, recv) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
-                            }
-                            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                        }
-                        _: {
-                            let ar CodegenResult: emitValue(ctx, argNode)
-                            ctx: ar.ctx
-                            match ar.suruType.equals("Char") {
-                                true: {
-                                    let cresult CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, ar.name)
-                                    ctx: cresult.ctx
-                                    match isOwnedStringTemp(ctx, recv) {
-                                        true: {
-                                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                                            ctx: dr.ctx
-                                        }
-                                        _: {}
-                                    }
-                                    return { ctx: ctx, name: cresult.name, llvmType: "ptr", suruType: "String" }
-                                }
-                                _: {}
-                            }
-                            let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
-                            ctx: result.ctx
-                            match isOwnedStringTemp(ctx, argNode) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
-                            }
-                            match isOwnedStringTemp(ctx, recv) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
-                            }
-                            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                        }
-                    }
-                }
-                _: {}
-            }
-            match method.equals("__append") {
-                true: {
-                    // Observable in-place append: build the full result in a
-                    // fresh buffer, drop the old receiver, rebind the root slot.
-                    let rootSlot String: appendRootSlot(ctx, recv)
-                    let argNode AstNode: expr.args.at(0)
-                    let newPtr String: ""
-                    match argNode {
-                        StrLitNode: {
-                            ctx: strIntern.internString(ctx, argNode.text)
-                            let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
-                            let charLen Int64: argNode.text.len()
-                            let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
-                            ctx: result.ctx
-                            newPtr: result.name
-                        }
-                        _: {
-                            let ar CodegenResult: emitValue(ctx, argNode)
-                            ctx: ar.ctx
-                            let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
-                            ctx: result.ctx
-                            newPtr: result.name
-                            match isOwnedStringTemp(ctx, argNode) {
-                                true: {
-                                    let adr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                                    ctx: adr.ctx
-                                }
-                                _: {}
-                            }
-                        }
-                    }
-                    // Drop the old receiver value: no-op on type_tag=8 literals,
-                    // frees heap strings (bytes already copied into newPtr).
-                    let rdr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                    ctx: rdr.ctx
-                    match rootSlot.equals("") {
-                        true: {}
-                        _: { ctx.builder: ir.emitStore(ctx.builder, "ptr", newPtr, rootSlot) }
-                    }
-                    return { ctx: ctx, name: newPtr, llvmType: "ptr", suruType: "String" }
-                }
-                _: {}
-            }
-            match method.equals("equals") {
-                true: {
-                    let eqArg AstNode: expr.args.at(0)
-                    match eqArg {
-                        StrLitNode: {
-                            ctx: strIntern.internString(ctx, eqArg.text)
-                            let gname String: strIntern.lookupStrGlobal(ctx, eqArg.text)
-                            let result CodegenResult: irStr.emitStringEqualsLit(ctx, recvVal, gname)
-                            ctx: result.ctx
-                            match isOwnedStringTemp(ctx, recv) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
-                            }
-                            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                        }
-                        _: {
-                            let ar CodegenResult: emitValue(ctx, eqArg)
-                            ctx: ar.ctx
-                            let result CodegenResult: irStr.emitStringEquals(ctx, recvVal, ar.name)
-                            ctx: result.ctx
-                            match isOwnedStringTemp(ctx, eqArg) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
-                            }
-                            match isOwnedStringTemp(ctx, recv) {
-                                true: {
-                                    let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                                    ctx: dr.ctx
-                                }
-                                _: {}
-                            }
-                            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                        }
-                    }
-                }
-                _: {}
-            }
-            match method.equals("at") {
-                true: {
-                    let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: ir2.ctx
-                    let idxRaw String: ir2.name
-                    match box.isScalarType(ir2.suruType) {
-                        true: {}
-                        _: {
-                            let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
-                            ctx: ur.ctx
-                            idxRaw: ur.name
-                        }
-                    }
-                    let result CodegenResult: irStr.emitStringAt(ctx, recvVal, idxRaw)
-                    ctx: result.ctx
-                    match isOwnedStringTemp(ctx, recv) {
-                        true: {
-                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                            ctx: dr.ctx
-                        }
-                        _: {}
-                    }
-                    return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                }
-                _: {}
-            }
-            match method.equals("__at") {
-                true: {
-                    let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: ir2.ctx
-                    let idxRaw String: ir2.name
-                    match box.isScalarType(ir2.suruType) {
-                        true: {}
-                        _: {
-                            let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
-                            ctx: ur.ctx
-                            idxRaw: ur.name
-                        }
-                    }
-                    let result CodegenResult: irStr.emitStringCharAt(ctx, recvVal, idxRaw)
-                    ctx: result.ctx
-                    match isOwnedStringTemp(ctx, recv) {
-                        true: {
-                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                            ctx: dr.ctx
-                        }
-                        _: {}
-                    }
-                    return { ctx: ctx, name: result.name, llvmType: "i8", suruType: "Char" }
-                }
-                _: {}
-            }
-            match method.equals("slice") {
-                true: {
-                    let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: s1.ctx
-                    let s2 CodegenResult: emitValue(ctx, expr.args.at(1))
-                    ctx: s2.ctx
-                    let i1r String: s1.name
-                    let i2r String: s2.name
-                    match box.isScalarType(s1.suruType) {
-                        true: {}
-                        _: {
-                            let u CodegenResult: box.unboxInt64(ctx, s1.name)
-                            ctx: u.ctx
-                            i1r: u.name
-                        }
-                    }
-                    match box.isScalarType(s2.suruType) {
-                        true: {}
-                        _: {
-                            let u2 CodegenResult: box.unboxInt64(ctx, s2.name)
-                            ctx: u2.ctx
-                            i2r: u2.name
-                        }
-                    }
-                    let result CodegenResult: irStr.emitStringSlice(ctx, recvVal, i1r, i2r)
-                    ctx: result.ctx
-                    match isOwnedStringTemp(ctx, recv) {
-                        true: {
-                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                            ctx: dr.ctx
-                        }
-                        _: {}
-                    }
-                    return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                }
-                _: {}
-            }
-            match method.equals("compare") {
-                true: {
-                    let cr CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: cr.ctx
-                    let result CodegenResult: irStr.emitStringCompare(ctx, recvVal, cr.name)
-                    ctx: result.ctx
-                    match isOwnedStringTemp(ctx, expr.args.at(0)) {
-                        true: {
-                            let dr CodegenResult: irStr.emitStringDrop(ctx, cr.name)
-                            ctx: dr.ctx
-                        }
-                        _: {}
-                    }
-                    match isOwnedStringTemp(ctx, recv) {
-                        true: {
-                            let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-                            ctx: dr.ctx
-                        }
-                        _: {}
-                    }
-                    return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
-                }
-                _: {}
             }
         }
-        _: {}
+        if method.equals("__append") {
+            // Observable in-place append: build the full result in a
+            // fresh buffer, drop the old receiver, rebind the root slot.
+            let rootSlot String: appendRootSlot(ctx, recv)
+            let argNode AstNode: expr.args.at(0)
+            let newPtr String: ""
+            match argNode {
+                StrLitNode: {
+                    ctx: strIntern.internString(ctx, argNode.text)
+                    let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
+                    let charLen Int64: argNode.text.len()
+                    let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
+                    ctx: result.ctx
+                    newPtr: result.name
+                }
+                _: {
+                    let ar CodegenResult: emitValue(ctx, argNode)
+                    ctx: ar.ctx
+                    let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
+                    ctx: result.ctx
+                    newPtr: result.name
+                    if isOwnedStringTemp(ctx, argNode) {
+                        let adr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                        ctx: adr.ctx
+                    }
+                }
+            }
+            // Drop the old receiver value: no-op on type_tag=8 literals,
+            // frees heap strings (bytes already copied into newPtr).
+            let rdr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+            ctx: rdr.ctx
+            if not rootSlot.equals("") { ctx.builder: ir.emitStore(ctx.builder, "ptr", newPtr, rootSlot) }
+            return { ctx: ctx, name: newPtr, llvmType: "ptr", suruType: "String" }
+        }
+        if method.equals("equals") {
+            let eqArg AstNode: expr.args.at(0)
+            match eqArg {
+                StrLitNode: {
+                    ctx: strIntern.internString(ctx, eqArg.text)
+                    let gname String: strIntern.lookupStrGlobal(ctx, eqArg.text)
+                    let result CodegenResult: irStr.emitStringEqualsLit(ctx, recvVal, gname)
+                    ctx: result.ctx
+                    if isOwnedStringTemp(ctx, recv) {
+                        let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                        ctx: dr.ctx
+                    }
+                    return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+                }
+                _: {
+                    let ar CodegenResult: emitValue(ctx, eqArg)
+                    ctx: ar.ctx
+                    let result CodegenResult: irStr.emitStringEquals(ctx, recvVal, ar.name)
+                    ctx: result.ctx
+                    if isOwnedStringTemp(ctx, eqArg) {
+                        let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                        ctx: dr.ctx
+                    }
+                    if isOwnedStringTemp(ctx, recv) {
+                        let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                        ctx: dr.ctx
+                    }
+                    return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+                }
+            }
+        }
+        if method.equals("at") {
+            let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: ir2.ctx
+            let idxRaw String: ir2.name
+            if not box.isScalarType(ir2.suruType) {
+                let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
+                ctx: ur.ctx
+                idxRaw: ur.name
+            }
+            let result CodegenResult: irStr.emitStringAt(ctx, recvVal, idxRaw)
+            ctx: result.ctx
+            if isOwnedStringTemp(ctx, recv) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: dr.ctx
+            }
+            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+        }
+        if method.equals("__at") {
+            let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: ir2.ctx
+            let idxRaw String: ir2.name
+            if not box.isScalarType(ir2.suruType) {
+                let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
+                ctx: ur.ctx
+                idxRaw: ur.name
+            }
+            let result CodegenResult: irStr.emitStringCharAt(ctx, recvVal, idxRaw)
+            ctx: result.ctx
+            if isOwnedStringTemp(ctx, recv) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: dr.ctx
+            }
+            return { ctx: ctx, name: result.name, llvmType: "i8", suruType: "Char" }
+        }
+        if method.equals("slice") {
+            let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: s1.ctx
+            let s2 CodegenResult: emitValue(ctx, expr.args.at(1))
+            ctx: s2.ctx
+            let i1r String: s1.name
+            let i2r String: s2.name
+            if not box.isScalarType(s1.suruType) {
+                let u CodegenResult: box.unboxInt64(ctx, s1.name)
+                ctx: u.ctx
+                i1r: u.name
+            }
+            if not box.isScalarType(s2.suruType) {
+                let u2 CodegenResult: box.unboxInt64(ctx, s2.name)
+                ctx: u2.ctx
+                i2r: u2.name
+            }
+            let result CodegenResult: irStr.emitStringSlice(ctx, recvVal, i1r, i2r)
+            ctx: result.ctx
+            if isOwnedStringTemp(ctx, recv) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: dr.ctx
+            }
+            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+        }
+        if method.equals("compare") {
+            let cr CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: cr.ctx
+            let result CodegenResult: irStr.emitStringCompare(ctx, recvVal, cr.name)
+            ctx: result.ctx
+            if isOwnedStringTemp(ctx, expr.args.at(0)) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, cr.name)
+                ctx: dr.ctx
+            }
+            if isOwnedStringTemp(ctx, recv) {
+                let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: dr.ctx
+            }
+            return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
+        }
     }
 
     // Char receiver: scalar i8 value. Must precede the Float64/struct/generic
     // tail so .ord/.toString/.equals aren't mis-routed (e.g. generic toString
     // would unboxInt64 a Char). No drops — Char is never heap-allocated.
-    match recvSuruType.equals("Char") {
-        true: {
-            match method.equals("ord") {
-                true: {
-                    let zr IrResult: ir.emitZext(ctx.builder, "i8", recvVal, "i64")
-                    ctx.builder: zr.builder
-                    return { ctx: ctx, name: zr.name, llvmType: "i64", suruType: "Int64" }
-                }
-                _: {}
-            }
-            match method.equals("toString") {
-                true: { return irStr.emitStringFromChar(ctx, recvVal) }
-                _: {}
-            }
-            match method.equals("equals") {
-                true: {
-                    let ar CodegenResult: emitValue(ctx, expr.args.at(0))
-                    ctx: ar.ctx
-                    return eh.emitCmpOp(ctx, "eq", "oeq", recvVal, "Char", ar.name, ar.suruType)
-                }
-                _: {}
-            }
+    if recvSuruType.equals("Char") {
+        if method.equals("ord") {
+            let zr IrResult: ir.emitZext(ctx.builder, "i8", recvVal, "i64")
+            ctx.builder: zr.builder
+            return { ctx: ctx, name: zr.name, llvmType: "i64", suruType: "Int64" }
         }
-        _: {}
+        if method.equals("toString") { return irStr.emitStringFromChar(ctx, recvVal) }
+        if method.equals("equals") {
+            let ar CodegenResult: emitValue(ctx, expr.args.at(0))
+            ctx: ar.ctx
+            return eh.emitCmpOp(ctx, "eq", "oeq", recvVal, "Char", ar.name, ar.suruType)
+        }
     }
 
     // llvmHex on Float64 receiver — converts a double to LLVM IEEE-754 hex string.
     // Must be dispatched for Float64 receivers; llvmHex is never called on String.
-    match recvSuruType.equals("Float64") {
-        true: {
-            match method.equals("llvmHex") { true: { return irStr.emitFloat64LlvmHex(ctx, recvVal) } _: {} }
-        }
-        _: {}
+    if recvSuruType.equals("Float64") {
+        if method.equals("llvmHex") { return irStr.emitFloat64LlvmHex(ctx, recvVal) }
     }
 
     // toString on Int64/NamedType (struct field returned as i64).
-    match method.equals("toString") {
-        true: {
-            let rawI String: recvVal
-            match box.isScalarType(recvSuruType) {
-                true: {}
-                _: {
-                    let ur CodegenResult: box.unboxInt64(ctx, recvVal)
-                    ctx: ur.ctx
-                    rawI: ur.name
-                }
-            }
-            return irStr.emitInt64ToString(ctx, rawI)
+    if method.equals("toString") {
+        let rawI String: recvVal
+        if not box.isScalarType(recvSuruType) {
+            let ur CodegenResult: box.unboxInt64(ctx, recvVal)
+            ctx: ur.ctx
+            rawI: ur.name
         }
-        _: {}
+        return irStr.emitInt64ToString(ctx, rawI)
     }
 
     // Struct clone/drop dispatch.
-    match method.equals("clone") { true: { return irStruct.emitStructClone(ctx, recvVal, recvSuruType) } _: {} }
-    match method.equals("drop")  { true: { return irStruct.emitStructDrop(ctx, recvVal)  } _: {} }
+    if method.equals("clone") { return irStruct.emitStructClone(ctx, recvVal, recvSuruType) }
+    if method.equals("drop")  { return irStruct.emitStructDrop(ctx, recvVal)  }
 
     // invert / compare — arithmetic on receiver.
-    match method.equals("invert")  { true: { return eh.emitInvert(ctx, recvVal, recvSuruType) } _: {} }
-    match method.equals("compare") {
-        true: {
-            let ar CodegenResult: emitValue(ctx, expr.args.at(0))
-            ctx: ar.ctx
-            return eh.emitCompare(ctx, recvVal, recvSuruType, ar.name, ar.suruType)
-        }
-        _: {}
+    if method.equals("invert") { return eh.emitInvert(ctx, recvVal, recvSuruType) }
+    if method.equals("compare") {
+        let ar CodegenResult: emitValue(ctx, expr.args.at(0))
+        ctx: ar.ctx
+        return eh.emitCompare(ctx, recvVal, recvSuruType, ar.name, ar.suruType)
     }
 
     // Arithmetic / comparison fallthrough.
     let ar CodegenResult: emitValue(ctx, expr.args.at(0))
     ctx: ar.ctx
-    match method.equals("add")      { true: { return eh.emitArith(ctx, "add",  "fadd", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("take")     { true: { return eh.emitArith(ctx, "sub",  "fsub", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("multiply") { true: { return eh.emitArith(ctx, "mul",  "fmul", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("split")    { true: { return eh.emitArith(ctx, "sdiv", "fdiv", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("lt")     { true: { return eh.emitCmpOp(ctx, "slt", "olt", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("gt")     { true: { return eh.emitCmpOp(ctx, "sgt", "ogt", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("lte")    { true: { return eh.emitCmpOp(ctx, "sle", "ole", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("gte")    { true: { return eh.emitCmpOp(ctx, "sge", "oge", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
-    match method.equals("equals") { true: { return eh.emitCmpOp(ctx, "eq",  "oeq", recvVal, recvSuruType, ar.name, ar.suruType) } _: {} }
+    if method.equals("add")      { return eh.emitArith(ctx, "add",  "fadd", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("take")     { return eh.emitArith(ctx, "sub",  "fsub", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("multiply") { return eh.emitArith(ctx, "mul",  "fmul", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("split")    { return eh.emitArith(ctx, "sdiv", "fdiv", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("lt")     { return eh.emitCmpOp(ctx, "slt", "olt", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("gt")     { return eh.emitCmpOp(ctx, "sgt", "ogt", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("lte")    { return eh.emitCmpOp(ctx, "sle", "ole", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("gte")    { return eh.emitCmpOp(ctx, "sge", "oge", recvVal, recvSuruType, ar.name, ar.suruType) }
+    if method.equals("equals") { return eh.emitCmpOp(ctx, "eq",  "oeq", recvVal, recvSuruType, ar.name, ar.suruType) }
 
     // Unreachable: unknown method — return dummy value.
     return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "" }
@@ -1273,23 +1057,20 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
 // duration of a match arm so field accesses resolve without re-binding.
 // Only narrows when the variable's type is a sum type name.
 fn narrowCondVar(ctx IrCodegenContext, condVarName String, variantTypeName String) IrCodegenContext {
-    match condVarName.equals("")    { true: { return ctx } _: {} }
-    match variantTypeName.equals("") { true: { return ctx } _: {} }
+    if condVarName.equals("")     { return ctx }
+    if variantTypeName.equals("") { return ctx }
     let v VarEntry: types.lookupVar(ctx, condVarName)
-    match v.name.equals("") { true: { return ctx } _: {} }
-    match types.isSumTypeName(ctx, v.suruType) {
-        true: {
-            let narrowed VarEntry: { name: v.name, allocaName: v.allocaName, suruType: variantTypeName }
-            ctx: types.updateVar(ctx, condVarName, narrowed)
-        }
-        _: {}
+    if v.name.equals("") { return ctx }
+    if types.isSumTypeName(ctx, v.suruType) {
+        let narrowed VarEntry: { name: v.name, allocaName: v.allocaName, suruType: variantTypeName }
+        ctx: types.updateVar(ctx, condVarName, narrowed)
     }
     return ctx
 }
 
 // Restore the condition variable's original VarEntry after a narrowed arm.
 fn restoreCondVar(ctx IrCodegenContext, condVarName String, original VarEntry) IrCodegenContext {
-    match condVarName.equals("") { true: { return ctx } _: {} }
+    if condVarName.equals("") { return ctx }
     return types.updateVar(ctx, condVarName, original)
 }
 
@@ -1300,7 +1081,7 @@ fn collectPatterns(arms Array<MatchArm>) Array<AstNode> {
     let i Int64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
-        match arm.isWildcard { true: {} _: { pats.add(arm.pattern) } }
+        if not arm.isWildcard { pats.add(arm.pattern) }
         i: i.add(1)
     }
     return pats
@@ -1312,7 +1093,7 @@ fn collectStmtPatterns(arms Array<MatchStmtArm>) Array<AstNode> {
     let i Int64: 0
     while i.lt(arms.len()) {
         let arm MatchStmtArm: arms.at(i)
-        match arm.isWildcard { true: {} _: { pats.add(arm.pattern) } }
+        if not arm.isWildcard { pats.add(arm.pattern) }
         i: i.add(1)
     }
     return pats
@@ -1329,27 +1110,22 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
     }
     // Detect sum type / variant condition.
     let isSum Bool: types.isVariant(ctx, condSuruType)
-    match isSum { true: {} _: { match types.isSumTypeName(ctx, condSuruType) { true: { isSum: true } _: {} } } }
+    if not isSum and types.isSumTypeName(ctx, condSuruType) { isSum: true }
     // rawCond: the value used in comparisons (tag i64 for sum types, condVal otherwise).
     let rawCond String: condVal
-    match isSum {
-        true: {
-            ctx: types.addSuruDecl(ctx, "declare i64  @suru_variant_tag(ptr)\n")
-            let args Array<String>: []
-            args.add("ptr ".append(condVal))
-            let tr IrResult: ir.emitCall(ctx.builder, "i64", "suru_variant_tag", args)
-            ctx.builder: tr.builder
-            rawCond: tr.name
-        }
-        _: {
-            // NamedType (non-variant) → unbox to i64 for comparison.
-            match box.isScalarType(condSuruType) { true: {} _: {
-                match condSuruType.equals("String") { true: {} _: {
-                    let ur CodegenResult: box.unboxInt64(ctx, condVal)
-                    ctx: ur.ctx
-                    rawCond: ur.name
-                } }
-            } }
+    if isSum {
+        ctx: types.addSuruDecl(ctx, "declare i64  @suru_variant_tag(ptr)\n")
+        let args Array<String>: []
+        args.add("ptr ".append(condVal))
+        let tr IrResult: ir.emitCall(ctx.builder, "i64", "suru_variant_tag", args)
+        ctx.builder: tr.builder
+        rawCond: tr.name
+    } else {
+        // NamedType (non-variant) → unbox to i64 for comparison.
+        if not box.isScalarType(condSuruType) and not condSuruType.equals("String") {
+            let ur CodegenResult: box.unboxInt64(ctx, condVal)
+            ctx: ur.ctx
+            rawCond: ur.name
         }
     }
 
@@ -1367,69 +1143,56 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
         ctx: preR.ctx
         let cmpTmp String: preR.name
         let cmpVal String: ""
-        match isSum {
-            true: {
-                // Pattern is a VarRefNode naming a variant — never call emitValue.
-                match pat { VarRefNode: {
-                    let parent SumTypeDecl: types.findParentSumType(ctx, pat.name)
-                    let idx Int64: types.variantIdx(parent, pat.name)
-                    ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq i64 ").append(rawCond).append(", ").append(idx.toString()).append("\n"))
-                    cmpVal: cmpTmp
-                } _: {} }
-            }
-            _: {
-                match condSuruType.equals("String") {
-                    true: {
-                        ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
-                        let pr CodegenResult: emitValue(ctx, pat)
-                        ctx: pr.ctx
-                        let d1 CodegenResult: irStr.emitExtractStringData(ctx, rawCond)
-                        ctx: d1.ctx
-                        let d2 CodegenResult: irStr.emitExtractStringData(d1.ctx, pr.name)
-                        ctx: d2.ctx
-                        let args Array<String>: []
-                        args.add("ptr ".append(d1.name))
-                        args.add("ptr ".append(d2.name))
-                        let sr IrResult: ir.emitCall(ctx.builder, "i32", "strcmp", args)
-                        ctx.builder: sr.builder
-                        ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq i32 ").append(sr.name).append(", 0\n"))
-                        cmpVal: cmpTmp
-                    }
-                    _: {
-                        let pr CodegenResult: emitValue(ctx, pat)
-                        ctx: pr.ctx
-                        let eff String: eh.effectiveSuruType(condSuruType)
-                        let rawT String: box.rawLlvmTypeOf(eff)
-                        let patRaw String: pr.name
-                        match box.isScalarType(pr.suruType) { true: {} _: {
-                            let ur CodegenResult: box.unboxInt64(ctx, pr.name)
-                            ctx: ur.ctx
-                            patRaw: ur.name
-                        } }
-                        match eff.equals("Float64") {
-                            true: {
-                                ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = fcmp oeq double ").append(rawCond).append(", ").append(patRaw).append("\n"))
-                            }
-                            _: {
-                                ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq ").append(rawT).append(" ").append(rawCond).append(", ").append(patRaw).append("\n"))
-                            }
-                        }
-                        cmpVal: cmpTmp
-                    }
+        if isSum {
+            // Pattern is a VarRefNode naming a variant — never call emitValue.
+            match pat { VarRefNode: {
+                let parent SumTypeDecl: types.findParentSumType(ctx, pat.name)
+                let idx Int64: types.variantIdx(parent, pat.name)
+                ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq i64 ").append(rawCond).append(", ").append(idx.toString()).append("\n"))
+                cmpVal: cmpTmp
+            } _: {} }
+        } else {
+            if condSuruType.equals("String") {
+                ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
+                let pr CodegenResult: emitValue(ctx, pat)
+                ctx: pr.ctx
+                let d1 CodegenResult: irStr.emitExtractStringData(ctx, rawCond)
+                ctx: d1.ctx
+                let d2 CodegenResult: irStr.emitExtractStringData(d1.ctx, pr.name)
+                ctx: d2.ctx
+                let args Array<String>: []
+                args.add("ptr ".append(d1.name))
+                args.add("ptr ".append(d2.name))
+                let sr IrResult: ir.emitCall(ctx.builder, "i32", "strcmp", args)
+                ctx.builder: sr.builder
+                ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq i32 ").append(sr.name).append(", 0\n"))
+                cmpVal: cmpTmp
+            } else {
+                let pr CodegenResult: emitValue(ctx, pat)
+                ctx: pr.ctx
+                let eff String: eh.effectiveSuruType(condSuruType)
+                let rawT String: box.rawLlvmTypeOf(eff)
+                let patRaw String: pr.name
+                if not box.isScalarType(pr.suruType) {
+                    let ur CodegenResult: box.unboxInt64(ctx, pr.name)
+                    ctx: ur.ctx
+                    patRaw: ur.name
                 }
+                if eff.equals("Float64") {
+                    ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = fcmp oeq double ").append(rawCond).append(", ").append(patRaw).append("\n"))
+                } else {
+                    ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq ").append(rawT).append(" ").append(rawCond).append(", ").append(patRaw).append("\n"))
+                }
+                cmpVal: cmpTmp
             }
         }
         ctx.builder: ir.emitCondBr(ctx.builder, cmpVal, "match_arm_".append(matchN).append("_").append(iStr), nextLabel)
-        match i.add(1).lt(patterns.len()) {
-            true: { ctx.builder: ir.emitLabel(ctx.builder, "match_test_".append(matchN).append("_").append(i.add(1).toString())) }
-            _: {}
+        if i.add(1).lt(patterns.len()) {
+            ctx.builder: ir.emitLabel(ctx.builder, "match_test_".append(matchN).append("_").append(i.add(1).toString()))
         }
         i: i.add(1)
     }
-    match patterns.len().equals(0) {
-        true: { ctx.builder: ir.emitBr(ctx.builder, missLabel) }
-        _: {}
-    }
+    if patterns.len().equals(0) { ctx.builder: ir.emitBr(ctx.builder, missLabel) }
     return ctx
 }
 
@@ -1441,11 +1204,11 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     let i Int64: 0
     while i.lt(node.arms.len()) {
         let arm MatchArm: node.arms.at(i)
-        match arm.isWildcard { true: {} _: {
+        if not arm.isWildcard {
             let pr CodegenResult: peekTypeNode(ctx, arm.body)
             resultSuruType: pr.suruType
             i: node.arms.len()
-        } }
+        }
         i: i.add(1)
     }
     let resultLlvm String: box.llvmTypeOf(resultSuruType)
@@ -1463,7 +1226,7 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     let patterns Array<AstNode>: collectPatterns(node.arms)
     let hasWild Bool: false
     let j Int64: 0
-    while j.lt(node.arms.len()) { match node.arms.at(j).isWildcard { true: { hasWild: true } _: {} } j: j.add(1) }
+    while j.lt(node.arms.len()) { if node.arms.at(j).isWildcard { hasWild: true } j: j.add(1) }
     ctx: emitPatternComparisons(ctx, condR.name, condR.suruType, patterns, hasWild, matchN)
 
     // Emit arm bodies — store result + branch to merge.
@@ -1474,29 +1237,26 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     let k Int64: 0
     while k.lt(node.arms.len()) {
         let arm MatchArm: node.arms.at(k)
-        match arm.isWildcard {
-            true: {
-                ctx.builder: ir.emitLabel(ctx.builder, "match_wildcard_".append(matchN))
-                let armR CodegenResult: emitValue(ctx, arm.body)
-                ctx: armR.ctx
-                ctx.builder: ir.emitStore(ctx.builder, resultLlvm, armR.name, "%".append(resultAlloca))
-                ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
-            }
-            _: {
-                // Narrow condition var for variant arms.
-                let origEntry VarEntry: types.lookupVar(ctx, condVarName)
-                let variantName String: ""
-                let patNode AstNode: arm.pattern
-                match patNode { VarRefNode: { variantName: patNode.name } _: {} }
-                ctx: narrowCondVar(ctx, condVarName, variantName)
-                ctx.builder: ir.emitLabel(ctx.builder, "match_arm_".append(matchN).append("_").append(patIdx.toString()))
-                let armR CodegenResult: emitValue(ctx, arm.body)
-                ctx: armR.ctx
-                ctx: restoreCondVar(ctx, condVarName, origEntry)
-                ctx.builder: ir.emitStore(ctx.builder, resultLlvm, armR.name, "%".append(resultAlloca))
-                ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
-                patIdx: patIdx.add(1)
-            }
+        if arm.isWildcard {
+            ctx.builder: ir.emitLabel(ctx.builder, "match_wildcard_".append(matchN))
+            let armR CodegenResult: emitValue(ctx, arm.body)
+            ctx: armR.ctx
+            ctx.builder: ir.emitStore(ctx.builder, resultLlvm, armR.name, "%".append(resultAlloca))
+            ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
+        } else {
+            // Narrow condition var for variant arms.
+            let origEntry VarEntry: types.lookupVar(ctx, condVarName)
+            let variantName String: ""
+            let patNode AstNode: arm.pattern
+            match patNode { VarRefNode: { variantName: patNode.name } _: {} }
+            ctx: narrowCondVar(ctx, condVarName, variantName)
+            ctx.builder: ir.emitLabel(ctx.builder, "match_arm_".append(matchN).append("_").append(patIdx.toString()))
+            let armR CodegenResult: emitValue(ctx, arm.body)
+            ctx: armR.ctx
+            ctx: restoreCondVar(ctx, condVarName, origEntry)
+            ctx.builder: ir.emitStore(ctx.builder, resultLlvm, armR.name, "%".append(resultAlloca))
+            ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
+            patIdx: patIdx.add(1)
         }
         k: k.add(1)
     }
@@ -1514,7 +1274,7 @@ fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContex
     let patterns Array<AstNode>: collectPatterns(node.arms)
     let hasWild Bool: false
     let j Int64: 0
-    while j.lt(node.arms.len()) { match node.arms.at(j).isWildcard { true: { hasWild: true } _: {} } j: j.add(1) }
+    while j.lt(node.arms.len()) { if node.arms.at(j).isWildcard { hasWild: true } j: j.add(1) }
     let mnR IrResult: ir.nextLabelNum(ctx.builder)
     ctx.builder: mnR.builder
     let matchN String: mnR.name
@@ -1526,26 +1286,23 @@ fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContex
     let k Int64: 0
     while k.lt(node.arms.len()) {
         let arm MatchArm: node.arms.at(k)
-        match arm.isWildcard {
-            true: {
-                ctx.builder: ir.emitLabel(ctx.builder, "match_wildcard_".append(matchN))
-                let sr CodegenResult: emitValue(ctx, arm.body)
-                ctx: sr.ctx
-                ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
-            }
-            _: {
-                let origEntry VarEntry: types.lookupVar(ctx, condVarName)
-                let variantName String: ""
-                let patNode AstNode: arm.pattern
-                match patNode { VarRefNode: { variantName: patNode.name } _: {} }
-                ctx: narrowCondVar(ctx, condVarName, variantName)
-                ctx.builder: ir.emitLabel(ctx.builder, "match_arm_".append(matchN).append("_").append(patIdx.toString()))
-                let sr CodegenResult: emitValue(ctx, arm.body)
-                ctx: sr.ctx
-                ctx: restoreCondVar(ctx, condVarName, origEntry)
-                ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
-                patIdx: patIdx.add(1)
-            }
+        if arm.isWildcard {
+            ctx.builder: ir.emitLabel(ctx.builder, "match_wildcard_".append(matchN))
+            let sr CodegenResult: emitValue(ctx, arm.body)
+            ctx: sr.ctx
+            ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
+        } else {
+            let origEntry VarEntry: types.lookupVar(ctx, condVarName)
+            let variantName String: ""
+            let patNode AstNode: arm.pattern
+            match patNode { VarRefNode: { variantName: patNode.name } _: {} }
+            ctx: narrowCondVar(ctx, condVarName, variantName)
+            ctx.builder: ir.emitLabel(ctx.builder, "match_arm_".append(matchN).append("_").append(patIdx.toString()))
+            let sr CodegenResult: emitValue(ctx, arm.body)
+            ctx: sr.ctx
+            ctx: restoreCondVar(ctx, condVarName, origEntry)
+            ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN))
+            patIdx: patIdx.add(1)
         }
         k: k.add(1)
     }
@@ -1562,7 +1319,7 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     let patterns Array<AstNode>: collectStmtPatterns(node.arms)
     let hasWild Bool: false
     let j Int64: 0
-    while j.lt(node.arms.len()) { match node.arms.at(j).isWildcard { true: { hasWild: true } _: {} } j: j.add(1) }
+    while j.lt(node.arms.len()) { if node.arms.at(j).isWildcard { hasWild: true } j: j.add(1) }
     let mnR IrResult: ir.nextLabelNum(ctx.builder)
     ctx.builder: mnR.builder
     let matchN String: mnR.name
@@ -1575,48 +1332,33 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     let k Int64: 0
     while k.lt(node.arms.len()) {
         let arm MatchStmtArm: node.arms.at(k)
-        match arm.isWildcard {
-            true: {}
-            _: {
-                let origEntry VarEntry: types.lookupVar(ctx, condVarName)
-                let variantName String: ""
-                let patNode AstNode: arm.pattern
-                match patNode { VarRefNode: { variantName: patNode.name } _: {} }
-                ctx: narrowCondVar(ctx, condVarName, variantName)
-                ctx.builder: ir.emitLabel(ctx.builder, "match_arm_".append(matchN).append("_").append(patIdx.toString()))
-                ctx.blockOpen: true
-                ctx: emitStmts(ctx, arm.stmts)
-                ctx: restoreCondVar(ctx, condVarName, origEntry)
-                match ctx.blockOpen {
-                    true: { ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN)) }
-                    _: {}
-                }
-                patIdx: patIdx.add(1)
-            }
+        if not arm.isWildcard {
+            let origEntry VarEntry: types.lookupVar(ctx, condVarName)
+            let variantName String: ""
+            let patNode AstNode: arm.pattern
+            match patNode { VarRefNode: { variantName: patNode.name } _: {} }
+            ctx: narrowCondVar(ctx, condVarName, variantName)
+            ctx.builder: ir.emitLabel(ctx.builder, "match_arm_".append(matchN).append("_").append(patIdx.toString()))
+            ctx.blockOpen: true
+            ctx: emitStmts(ctx, arm.stmts)
+            ctx: restoreCondVar(ctx, condVarName, origEntry)
+            if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN)) }
+            patIdx: patIdx.add(1)
         }
         k: k.add(1)
     }
     // Wildcard arm (or synthetic empty arm when no wildcard).
     ctx.builder: ir.emitLabel(ctx.builder, "match_wildcard_".append(matchN))
     ctx.blockOpen: true
-    match hasWild {
-        true: {
-            let wi Int64: 0
-            while wi.lt(node.arms.len()) {
-                let wArm MatchStmtArm: node.arms.at(wi)
-                match wArm.isWildcard {
-                    true: { ctx: emitStmts(ctx, wArm.stmts) }
-                    _: {}
-                }
-                wi: wi.add(1)
-            }
+    if hasWild {
+        let wi Int64: 0
+        while wi.lt(node.arms.len()) {
+            let wArm MatchStmtArm: node.arms.at(wi)
+            if wArm.isWildcard { ctx: emitStmts(ctx, wArm.stmts) }
+            wi: wi.add(1)
         }
-        _: {}
     }
-    match ctx.blockOpen {
-        true: { ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN)) }
-        _: {}
-    }
+    if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, "match_merge_".append(matchN)) }
     ctx.builder: ir.emitLabel(ctx.builder, "match_merge_".append(matchN))
     ctx.blockOpen: true
     return ctx
@@ -1634,18 +1376,15 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
     let condR CodegenResult: emitValue(ctx, condition)
     ctx: condR.ctx
     let condI1 String: condR.name
-    match box.isScalarType(condR.suruType) { true: {} _: {
+    if not box.isScalarType(condR.suruType) {
         let ur CodegenResult: box.unboxBool(ctx, condR.name)
         ctx: ur.ctx
         condI1: ur.name
-    } }
+    }
     ctx.builder: ir.emitCondBr(ctx.builder, condI1, "while_body_".append(wn), "while_after_".append(wn))
     ctx.builder: ir.emitLabel(ctx.builder, "while_body_".append(wn))
     ctx: emitStmts(ctx, body)
-    match ctx.blockOpen {
-        true: { ctx.builder: ir.emitBr(ctx.builder, "while_cond_".append(wn)) }
-        _: {}
-    }
+    if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, "while_cond_".append(wn)) }
     ctx.builder: ir.emitLabel(ctx.builder, "while_after_".append(wn))
     ctx.blockOpen: true
     return ctx
@@ -1696,13 +1435,10 @@ fn emitIf(ctx IrCodegenContext, node IfNode) IrCodegenContext {
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
     let condI1 String: condR.name
-    match box.isScalarType(condR.suruType) {
-        true: {}
-        _: {
-            let ur CodegenResult: box.unboxBool(ctx, condR.name)
-            ctx: ur.ctx
-            condI1: ur.name
-        }
+    if not box.isScalarType(condR.suruType) {
+        let ur CodegenResult: box.unboxBool(ctx, condR.name)
+        ctx: ur.ctx
+        condI1: ur.name
     }
 
     // 2. Branch to either the then or else block.
@@ -1714,10 +1450,7 @@ fn emitIf(ctx IrCodegenContext, node IfNode) IrCodegenContext {
     let thenBlock BlockNode: node.thenBranch
     let thenStmts Array<AstNode>: thenBlock.stmts
     ctx: emitStmts(ctx, thenStmts)
-    match ctx.blockOpen {
-        true: { ctx.builder: ir.emitBr(ctx.builder, mergeLabel) }
-        _: {}
-    }
+    if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, mergeLabel) }
 
     // 4. else block: emit the else branch's statements.
     //    An empty else branch (no else clause in source) still gets a labeled
@@ -1728,10 +1461,7 @@ fn emitIf(ctx IrCodegenContext, node IfNode) IrCodegenContext {
     let elseBlock BlockNode: node.elseBranch
     let elseStmts Array<AstNode>: elseBlock.stmts
     ctx: emitStmts(ctx, elseStmts)
-    match ctx.blockOpen {
-        true: { ctx.builder: ir.emitBr(ctx.builder, mergeLabel) }
-        _: {}
-    }
+    if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, mergeLabel) }
 
     // 5. merge block: subsequent statements continue here.
     ctx.builder: ir.emitLabel(ctx.builder, mergeLabel)
@@ -1747,39 +1477,31 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
         IfNode:        { return emitIf(ctx, stmt) }
         ReturnNode: {
             let retVal String: box.defaultReturnValue(ctx.currentReturnSuruType)
-            match stmt.hasValue {
-                true: {
-                    // Struct literal return: thread the declared return type name.
-                    let retValueNode AstNode: stmt.value
-                    match retValueNode {
-                        StructLitNode: {
-                            // Type name comes from the resolvedType annotation
-                            // written by semantic analysis (top-down from the
-                            // function's declared return type).
-                            let sr CodegenResult: emitStructLit(ctx, retValueNode.fields, retValueNode.resolvedType)
-                            ctx: sr.ctx
-                            retVal: sr.name
+            if stmt.hasValue {
+                // Struct literal return: thread the declared return type name.
+                let retValueNode AstNode: stmt.value
+                match retValueNode {
+                    StructLitNode: {
+                        // Type name comes from the resolvedType annotation
+                        // written by semantic analysis (top-down from the
+                        // function's declared return type).
+                        let sr CodegenResult: emitStructLit(ctx, retValueNode.fields, retValueNode.resolvedType)
+                        ctx: sr.ctx
+                        retVal: sr.name
+                    }
+                    _: {
+                        let vr CodegenResult: emitValue(ctx, retValueNode)
+                        ctx: vr.ctx
+                        let rawRet String: vr.name
+                        // Coerce dynamic ptr to scalar if function return type is scalar.
+                        if box.isScalarType(ctx.currentReturnSuruType) and not box.isScalarType(vr.suruType) {
+                            let ur CodegenResult: box.unboxScalar(ctx, vr.name, ctx.currentReturnSuruType)
+                            ctx: ur.ctx
+                            rawRet: ur.name
                         }
-                        _: {
-                            let vr CodegenResult: emitValue(ctx, retValueNode)
-                            ctx: vr.ctx
-                            let rawRet String: vr.name
-                            // Coerce dynamic ptr to scalar if function return type is scalar.
-                            match box.isScalarType(ctx.currentReturnSuruType) {
-                                true: {
-                                    match box.isScalarType(vr.suruType) { true: {} _: {
-                                        let ur CodegenResult: box.unboxScalar(ctx, vr.name, ctx.currentReturnSuruType)
-                                        ctx: ur.ctx
-                                        rawRet: ur.name
-                                    } }
-                                }
-                                _: {}
-                            }
-                            retVal: rawRet
-                        }
+                        retVal: rawRet
                     }
                 }
-                _: {}
             }
             ctx.builder: ir.emitRet(ctx.builder, ctx.currentReturnLlvmType, retVal)
             ctx.blockOpen: false
@@ -1814,22 +1536,19 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     ctx: sr.ctx
                     let structVal String: sr.name
                     // Tag variant in-place (type_tag=7, variant_idx) when annotation names a variant.
-                    match types.isVariant(ctx, annSuruType) {
-                        true: {
-                            let parent SumTypeDecl: types.findParentSumType(ctx, annSuruType)
-                            let idx Int64: types.variantIdx(parent, annSuruType)
-                            // Variant tagging: "{tagGep}  = getelementptr" (double space) for i64 0 GEP,
-                            // "{vidxGep} = getelementptr" (single space) for i64 8 GEP.
-                            let tgNameR IrResult: ir.nextTmp(ctx.builder)
-                            ctx.builder: tgNameR.builder
-                            let tgLine String: "  ".append(tgNameR.name).append("  = getelementptr i8, ptr ").append(structVal).append(", i64 0\n")
-                            ctx.builder: ir.emit(ctx.builder, tgLine)
-                            ctx.builder: ir.emitStore(ctx.builder, "i64", "7", tgNameR.name)
-                            let viR IrResult: ir.emitGEP(ctx.builder, "i8", structVal, "i64 8")
-                            ctx.builder: viR.builder
-                            ctx.builder: ir.emitStore(ctx.builder, "i64", idx.toString(), viR.name)
-                        }
-                        _: {}
+                    if types.isVariant(ctx, annSuruType) {
+                        let parent SumTypeDecl: types.findParentSumType(ctx, annSuruType)
+                        let idx Int64: types.variantIdx(parent, annSuruType)
+                        // Variant tagging: "{tagGep}  = getelementptr" (double space) for i64 0 GEP,
+                        // "{vidxGep} = getelementptr" (single space) for i64 8 GEP.
+                        let tgNameR IrResult: ir.nextTmp(ctx.builder)
+                        ctx.builder: tgNameR.builder
+                        let tgLine String: "  ".append(tgNameR.name).append("  = getelementptr i8, ptr ").append(structVal).append(", i64 0\n")
+                        ctx.builder: ir.emit(ctx.builder, tgLine)
+                        ctx.builder: ir.emitStore(ctx.builder, "i64", "7", tgNameR.name)
+                        let viR IrResult: ir.emitGEP(ctx.builder, "i8", structVal, "i64 8")
+                        ctx.builder: viR.builder
+                        ctx.builder: ir.emitStore(ctx.builder, "i64", idx.toString(), viR.name)
                     }
                     let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, "ptr")
                     ctx.builder: ptrR.builder
@@ -1845,16 +1564,11 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             let letVal String: vr.name
             let letType String: vr.suruType
             // Annotation-guided unbox: `let x Int64: arr.at(0)` returns (ptr, NamedType).
-            match box.isScalarType(annSuruType) {
-                true: {
-                    match box.isScalarType(vr.suruType) { true: {} _: {
-                        let ur CodegenResult: box.unboxScalar(ctx, vr.name, annSuruType)
-                        ctx: ur.ctx
-                        letVal: ur.name
-                        letType: annSuruType
-                    } }
-                }
-                _: {}
+            if box.isScalarType(annSuruType) and not box.isScalarType(vr.suruType) {
+                let ur CodegenResult: box.unboxScalar(ctx, vr.name, annSuruType)
+                ctx: ur.ctx
+                letVal: ur.name
+                letType: annSuruType
             }
             let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, annLlvm)
             ctx.builder: ptrR.builder
@@ -1878,15 +1592,10 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     let vr CodegenResult: emitValue(ctx, assignValueNode)
                     ctx: vr.ctx
                     assignVal: vr.name
-                    match box.isScalarType(v.suruType) {
-                        true: {
-                            match box.isScalarType(vr.suruType) { true: {} _: {
-                                let ur CodegenResult: box.unboxScalar(ctx, vr.name, v.suruType)
-                                ctx: ur.ctx
-                                assignVal: ur.name
-                            } }
-                        }
-                        _: {}
+                    if box.isScalarType(v.suruType) and not box.isScalarType(vr.suruType) {
+                        let ur CodegenResult: box.unboxScalar(ctx, vr.name, v.suruType)
+                        ctx: ur.ctx
+                        assignVal: ur.name
                     }
                 }
             }
@@ -1954,27 +1663,21 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                                     // Only drop when the arg definitely produces a new allocation.
                                     // "at" is excluded because Array<String>.at() returns a
                                     // borrowed element pointer — dropping it would cause double-free.
-                                    match ar.suruType.equals("String") {
-                                        true: {
-                                            let shouldDrop Bool: false
-                                            match printArg {
-                                                CallNode:    { shouldDrop: true }
-                                                MethodCallNode: {
-                                                    match printArg.methodName.equals("toString") { true: { shouldDrop: true } _: {} }
-                                                    match printArg.methodName.equals("append")   { true: { shouldDrop: true } _: {} }
-                                                    match printArg.methodName.equals("slice")    { true: { shouldDrop: true } _: {} }
-                                                }
-                                                _: {}
+                                    if ar.suruType.equals("String") {
+                                        let shouldDrop Bool: false
+                                        match printArg {
+                                            CallNode:    { shouldDrop: true }
+                                            MethodCallNode: {
+                                                if printArg.methodName.equals("toString") { shouldDrop: true }
+                                                if printArg.methodName.equals("append")   { shouldDrop: true }
+                                                if printArg.methodName.equals("slice")    { shouldDrop: true }
                                             }
-                                            match shouldDrop {
-                                                true: {
-                                                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                                                    ctx: dr.ctx
-                                                }
-                                                _: {}
-                                            }
+                                            _: {}
                                         }
-                                        _: {}
+                                        if shouldDrop {
+                                            let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                                            ctx: dr.ctx
+                                        }
                                     }
                                 }
                             }
@@ -2039,22 +1742,19 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let ar CodegenResult: emitValue(ctx, expr.args.at(0))
                             ctx: ar.ctx
                             let codeI32 String: ar.name
-                            match ar.suruType.equals("Int32") { true: {} _: {
-                                match box.isScalarType(ar.suruType) {
-                                    true: {
-                                        let tr IrResult: ir.emitTrunc(ctx.builder, "i64", ar.name, "i32")
-                                        ctx.builder: tr.builder
-                                        codeI32: tr.name
-                                    }
-                                    _: {
-                                        let ur CodegenResult: box.unboxInt64(ctx, ar.name)
-                                        ctx: ur.ctx
-                                        let tr IrResult: ir.emitTrunc(ctx.builder, "i64", ur.name, "i32")
-                                        ctx.builder: tr.builder
-                                        codeI32: tr.name
-                                    }
+                            if not ar.suruType.equals("Int32") {
+                                if box.isScalarType(ar.suruType) {
+                                    let tr IrResult: ir.emitTrunc(ctx.builder, "i64", ar.name, "i32")
+                                    ctx.builder: tr.builder
+                                    codeI32: tr.name
+                                } else {
+                                    let ur CodegenResult: box.unboxInt64(ctx, ar.name)
+                                    ctx: ur.ctx
+                                    let tr IrResult: ir.emitTrunc(ctx.builder, "i64", ur.name, "i32")
+                                    ctx.builder: tr.builder
+                                    codeI32: tr.name
                                 }
-                            } }
+                            }
                             let args Array<String>: []
                             args.add("i32 ".append(codeI32))
                             ctx.builder: ir.emitVoidCall(ctx.builder, "exit", args)
@@ -2196,66 +1896,58 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     ctx.builder: ir.freshFnBuilder(ctx.builder)
 
     // main → suru_main(ptr %args) i64
-    match fnDecl.name.equals("main") {
-        true: {
-            ctx.currentReturnLlvmType: "i64"
-            ctx.currentReturnSuruType: "Int64"
-            ctx.builder: ir.emitFnStart(ctx.builder, "internal i64", "suru_main", "ptr %args")
-            ctx.builder: ir.emitFixedAlloca(ctx.builder, "args.addr", "ptr")
-            ctx.builder: ir.emitStore(ctx.builder, "ptr", "%args", "%args.addr")
-            ctx: types.addVar(ctx, "args", "%args.addr", "Array:String")
+    if fnDecl.name.equals("main") {
+        ctx.currentReturnLlvmType: "i64"
+        ctx.currentReturnSuruType: "Int64"
+        ctx.builder: ir.emitFnStart(ctx.builder, "internal i64", "suru_main", "ptr %args")
+        ctx.builder: ir.emitFixedAlloca(ctx.builder, "args.addr", "ptr")
+        ctx.builder: ir.emitStore(ctx.builder, "ptr", "%args", "%args.addr")
+        ctx: types.addVar(ctx, "args", "%args.addr", "Array:String")
+    } else {
+        let retSuru String: tyh.makeSuruType(fnDecl.returnType)
+        let retLlvm String: match fnDecl.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
+        ctx.currentReturnLlvmType: retLlvm
+        ctx.currentReturnSuruType: retSuru
+        let paramParts Array<String>: []
+        let i Int64: 0
+        while i.lt(fnDecl.params.len()) {
+            let p Param: fnDecl.params.at(i)
+            paramParts.add(box.llvmTypeOf(tyh.makeSuruType(p.typeName)).append(" %p.").append(p.name))
+            i: i.add(1)
         }
-        _: {
-            let retSuru String: tyh.makeSuruType(fnDecl.returnType)
-            let retLlvm String: match fnDecl.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
-            ctx.currentReturnLlvmType: retLlvm
-            ctx.currentReturnSuruType: retSuru
-            let paramParts Array<String>: []
-            let i Int64: 0
-            while i.lt(fnDecl.params.len()) {
-                let p Param: fnDecl.params.at(i)
-                paramParts.add(box.llvmTypeOf(tyh.makeSuruType(p.typeName)).append(" %p.").append(p.name))
-                i: i.add(1)
-            }
-            ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, mangleSym(fnDecl.srcPath, fnDecl.name), ir.joinArgs(paramParts))
-            let j Int64: 0
-            while j.lt(fnDecl.params.len()) {
-                let p Param: fnDecl.params.at(j)
-                let pSuru String: tyh.makeSuruType(p.typeName)
-                let pLlvm String: box.llvmTypeOf(pSuru)
-                let allocName String: "%".append(p.name).append(".addr")
-                ctx.builder: ir.emitFixedAlloca(ctx.builder, p.name.append(".addr"), pLlvm)
-                ctx.builder: ir.emitStore(ctx.builder, pLlvm, "%p.".append(p.name), allocName)
-                ctx: types.addVar(ctx, p.name, allocName, pSuru)
-                j: j.add(1)
-            }
+        ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, mangleSym(fnDecl.srcPath, fnDecl.name), ir.joinArgs(paramParts))
+        let j Int64: 0
+        while j.lt(fnDecl.params.len()) {
+            let p Param: fnDecl.params.at(j)
+            let pSuru String: tyh.makeSuruType(p.typeName)
+            let pLlvm String: box.llvmTypeOf(pSuru)
+            let allocName String: "%".append(p.name).append(".addr")
+            ctx.builder: ir.emitFixedAlloca(ctx.builder, p.name.append(".addr"), pLlvm)
+            ctx.builder: ir.emitStore(ctx.builder, pLlvm, "%p.".append(p.name), allocName)
+            ctx: types.addVar(ctx, p.name, allocName, pSuru)
+            j: j.add(1)
         }
     }
 
     ctx: emitStmts(ctx, fnDecl.body)
 
     // Implicit return / fallback unreachable.
-    match ctx.blockOpen {
-        true: {
-            match fnDecl.name.equals("main") {
-                true: {
-                    // Drop the Array<String> before returning — it was built by @main wrapper.
-                    let argsEntry VarEntry: types.lookupVar(ctx, "args")
-                    let argsLoadR IrResult: ir.emitLoad(ctx.builder, "ptr", argsEntry.allocaName)
-                    ctx.builder: argsLoadR.builder
-                    let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name)
-                    ctx: dropR.ctx
-                    ctx.builder: ir.emitRet(ctx.builder, "i64", "0")
-                }
-                _: {
-                    match ctx.currentReturnSuruType.equals("void") {
-                        true: { ctx.builder: ir.emitRet(ctx.builder, "ptr", "null") }
-                        _:    { ctx.builder: ir.emitRet(ctx.builder, ctx.currentReturnLlvmType, box.defaultReturnValue(ctx.currentReturnSuruType)) }
-                    }
-                }
+    if ctx.blockOpen {
+        if fnDecl.name.equals("main") {
+            // Drop the Array<String> before returning — it was built by @main wrapper.
+            let argsEntry VarEntry: types.lookupVar(ctx, "args")
+            let argsLoadR IrResult: ir.emitLoad(ctx.builder, "ptr", argsEntry.allocaName)
+            ctx.builder: argsLoadR.builder
+            let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name)
+            ctx: dropR.ctx
+            ctx.builder: ir.emitRet(ctx.builder, "i64", "0")
+        } else {
+            if ctx.currentReturnSuruType.equals("void") {
+                ctx.builder: ir.emitRet(ctx.builder, "ptr", "null")
+            } else {
+                ctx.builder: ir.emitRet(ctx.builder, ctx.currentReturnLlvmType, box.defaultReturnValue(ctx.currentReturnSuruType))
             }
         }
-        _: {}
     }
     ctx.builder: ir.emitFnEnd(ctx.builder)
 
@@ -2342,10 +2034,10 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let j Int64: 0
     while j.lt(stmts.len()) {
         let s AstNode: stmts.at(j)
-        match s { FnDeclNode: { match s.name.equals("main") { true: { hasMain: true } _: {} } } _: {} }
+        match s { FnDeclNode: { if s.name.equals("main") { hasMain: true } } _: {} }
         j: j.add(1)
     }
-    match hasMain { true: { ctx: emitMainWrapper(ctx) } _: {} }
+    if hasMain { ctx: emitMainWrapper(ctx) }
     return ctx
 }
 
@@ -2365,13 +2057,12 @@ fn sortStrings(arr Array<String>) Array<String> {
         let j Int64: outer.take(1)
         let go Bool: j.gte(0)
         while go {
-            match result.at(j).compare(key).gt(0) {
-                true: {
-                    result.set(result.at(j), j.add(1))
-                    j: j.take(1)
-                    go: j.gte(0)
-                }
-                _: { go: false }
+            if result.at(j).compare(key).gt(0) {
+                result.set(result.at(j), j.add(1))
+                j: j.take(1)
+                go: j.gte(0)
+            } else {
+                go: false
             }
         }
         result.set(key, j.add(1))
@@ -2432,20 +2123,17 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
         let s AstNode: stmts.at(i)
         match s {
             FnDeclNode: {
-                match types.isOwnFn(ctx, s.name) {
-                    true: {}
-                    _: {
-                        let retSuru String: tyh.makeSuruType(s.returnType)
-                        let retLlvm String: match s.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
-                        let paramTypes Array<String>: []
-                        let j Int64: 0
-                        while j.lt(s.params.len()) {
-                            paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
-                            j: j.add(1)
-                        }
-                        let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
-                        ctx: types.addFn(ctx, fnEnt)
+                if not types.isOwnFn(ctx, s.name) {
+                    let retSuru String: tyh.makeSuruType(s.returnType)
+                    let retLlvm String: match s.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
+                    let paramTypes Array<String>: []
+                    let j Int64: 0
+                    while j.lt(s.params.len()) {
+                        paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
+                        j: j.add(1)
                     }
+                    let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
+                    ctx: types.addFn(ctx, fnEnt)
                 }
             }
             _: {}
@@ -2474,9 +2162,9 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     // ctx.strGlobals holds mode/format/bool strings (no blank after).
     // ctx.strLiterals holds user Suru string literal globals (blank after if non-empty).
     let sep1 String: ""
-    match globalConsts.len().equals(0) { true: {} _: { sep1: "\n" } }
+    if not globalConsts.len().equals(0) { sep1: "\n" }
     let sep2 String: ""
-    match ctx.strLiterals.len().equals(0) { true: {} _: { sep2: "\n" } }
+    if not ctx.strLiterals.len().equals(0) { sep2: "\n" }
     // Build extCloneDropDecls from sorted type names (alphabetical for deterministic output).
     let sortedNames Array<String>: sortStrings(ctx.extCloneDropTypeNames)
     let extCloneDropDecls String: ""
@@ -2489,7 +2177,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
         ei: ei.add(1)
     }
     let sep3 String: ""
-    match extCloneDropDecls.len().equals(0) { true: {} _: { sep3: "\n" } }
+    if not extCloneDropDecls.len().equals(0) { sep3: "\n" }
     return header
         .append(globalConsts)
         .append(sep1)

@@ -25,10 +25,7 @@ type InstantiationRequest: { genericName String, concreteTypes Array<String> }
 
 // mangleAt — append "__<types[i]>" for each remaining concrete type to acc.
 fn mangleAt(acc String, types Array<String>, i Int64) String {
-    match i.lt(types.len()) {
-        _: { return acc }
-        true: {}
-    }
+    if not i.lt(types.len()) { return acc }
     return mangleAt(acc.append("__").append(types.at(i)), types, i.add(1))
 }
 
@@ -104,10 +101,7 @@ fn wrapFnDeclNode(fd FnDeclNode) AstNode {
 fn mangleTypeExpr(typeExpr String) String {
     let ltIdx Int64: subst.indexOfLT(typeExpr)
     // No '<': plain name — return as-is.
-    match ltIdx.equals(typeExpr.len()) {
-        true: { return typeExpr }
-        _: {}
-    }
+    if ltIdx.equals(typeExpr.len()) { return typeExpr }
     let base String: typeExpr.slice(0, ltIdx)
     // Strip the enclosing '<' and '>' and split the type args by comma.
     let inner String: typeExpr.slice(ltIdx.add(1), typeExpr.len().take(1))
@@ -118,10 +112,7 @@ fn mangleTypeExpr(typeExpr String) String {
 // substAndMangleVariantAt — for each variant in variants[i..], apply
 // substituteType then mangleTypeExpr, appending results to out.
 fn substAndMangleVariantAt(variants Array<String>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<String>) Array<String> {
-    match i.lt(variants.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(variants.len()) { return out }
     let substituted String: subst.substituteType(variants.at(i), paramNames, concreteTypes)
     out.add(mangleTypeExpr(substituted))
     return substAndMangleVariantAt(variants, paramNames, concreteTypes, i.add(1), out)
@@ -154,20 +145,13 @@ fn wrapSumTypeDeclNode(sd SumTypeDeclNode) AstNode {
 // instantiate and push the concrete TypeDeclNode into out (then stop).
 // Uses wrapTypeDeclNode + typed intermediate to ensure correct AstNode tagging.
 fn findInstTypeAt(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>, i Int64) {
-    match i.lt(registry.types.len()) {
-        _: {}
-        true: {
-            match registry.types.at(i).name.equals(genericName) {
-                true: {
-                    let concrete TypeDeclNode: instantiateType(registry.types.at(i), concreteTypes)
-                    let outArr Array<AstNode>: out
-                    outArr.add(wrapTypeDeclNode(concrete))
-                }
-                _: {
-                    findInstTypeAt(registry, genericName, concreteTypes, out, i.add(1))
-                }
-            }
-        }
+    if not i.lt(registry.types.len()) { return }
+    if registry.types.at(i).name.equals(genericName) {
+        let concrete TypeDeclNode: instantiateType(registry.types.at(i), concreteTypes)
+        let outArr Array<AstNode>: out
+        outArr.add(wrapTypeDeclNode(concrete))
+    } else {
+        findInstTypeAt(registry, genericName, concreteTypes, out, i.add(1))
     }
 }
 
@@ -175,20 +159,13 @@ fn findInstTypeAt(registry GenericRegistry, genericName String, concreteTypes Ar
 // instantiate and push the concrete FnDeclNode into out (then stop).
 // Uses wrapFnDeclNode + typed intermediate to ensure correct AstNode tagging.
 fn findInstFnAt(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>, i Int64) {
-    match i.lt(registry.fns.len()) {
-        _: {}
-        true: {
-            match registry.fns.at(i).name.equals(genericName) {
-                true: {
-                    let concrete FnDeclNode: instantiateFn(registry.fns.at(i), concreteTypes)
-                    let outArr Array<AstNode>: out
-                    outArr.add(wrapFnDeclNode(concrete))
-                }
-                _: {
-                    findInstFnAt(registry, genericName, concreteTypes, out, i.add(1))
-                }
-            }
-        }
+    if not i.lt(registry.fns.len()) { return }
+    if registry.fns.at(i).name.equals(genericName) {
+        let concrete FnDeclNode: instantiateFn(registry.fns.at(i), concreteTypes)
+        let outArr Array<AstNode>: out
+        outArr.add(wrapFnDeclNode(concrete))
+    } else {
+        findInstFnAt(registry, genericName, concreteTypes, out, i.add(1))
     }
 }
 
@@ -201,42 +178,29 @@ fn findInstFnAt(registry GenericRegistry, genericName String, concreteTypes Arra
 // structs are not added twice when the same generic struct is also inferred
 // from a direct type annotation.
 fn instantiateVariantTypeAt(registry GenericRegistry, rawVariants Array<String>, paramNames Array<String>, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>, i Int64) {
-    match i.lt(rawVariants.len()) {
-        _: {}
-        true: {
-            let raw String: rawVariants.at(i)
-            let ltIdx Int64: subst.indexOfLT(raw)
-            // Only process generic variants (those with '<' in raw template form).
-            match ltIdx.equals(raw.len()) {
-                true: {}
-                _: {
-                    // Substitute type params in the full variant expression, then
-                    // re-parse to extract base name and concrete arg list.
-                    // E.g. "Some<T>" + {T→Int64} → "Some<Int64>" → base="Some", args=["Int64"]
-                    let substituted String: subst.substituteType(raw, paramNames, concreteTypes)
-                    let subLtIdx Int64: subst.indexOfLT(substituted)
-                    match subLtIdx.equals(substituted.len()) {
-                        true: {}
-                        _: {
-                            let baseName String: substituted.slice(0, subLtIdx)
-                            let inner String: substituted.slice(subLtIdx.add(1), substituted.len().take(1))
-                            let variantArgs Array<String>: subst.splitByComma(inner)
-                            let mangledVariant String: mangleGenericName(baseName, variantArgs)
-                            // Skip if already instantiated (prevents duplicate TypeDeclNodes).
-                            match alreadySeen(seen, mangledVariant) {
-                                true: {}
-                                _: {
-                                    seen.add(mangledVariant)
-                                    findInstTypeAt(registry, baseName, variantArgs, out, 0)
-                                }
-                            }
-                        }
-                    }
-                }
+    if not i.lt(rawVariants.len()) { return }
+    let raw String: rawVariants.at(i)
+    let ltIdx Int64: subst.indexOfLT(raw)
+    // Only process generic variants (those with '<' in raw template form).
+    if not ltIdx.equals(raw.len()) {
+        // Substitute type params in the full variant expression, then
+        // re-parse to extract base name and concrete arg list.
+        // E.g. "Some<T>" + {T→Int64} → "Some<Int64>" → base="Some", args=["Int64"]
+        let substituted String: subst.substituteType(raw, paramNames, concreteTypes)
+        let subLtIdx Int64: subst.indexOfLT(substituted)
+        if not subLtIdx.equals(substituted.len()) {
+            let baseName String: substituted.slice(0, subLtIdx)
+            let inner String: substituted.slice(subLtIdx.add(1), substituted.len().take(1))
+            let variantArgs Array<String>: subst.splitByComma(inner)
+            let mangledVariant String: mangleGenericName(baseName, variantArgs)
+            // Skip if already instantiated (prevents duplicate TypeDeclNodes).
+            if not alreadySeen(seen, mangledVariant) {
+                seen.add(mangledVariant)
+                findInstTypeAt(registry, baseName, variantArgs, out, 0)
             }
-            instantiateVariantTypeAt(registry, rawVariants, paramNames, concreteTypes, out, seen, i.add(1))
         }
     }
+    instantiateVariantTypeAt(registry, rawVariants, paramNames, concreteTypes, out, seen, i.add(1))
 }
 
 // findInstSumTypeAt — walk registry.sumTypes from index i; if the name matches,
@@ -246,23 +210,16 @@ fn instantiateVariantTypeAt(registry GenericRegistry, rawVariants Array<String>,
 // seen is the deduplication set from instantiateAllAt, shared to prevent
 // double-adding variant structs that were also directly inferred.
 fn findInstSumTypeAt(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>, i Int64) {
-    match i.lt(registry.sumTypes.len()) {
-        _: {}
-        true: {
-            match registry.sumTypes.at(i).name.equals(genericName) {
-                true: {
-                    let def GenericSumTypeDef: registry.sumTypes.at(i)
-                    let concrete SumTypeDeclNode: instantiateSumType(def, concreteTypes)
-                    let outArr Array<AstNode>: out
-                    outArr.add(wrapSumTypeDeclNode(concrete))
-                    // Instantiate the variant struct types (e.g. Some<T> → Some__Int64).
-                    instantiateVariantTypeAt(registry, def.node.variants, def.typeParams, concreteTypes, out, seen, 0)
-                }
-                _: {
-                    findInstSumTypeAt(registry, genericName, concreteTypes, out, seen, i.add(1))
-                }
-            }
-        }
+    if not i.lt(registry.sumTypes.len()) { return }
+    if registry.sumTypes.at(i).name.equals(genericName) {
+        let def GenericSumTypeDef: registry.sumTypes.at(i)
+        let concrete SumTypeDeclNode: instantiateSumType(def, concreteTypes)
+        let outArr Array<AstNode>: out
+        outArr.add(wrapSumTypeDeclNode(concrete))
+        // Instantiate the variant struct types (e.g. Some<T> → Some__Int64).
+        instantiateVariantTypeAt(registry, def.node.variants, def.typeParams, concreteTypes, out, seen, 0)
+    } else {
+        findInstSumTypeAt(registry, genericName, concreteTypes, out, seen, i.add(1))
     }
 }
 
@@ -270,14 +227,8 @@ fn findInstSumTypeAt(registry GenericRegistry, genericName String, concreteTypes
 
 // alreadySeenAt — linear scan of seen[i..] for name.
 fn alreadySeenAt(seen Array<String>, name String, i Int64) Bool {
-    match i.lt(seen.len()) {
-        _: { return false }
-        true: {}
-    }
-    match seen.at(i).equals(name) {
-        true: { return true }
-        _: {}
-    }
+    if not i.lt(seen.len()) { return false }
+    if seen.at(i).equals(name) { return true }
     return alreadySeenAt(seen, name, i.add(1))
 }
 
@@ -292,20 +243,14 @@ fn alreadySeen(seen Array<String>, name String) Bool {
 // For each new request: add its mangled name to seen, then dispatch to
 // findInstTypeAt and findInstFnAt (exactly one will match for any valid request).
 fn instantiateAllAt(registry GenericRegistry, requests Array<InstantiationRequest>, seen Array<String>, out Array<AstNode>, i Int64) Array<AstNode> {
-    match i.lt(requests.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(requests.len()) { return out }
     let req InstantiationRequest: requests.at(i)
     let mangledName String: mangleGenericName(req.genericName, req.concreteTypes)
-    match alreadySeen(seen, mangledName) {
-        true: {}
-        _: {
-            seen.add(mangledName)
-            findInstTypeAt(registry, req.genericName, req.concreteTypes, out, 0)
-            findInstFnAt(registry, req.genericName, req.concreteTypes, out, 0)
-            findInstSumTypeAt(registry, req.genericName, req.concreteTypes, out, seen, 0)
-        }
+    if not alreadySeen(seen, mangledName) {
+        seen.add(mangledName)
+        findInstTypeAt(registry, req.genericName, req.concreteTypes, out, 0)
+        findInstFnAt(registry, req.genericName, req.concreteTypes, out, 0)
+        findInstSumTypeAt(registry, req.genericName, req.concreteTypes, out, seen, 0)
     }
     return instantiateAllAt(registry, requests, seen, out, i.add(1))
 }

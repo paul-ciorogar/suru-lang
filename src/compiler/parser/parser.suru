@@ -50,21 +50,18 @@ fn parseIncludeDirective(parser Parser) StmtResult {
 // Returns an empty typeParams array if no `<` is present.
 fn parseTypeParamList(parser Parser) TypeParamsResult {
     let typeParams Array<String>: []
-    match util.currentTokenIs(parser, TOK_LT) {
-        true: {
+    if util.currentTokenIs(parser, TOK_LT) {
+        parser: util.advance(parser)
+        let tok Token: util.currentToken(parser)
+        parser: util.consume(parser, TOK_IDENT)
+        typeParams.add(tok.text)
+        while util.currentTokenIs(parser, TOK_COMMA) {
             parser: util.advance(parser)
-            let tok Token: util.currentToken(parser)
+            let tok2 Token: util.currentToken(parser)
             parser: util.consume(parser, TOK_IDENT)
-            typeParams.add(tok.text)
-            while util.currentTokenIs(parser, TOK_COMMA) {
-                parser: util.advance(parser)
-                let tok2 Token: util.currentToken(parser)
-                parser: util.consume(parser, TOK_IDENT)
-                typeParams.add(tok2.text)
-            }
-            parser: util.consume(parser, TOK_GT)
+            typeParams.add(tok2.text)
         }
-        _: {}
+        parser: util.consume(parser, TOK_GT)
     }
     return { parser: parser, typeParams: typeParams }
 }
@@ -116,13 +113,9 @@ fn parseFnDecl(parser Parser) StmtResult {
 }
 
 fn parseFnReturnType(parser Parser) RetTypeResult {
-    return match util.currentTokenIs(parser, TOK_VOID) {
-        true: { parser: util.advance(parser), returnType: "void" }
-        _:    match util.currentTokenIs(parser, TOK_LBRACE) {
-            true: { parser: parser, returnType: "void" }
-            _:    parseFnReturnTypeAnnotation(parser)
-        }
-    }
+    if util.currentTokenIs(parser, TOK_VOID) { return { parser: util.advance(parser), returnType: "void" } }
+    if util.currentTokenIs(parser, TOK_LBRACE) { return { parser: parser, returnType: "void" } }
+    return parseFnReturnTypeAnnotation(parser)
 }
 
 fn parseFnReturnTypeAnnotation(parser Parser) RetTypeResult {
@@ -146,10 +139,8 @@ fn parseTypeDeclaration(parser Parser) StmtResult {
     tpr.typeParams: {}
     drop(tpr)
     parser: util.consume(parser, TOK_COLON)
-    return match util.currentTokenIs(parser, TOK_LBRACE) {
-        true: parseStructTypeBody(parser, nameTok.text, typeParams)
-        _:    parseSumTypeBody(parser, nameTok.text, typeParams)
-    }
+    if util.currentTokenIs(parser, TOK_LBRACE) { return parseStructTypeBody(parser, nameTok.text, typeParams) }
+    return parseSumTypeBody(parser, nameTok.text, typeParams)
 }
 
 fn parseStructTypeBody(parser Parser, typeName String, typeParams Array<String>) StmtResult {
@@ -166,10 +157,8 @@ fn parseStructTypeBody(parser Parser, typeName String, typeParams Array<String>)
 }
 
 fn parseStructTypeMemberInto(parser Parser, fields Array<Param>, methods Array<MethodSig>) Parser {
-    return match util.currentTokenIs(parser, TOK_FN) {
-        true: parseMethodSigInto(parser, methods)
-        _:    parseDataFieldInto(parser, fields)
-    }
+    if util.currentTokenIs(parser, TOK_FN) { return parseMethodSigInto(parser, methods) }
+    return parseDataFieldInto(parser, fields)
 }
 
 fn parseDataFieldInto(parser Parser, fields Array<Param>) Parser {
@@ -220,15 +209,10 @@ fn parseMethodSigInto(parser Parser, methods Array<MethodSig>) Parser {
 // no `{` body to mark the end, so an absent return type is signalled by the
 // member separator/terminator (`,`, `}`, next `fn`, or EOF) → "void".
 fn parseMethodSigReturn(parser Parser) RetTypeResult {
-    match util.currentTokenIs(parser, TOK_VOID) {
-        true: { return { parser: util.advance(parser), returnType: "void" } }
-        _: {}
-    }
+    if util.currentTokenIs(parser, TOK_VOID) { return { parser: util.advance(parser), returnType: "void" } }
     let noRet Bool: util.currentTokenIs(parser, TOK_COMMA) or util.currentTokenIs(parser, TOK_RBRACE) or util.currentTokenIs(parser, TOK_FN) or util.currentTokenIs(parser, TOK_EOF)
-    return match noRet {
-        true: { parser: parser, returnType: "void" }
-        _:    parseFnReturnTypeAnnotation(parser)
-    }
+    if noRet { return { parser: parser, returnType: "void" } }
+    return parseFnReturnTypeAnnotation(parser)
 }
 
 // parseSumTypeBody — parse a comma-separated list of variant type expressions
@@ -289,10 +273,8 @@ fn parseMatchStmtArm(parser Parser) StmtArmResult {
     drop(patR)
     parser: util.consume(parser, TOK_COLON)
     let stmts Array<AstNode>: []
-    return match util.currentTokenIs(parser, TOK_LBRACE) {
-        true: parseMatchStmtArmBlock(parser, pat, stmts)
-        _:    parseMatchStmtArmSimple(parser, pat, stmts)
-    }
+    if util.currentTokenIs(parser, TOK_LBRACE) { return parseMatchStmtArmBlock(parser, pat, stmts) }
+    return parseMatchStmtArmSimple(parser, pat, stmts)
 }
 
 fn parseMatchStmtArmBlock(parser Parser, pat AstNode, stmts Array<AstNode>) StmtArmResult {
@@ -313,10 +295,8 @@ fn parseMatchStmtArmBlock(parser Parser, pat AstNode, stmts Array<AstNode>) Stmt
 
 fn parseMatchStmtArmSimple(parser Parser, pat AstNode, stmts Array<AstNode>) StmtArmResult {
     let isWc Bool: match pat { WildcardNode: true, _: false }
-    return match util.currentTokenIs(parser, TOK_RBRACE) {
-        true: { parser: parser, arm: { isWildcard: isWc, pattern: pat, stmts: stmts } }
-        _:    parseMatchStmtArmExprBody(parser, pat, stmts, isWc)
-    }
+    if util.currentTokenIs(parser, TOK_RBRACE) { return { parser: parser, arm: { isWildcard: isWc, pattern: pat, stmts: stmts } } }
+    return parseMatchStmtArmExprBody(parser, pat, stmts, isWc)
 }
 
 fn parseMatchStmtArmExprBody(parser Parser, pat AstNode, stmts Array<AstNode>, isWc Bool) StmtArmResult {
@@ -375,23 +355,17 @@ fn parseBlock(parser Parser) BlockResult {
 // Parse the optional else / else-if tail of an if statement.
 // Returns a BlockResult whose block is empty when there is no else clause.
 fn parseElseBranch(parser Parser) BlockResult {
-    match util.currentTokenIs(parser, TOK_ELSE) {
-        true:  { return parseElseBranchPresent(parser) }
-        _:     {
-            let empty Array<AstNode>: []
-            let noElse BlockNode: { stmts: empty }
-            return { parser: parser, block: noElse }
-        }
-    }
+    if util.currentTokenIs(parser, TOK_ELSE) { return parseElseBranchPresent(parser) }
+    let empty Array<AstNode>: []
+    let noElse BlockNode: { stmts: empty }
+    return { parser: parser, block: noElse }
 }
 
 // Consume the `else` token and dispatch to else-if or plain else block.
 fn parseElseBranchPresent(parser Parser) BlockResult {
     parser: util.consume(parser, TOK_ELSE)
-    match util.currentTokenIs(parser, TOK_IF) {
-        true:  { return parseElseIfBranch(parser) }
-        _:     { return parseBlock(parser) }
-    }
+    if util.currentTokenIs(parser, TOK_IF) { return parseElseIfBranch(parser) }
+    return parseBlock(parser)
 }
 
 // Parse `else if <cond> <block> [else ...]` — wraps the recursive IfNode in a BlockNode.
@@ -439,14 +413,12 @@ fn parseIfStmt(parser Parser) StmtResult {
 fn parseReturnStmt(parser Parser) StmtResult {
     parser: util.consume(parser, TOK_RETURN)
     let atEnd Bool: util.currentTokenIs(parser, TOK_RBRACE) or util.currentTokenIs(parser, TOK_EOF)
-    match atEnd {
-        true: {
-            let dummy WildcardNode: {}
-            let n ReturnNode: { hasValue: false, value: dummy }
-            return { parser: parser, stmt: n }
-        }
-        _: { return parseReturnValue(parser) }
+    if atEnd {
+        let dummy WildcardNode: {}
+        let n ReturnNode: { hasValue: false, value: dummy }
+        return { parser: parser, stmt: n }
     }
+    return parseReturnValue(parser)
 }
 
 fn parseReturnValue(parser Parser) StmtResult {
@@ -483,10 +455,8 @@ fn parseLetStmt(parser Parser) StmtResult {
 
 fn parseIdentStmt(parser Parser) StmtResult {
     let isAssign Bool: util.peekIs(parser, TOK_COLON)
-    return match isAssign {
-        true: parseAssignStmt(parser)
-        _:    parseIdentExprOrFieldAssign(parser)
-    }
+    if isAssign { return parseAssignStmt(parser) }
+    return parseIdentExprOrFieldAssign(parser)
 }
 
 fn parseAssignStmt(parser Parser) StmtResult {
@@ -512,13 +482,9 @@ fn parseIdentExprOrFieldAssign(parser Parser) StmtResult {
     drop(pr)
     let isFA Bool: match e { FieldAccessNode: true, _: false }
     let isAssign Bool: isFA and util.currentTokenIs(parser, TOK_COLON)
-    match isAssign {
-        true: { return parseFieldAssignStmt(parser, e) }
-        _: {
-            let n ExprStmtNode: { expr: e }
-            return { parser: parser, stmt: n }
-        }
-    }
+    if isAssign { return parseFieldAssignStmt(parser, e) }
+    let n ExprStmtNode: { expr: e }
+    return { parser: parser, stmt: n }
 }
 
 fn parseFieldAssignStmt(parser Parser, fieldExpr AstNode) StmtResult {
@@ -618,10 +584,8 @@ fn parseAndExpr(parser Parser) ParseResult {
 }
 
 fn parseNotExpr(parser Parser) ParseResult {
-    return match util.currentTokenIs(parser, TOK_NOT) {
-        true: parseNotExprBody(util.advance(parser))
-        _:    parsePostfixChain(parser, parsePrimary(parser))
-    }
+    if util.currentTokenIs(parser, TOK_NOT) { return parseNotExprBody(util.advance(parser)) }
+    return parsePostfixChain(parser, parsePrimary(parser))
 }
 
 fn parseNotExprBody(parser Parser) ParseResult {
@@ -657,13 +621,9 @@ fn processPostfixStep(parser Parser, expr AstNode) ParseResult {
     let nameTok Token: util.currentToken(parser)
     parser: util.consume(parser, TOK_IDENT)
     let memberName String: nameTok.text
-    match util.currentTokenIs(parser, TOK_LPAREN) {
-        true: { return parseMethodCallPart(parser, expr, memberName) }
-        _: {
-            let n FieldAccessNode: { receiver: expr, fieldName: memberName, resolvedType: "" }
-            return { parser: parser, expr: n }
-        }
-    }
+    if util.currentTokenIs(parser, TOK_LPAREN) { return parseMethodCallPart(parser, expr, memberName) }
+    let n FieldAccessNode: { receiver: expr, fieldName: memberName, resolvedType: "" }
+    return { parser: parser, expr: n }
 }
 
 fn parseMethodCallPart(parser Parser, expr AstNode, memberName String) ParseResult {
@@ -759,10 +719,8 @@ fn parsePrimaryStruct(parser Parser) ParseResult {
 }
 
 fn parseStructLitMemberInto(parser Parser, fields Array<StructFieldNode>) Parser {
-    return match util.currentTokenIs(parser, TOK_FN) {
-        true: parseStructLitMethodInto(parser, fields)
-        _:    parseStructLitFieldInto(parser, fields)
-    }
+    if util.currentTokenIs(parser, TOK_FN) { return parseStructLitMethodInto(parser, fields) }
+    return parseStructLitFieldInto(parser, fields)
 }
 
 fn parseStructLitFieldInto(parser Parser, fields Array<StructFieldNode>) Parser {
@@ -846,13 +804,9 @@ fn parsePrimaryMatch(parser Parser) ParseResult {
 fn parsePrimaryIdent(parser Parser, tok Token) ParseResult {
     let name String: tok.text
     parser: util.advance(parser)
-    match util.currentTokenIs(parser, TOK_LPAREN) {
-        true: { return parsePrimaryCall(parser, name) }
-        _: {
-            let n VarRefNode: { name: name, resolvedType: "" }
-            return { parser: parser, expr: n }
-        }
-    }
+    if util.currentTokenIs(parser, TOK_LPAREN) { return parsePrimaryCall(parser, name) }
+    let n VarRefNode: { name: name, resolvedType: "" }
+    return { parser: parser, expr: n }
 }
 
 fn parsePrimaryCall(parser Parser, name String) ParseResult {
@@ -975,10 +929,8 @@ fn parseNegativePattern(parser Parser) PatResult {
 }
 
 fn parseArgs(parser Parser) ArgsResult {
-    return match util.currentTokenIs(parser, TOK_RPAREN) {
-        true: { parser: parser, args: [] }
-        _:    parseArgsList(parser)
-    }
+    if util.currentTokenIs(parser, TOK_RPAREN) { return { parser: parser, args: [] } }
+    return parseArgsList(parser)
 }
 
 fn parseArgsList(parser Parser) ArgsResult {

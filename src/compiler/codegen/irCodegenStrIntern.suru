@@ -34,7 +34,7 @@ fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
     // Dedup: if this text was already interned, nothing to do.
     let i Int64: 0
     while i.lt(ctx.strIndex.len()) {
-        match ctx.strIndex.at(i).text.equals(text) { true: { return ctx } _: {} }
+        if ctx.strIndex.at(i).text.equals(text) { return ctx }
         i: i.add(1)
     }
     let n Int64: ctx.strIndex.len()
@@ -70,7 +70,7 @@ fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
     let i Int64: 0
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)
-        match e.text.equals(text) { true: { return e.globalName } _: {} }
+        if e.text.equals(text) { return e.globalName }
         i: i.add(1)
     }
     return ""
@@ -83,13 +83,10 @@ fn lookupStrHdrGlobal(ctx IrCodegenContext, text String) String {
     let i Int64: 0
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)
-        match e.text.equals(text) {
-            true: {
-                // e.globalName = "@.str_N"; strip "@.str_" (6 chars) to get "N".
-                let n String: e.globalName.slice(6, e.globalName.len())
-                return "@.str_hdr_".append(n)
-            }
-            _: {}
+        if e.text.equals(text) {
+            // e.globalName = "@.str_N"; strip "@.str_" (6 chars) to get "N".
+            let n String: e.globalName.slice(6, e.globalName.len())
+            return "@.str_hdr_".append(n)
         }
         i: i.add(1)
     }

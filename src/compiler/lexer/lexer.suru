@@ -245,8 +245,8 @@ fn processSingleChar(lx Lexer, ch String) Lexer {
 }
 
 fn processSymbolOrString(lx Lexer, ch String) Lexer {
-    match ch.equals("\"") { true: { return readString(lx) } _: {} }
-    match ch.equals("'")  { true: { return readChar(lx) }   _: {} }
+    if ch.equals("\"") { return readString(lx) }
+    if ch.equals("'")  { return readChar(lx) }
     return processSingleChar(lx, ch)
 }
 
@@ -290,42 +290,42 @@ fn skipLineComment(lx Lexer) Lexer {
 
 // Map a token kind ordinal to its display name.
 fn tokenKindName(kind Int64) String {
-    match kind.equals(0)  { true: { return "EOF"      } _: {} }
-    match kind.equals(1)  { true: { return "IDENT"    } _: {} }
-    match kind.equals(2)  { true: { return "TRUE"     } _: {} }
-    match kind.equals(3)  { true: { return "FALSE"    } _: {} }
-    match kind.equals(4)  { true: { return "INT"      } _: {} }
-    match kind.equals(5)  { true: { return "FLOAT"    } _: {} }
-    match kind.equals(6)  { true: { return "STRING"   } _: {} }
-    match kind.equals(7)  { true: { return "LPAREN"   } _: {} }
-    match kind.equals(8)  { true: { return "RPAREN"   } _: {} }
-    match kind.equals(9)  { true: { return "LBRACE"   } _: {} }
-    match kind.equals(10) { true: { return "RBRACE"   } _: {} }
-    match kind.equals(11) { true: { return "LBRACKET" } _: {} }
-    match kind.equals(12) { true: { return "RBRACKET" } _: {} }
-    match kind.equals(13) { true: { return "COMMA"    } _: {} }
-    match kind.equals(14) { true: { return "DOT"      } _: {} }
-    match kind.equals(15) { true: { return "COLON"    } _: {} }
-    match kind.equals(16) { true: { return "MINUS"    } _: {} }
-    match kind.equals(17) { true: { return "LT"       } _: {} }
-    match kind.equals(18) { true: { return "GT"       } _: {} }
-    match kind.equals(19) { true: { return "LET"      } _: {} }
-    match kind.equals(20) { true: { return "NOT"      } _: {} }
-    match kind.equals(21) { true: { return "AND"      } _: {} }
-    match kind.equals(22) { true: { return "OR"       } _: {} }
-    match kind.equals(23) { true: { return "MATCH"    } _: {} }
-    match kind.equals(24) { true: { return "WILDCARD" } _: {} }
-    match kind.equals(25) { true: { return "FN"       } _: {} }
-    match kind.equals(26) { true: { return "RETURN"   } _: {} }
-    match kind.equals(27) { true: { return "VOID"     } _: {} }
-    match kind.equals(28) { true: { return "WHILE"    } _: {} }
-    match kind.equals(29) { true: { return "INCLUDE"  } _: {} }
-    match kind.equals(30) { true: { return "TYPE"     } _: {} }
-    match kind.equals(31) { true: { return "AS"       } _: {} }
-    match kind.equals(32) { true: { return "IF"       } _: {} }
-    match kind.equals(33) { true: { return "ELSE"     } _: {} }
-    match kind.equals(34) { true: { return "CHAR"     } _: {} }
-    match kind.equals(35) { true: { return "THIS"     } _: {} }
+    if kind.equals(0)  { return "EOF"      }
+    if kind.equals(1)  { return "IDENT"    }
+    if kind.equals(2)  { return "TRUE"     }
+    if kind.equals(3)  { return "FALSE"    }
+    if kind.equals(4)  { return "INT"      }
+    if kind.equals(5)  { return "FLOAT"    }
+    if kind.equals(6)  { return "STRING"   }
+    if kind.equals(7)  { return "LPAREN"   }
+    if kind.equals(8)  { return "RPAREN"   }
+    if kind.equals(9)  { return "LBRACE"   }
+    if kind.equals(10) { return "RBRACE"   }
+    if kind.equals(11) { return "LBRACKET" }
+    if kind.equals(12) { return "RBRACKET" }
+    if kind.equals(13) { return "COMMA"    }
+    if kind.equals(14) { return "DOT"      }
+    if kind.equals(15) { return "COLON"    }
+    if kind.equals(16) { return "MINUS"    }
+    if kind.equals(17) { return "LT"       }
+    if kind.equals(18) { return "GT"       }
+    if kind.equals(19) { return "LET"      }
+    if kind.equals(20) { return "NOT"      }
+    if kind.equals(21) { return "AND"      }
+    if kind.equals(22) { return "OR"       }
+    if kind.equals(23) { return "MATCH"    }
+    if kind.equals(24) { return "WILDCARD" }
+    if kind.equals(25) { return "FN"       }
+    if kind.equals(26) { return "RETURN"   }
+    if kind.equals(27) { return "VOID"     }
+    if kind.equals(28) { return "WHILE"    }
+    if kind.equals(29) { return "INCLUDE"  }
+    if kind.equals(30) { return "TYPE"     }
+    if kind.equals(31) { return "AS"       }
+    if kind.equals(32) { return "IF"       }
+    if kind.equals(33) { return "ELSE"     }
+    if kind.equals(34) { return "CHAR"     }
+    if kind.equals(35) { return "THIS"     }
     return "UNKNOWN"
 }
 

@@ -31,17 +31,11 @@ fn checkHasReturnInWhile(stmt WhileNode) Bool {
 // allMatchArmsHaveReturn — true when every arm of a MatchStmtNode has a return/exit
 // path.  Typed as Array<MatchStmtArm> so arm.stmts resolves without an undeclared-field GEP.
 fn allMatchArmsHaveReturn(arms Array<MatchStmtArm>, i Int64) Bool {
-    match i.lt(arms.len()) {
-        true: {
-            let arm MatchStmtArm: arms.at(i)
-            let armStmts Array<AstNode>: arm.stmts
-            match checkHasReturnAt(armStmts, 0) {
-                true: { return allMatchArmsHaveReturn(arms, i.add(1)) }
-                _: { return false }
-            }
-        }
-        _: { return true }
-    }
+    if not i.lt(arms.len()) { return true }
+    let arm MatchStmtArm: arms.at(i)
+    let armStmts Array<AstNode>: arm.stmts
+    if not checkHasReturnAt(armStmts, 0) { return false }
+    return allMatchArmsHaveReturn(arms, i.add(1))
 }
 
 // Typed bridge: accepts a generic AstNode, casts to MatchStmtNode so .arms resolves.
@@ -83,14 +77,10 @@ fn checkHasReturnInIf(node AstNode) Bool {
     let ifNode IfNode: node
     let elseBlock BlockNode: ifNode.elseBranch
     let elseStmts Array<AstNode>: elseBlock.stmts
-    match elseStmts.len().gt(0) {
-        true: {
-            let thenBlock BlockNode: ifNode.thenBranch
-            let thenStmts Array<AstNode>: thenBlock.stmts
-            return checkHasReturnAt(thenStmts, 0) and checkHasReturnAt(elseStmts, 0)
-        }
-        _: { return false }
-    }
+    if not elseStmts.len().gt(0) { return false }
+    let thenBlock BlockNode: ifNode.thenBranch
+    let thenStmts Array<AstNode>: thenBlock.stmts
+    return checkHasReturnAt(thenStmts, 0) and checkHasReturnAt(elseStmts, 0)
 }
 
 // checkHasReturnAt — linear scan starting at index i.
@@ -98,28 +88,14 @@ fn checkHasReturnInIf(node AstNode) Bool {
 // an ExprStmtNode that is a direct call to exit(), a MatchStmtNode whose every
 // arm returns, or an IfNode whose then+else branches both return.
 fn checkHasReturnAt(stmts Array<AstNode>, i Int64) Bool {
-    return match i.lt(stmts.len()) {
-        true: match stmts.at(i) {
-            ReturnNode:   true
-            WhileNode:    match checkHasReturnInWhile(stmts.at(i)) {
-                true: true
-                _: checkHasReturnAt(stmts, i.add(1))
-            }
-            ExprStmtNode: match isExitCall(stmts.at(i)) {
-                true: true
-                _: checkHasReturnAt(stmts, i.add(1))
-            }
-            MatchStmtNode: match checkHasReturnInMatchStmt(stmts.at(i)) {
-                true: true
-                _: checkHasReturnAt(stmts, i.add(1))
-            }
-            IfNode: match checkHasReturnInIf(stmts.at(i)) {
-                true: true
-                _: checkHasReturnAt(stmts, i.add(1))
-            }
-            _: checkHasReturnAt(stmts, i.add(1))
-        }
-        _: false
+    if not i.lt(stmts.len()) { return false }
+    match stmts.at(i) {
+        ReturnNode:    { return true }
+        WhileNode:     { if checkHasReturnInWhile(stmts.at(i))     { return true } return checkHasReturnAt(stmts, i.add(1)) }
+        ExprStmtNode:  { if isExitCall(stmts.at(i))                { return true } return checkHasReturnAt(stmts, i.add(1)) }
+        MatchStmtNode: { if checkHasReturnInMatchStmt(stmts.at(i)) { return true } return checkHasReturnAt(stmts, i.add(1)) }
+        IfNode:        { if checkHasReturnInIf(stmts.at(i))        { return true } return checkHasReturnAt(stmts, i.add(1)) }
+        _:             { return checkHasReturnAt(stmts, i.add(1)) }
     }
 }
 
@@ -171,9 +147,8 @@ fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerStat
 
     // 6. Non-void functions must have at least one reachable return path.
     let isVoid Bool: returnType.equals("void") or returnType.equals("")
-    match not isVoid and not checkHasReturn(body) {
-        true: semantic.addError(state, "function '".append(stmt.name).append("' has no return statement"))
-        _: {}
+    if not isVoid and not checkHasReturn(body) {
+        semantic.addError(state, "function '".append(stmt.name).append("' has no return statement"))
     }
 
     // 7. Pop function scope and restore context for the enclosing scope.

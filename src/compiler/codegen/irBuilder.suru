@@ -104,10 +104,7 @@ fn joinArgs(args Array<String>) String {
     let result String: ""
     let i Int64: 0
     while i.lt(args.len()) {
-        match i.gt(0) {
-            true: { result: result.append(", ") }
-            _: {}
-        }
+        if i.gt(0) { result: result.append(", ") }
         result: result.append(args.at(i))
         i: i.add(1)
     }

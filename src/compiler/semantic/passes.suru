@@ -56,24 +56,16 @@ fn isBuiltinType(name String) Bool {
 
 // typeNameExistsAt — linear search from index i; true if name is in typeNames.
 fn typeNameExistsAt(typeNames Array<String>, name String, i Int64) Bool {
-    return match i.lt(typeNames.len()) {
-        true: match typeNames.at(i).equals(name) {
-            true: true
-            _: typeNameExistsAt(typeNames, name, i.add(1))
-        }
-        _: false
-    }
+    if not i.lt(typeNames.len()) { return false }
+    if typeNames.at(i).equals(name) { return true }
+    return typeNameExistsAt(typeNames, name, i.add(1))
 }
 
 // fnNameExistsAt — linear search from index i; true if name matches any FunctionSig.
 fn fnNameExistsAt(fns Array<FunctionSig>, name String, i Int64) Bool {
-    return match i.lt(fns.len()) {
-        true: match fns.at(i).name.equals(name) {
-            true: true
-            _: fnNameExistsAt(fns, name, i.add(1))
-        }
-        _: false
-    }
+    if not i.lt(fns.len()) { return false }
+    if fns.at(i).name.equals(name) { return true }
+    return fnNameExistsAt(fns, name, i.add(1))
 }
 
 // fnSigExistsAt — linear search from index i; true only when BOTH the source
@@ -82,16 +74,10 @@ fn fnNameExistsAt(fns Array<FunctionSig>, name String, i Int64) Bool {
 // `include … as alias`) are distinct and must NOT be reported as a duplicate;
 // a genuine re-declaration within one file still is.
 fn fnSigExistsAt(fns Array<FunctionSig>, srcPath String, name String, i Int64) Bool {
-    match i.lt(fns.len()) {
-        true: {}
-        _: { return false }
-    }
+    if not i.lt(fns.len()) { return false }
     let sig FunctionSig: fns.at(i)
     let hit Bool: sig.name.equals(name) and sig.srcPath.equals(srcPath)
-    match hit {
-        true: { return true }
-        _:    {}
-    }
+    if hit { return true }
     return fnSigExistsAt(fns, srcPath, name, i.add(1))
 }
 
@@ -103,7 +89,7 @@ fn fnSigExistsAt(fns Array<FunctionSig>, srcPath String, name String, i Int64) B
 fn indexOfAngle(s String) Int64 {
     let i Int64: 0
     while i.lt(s.len()) {
-        match s.at(i).equals("<") { true: { return i } _: {} }
+        if s.at(i).equals("<") { return i }
         i: i.add(1)
     }
     return s.len()
@@ -113,10 +99,7 @@ fn indexOfAngle(s String) Int64 {
 fn ltrimStr(s String) String {
     let i Int64: 0
     while i.lt(s.len()) {
-        match s.slice(i, i.add(1)).equals(" ") {
-            true: {}
-            _:    { return s.slice(i, s.len()) }
-        }
+        if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
         i: i.add(1)
     }
     return ""
@@ -125,19 +108,13 @@ fn ltrimStr(s String) String {
 // appendMangledArgsAt — scan inner[i..] for comma-separated type arguments and
 // append "__<arg>" for each to acc.  Used by mangleAnnotation.
 fn appendMangledArgsAt(inner String, start Int64, i Int64, acc String) String {
-    match i.lt(inner.len()) {
-        _: {
-            let seg String: ltrimStr(inner.slice(start, inner.len()))
-            return acc.append("__").append(seg)
-        }
-        true: {}
+    if not i.lt(inner.len()) {
+        let seg String: ltrimStr(inner.slice(start, inner.len()))
+        return acc.append("__").append(seg)
     }
-    match inner.at(i).equals(",") {
-        true: {
-            let seg String: ltrimStr(inner.slice(start, i))
-            return appendMangledArgsAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
-        }
-        _: {}
+    if inner.at(i).equals(",") {
+        let seg String: ltrimStr(inner.slice(start, i))
+        return appendMangledArgsAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
     }
     return appendMangledArgsAt(inner, start, i.add(1), acc)
 }
@@ -155,8 +132,8 @@ fn mangleAnnotation(name String) String {
 // user-defined type (i.e. contains '<' but is not the builtin Array<T> form).
 fn isUserGenericAnnotation(name String) Bool {
     let ltIdx Int64: indexOfAngle(name)
-    match ltIdx.equals(name.len()) { true: { return false } _: {} }
-    match isArrayGeneric(name)     { true: { return false } _: {} }
+    if ltIdx.equals(name.len()) { return false }
+    if isArrayGeneric(name)     { return false }
     return true
 }
 
@@ -169,14 +146,9 @@ fn isUserGenericAnnotation(name String) Bool {
 // because Suru's boolean `and` is not short-circuit (both sides are always evaluated).
 fn resolveTypeName(state AnalyzerState, name String) Bool {
     let typeNames Array<String>: state.typeNames
-    match isBuiltinType(name) or typeNameExistsAt(typeNames, name, 0) {
-        true: { return true }
-        _: {}
-    }
-    match isUserGenericAnnotation(name) {
-        true: { return typeNameExistsAt(typeNames, mangleAnnotation(name), 0) }
-        _:    { return false }
-    }
+    if isBuiltinType(name) or typeNameExistsAt(typeNames, name, 0) { return true }
+    if isUserGenericAnnotation(name) { return typeNameExistsAt(typeNames, mangleAnnotation(name), 0) }
+    return false
 }
 
 // isTypeParam — true when name matches one of the type-param names in typeParams.
@@ -184,10 +156,7 @@ fn resolveTypeName(state AnalyzerState, name String) Bool {
 fn isTypeParam(name String, typeParams Array<String>) Bool {
     let i Int64: 0
     while i.lt(typeParams.len()) {
-        match typeParams.at(i).equals(name) {
-            true: { return true }
-            _: {}
-        }
+        if typeParams.at(i).equals(name) { return true }
         i: i.add(1)
     }
     return false
@@ -243,22 +212,20 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
         match stmt {
             TypeDeclNode: {
                 let typed TypeDeclNode: stmt
-                match typeNameExistsAt(typeNames, typed.name, 0) {
-                    true: appendError(state, "type '".append(typed.name).append("' is already declared"))
-                    _: {
-                        typeNames.add(typed.name)
-                        recordTypeDecl(state, typed)
-                    }
+                if typeNameExistsAt(typeNames, typed.name, 0) {
+                    appendError(state, "type '".append(typed.name).append("' is already declared"))
+                } else {
+                    typeNames.add(typed.name)
+                    recordTypeDecl(state, typed)
                 }
             }
             SumTypeDeclNode: {
                 let sumTyped SumTypeDeclNode: stmt
-                match typeNameExistsAt(typeNames, sumTyped.name, 0) {
-                    true: appendError(state, "type '".append(sumTyped.name).append("' is already declared"))
-                    _: {
-                        typeNames.add(sumTyped.name)
-                        sem.recordSumType(state, sumTyped.name, sumTyped.variants)
-                    }
+                if typeNameExistsAt(typeNames, sumTyped.name, 0) {
+                    appendError(state, "type '".append(sumTyped.name).append("' is already declared"))
+                } else {
+                    typeNames.add(sumTyped.name)
+                    sem.recordSumType(state, sumTyped.name, sumTyped.variants)
                 }
             }
             _: {}
@@ -281,16 +248,17 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
-        match resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
-            true: paramTypes.add(pType)
-            _: appendError(state, "unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"))
+        if resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
+            paramTypes.add(pType)
+        } else {
+            appendError(state, "unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"))
         }
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
-    match returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams) {
-        true: {}
-        _: appendError(state, "unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"))
+    let validReturn Bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
+    if not validReturn {
+        appendError(state, "unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"))
     }
     let sig FunctionSig: { name: stmt.name, paramTypes: paramTypes, returnType: returnType, srcPath: stmt.srcPath }
     let functions Array<FunctionSig>: state.functions
@@ -308,9 +276,10 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
         match stmt {
             FnDeclNode: {
                 let typed FnDeclNode: stmt
-                match fnSigExistsAt(functions, typed.srcPath, typed.name, 0) {
-                    true: appendError(state, "function '".append(typed.name).append("' is already declared"))
-                    _: registerFnDecl(state, typed, typed.typeParams)
+                if fnSigExistsAt(functions, typed.srcPath, typed.name, 0) {
+                    appendError(state, "function '".append(typed.name).append("' is already declared"))
+                } else {
+                    registerFnDecl(state, typed, typed.typeParams)
                 }
             }
             _: {}

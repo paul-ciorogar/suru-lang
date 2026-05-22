@@ -39,8 +39,8 @@ fn advance(parser Parser) Parser {
 }
 
 fn consume(parser Parser, expectedKind Int64) Parser {
-    match not currentTokenIs(parser, expectedKind) {
-        true: error(parser, "expected token kind ".append(expectedKind.toString()).append(" got ").append(currentToken(parser).kind.toString()).append(" '").append(currentToken(parser).text).append("'"))
+    if not currentTokenIs(parser, expectedKind) {
+        error(parser, "expected token kind ".append(expectedKind.toString()).append(" got ").append(currentToken(parser).kind.toString()).append(" '").append(currentToken(parser).text).append("'"))
     }
     return advance(parser)
 }
@@ -60,9 +60,7 @@ fn error(parser Parser, msg String) Parser {
 
 fn parseTypeAnnotation(parser Parser) TypeAnnResult {
     let tok Token: currentToken(parser)
-    match not tok.kind.equals(TOK_IDENT) {
-        true: error(parser, "expected type name")
-    }
+    if not tok.kind.equals(TOK_IDENT) { error(parser, "expected type name") }
     let name String: tok.text
     parser: advance(parser)
     return match currentTokenIs(parser, TOK_LT) {

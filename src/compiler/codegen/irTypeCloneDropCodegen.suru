@@ -154,18 +154,12 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
         let st  String: tyh.makeSuruType(ann)
         // The synthetic `__vtable` slot holds a static constant pointer — it is
         // NOT heap-owned: shallow-copy on clone, never drop.
-        match cdNonOwnedField(ann, st) {
-            true: {}
-            _:    { hasHeapField: true }
-        }
+        if not cdNonOwnedField(ann, st) { hasHeapField: true }
         chi: chi.add(1)
     }
-    match hasHeapField {
-        true: {
-            ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_dyn(ptr)\n")
-            ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
-        }
-        _: {}
+    if hasHeapField {
+        ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_dyn(ptr)\n")
+        ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
     }
 
     // ── @suru_clone_{typeName} ─────────────────────────────────────────────────
@@ -196,17 +190,14 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
         let off  Int64:  32.add(fi.multiply(8))
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
-        match cdNonOwnedField(ann, st) {
-            true: {
-                let rx CgTextResult: copyI64Field(mallocName, off, cgTmp)
-                h: h.append(rx.text)
-                cgTmp: rx.cgTmp
-            }
-            _: {
-                let rx CgTextResult: cloneHeapField(mallocName, off, cgTmp)
-                h: h.append(rx.text)
-                cgTmp: rx.cgTmp
-            }
+        if cdNonOwnedField(ann, st) {
+            let rx CgTextResult: copyI64Field(mallocName, off, cgTmp)
+            h: h.append(rx.text)
+            cgTmp: rx.cgTmp
+        } else {
+            let rx CgTextResult: cloneHeapField(mallocName, off, cgTmp)
+            h: h.append(rx.text)
+            cgTmp: rx.cgTmp
         }
         fi: fi.add(1)
     }
@@ -220,13 +211,10 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
         let off  Int64:  32.add(fi.multiply(8))
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
-        match cdNonOwnedField(ann, st) {
-            true: {}
-            _: {
-                let rx CgTextResult: dropHeapField(off, cgTmp)
-                h: h.append(rx.text)
-                cgTmp: rx.cgTmp
-            }
+        if not cdNonOwnedField(ann, st) {
+            let rx CgTextResult: dropHeapField(off, cgTmp)
+            h: h.append(rx.text)
+            cgTmp: rx.cgTmp
         }
         fi: fi.add(1)
     }
@@ -260,17 +248,13 @@ fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
     let i Int64: 0
     while i.lt(ctx.typeDecls.len()) {
         let decl TypeDecl: ctx.typeDecls.at(i)
-        match types.isOwnType(ctx, decl.name) {
-            true: {
-                let r CloneDropResult: emitTypeCloneDrop(ctx, decl.name, cgTmp)
-                ctx: r.ctx
-                cgTmp: r.cgTmp
-            }
-            _: {
-                // External types: declare stubs are emitted on-demand by
-                // emitStructLiteralAlloc when the type is actually instantiated.
-            }
+        if types.isOwnType(ctx, decl.name) {
+            let r CloneDropResult: emitTypeCloneDrop(ctx, decl.name, cgTmp)
+            ctx: r.ctx
+            cgTmp: r.cgTmp
         }
+        // External types: declare stubs are emitted on-demand by
+        // emitStructLiteralAlloc when the type is actually instantiated.
         i: i.add(1)
     }
     return ctx

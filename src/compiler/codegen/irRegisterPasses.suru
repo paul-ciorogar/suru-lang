@@ -25,10 +25,7 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                 // single per-instance vtable pointer; data fields follow. The
                 // method lambda-lift rewrites literals to match this layout.
                 let ms Array<MethodSig>: s.methods
-                match ms.len().gt(0) {
-                    true: { fields.add({ name: "__vtable", typeName: "__vtable" }) }
-                    _: {}
-                }
+                if ms.len().gt(0) { fields.add({ name: "__vtable", typeName: "__vtable" }) }
                 let j Int64: 0
                 while j.lt(s.fields.len()) {
                     let p Param: s.fields.at(j)
@@ -73,23 +70,20 @@ fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
         let s AstNode: stmts.at(i)
         match s {
             FnDeclNode: {
-                match types.isOwnFn(ctx, s.name) {
-                    true: {
-                        let retSuru String: tyh.makeSuruType(s.returnType)
-                        let retLlvm String: match s.returnType.equals("void") {
-                            true: "ptr"
-                            _:    box.llvmTypeOf(retSuru)
-                        }
-                        let paramTypes Array<String>: []
-                        let j Int64: 0
-                        while j.lt(s.params.len()) {
-                            paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
-                            j: j.add(1)
-                        }
-                        let fe2 FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
-                        ctx: types.addFn(ctx, fe2)
+                if types.isOwnFn(ctx, s.name) {
+                    let retSuru String: tyh.makeSuruType(s.returnType)
+                    let retLlvm String: match s.returnType.equals("void") {
+                        true: "ptr"
+                        _:    box.llvmTypeOf(retSuru)
                     }
-                    _: {}
+                    let paramTypes Array<String>: []
+                    let j Int64: 0
+                    while j.lt(s.params.len()) {
+                        paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
+                        j: j.add(1)
+                    }
+                    let fe2 FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
+                    ctx: types.addFn(ctx, fe2)
                 }
             }
             _: {}
@@ -114,12 +108,9 @@ fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
                     FloatLitNode: { suruTy: "Float64" }
                     _: {}
                 }
-                match suruTy.equals("") {
-                    true: {}
-                    _: {
-                        let gv GlobalVar: { suruName: s.name, globalName: "@".append(s.name), suruType: suruTy }
-                        ctx.globalVars.add(gv)
-                    }
+                if not suruTy.equals("") {
+                    let gv GlobalVar: { suruName: s.name, globalName: "@".append(s.name), suruType: suruTy }
+                    ctx.globalVars.add(gv)
                 }
             }
             _: {}
@@ -140,23 +131,20 @@ fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
         match s {
             LetNode: {
                 let g GlobalVar: types.lookupGlobal(ctx, s.name)
-                match g.suruName.equals("") {
-                    true: {}
-                    _: {
-                        let val AstNode: s.value
-                        match val {
-                            BoolLitNode: {
-                                let bstr String: match val.boolVal { true: "1", _: "0" }
-                                out: out.append(g.globalName).append(" = internal constant i1 ").append(bstr).append("\n")
-                            }
-                            IntLitNode: {
-                                out: out.append(g.globalName).append(" = internal constant i64 ").append(val.text).append("\n")
-                            }
-                            FloatLitNode: {
-                                out: out.append(g.globalName).append(" = internal constant double ").append(val.text).append("\n")
-                            }
-                            _: {}
+                if not g.suruName.equals("") {
+                    let val AstNode: s.value
+                    match val {
+                        BoolLitNode: {
+                            let bstr String: match val.boolVal { true: "1", _: "0" }
+                            out: out.append(g.globalName).append(" = internal constant i1 ").append(bstr).append("\n")
                         }
+                        IntLitNode: {
+                            out: out.append(g.globalName).append(" = internal constant i64 ").append(val.text).append("\n")
+                        }
+                        FloatLitNode: {
+                            out: out.append(g.globalName).append(" = internal constant double ").append(val.text).append("\n")
+                        }
+                        _: {}
                     }
                 }
             }

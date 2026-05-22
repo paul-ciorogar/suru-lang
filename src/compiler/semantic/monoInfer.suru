@@ -24,10 +24,7 @@ fn extractBaseTypeName(typeName String) String {
 
 // trimAndAddAt — trim leading spaces from each args[i..] entry and append to out.
 fn trimAndAddAt(args Array<String>, out Array<String>, i Int64) Array<String> {
-    match i.lt(args.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(args.len()) { return out }
     out.add(subst.trimLeft(args.at(i)))
     return trimAndAddAt(args, out, i.add(1))
 }
@@ -40,10 +37,7 @@ fn trimAndAddAt(args Array<String>, out Array<String>, i Int64) Array<String> {
 fn extractTypeArgs(typeName String) Array<String> {
     let ltIdx Int64: subst.indexOfLT(typeName)
     let empty Array<String>: []
-    match ltIdx.equals(typeName.len()) {
-        true: { return empty }
-        _: {}
-    }
+    if ltIdx.equals(typeName.len()) { return empty }
     // inner = content between '<' and the closing '>'
     let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
     let raw Array<String>: subst.splitByComma(inner)
@@ -55,41 +49,23 @@ fn extractTypeArgs(typeName String) Array<String> {
 
 // registryHasTypeAt — true if registry.types[i..] contains a type named `name`.
 fn registryHasTypeAt(registry GenericRegistry, name String, i Int64) Bool {
-    match i.lt(registry.types.len()) {
-        _: { return false }
-        true: {}
-    }
-    match registry.types.at(i).name.equals(name) {
-        true: { return true }
-        _: {}
-    }
+    if not i.lt(registry.types.len()) { return false }
+    if registry.types.at(i).name.equals(name) { return true }
     return registryHasTypeAt(registry, name, i.add(1))
 }
 
 // registryHasSumTypeAt — true if registry.sumTypes[i..] contains a sum type named `name`.
 fn registryHasSumTypeAt(registry GenericRegistry, name String, i Int64) Bool {
-    match i.lt(registry.sumTypes.len()) {
-        _: { return false }
-        true: {}
-    }
-    match registry.sumTypes.at(i).name.equals(name) {
-        true: { return true }
-        _: {}
-    }
+    if not i.lt(registry.sumTypes.len()) { return false }
+    if registry.sumTypes.at(i).name.equals(name) { return true }
     return registryHasSumTypeAt(registry, name, i.add(1))
 }
 
 // findRegistryFnAt — return index of the first fn in registry.fns[i..] whose
 // name equals `name`, or registry.fns.len() if not found.
 fn findRegistryFnAt(registry GenericRegistry, name String, i Int64) Int64 {
-    match i.lt(registry.fns.len()) {
-        _: { return registry.fns.len() }
-        true: {}
-    }
-    match registry.fns.at(i).name.equals(name) {
-        true: { return i }
-        _: {}
-    }
+    if not i.lt(registry.fns.len()) { return registry.fns.len() }
+    if registry.fns.at(i).name.equals(name) { return i }
     return findRegistryFnAt(registry, name, i.add(1))
 }
 
@@ -102,20 +78,11 @@ fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<Instanti
     let empty Array<InstantiationRequest>: []
     // Quick exit: no '<' means not a generic annotation.
     let ltIdx Int64: subst.indexOfLT(typeName)
-    match ltIdx.equals(typeName.len()) {
-        true: { return empty }
-        _: {}
-    }
+    if ltIdx.equals(typeName.len()) { return empty }
     let base String: extractBaseTypeName(typeName)
     // Return empty unless the base name is a generic struct type or sum type.
-    match registryHasTypeAt(registry, base, 0) {
-        true: {}
-        _: {
-            match registryHasSumTypeAt(registry, base, 0) {
-                true: {}
-                _: { return empty }
-            }
-        }
+    if not registryHasTypeAt(registry, base, 0) {
+        if not registryHasSumTypeAt(registry, base, 0) { return empty }
     }
     let concretes Array<String>: extractTypeArgs(typeName)
     let req InstantiationRequest: { genericName: base, concreteTypes: concretes }
@@ -154,10 +121,7 @@ fn resolvedTypeOf(node AstNode) String {
 
 // collectArgTypesAt — append resolvedTypeOf(args[i]) to out for each arg.
 fn collectArgTypesAt(args Array<AstNode>, out Array<String>, i Int64) Array<String> {
-    match i.lt(args.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(args.len()) { return out }
     out.add(resolvedTypeOf(args.at(i)))
     return collectArgTypesAt(args, out, i.add(1))
 }
@@ -166,23 +130,14 @@ fn collectArgTypesAt(args Array<AstNode>, out Array<String>, i Int64) Array<Stri
 // equals typeVar (bare type-variable match).  Return the corresponding argTypes
 // element, or "" if not found.
 fn findBindingForVarAt(typeVar String, params Array<Param>, argTypes Array<String>, i Int64) String {
-    match i.lt(params.len()) {
-        _: { return "" }
-        true: {}
-    }
-    match params.at(i).typeName.equals(typeVar) {
-        true: { return argTypes.at(i) }
-        _: {}
-    }
+    if not i.lt(params.len()) { return "" }
+    if params.at(i).typeName.equals(typeVar) { return argTypes.at(i) }
     return findBindingForVarAt(typeVar, params, argTypes, i.add(1))
 }
 
 // buildConcreteTypesAt — for each typeParam[j..], find its binding and append.
 fn buildConcreteTypesAt(typeParams Array<String>, params Array<Param>, argTypes Array<String>, j Int64, out Array<String>) Array<String> {
-    match j.lt(typeParams.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not j.lt(typeParams.len()) { return out }
     let binding String: findBindingForVarAt(typeParams.at(j), params, argTypes, 0)
     out.add(binding)
     return buildConcreteTypesAt(typeParams, params, argTypes, j.add(1), out)
@@ -190,14 +145,8 @@ fn buildConcreteTypesAt(typeParams Array<String>, params Array<Param>, argTypes 
 
 // allBoundAt — true if every concretes[i..] is non-empty.
 fn allBoundAt(concretes Array<String>, i Int64) Bool {
-    match i.lt(concretes.len()) {
-        _: { return true }
-        true: {}
-    }
-    match concretes.at(i).equals("") {
-        true: { return false }
-        _: {}
-    }
+    if not i.lt(concretes.len()) { return true }
+    if concretes.at(i).equals("") { return false }
     return allBoundAt(concretes, i.add(1))
 }
 
@@ -210,19 +159,13 @@ fn allBoundAt(concretes Array<String>, i Int64) Bool {
 fn inferFromGenericFnCall(fnName String, args Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
     let fnIdx Int64: findRegistryFnAt(registry, fnName, 0)
-    match fnIdx.equals(registry.fns.len()) {
-        true: { return empty }
-        _: {}
-    }
+    if fnIdx.equals(registry.fns.len()) { return empty }
     let def GenericFnDef: registry.fns.at(fnIdx)
     let argTypesOut Array<String>: []
     let argTypes Array<String>: collectArgTypesAt(args, argTypesOut, 0)
     let concretesOut Array<String>: []
     let concretes Array<String>: buildConcreteTypesAt(def.typeParams, def.node.params, argTypes, 0, concretesOut)
-    match allBoundAt(concretes, 0) {
-        true: {}
-        _: { return empty }
-    }
+    if not allBoundAt(concretes, 0) { return empty }
     let req InstantiationRequest: { genericName: def.name, concreteTypes: concretes }
     let result Array<InstantiationRequest>: []
     result.add(req)
@@ -242,40 +185,28 @@ fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<Instanti
 
 // appendAllAt — append src[i..] to dst.
 fn appendAllAt(src Array<InstantiationRequest>, dst Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(src.len()) {
-        _: { return dst }
-        true: {}
-    }
+    if not i.lt(src.len()) { return dst }
     dst.add(src.at(i))
     return appendAllAt(src, dst, i.add(1))
 }
 
 // inferFromStmtsAt — recurse through stmts[i..].
 fn inferFromStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(stmts.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(stmts.len()) { return out }
     out: inferFromStmt(stmts.at(i), registry, out)
     return inferFromStmtsAt(stmts, registry, out, i.add(1))
 }
 
 // inferFromExprsAt — recurse through exprs[i..].
 fn inferFromExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(exprs.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(exprs.len()) { return out }
     out: inferFromExpr(exprs.at(i), registry, out)
     return inferFromExprsAt(exprs, registry, out, i.add(1))
 }
 
 // inferFromParamsAt — run inferFromAnnotation on each Param.typeName.
 fn inferFromParamsAt(params Array<Param>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(params.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(params.len()) { return out }
     out: appendAllAt(inferFromAnnotation(params.at(i).typeName, registry), out, 0)
     return inferFromParamsAt(params, registry, out, i.add(1))
 }
@@ -291,20 +222,14 @@ fn inferFromStructFieldAt(field StructFieldNode, registry GenericRegistry, out A
 // inferFromStructFieldsAt — recurse into each StructFieldNode in fields[i..],
 // including method bodies (which are statement lists, not just expressions).
 fn inferFromStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(fields.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(fields.len()) { return out }
     out: inferFromStructFieldAt(fields.at(i), registry, out)
     return inferFromStructFieldsAt(fields, registry, out, i.add(1))
 }
 
 // inferFromMatchArmsAt — recurse into expression MatchArm bodies.
 fn inferFromMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(arms.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(arms.len()) { return out }
     let arm MatchArm: arms.at(i)
     out: inferFromExpr(arm.body, registry, out)
     return inferFromMatchArmsAt(arms, registry, out, i.add(1))
@@ -312,10 +237,7 @@ fn inferFromMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Arra
 
 // inferFromMatchStmtArmsAt — recurse into statement MatchStmtArm bodies.
 fn inferFromMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(arms.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(arms.len()) { return out }
     let arm MatchStmtArm: arms.at(i)
     out: inferFromStmtsAt(arm.stmts, registry, out, 0)
     return inferFromMatchStmtArmsAt(arms, registry, out, i.add(1))
@@ -340,11 +262,8 @@ fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<Instantiation
             // not local variables.  In that case, treat the call as a direct
             // generic fn call on mcn.methodName.
             let recvType String: resolvedTypeOf(mcn.receiver)
-            match recvType.equals("") {
-                true: {
-                    out: appendAllAt(inferFromGenericFnCall(mcn.methodName, mcn.args, registry), out, 0)
-                }
-                _: {}
+            if recvType.equals("") {
+                out: appendAllAt(inferFromGenericFnCall(mcn.methodName, mcn.args, registry), out, 0)
             }
             out: inferFromExpr(mcn.receiver, registry, out)
             out: inferFromExprsAt(mcn.args, registry, out, 0)
@@ -411,10 +330,7 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
         }
         ReturnNode: {
             let rn ReturnNode: stmt
-            match rn.hasValue {
-                true:  { out: inferFromExpr(rn.value, registry, out) }
-                _: {}
-            }
+            if rn.hasValue { out: inferFromExpr(rn.value, registry, out) }
             return out
         }
         AssignNode: {
@@ -461,32 +377,20 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
 
 // keyAlreadySeenAt — true if seen[i..] contains key.
 fn keyAlreadySeenAt(seen Array<String>, key String, i Int64) Bool {
-    match i.lt(seen.len()) {
-        _: { return false }
-        true: {}
-    }
-    match seen.at(i).equals(key) {
-        true: { return true }
-        _: {}
-    }
+    if not i.lt(seen.len()) { return false }
+    if seen.at(i).equals(key) { return true }
     return keyAlreadySeenAt(seen, key, i.add(1))
 }
 
 // deduplicateAt — process raw[i..], skipping requests whose mangled key was
 // already seen, and append unique requests to out.
 fn deduplicateAt(raw Array<InstantiationRequest>, seen Array<String>, out Array<InstantiationRequest>, i Int64) Array<InstantiationRequest> {
-    match i.lt(raw.len()) {
-        _: { return out }
-        true: {}
-    }
+    if not i.lt(raw.len()) { return out }
     let req InstantiationRequest: raw.at(i)
     let key String: inst.mangleGenericName(req.genericName, req.concreteTypes)
-    match keyAlreadySeenAt(seen, key, 0) {
-        true: {}
-        _: {
-            seen.add(key)
-            out.add(req)
-        }
+    if not keyAlreadySeenAt(seen, key, 0) {
+        seen.add(key)
+        out.add(req)
     }
     return deduplicateAt(raw, seen, out, i.add(1))
 }

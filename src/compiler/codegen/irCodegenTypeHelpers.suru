@@ -23,7 +23,7 @@ fn isScalarSuruType(suruType String) Bool {
 
 // True when suruType encodes an array (e.g. "Array:Int64", "Array:Lvl1").
 fn isArraySuruType(suruType String) Bool {
-    match suruType.len().lt(6) { true: { return false } _: {} }
+    if suruType.len().lt(6) { return false }
     return suruType.slice(0, 6).equals("Array:")
 }
 
@@ -36,7 +36,7 @@ fn elemSuruType(suruType String) String {
 // Must check for "Array<" (with angle bracket) to avoid matching user-defined
 // types whose names begin with "Array" (e.g. ArrayLitNode).
 fn isArrayTypeName(typeName String) Bool {
-    match typeName.len().lt(6) { true: { return false } _: {} }
+    if typeName.len().lt(6) { return false }
     return typeName.slice(0, 6).equals("Array<")
 }
 
@@ -45,10 +45,10 @@ fn extractElemType(typeName String) String {
     let i Int64: 0
     let start Int64: -1
     while i.lt(typeName.len()) {
-        match typeName.at(i).equals("<") { true: { start: i } _: {} }
+        if typeName.at(i).equals("<") { start: i }
         i: i.add(1)
     }
-    match start.equals(-1) { true: { return "" } _: {} }
+    if start.equals(-1) { return "" }
     return typeName.slice(start.add(1), typeName.len().take(1))
 }
 
@@ -62,7 +62,7 @@ fn extractElemType(typeName String) String {
 fn indexOfAngleCG(s String) Int64 {
     let i Int64: 0
     while i.lt(s.len()) {
-        match s.at(i).equals("<") { true: { return i } _: {} }
+        if s.at(i).equals("<") { return i }
         i: i.add(1)
     }
     return s.len()
@@ -72,10 +72,7 @@ fn indexOfAngleCG(s String) Int64 {
 fn ltrimCG(s String) String {
     let i Int64: 0
     while i.lt(s.len()) {
-        match s.slice(i, i.add(1)).equals(" ") {
-            true: {}
-            _:    { return s.slice(i, s.len()) }
-        }
+        if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
         i: i.add(1)
     }
     return ""
@@ -84,19 +81,13 @@ fn ltrimCG(s String) String {
 // appendMangledCGAt — scan inner[i..] for comma-separated type args and append
 // "__<arg>" for each to acc.
 fn appendMangledCGAt(inner String, start Int64, i Int64, acc String) String {
-    match i.lt(inner.len()) {
-        _: {
-            let seg String: ltrimCG(inner.slice(start, inner.len()))
-            return acc.append("__").append(seg)
-        }
-        true: {}
+    if not i.lt(inner.len()) {
+        let seg String: ltrimCG(inner.slice(start, inner.len()))
+        return acc.append("__").append(seg)
     }
-    match inner.at(i).equals(",") {
-        true: {
-            let seg String: ltrimCG(inner.slice(start, i))
-            return appendMangledCGAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
-        }
-        _: {}
+    if inner.at(i).equals(",") {
+        let seg String: ltrimCG(inner.slice(start, i))
+        return appendMangledCGAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
     }
     return appendMangledCGAt(inner, start, i.add(1), acc)
 }
@@ -104,10 +95,10 @@ fn appendMangledCGAt(inner String, start Int64, i Int64, acc String) String {
 // isUserGenericTypeName — true when typeName has a '<' but is not the builtin
 // "Array<...>" form.  Catches user-defined generics like "Box<Int64>".
 fn isUserGenericTypeName(typeName String) Bool {
-    match isArrayTypeName(typeName) { true: { return false } _: {} }
+    if isArrayTypeName(typeName) { return false }
     let i Int64: 0
     while i.lt(typeName.len()) {
-        match typeName.at(i).equals("<") { true: { return true } _: {} }
+        if typeName.at(i).equals("<") { return true }
         i: i.add(1)
     }
     return false
@@ -125,14 +116,8 @@ fn mangleGenericAnnotation(typeName String) String {
 // "Array<Int64>" → "Array:Int64"; user-defined generics "Box<Int64>" → "Box__Int64";
 // all other types pass through unchanged.
 fn makeSuruType(typeName String) String {
-    match isArrayTypeName(typeName) {
-        true: { return "Array:".append(extractElemType(typeName)) }
-        _: {}
-    }
-    match isUserGenericTypeName(typeName) {
-        true: { return mangleGenericAnnotation(typeName) }
-        _: {}
-    }
+    if isArrayTypeName(typeName) { return "Array:".append(extractElemType(typeName)) }
+    if isUserGenericTypeName(typeName) { return mangleGenericAnnotation(typeName) }
     return typeName
 }
 
@@ -154,7 +139,7 @@ fn irLlvmTypeOf(suruType String) String {
 // Integer type_tag for a Suru type (used for array elem_tag and struct type_tag).
 // Values must stay in sync with the Suru runtime's type_tag encoding.
 fn suruTypeTag(suruType String) String {
-    match isArraySuruType(suruType) { true: { return "5" } _: {} }
+    if isArraySuruType(suruType) { return "5" }
     return match suruType {
         "Bool":    "0"
         "Int32":   "1"
@@ -168,7 +153,7 @@ fn suruTypeTag(suruType String) String {
 
 // True when name is one of the six builtin Suru type names (or a generic array).
 fn isBuiltinSuruType(name String) Bool {
-    match isArrayTypeName(name) { true: { return true } _: {} }
+    if isArrayTypeName(name) { return true }
     return match name {
         "Int64":   true
         "Bool":    true

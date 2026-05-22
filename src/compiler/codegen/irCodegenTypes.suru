@@ -197,7 +197,7 @@ fn makeIrContext() IrCodegenContext {
 fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
     let i Int64: 0
     while i.lt(ctx.declares.len()) {
-        match ctx.declares.at(i).equals(line) { true: { return ctx } _: {} }
+        if ctx.declares.at(i).equals(line) { return ctx }
         i: i.add(1)
     }
     ctx.declares.add(line)
@@ -210,7 +210,7 @@ fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
 fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
     let i Int64: 0
     while i.lt(ctx.declares.len()) {
-        match ctx.declares.at(i).equals(line) { true: { return ctx } _: {} }
+        if ctx.declares.at(i).equals(line) { return ctx }
         i: i.add(1)
     }
     ctx.declares.add(line)
@@ -225,7 +225,7 @@ fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
     let dropLine  String: "declare void @suru_drop_".append(typeName).append("(ptr)\n")
     let i Int64: 0
     while i.lt(ctx.declares.len()) {
-        match ctx.declares.at(i).equals(cloneLine) { true: { return ctx } _: {} }
+        if ctx.declares.at(i).equals(cloneLine) { return ctx }
         i: i.add(1)
     }
     ctx.declares.add(cloneLine)
@@ -241,7 +241,7 @@ fn lookupVar(ctx IrCodegenContext, name String) VarEntry {
     let i Int64: 0
     while i.lt(ctx.vars.len()) {
         let e VarEntry: ctx.vars.at(i)
-        match e.name.equals(name) { true: { return e } _: {} }
+        if e.name.equals(name) { return e }
         i: i.add(1)
     }
     return { name: "", allocaName: "", suruType: "" }
@@ -254,13 +254,10 @@ fn addVar(ctx IrCodegenContext, name String, allocaName String, suruType String)
     let i Int64: 0
     while i.lt(ctx.vars.len()) {
         let v VarEntry: ctx.vars.at(i)
-        match v.name.equals(name) {
-            true: {
-                let upd VarEntry: { name: name, allocaName: allocaName, suruType: suruType }
-                ctx.vars.set(upd, i)
-                return ctx
-            }
-            _: {}
+        if v.name.equals(name) {
+            let upd VarEntry: { name: name, allocaName: allocaName, suruType: suruType }
+            ctx.vars.set(upd, i)
+            return ctx
         }
         i: i.add(1)
     }
@@ -275,12 +272,9 @@ fn updateVar(ctx IrCodegenContext, varName String, entry VarEntry) IrCodegenCont
     let i Int64: 0
     while i.lt(ctx.vars.len()) {
         let v VarEntry: ctx.vars.at(i)
-        match v.name.equals(varName) {
-            true: {
-                ctx.vars.set(entry, i)
-                return ctx
-            }
-            _: {}
+        if v.name.equals(varName) {
+            ctx.vars.set(entry, i)
+            return ctx
         }
         i: i.add(1)
     }
@@ -294,7 +288,7 @@ fn lookupFn(ctx IrCodegenContext, name String) FnEntry {
     let i Int64: 0
     while i.lt(ctx.functions.len()) {
         let e FnEntry: ctx.functions.at(i)
-        match e.name.equals(name) { true: { return e } _: {} }
+        if e.name.equals(name) { return e }
         i: i.add(1)
     }
     let emptyParams Array<String>: []
@@ -315,7 +309,7 @@ fn lookupGlobal(ctx IrCodegenContext, suruName String) GlobalVar {
     let i Int64: 0
     while i.lt(ctx.globalVars.len()) {
         let g GlobalVar: ctx.globalVars.at(i)
-        match g.suruName.equals(suruName) { true: { return g } _: {} }
+        if g.suruName.equals(suruName) { return g }
         i: i.add(1)
     }
     return { suruName: "", globalName: "", suruType: "" }
@@ -328,7 +322,7 @@ fn lookupType(ctx IrCodegenContext, name String) TypeDecl {
     let i Int64: 0
     while i.lt(ctx.typeDecls.len()) {
         let d TypeDecl: ctx.typeDecls.at(i)
-        match d.name.equals(name) { true: { return d } _: {} }
+        if d.name.equals(name) { return d }
         i: i.add(1)
     }
     let emptyFields Array<TypeFieldEntry>: []
@@ -341,7 +335,7 @@ fn lookupType(ctx IrCodegenContext, name String) TypeDecl {
 fn methodIndex(decl TypeDecl, methodName String) Int64 {
     let i Int64: 0
     while i.lt(decl.methods.len()) {
-        match decl.methods.at(i).name.equals(methodName) { true: { return i } _: {} }
+        if decl.methods.at(i).name.equals(methodName) { return i }
         i: i.add(1)
     }
     return 0.take(1)
@@ -352,7 +346,7 @@ fn methodEntry(decl TypeDecl, methodName String) TypeMethodEntry {
     let i Int64: 0
     while i.lt(decl.methods.len()) {
         let m TypeMethodEntry: decl.methods.at(i)
-        match m.name.equals(methodName) { true: { return m } _: {} }
+        if m.name.equals(methodName) { return m }
         i: i.add(1)
     }
     let noP Array<String>: []
@@ -372,7 +366,7 @@ fn lookupSumType(ctx IrCodegenContext, name String) SumTypeDecl {
     let i Int64: 0
     while i.lt(ctx.sumTypes.len()) {
         let d SumTypeDecl: ctx.sumTypes.at(i)
-        match d.name.equals(name) { true: { return d } _: {} }
+        if d.name.equals(name) { return d }
         i: i.add(1)
     }
     let emptyVariants Array<String>: []
@@ -390,7 +384,7 @@ fn addSumType(ctx IrCodegenContext, decl SumTypeDecl) IrCodegenContext {
 fn variantIdx(sumType SumTypeDecl, variantName String) Int64 {
     let i Int64: 0
     while i.lt(sumType.variants.len()) {
-        match sumType.variants.at(i).equals(variantName) { true: { return i } _: {} }
+        if sumType.variants.at(i).equals(variantName) { return i }
         i: i.add(1)
     }
     return -1
@@ -403,7 +397,7 @@ fn isVariant(ctx IrCodegenContext, name String) Bool {
         let d SumTypeDecl: ctx.sumTypes.at(i)
         let j Int64: 0
         while j.lt(d.variants.len()) {
-            match d.variants.at(j).equals(name) { true: { return true } _: {} }
+            if d.variants.at(j).equals(name) { return true }
             j: j.add(1)
         }
         i: i.add(1)
@@ -419,7 +413,7 @@ fn findParentSumType(ctx IrCodegenContext, variantName String) SumTypeDecl {
         let sd SumTypeDecl: ctx.sumTypes.at(i)
         let j Int64: 0
         while j.lt(sd.variants.len()) {
-            match sd.variants.at(j).equals(variantName) { true: { return sd } _: {} }
+            if sd.variants.at(j).equals(variantName) { return sd }
             j: j.add(1)
         }
         i: i.add(1)
@@ -434,7 +428,7 @@ fn findParentSumType(ctx IrCodegenContext, variantName String) SumTypeDecl {
 fn isSumTypeName(ctx IrCodegenContext, name String) Bool {
     let i Int64: 0
     while i.lt(ctx.sumTypes.len()) {
-        match ctx.sumTypes.at(i).name.equals(name) { true: { return true } _: {} }
+        if ctx.sumTypes.at(i).name.equals(name) { return true }
         i: i.add(1)
     }
     return false
@@ -447,7 +441,7 @@ fn isSumTypeName(ctx IrCodegenContext, name String) Bool {
 fn fieldIndex(decl TypeDecl, fieldName String) Int64 {
     let i Int64: 0
     while i.lt(decl.fields.len()) {
-        match decl.fields.at(i).name.equals(fieldName) { true: { return i } _: {} }
+        if decl.fields.at(i).name.equals(fieldName) { return i }
         i: i.add(1)
     }
     return -1
@@ -460,7 +454,7 @@ fn fieldIndex(decl TypeDecl, fieldName String) Int64 {
 fn isMonoFn(ctx IrCodegenContext, name String) Bool {
     let i Int64: 0
     while i.lt(ctx.monoFnNames.len()) {
-        match ctx.monoFnNames.at(i).equals(name) { true: { return true } _: {} }
+        if ctx.monoFnNames.at(i).equals(name) { return true }
         i: i.add(1)
     }
     return false
@@ -470,7 +464,7 @@ fn isMonoFn(ctx IrCodegenContext, name String) Bool {
 fn isOwnFn(ctx IrCodegenContext, name String) Bool {
     let i Int64: 0
     while i.lt(ctx.ownFnNames.len()) {
-        match ctx.ownFnNames.at(i).equals(name) { true: { return true } _: {} }
+        if ctx.ownFnNames.at(i).equals(name) { return true }
         i: i.add(1)
     }
     return false
@@ -481,7 +475,7 @@ fn isOwnFn(ctx IrCodegenContext, name String) Bool {
 fn isOwnType(ctx IrCodegenContext, name String) Bool {
     let i Int64: 0
     while i.lt(ctx.ownTypeNames.len()) {
-        match ctx.ownTypeNames.at(i).equals(name) { true: { return true } _: {} }
+        if ctx.ownTypeNames.at(i).equals(name) { return true }
         i: i.add(1)
     }
     return false

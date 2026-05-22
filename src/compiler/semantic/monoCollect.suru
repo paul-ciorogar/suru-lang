@@ -33,34 +33,25 @@ fn collectGenericDefs(stmts Array<AstNode>) GenericRegistry {
             FnDeclNode: {
                 let fd FnDeclNode: stmt
                 let tp Array<String>: fd.typeParams
-                match tp.len().gt(0) {
-                    true: {
-                        let def GenericFnDef: { name: fd.name, srcPath: fd.srcPath, typeParams: tp, node: fd }
-                        fns.add(def)
-                    }
-                    _: {}
+                if tp.len().gt(0) {
+                    let def GenericFnDef: { name: fd.name, srcPath: fd.srcPath, typeParams: tp, node: fd }
+                    fns.add(def)
                 }
             }
             TypeDeclNode: {
                 let td TypeDeclNode: stmt
                 let tp Array<String>: td.typeParams
-                match tp.len().gt(0) {
-                    true: {
-                        let def GenericTypeDef: { name: td.name, typeParams: tp, node: td }
-                        types.add(def)
-                    }
-                    _: {}
+                if tp.len().gt(0) {
+                    let def GenericTypeDef: { name: td.name, typeParams: tp, node: td }
+                    types.add(def)
                 }
             }
             SumTypeDeclNode: {
                 let sd SumTypeDeclNode: stmt
                 let tp Array<String>: sd.typeParams
-                match tp.len().gt(0) {
-                    true: {
-                        let def GenericSumTypeDef: { name: sd.name, typeParams: tp, node: sd }
-                        sumTypes.add(def)
-                    }
-                    _: {}
+                if tp.len().gt(0) {
+                    let def GenericSumTypeDef: { name: sd.name, typeParams: tp, node: sd }
+                    sumTypes.add(def)
                 }
             }
             _: {}
