@@ -1,0 +1,10 @@
+// Verify a generic type with two type parameters is correctly monomorphized.
+// Pair<T, U> is instantiated as Pair__Int64__String; both fields are accessible.
+type Pair<T, U>: { first T, second U }
+
+fn main(args Array<String>) {
+    let p Pair<Int64, String>: { first: 42, second: "hello" }
+    printLn(p.first)
+    printLn(p.second)
+    drop(p)
+}

@@ -30,6 +30,10 @@ fn main(args Array<String>) {
 Added:
 - `typeParams Array<String>` field on `TypeDeclNode` and `FnDeclNode` — parsed
   from `<T, U, ...>` after the definition name.
+- **Multi-arg generic type annotations**: `parseGenericTypeAnnotation` in
+  `parserUtil.suru` now collects comma-separated type arguments with a while
+  loop, enabling `Pair<Int64, String>`, `Map<K, V>`, etc. Previously only
+  single-arg forms (`Box<T>`) were parsed correctly.
 - **Mono pass** (`src/compiler/semantic/monoPass.suru`) — orchestrates four sub-modules:
   - `monoCollect.suru` — collects generic definitions into a `GenericRegistry`
     and filters them out of the statement list.
@@ -54,6 +58,11 @@ Added:
 - Pipeline integration (`pipeline.suru`): mono pass runs after pass 1 (name
   resolution), concrete nodes are injected and originals filtered, then pass 2
   (type resolution) sees only concrete types.
+- **Test fixtures**: `generics-type-basic` (one type, two concrete args),
+  `generics-fn-basic` (one function, two concrete args including `String`),
+  `generics-multi-param` (`Pair<T, U>` two-parameter type), `generics-nested`
+  (same type instantiated with three different args), `generics-cross-module`
+  (generic type defined in an included file).
 
 ### Added objects: interface types with per-instance methods
 

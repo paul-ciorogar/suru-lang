@@ -1,0 +1,4 @@
+// boxlib.suru — generic Box type defined in an included module.
+// The concrete instantiation (Box__Int64) is produced by the mono pass in the
+// root file; this file just provides the generic template.
+type Box<T>: { value T }

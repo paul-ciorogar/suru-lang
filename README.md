@@ -406,6 +406,20 @@ fn main(args Array<String>) {
 
 Type parameters are declared in `<...>` after the name. Concrete type arguments are inferred at each usage site — no explicit instantiation syntax is needed. Each unique combination of type arguments produces a separate concrete copy (e.g. `Box<Int64>` and `Box<String>` are distinct types). Because Suru has no GC, heap-allocated generic structs must be explicitly `drop`ped like any other struct.
 
+Multiple type parameters are supported:
+
+```suru
+type Pair<T, U>: { first T, second U }
+
+fn main(args Array<String>) {
+    let p Pair<Int64, String>: { first: 42, second: "hello" }
+    printLn(p.first)    // 42
+    printLn(p.second)   // hello
+    drop(p)
+}
+```
+
+
 ### Arrays
 
 Create an array with `[e1, e2, ...]`. The element type is specified with the `Array<T>` generic annotation:

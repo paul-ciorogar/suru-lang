@@ -71,14 +71,28 @@ fn parseTypeAnnotation(parser Parser) TypeAnnResult {
     }
 }
 
+// parseGenericTypeAnnotation — consume `<typeArg (, typeArg)*>` after a
+// generic type name and return the full annotation string including angle
+// brackets, e.g. "Pair<Int64, String>".  Handles both single-arg forms
+// (Array<Int64>) and multi-arg forms (Pair<T, U>, Map<K, V>).
 fn parseGenericTypeAnnotation(parser Parser, name String) TypeAnnResult {
-    parser: advance(parser)
-    let inner TypeAnnResult: parseTypeAnnotation(parser)
-    parser: inner.parser
-    let fullName String: name.append("<").append(inner.typeName).append(">")
-    inner.parser:   {}
-    inner.typeName: ""
-    drop(inner)
+    parser: advance(parser)                               // consume '<'
+    let first TypeAnnResult: parseTypeAnnotation(parser)  // first type arg
+    parser: first.parser
+    let args String: first.typeName
+    first.parser:   {}
+    first.typeName: ""
+    drop(first)
+    while currentTokenIs(parser, TOK_COMMA) {
+        parser: advance(parser)                           // consume ','
+        let next TypeAnnResult: parseTypeAnnotation(parser)
+        parser: next.parser
+        args: args.append(", ").append(next.typeName)
+        next.parser:   {}
+        next.typeName: ""
+        drop(next)
+    }
+    let fullName String: name.append("<").append(args).append(">")
     parser: consume(parser, TOK_GT)
     return { parser: parser, typeName: fullName }
 }

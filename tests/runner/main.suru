@@ -39,6 +39,10 @@ fn main(args Array<String>) {
         { name: "generics-monoinfer-unit", source: "tests/fixtures/generics-monoinfer-unit", args: "", expected: readFile("/work/tests/fixtures/generics-monoinfer-unit/expected.txt") },
         { name: "generics-box-basic", source: "tests/fixtures/generics-box-basic", args: "", expected: readFile("/work/tests/fixtures/generics-box-basic/expected.txt") },
         { name: "generics-fn-basic", source: "tests/fixtures/generics-fn-basic", args: "", expected: readFile("/work/tests/fixtures/generics-fn-basic/expected.txt") },
+        { name: "generics-type-basic", source: "tests/fixtures/generics-type-basic", args: "", expected: readFile("/work/tests/fixtures/generics-type-basic/expected.txt") },
+        { name: "generics-multi-param", source: "tests/fixtures/generics-multi-param", args: "", expected: readFile("/work/tests/fixtures/generics-multi-param/expected.txt") },
+        { name: "generics-nested", source: "tests/fixtures/generics-nested", args: "", expected: readFile("/work/tests/fixtures/generics-nested/expected.txt") },
+        { name: "generics-cross-module", source: "tests/fixtures/generics-cross-module", args: "", expected: readFile("/work/tests/fixtures/generics-cross-module/expected.txt") },
     ]
 
     let passed Int64: 0

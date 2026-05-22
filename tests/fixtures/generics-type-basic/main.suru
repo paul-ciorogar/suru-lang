@@ -1,0 +1,13 @@
+// Verify that a generic type can be instantiated with two different concrete
+// type arguments in the same program.  The mono pass must produce two separate
+// concrete TypeDeclNodes (Box__Int64 and Box__String) with correct clone/drop.
+type Box<T>: { value T }
+
+fn main(args Array<String>) {
+    let a Box<Int64>: { value: 42 }
+    let b Box<String>: { value: "hello" }
+    printLn(a.value)
+    printLn(b.value)
+    drop(a)
+    drop(b)
+}

@@ -1,0 +1,17 @@
+// Verify that the same generic type can be instantiated with three different
+// concrete type arguments (Int64, String, Bool) in a single program.  The mono
+// pass must produce Box__Int64, Box__String, and Box__Bool as independent
+// concrete types, each with its own correct clone/drop pair.
+type Box<T>: { value T }
+
+fn main(args Array<String>) {
+    let a Box<Int64>: { value: 42 }
+    let b Box<String>: { value: "hello" }
+    let c Box<Bool>: { value: true }
+    printLn(a.value)
+    printLn(b.value)
+    printLn(c.value)
+    drop(a)
+    drop(b)
+    drop(c)
+}
