@@ -23,6 +23,7 @@ fn parseStatement(parser Parser) StmtResult {
     return match k {
         TOK_INCLUDE: parseIncludeDirective(parser)
         TOK_FN:      parseFnDecl(parser)
+        TOK_EXTERN:  parseExternFnDecl(parser)
         TOK_WHILE:   parseWhileStmt(parser)
         TOK_IF:      parseIfStmt(parser)
         TOK_RETURN:  parseReturnStmt(parser)
@@ -109,6 +110,39 @@ fn parseFnDecl(parser Parser) StmtResult {
     }
     parser: util.consume(parser, TOK_RBRACE)
     let n FnDeclNode: { name: nameTok.text, params: params, returnType: returnType, body: body, srcPath: "", typeParams: typeParams }
+    return { parser: parser, stmt: n }
+}
+
+// parseExternFnDecl — parse `extern fn name(params) ReturnType` with no body.
+// Reuses the same param and return-type parsing helpers as parseFnDecl.
+// No typeParams: extern fns are always monomorphic IR declarations.
+fn parseExternFnDecl(parser Parser) StmtResult {
+    parser: util.consume(parser, TOK_EXTERN)
+    parser: util.consume(parser, TOK_FN)
+    let nameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    parser: util.consume(parser, TOK_LPAREN)
+    let params Array<Param>: []
+    while not util.currentTokenIs(parser, TOK_RPAREN) and not util.currentTokenIs(parser, TOK_EOF) {
+        let pNameTok Token: util.currentToken(parser)
+        parser: util.consume(parser, TOK_IDENT)
+        let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+        parser: tr.parser
+        let pType String: tr.typeName
+        tr.parser:   {}
+        tr.typeName: ""
+        drop(tr)
+        params.add({ name: pNameTok.text, typeName: pType })
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RPAREN)
+    let rtr RetTypeResult: parseFnReturnType(parser)
+    parser: rtr.parser
+    let returnType String: rtr.returnType
+    rtr.parser:     {}
+    rtr.returnType: ""
+    drop(rtr)
+    let n ExternFnNode: { name: nameTok.text, params: params, returnType: returnType }
     return { parser: parser, stmt: n }
 }
 
@@ -718,8 +752,17 @@ fn parsePrimaryStruct(parser Parser) ParseResult {
     return { parser: parser, expr: n }
 }
 
+// parseStructLitMemberInto — dispatch to the right parser based on the leading token:
+//   TOK_FN          → public method
+//   TOK_WILDCARD TOK_FN  → private method (`_ fn name ...`)
+//   TOK_WILDCARD        → private data field (`_ name Type: value`)
+//   TOK_IDENT           → public data field (`name: value`)
 fn parseStructLitMemberInto(parser Parser, fields Array<StructFieldNode>) Parser {
     if util.currentTokenIs(parser, TOK_FN) { return parseStructLitMethodInto(parser, fields) }
+    if util.currentTokenIs(parser, TOK_WILDCARD) {
+        if util.peekIs(parser, TOK_FN) { return parseStructLitPrivateMethodInto(parser, fields) }
+        return parseStructLitPrivateFieldInto(parser, fields)
+    }
     return parseStructLitFieldInto(parser, fields)
 }
 
@@ -735,7 +778,34 @@ fn parseStructLitFieldInto(parser Parser, fields Array<StructFieldNode>) Parser 
     drop(vr)
     let noParams Array<Param>: []
     let noBody Array<AstNode>: []
-    let f StructFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, methodParams: noParams, methodRet: "", methodBody: noBody }
+    let f StructFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: noParams, methodRet: "", methodBody: noBody }
+    fields.add(f)
+    return parser
+}
+
+// parseStructLitPrivateFieldInto — parses `_ fieldName TypeAnnotation: value`.
+// The `_` is a standalone privacy modifier; the stored field name has no underscore.
+// Type annotation is mandatory for private data fields.
+fn parseStructLitPrivateFieldInto(parser Parser, fields Array<StructFieldNode>) Parser {
+    parser: util.consume(parser, TOK_WILDCARD)
+    let fieldNameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+    parser: tr.parser
+    let fType String: tr.typeName
+    tr.parser:   {}
+    tr.typeName: ""
+    drop(tr)
+    parser: util.consume(parser, TOK_COLON)
+    let vr ParseResult: parseExpr(parser)
+    parser: vr.parser
+    let val AstNode: vr.expr
+    vr.parser: {}
+    vr.expr:   {}
+    drop(vr)
+    let noParams Array<Param>: []
+    let noBody Array<AstNode>: []
+    let f StructFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, isPrivate: true, privateTypeName: fType, methodParams: noParams, methodRet: "", methodBody: noBody }
     fields.add(f)
     return parser
 }
@@ -772,7 +842,47 @@ fn parseStructLitMethodInto(parser Parser, fields Array<StructFieldNode>) Parser
     br.block:  {}
     drop(br)
     let dummy WildcardNode: {}
-    let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
+    let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: false, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
+    fields.add(m)
+    return parser
+}
+
+// parseStructLitPrivateMethodInto — parses `_ fn methodName(params) RetType { body }`.
+// The `_` marks the method as private; the stored name has no underscore.
+fn parseStructLitPrivateMethodInto(parser Parser, fields Array<StructFieldNode>) Parser {
+    parser: util.consume(parser, TOK_WILDCARD)
+    parser: util.consume(parser, TOK_FN)
+    let mNameTok Token: util.currentToken(parser)
+    parser: util.consume(parser, TOK_IDENT)
+    parser: util.consume(parser, TOK_LPAREN)
+    let mparams Array<Param>: []
+    while not util.currentTokenIs(parser, TOK_RPAREN) and not util.currentTokenIs(parser, TOK_EOF) {
+        let pNameTok Token: util.currentToken(parser)
+        parser: util.consume(parser, TOK_IDENT)
+        let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+        parser: tr.parser
+        let pType String: tr.typeName
+        tr.parser:   {}
+        tr.typeName: ""
+        drop(tr)
+        mparams.add({ name: pNameTok.text, typeName: pType })
+        parser: util.consumeIf(parser, TOK_COMMA)
+    }
+    parser: util.consume(parser, TOK_RPAREN)
+    let rtr RetTypeResult: parseFnReturnType(parser)
+    parser: rtr.parser
+    let mret String: rtr.returnType
+    rtr.parser:     {}
+    rtr.returnType: ""
+    drop(rtr)
+    let br BlockResult: parseBlock(parser)
+    parser: br.parser
+    let bodyBlock BlockNode: br.block
+    br.parser: {}
+    br.block:  {}
+    drop(br)
+    let dummy WildcardNode: {}
+    let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: true, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
     fields.add(m)
     return parser
 }

@@ -32,7 +32,11 @@ type SemFieldEntry: { name String, typeName String }
 // type). paramTypes are the declared parameter type names in order; the
 // implicit `this` receiver is NOT included here.
 type SemMethodEntry: { name String, paramTypes Array<String>, returnType String }
-type SemTypeEntry:  { name String, fields Array<SemFieldEntry>, methods Array<SemMethodEntry> }
+// SemTypeEntry mirrors a parser TypeDeclNode. privateFieldNames / privateMethodNames
+// are populated by resolveTypes.suru when it first encounters a StructLitNode whose
+// fields carry isPrivate=true; they drive the access-control check in FieldAccessNode
+// and MethodCallNode resolution.
+type SemTypeEntry:  { name String, fields Array<SemFieldEntry>, methods Array<SemMethodEntry>, privateFieldNames Array<String>, privateMethodNames Array<String> }
 
 type AnalyzerState: {
     scopes          Array<Scope>
@@ -163,7 +167,7 @@ fn recordSumType(state AnalyzerState, name String, variants Array<String>) Analy
     }
     let sumTypes Array<SemTypeEntry>: state.sumTypes
     let noMethods Array<SemMethodEntry>: []
-    let teEntry SemTypeEntry: { name: name, fields: semVariants, methods: noMethods }
+    let teEntry SemTypeEntry: { name: name, fields: semVariants, methods: noMethods, privateFieldNames: [], privateMethodNames: [] }
     sumTypes.add(teEntry)
     return state
 }

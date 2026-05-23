@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added private fields and methods on object literals
+
+Object literals now support access-controlled members using a standalone `_`
+modifier token. Private members are invisible from outside the object; only
+`this.name` inside a method body is permitted.
+
+```suru
+type Counter: {
+    fn increment()
+    fn get() Int64
+}
+
+fn main() Int64 {
+    let c Counter: {
+        _ count Int64: 0,
+        fn increment() { this.count: this.count.add(1) }
+        fn get() Int64 { return this.count }
+    }
+    c.increment()
+    c.increment()
+    c.increment()
+    printLn(c.get().toString())   // 3
+    // c.count  ← compile error: cannot access private field 'count' from outside its object
+    return 0
+}
+```
+
+Design:
+- `_ name Type: value` — private data field. The name is stored **without** the
+  underscore; `this.name` is the only valid access form inside the object's methods.
+- `_ fn name(params) Ret { ... }` — private method, likewise accessible only via
+  `this.name(...)` inside sibling methods.
+- Private members are **not** part of the `type` declaration (the public interface);
+  they are declared inline on the object literal.
+- A read (`obj.field`), call (`obj.method()`), or write (`obj.field: v`) of a
+  private member from outside the object is a compile-time error.
+
+Implementation:
+- **Parser** (`parser.suru`): `parseStructLitMemberInto` dispatches on `TOK_WILDCARD`
+  to two new parsers — `parseStructLitPrivateFieldInto` (requires an explicit type
+  annotation) and `parseStructLitPrivateMethodInto`. `StructFieldNode` gained
+  `isPrivate Bool` and `privateTypeName String`.
+- **Semantic layer** (`semantic/semantic.suru`, `semantic/resolveTypes.suru`):
+  `SemTypeEntry` gained `privateFieldNames Array<String>` and
+  `privateMethodNames Array<String>`. During `StructLitNode` resolution
+  `rtAugmentPrivateFieldsAt` populates those lists from the literal so
+  `this.fieldname` resolves correctly in method bodies. Privacy checks in the
+  `FieldAccessNode`, `MethodCallNode`, and `FieldAssignNode` arms of
+  `resolveExpr` emit errors when a private member is accessed from outside.
+- **Codegen layer** (`pipeline.suru`): `augmentPrivateFields` runs at the start
+  of `lowerObjects` and injects private data fields from object literals into the
+  corresponding `TypeDeclNode.fields` so the struct layout contains the correct
+  GEP offsets for those fields.
+- **Test fixtures**: `private-fields` (Counter with hidden `count`, outputs `3`)
+  and `private-fields-error` (compile-time error on external field access).
+
 ### Added generics (monomorphization)
 
 Suru now supports generic type and function definitions. The compiler

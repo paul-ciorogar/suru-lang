@@ -1,0 +1,1 @@
+/work/tests/fixtures/private-fields-error/main.suru: cannot access private field 'count' from outside its object

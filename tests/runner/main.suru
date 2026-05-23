@@ -54,6 +54,9 @@ fn main(args Array<String>) {
         { name: "builtins-misc",     source: "tests/fixtures/builtins-misc",     args: "", expected: readFile("/work/tests/fixtures/builtins-misc/expected.txt") },
         { name: "stdlib-option",     source: "tests/fixtures/stdlib-option",     args: "", expected: readFile("/work/tests/fixtures/stdlib-option/expected.txt") },
         { name: "stdlib-result",     source: "tests/fixtures/stdlib-result",     args: "", expected: readFile("/work/tests/fixtures/stdlib-result/expected.txt") },
+        { name: "extern-fn-basic",        source: "tests/fixtures/extern-fn-basic",        args: "", expected: readFile("/work/tests/fixtures/extern-fn-basic/expected.txt") },
+        { name: "private-fields",          source: "tests/fixtures/private-fields",          args: "", expected: readFile("/work/tests/fixtures/private-fields/expected.txt"), xfail: false, compileError: false },
+        { name: "private-fields-error",    source: "tests/fixtures/private-fields-error",    args: "", expected: readFile("/work/tests/fixtures/private-fields-error/expected.txt"), xfail: false, compileError: true },
     ]
 
     let passed Int64: 0

@@ -1,0 +1,23 @@
+// tests/fixtures/private-fields/main.suru
+//
+// Validates that private data fields declared with `_ name Type: value` in an
+// object literal are accessible via `this.name` inside methods but hidden from
+// callers outside the object.
+
+type Counter: {
+    fn increment()
+    fn get() Int64
+}
+
+fn main() Int64 {
+    let c Counter: {
+        _ count Int64: 0,
+        fn increment() { this.count: this.count.add(1) }
+        fn get() Int64 { return this.count }
+    }
+    c.increment()
+    c.increment()
+    c.increment()
+    printLn(c.get().toString())
+    return 0
+}

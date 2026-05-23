@@ -195,7 +195,9 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
         mi: mi.add(1)
     }
     let typeDecls Array<SemTypeEntry>: state.typeDecls
-    let teEntry SemTypeEntry: { name: typed.name, fields: semFields, methods: semMethods }
+    // privateFieldNames and privateMethodNames start empty; resolveTypes.suru populates
+    // them lazily on first encounter of a StructLitNode with isPrivate members.
+    let teEntry SemTypeEntry: { name: typed.name, fields: semFields, methods: semMethods, privateFieldNames: [], privateMethodNames: [] }
     typeDecls.add(teEntry)
     return state
 }
@@ -266,8 +268,36 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
     return state
 }
 
-// collectFunctionDeclarations — walk stmts; for each FnDeclNode either report
-// a duplicate-function error or call registerFnDecl.
+// registerExternFnDecl — validate and register one ExternFnNode into state.functions.
+// Extern fns are raw IR declarations with no source path (srcPath: ""), so
+// mangleSym passes their names through verbatim at every call site.
+fn registerExternFnDecl(state AnalyzerState, stmt ExternFnNode) AnalyzerState {
+    let paramTypes Array<String>: []
+    let params Array<Param>: stmt.params
+    let pi Int64: 0
+    while pi.lt(params.len()) {
+        let p Param: params.at(pi)
+        let pType String: p.typeName
+        if resolveTypeName(state, pType) {
+            paramTypes.add(pType)
+        } else {
+            appendError(state, "unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of extern fn '").append(stmt.name).append("'"))
+        }
+        pi: pi.add(1)
+    }
+    let returnType String: stmt.returnType
+    let validReturn Bool: returnType.equals("void") or resolveTypeName(state, returnType)
+    if not validReturn {
+        appendError(state, "unknown return type '".append(returnType).append("' for extern fn '").append(stmt.name).append("'"))
+    }
+    let sig FunctionSig: { name: stmt.name, paramTypes: paramTypes, returnType: returnType, srcPath: "" }
+    let functions Array<FunctionSig>: state.functions
+    functions.add(sig)
+    return state
+}
+
+// collectFunctionDeclarations — walk stmts; for each FnDeclNode or ExternFnNode
+// either report a duplicate-function error or register the signature.
 fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let functions Array<FunctionSig>: state.functions
     let i Int64: 0
@@ -280,6 +310,14 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
                     appendError(state, "function '".append(typed.name).append("' is already declared"))
                 } else {
                     registerFnDecl(state, typed, typed.typeParams)
+                }
+            }
+            ExternFnNode: {
+                let typed ExternFnNode: stmt
+                if fnSigExistsAt(functions, "", typed.name, 0) {
+                    appendError(state, "function '".append(typed.name).append("' is already declared"))
+                } else {
+                    registerExternFnDecl(state, typed)
                 }
             }
             _: {}

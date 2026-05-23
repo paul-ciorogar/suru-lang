@@ -2025,6 +2025,18 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
             FnDeclNode: {
                 ctx: emitFunction(ctx, s)
             }
+            ExternFnNode: {
+                // Emit declare stub for the raw IR function (idempotent via addSuruDecl).
+                let retSuru String: tyh.makeSuruType(s.returnType)
+                let retLlvm String: match s.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
+                let paramParts Array<String>: []
+                let j Int64: 0
+                while j.lt(s.params.len()) {
+                    paramParts.add(box.llvmTypeOf(tyh.makeSuruType(s.params.at(j).typeName)))
+                    j: j.add(1)
+                }
+                ctx: types.addSuruDecl(ctx, "declare ".append(retLlvm).append(" @").append(s.name).append("(").append(ir.joinArgs(paramParts)).append(")\n"))
+            }
             _: {}
         }
         i: i.add(1)
@@ -2097,6 +2109,11 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                 fnSrcName.add(fs.name)
                 fnSrcPath.add(fs.srcPath)
             }
+            ExternFnNode: {
+                // Empty srcPath → mangleSym returns the raw IR name unchanged.
+                fnSrcName.add(fs.name)
+                fnSrcPath.add("")
+            }
             _: {}
         }
         fi: fi.add(1)
@@ -2135,6 +2152,19 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                     let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
                     ctx: types.addFn(ctx, fnEnt)
                 }
+            }
+            ExternFnNode: {
+                // Register extern fn signature so emitUserFnCallSym can look it up.
+                let retSuru String: tyh.makeSuruType(s.returnType)
+                let retLlvm String: match s.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
+                let paramTypes Array<String>: []
+                let j Int64: 0
+                while j.lt(s.params.len()) {
+                    paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
+                    j: j.add(1)
+                }
+                let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
+                ctx: types.addFn(ctx, fnEnt)
             }
             _: {}
         }

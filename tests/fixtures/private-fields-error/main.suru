@@ -1,0 +1,17 @@
+// tests/fixtures/private-fields-error/main.suru
+//
+// Validates that accessing a private field from outside the object literal
+// is rejected with a compile-time error.
+
+type Counter: {
+    fn get() Int64
+}
+
+fn main() Int64 {
+    let c Counter: {
+        _ count Int64: 0,
+        fn get() Int64 { return this.count }
+    }
+    printLn(c.count.toString())
+    return 0
+}

@@ -42,7 +42,7 @@ include "../codegen/irCodegenTypeHelpers.suru" as tyh
 
 // rtLookupTypeEntryAt — linear search through state.typeDecls.
 fn rtLookupTypeEntryAt(decls Array<SemTypeEntry>, name String, i Int64) SemTypeEntry {
-    if not i.lt(decls.len()) { return { name: "", fields: [], methods: [] } }
+    if not i.lt(decls.len()) { return { name: "", fields: [], methods: [], privateFieldNames: [], privateMethodNames: [] } }
     if decls.at(i).name.equals(name) { return decls.at(i) }
     return rtLookupTypeEntryAt(decls, name, i.add(1))
 }
@@ -80,6 +80,71 @@ fn rtLookupMethodReturnAt(methods Array<SemMethodEntry>, name String, i Int64) S
 fn rtLookupMethodReturn(decl SemTypeEntry, methodName String) String {
     let methods Array<SemMethodEntry>: decl.methods
     return rtLookupMethodReturnAt(methods, methodName, 0)
+}
+
+// ─── Private member access control helpers ────────────────────────────────────
+
+// isPrivateNameAt — true if `name` appears in the private-member name list at index i.
+fn isPrivateNameAt(names Array<String>, name String, i Int64) Bool {
+    if not i.lt(names.len()) { return false }
+    if names.at(i).equals(name) { return true }
+    return isPrivateNameAt(names, name, i.add(1))
+}
+
+// rtHasFieldAt — true if the SemFieldEntry list already contains a field named `name`.
+// Used to avoid double-adding private fields when the same type has multiple literals.
+fn rtHasFieldAt(fields Array<SemFieldEntry>, name String, i Int64) Bool {
+    if not i.lt(fields.len()) { return false }
+    if fields.at(i).name.equals(name) { return true }
+    return rtHasFieldAt(fields, name, i.add(1))
+}
+
+// rtAugmentPrivateFieldsAt — walks the struct literal's field list, adding each
+// isPrivate data field to the SemTypeEntry for `typeName` if not already present.
+// Also records its name in privateFieldNames (data) or privateMethodNames (methods).
+// Must be called before rtResolveStructMethods so method bodies can resolve this.field.
+fn rtAugmentPrivateFieldsAt(state AnalyzerState, typeName String, litFields Array<StructFieldNode>, i Int64) {
+    if not i.lt(litFields.len()) { return }
+    let f StructFieldNode: litFields.at(i)
+    if f.isPrivate {
+        let decls Array<SemTypeEntry>: state.typeDecls
+        let di Int64: 0
+        while di.lt(decls.len()) {
+            let entry SemTypeEntry: decls.at(di)
+            if entry.name.equals(typeName) {
+                if f.isMethod {
+                    // Private method: record name so MethodCallNode privacy check fires.
+                    let privMethods Array<String>: entry.privateMethodNames
+                    if not isPrivateNameAt(privMethods, f.name, 0) {
+                        privMethods.add(f.name)
+                    }
+                } else {
+                    // Private data field: add to fields for this.field resolution,
+                    // and record name for FieldAccessNode privacy check.
+                    let semFields Array<SemFieldEntry>: entry.fields
+                    let privFields Array<String>: entry.privateFieldNames
+                    if not rtHasFieldAt(semFields, f.name, 0) {
+                        semFields.add({ name: f.name, typeName: f.privateTypeName })
+                        privFields.add(f.name)
+                    }
+                }
+            }
+            di: di.add(1)
+        }
+    }
+    rtAugmentPrivateFieldsAt(state, typeName, litFields, i.add(1))
+}
+
+// isThisReceiver — true when expr is a VarRefNode named "this".
+// Used by privacy checks to allow access to private members inside method bodies.
+fn isThisReceiver(expr AstNode) Bool {
+    match expr {
+        VarRefNode: {
+            let v VarRefNode: expr
+            return v.name.equals("this")
+        }
+        _: { return false }
+    }
 }
 
 // ─── Function param type lookup ──────────────────────────────────────────────
@@ -297,6 +362,12 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // from the declared signature. Otherwise fall back to the builtin
             // method-name → return-type table in exprs.suru.
             let mdecl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+            // Privacy check: private methods (declared with `_ fn`) may only be
+            // called via `this` inside the owning object's method bodies.
+            let mPrivNames Array<String>: mdecl.privateMethodNames
+            if isPrivateNameAt(mPrivNames, typed.methodName, 0) and not isThisReceiver(rcv) {
+                passes.appendError(state, "cannot call private method '".append(typed.methodName).append("' from outside its object"))
+            }
             let userRet String: rtLookupMethodReturn(mdecl, typed.methodName)
             if userRet.equals("") {
                 typed.resolvedType: exprs.inferTypeFromMethod(state, typed)
@@ -311,6 +382,12 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             resolveExpr(state, rcv, "")
             let rcvType String: rtNodeResolvedType(rcv)
             let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+            // Privacy check: private data fields (declared with `_ name Type`) may
+            // only be accessed via `this` inside the owning object's method bodies.
+            let privNames Array<String>: decl.privateFieldNames
+            if isPrivateNameAt(privNames, typed.fieldName, 0) and not isThisReceiver(rcv) {
+                passes.appendError(state, "cannot access private field '".append(typed.fieldName).append("' from outside its object"))
+            }
             let annot String: rtLookupFieldType(decl, typed.fieldName)
             typed.resolvedType: tyh.makeSuruType(annot)
         }
@@ -343,6 +420,9 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // "" and rtResolveStructFields will pass "" expectations down — no
             // type information is invented, the AST simply stays under-typed.
             rtResolveStructFields(state, fields, decl, 0)
+            // Augment the SemTypeEntry with private fields/methods from this literal
+            // before resolving method bodies, so `this.fieldname` lookups succeed.
+            rtAugmentPrivateFieldsAt(state, expected, fields, 0)
             // Method members (isMethod=true) carry a body that references
             // `this` and the method params. Resolve them now so the lift can
             // hoist already-typed bodies into top-level functions.
@@ -434,6 +514,11 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
             resolveExpr(state, rcv, "")
             let rcvType String: rtNodeResolvedType(rcv)
             let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+            // Privacy check: private data fields may only be written via `this`.
+            let privNamesA Array<String>: decl.privateFieldNames
+            if isPrivateNameAt(privNamesA, typed.fieldName, 0) and not isThisReceiver(rcv) {
+                passes.appendError(state, "cannot assign to private field '".append(typed.fieldName).append("' from outside its object"))
+            }
             let annot String: rtLookupFieldType(decl, typed.fieldName)
             let expected String: tyh.makeSuruType(annot)
             let val AstNode: typed.value

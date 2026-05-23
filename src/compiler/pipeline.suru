@@ -297,7 +297,7 @@ fn loFindMethodMember(fields Array<StructFieldNode>, name String) StructFieldNod
         i: i.add(1)
     }
     let dummy WildcardNode: {}
-    let none StructFieldNode: { name: "", value: dummy, isMethod: false, methodParams: [], methodRet: "", methodBody: [] }
+    let none StructFieldNode: { name: "", value: dummy, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: [], methodRet: "", methodBody: [] }
     return none
 }
 
@@ -479,7 +479,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
     let vr VtableRefNode: { sym: vtsym, entries: entrySyms, resolvedType: typeName }
     let noP Array<Param>: []
     let noB Array<AstNode>: []
-    newFields.add({ name: "__vtable", value: vr, isMethod: false, methodParams: noP, methodRet: "", methodBody: noB })
+    newFields.add({ name: "__vtable", value: vr, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: noP, methodRet: "", methodBody: noB })
     let d Int64: 0
     while d.lt(fields.len()) {
         let f StructFieldNode: fields.at(d)
@@ -492,9 +492,88 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
     lit.fields: newFields
 }
 
+// ─── Private field codegen augmentation ──────────────────────────────────────
+// These helpers scan the stmts for struct literals that carry isPrivate data
+// fields and inject those fields into the corresponding TypeDeclNode.fields so
+// the codegen's registerTypes step includes them in the struct layout.
+// This must run before lowerObjects (and therefore before registerTypes).
+
+// augPrivAddField — finds the TypeDeclNode for `typeName` in stmts and appends
+// the private field (fieldName, fieldTypeName) if not already present.
+fn augPrivAddField(stmts Array<AstNode>, typeName String, fieldName String, fieldTypeName String) {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        match stmts.at(i) {
+            TypeDeclNode: {
+                let td TypeDeclNode: stmts.at(i)
+                if td.name.equals(typeName) {
+                    let fields Array<Param>: td.fields
+                    let alreadyHas Bool: false
+                    let k Int64: 0
+                    while k.lt(fields.len()) {
+                        if fields.at(k).name.equals(fieldName) { alreadyHas: true }
+                        k: k.add(1)
+                    }
+                    if not alreadyHas { fields.add({ name: fieldName, typeName: fieldTypeName }) }
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+}
+
+// augPrivFromLitFields — iterates a struct literal's fields; for each private
+// data field, calls augPrivAddField to update the TypeDeclNode.
+fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<StructFieldNode>, i Int64) {
+    if not i.lt(litFields.len()) { return }
+    let f StructFieldNode: litFields.at(i)
+    if f.isPrivate and not f.isMethod {
+        augPrivAddField(stmts, typeName, f.name, f.privateTypeName)
+    }
+    augPrivFromLitFields(stmts, typeName, litFields, i.add(1))
+}
+
+// augPrivInBody — scans a function body for LetNode struct literals and calls
+// augPrivFromLitFields for any that have private fields.
+fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, i Int64) {
+    if not i.lt(body.len()) { return }
+    match body.at(i) {
+        LetNode: {
+            let ln LetNode: body.at(i)
+            match ln.value {
+                StructLitNode: {
+                    let sl StructLitNode: ln.value
+                    augPrivFromLitFields(stmts, ln.typeName, sl.fields, 0)
+                }
+                _: {}
+            }
+        }
+        _: {}
+    }
+    augPrivInBody(stmts, body, i.add(1))
+}
+
+// augmentPrivateFields — top-level pass: walks function declarations and
+// injects private data fields from their body struct literals into TypeDeclNodes.
+fn augmentPrivateFields(stmts Array<AstNode>, i Int64) {
+    if not i.lt(stmts.len()) { return }
+    match stmts.at(i) {
+        FnDeclNode: {
+            let fd FnDeclNode: stmts.at(i)
+            augPrivInBody(stmts, fd.body, 0)
+        }
+        _: {}
+    }
+    augmentPrivateFields(stmts, i.add(1))
+}
+
 // lowerObjects — module driver. Walks `stmts`, lifts object methods, and
 // appends every synthesised FnDeclNode to `stmts`.
 fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String) {
+    // Pre-pass: inject private data fields from object literals into TypeDeclNodes
+    // so the codegen's registerTypes creates the correct struct layout (size + GEP offsets).
+    augmentPrivateFields(stmts, 0)
     let newDecls Array<AstNode>: []
     let ctr Array<Int64>: [0]
     let n Int64: stmts.len()

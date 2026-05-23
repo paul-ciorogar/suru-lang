@@ -50,7 +50,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
-- Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types, generic types
+- Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
 - Control flow: `while`, `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
@@ -343,6 +343,49 @@ fn getX(p Point) Int64 {
     return p.x
 }
 ```
+
+### Object interface types
+
+A `type` declaration can include method signatures (name, params, return type — no body). An object literal that carries the method bodies satisfies the interface and is stored as that type. Each literal instance has its own vtable, so two literals of the same type can have different method implementations.
+
+```suru
+type Greeter: {
+    name String
+    fn greet(prefix String) String
+}
+
+let g Greeter: {
+    name: "World",
+    fn greet(prefix String) String { return prefix.append(this.name) }
+}
+printLn(g.greet("Hello "))   // Hello World
+```
+
+Inside a method body the receiver is accessed as `this`. Field reads (`this.name`) and field writes (`this.field: value`) both work.
+
+#### Private members
+
+Object literals support private fields and private methods using a standalone `_` modifier. Private members are inaccessible from outside the object; only `this.name` inside a sibling method is allowed. A read, call, or write from outside is a compile-time error.
+
+```suru
+type Counter: {
+    fn increment()
+    fn get() Int64
+}
+
+let c Counter: {
+    _ count Int64: 0,                                       // private data field
+    fn increment() { this.count: this.count.add(1) }
+    fn get() Int64 { return this.count }
+}
+c.increment()
+printLn(c.get().toString())   // 1
+// c.count  ← compile error: cannot access private field 'count' from outside its object
+```
+
+Private methods follow the same `_ fn name(params) Ret { ... }` syntax and are accessible only via `this.name(...)` inside sibling methods.
+
+**Design rule**: private members appear only on the object literal, never in the `type` declaration. The `type` declaration is the public interface.
 
 ### Sum types (discriminated unions)
 

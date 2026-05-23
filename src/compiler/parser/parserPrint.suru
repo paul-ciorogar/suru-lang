@@ -35,6 +35,7 @@ fn printStmt(stmt AstNode, indent String) {
         SumTypeDeclNode: { printStmtSumTypeDecl(stmt, indent) }
         MatchStmtNode:   { printStmtMatchStatement(stmt, indent) }
         IfNode:          { printStmtIf(stmt, indent) }
+        ExternFnNode:    { printStmtExternFnDecl(stmt, indent) }
         _:               { printLn(indent.append("UnknownStatement")) }
     }
 }
@@ -192,6 +193,12 @@ fn printStmtIf(stmt IfNode, indent String) {
     }
 }
 
+// printStmtExternFnDecl — render an ExternFnNode as a one-line summary.
+fn printStmtExternFnDecl(stmt ExternFnNode, indent String) {
+    let paramStr String: buildParamStr(stmt.params)
+    printLn(indent.append("ExternFnNode [").append(stmt.name).append("](").append(paramStr).append(") -> ").append(stmt.returnType))
+}
+
 fn buildParamStr(params Array<Param>) String {
     let result String: ""
     let i Int64: 0
@@ -282,7 +289,8 @@ fn printExprStructLit(expr StructLitNode, indent String) {
     let i Int64: 0
     while i.lt(nfields) {
         let f StructFieldNode: expr.fields.at(i)
-        printLn(fieldIndent.append("Field [").append(f.name).append("]"))
+        let privLabel String: match f.isPrivate { true: " [private]", _: "" }
+        printLn(fieldIndent.append("Field [").append(f.name).append("]").append(privLabel))
         printExpr(f.value, valIndent)
         i: i.add(1)
     }

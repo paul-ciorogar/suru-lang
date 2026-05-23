@@ -1,0 +1,21 @@
+// extern-fn-basic — test fixture for `extern fn` declarations and call sites.
+// Verifies that an extern fn can be declared and called like a regular function,
+// with the compiler emitting the correct declare stub and unmangled call instruction.
+extern fn suru_string_equals(a String, b String) Bool
+
+fn main(args Array<String>) {
+    let a String: "hello"
+    let b String: "hello"
+    let c String: "world"
+    match suru_string_equals(a, b) {
+        true: { printLn("equal") }
+        _:    { printLn("not equal") }
+    }
+    match suru_string_equals(a, c) {
+        true: { printLn("equal") }
+        _:    { printLn("not equal") }
+    }
+    drop(a)
+    drop(b)
+    drop(c)
+}

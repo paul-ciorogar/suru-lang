@@ -17,11 +17,11 @@
 //  19  CallNode        20 MethodCallNode  21 FieldAccessNode
 //  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
 //  25  UnaryNode       26 BinaryNode      27 CharLitNode
-//  28  VtableRefNode
+//  28  VtableRefNode   29 ExternFnNode
 //
-// CharLitNode (27) then VtableRefNode (28) are appended LAST: variant tags
-// are derived from declaration order, so appending keeps indices 0–27 stable
-// and the bootstrap fixed point intact. Never insert a variant mid-list.
+// CharLitNode (27), VtableRefNode (28), and ExternFnNode (29) are appended LAST:
+// variant tags are derived from declaration order, so appending keeps indices 0–27
+// stable and the bootstrap fixed point intact. Never insert a variant mid-list.
 //
 // `this` is NOT a distinct variant — the parser emits VarRefNode{name:"this"};
 // the method lambda-lift (pipeline.suru) introduces a real `this` param so it
@@ -58,7 +58,11 @@ type MethodSig:      { name String, params Array<Param>, returnType String }
 //   hold the supplied implementation; `value` is unused until the method
 //   lambda-lift (pipeline.suru) rewrites the whole member into a single
 //   synthetic `__vtable` data field whose `value` is a VtableRefNode.
-type StructFieldNode: { name String, value AstNode, isMethod Bool, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
+// Private member: isPrivate=true means the member is declared with `_ name ...`
+//   syntax; it is inaccessible outside the object literal's own method bodies.
+//   privateTypeName holds the mandatory type annotation for private data fields
+//   (e.g. "Int64") so the codegen/semantic layers can add it to the struct layout.
+type StructFieldNode: { name String, value AstNode, isMethod Bool, isPrivate Bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
 type MatchArm:       { isWildcard Bool, pattern AstNode, body AstNode }
 type MatchStmtArm:   { isWildcard Bool, pattern AstNode, stmts Array<AstNode> }
 
@@ -88,6 +92,11 @@ type BlockNode:       { stmts Array<AstNode> }
 // elseBranch.stmts empty    → no else clause.
 // elseBranch.stmts = [IfNode] → else-if chain (recursive).
 type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch BlockNode }
+// ExternFnNode: an `extern fn` declaration — a function signature with no body.
+// Declares a raw IR function (defined in runtime/*.ll) so Suru call sites can
+// resolve its name and type. No typeParams: extern fns are never generic.
+// Appended LAST (index 29) — see the header comment on variant ordering.
+type ExternFnNode:    { name String, params Array<Param>, returnType String }
 
 // ─── Expression node types (AstNode variants 13–26) ───────────────────────────
 
@@ -127,7 +136,7 @@ type VtableRefNode:   { sym String, entries Array<String>, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode
+type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode
 
 // ─── Module and result types ───────────────────────────────────────────────────
 
