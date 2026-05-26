@@ -5,12 +5,14 @@
 //   - instantiateType clones fields with substituted type names and clears typeParams
 //   - instantiateAll deduplicates repeated requests for the same instantiation
 
-include "../../../src/compiler/semantic/monoInstantiate.suru" as mono
+include "../../../src/compiler/semantic/mono/monoCollect.suru"    as collect
+include "../../../src/compiler/semantic/mono/monoInstantiate.suru" as mono
+include "../../../src/compiler/parser/astNodes.suru"              as nodes
 
-fn main() Int64 {
+fn main() {
     // Build the fields: first T, second U
-    let f1 Param: { name: "first",  typeName: "T" }
-    let f2 Param: { name: "second", typeName: "U" }
+    let f1 Param: nodes.newParam("first",  "T")
+    let f2 Param: nodes.newParam("second", "U")
     let fields Array<Param>: []
     fields.add(f1)
     fields.add(f2)
@@ -22,10 +24,10 @@ fn main() Int64 {
 
     // Construct a bare TypeDeclNode (no methods)
     let methods Array<MethodSig>: []
-    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams }
+    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams, line: 0, col: 0 }
 
     // Wrap in a GenericTypeDef
-    let def GenericTypeDef: { name: "Pair", typeParams: typeParams, node: pairNode }
+    let def GenericTypeDef: collect.newGenericTypeDef("Pair", pairNode)
 
     // Concrete types for the instantiation
     let concreteTypes Array<String>: []
@@ -33,7 +35,9 @@ fn main() Int64 {
     concreteTypes.add("String")
 
     // 1. mangleGenericName
-    printLn(mono.mangleGenericName("Pair", concreteTypes))
+    let mangled String: mono.mangleGenericName("Pair", concreteTypes)
+    printLn(mangled)
+    drop(mangled)
 
     // 2. instantiateType
     let concrete TypeDeclNode: mono.instantiateType(def, concreteTypes)
@@ -47,10 +51,10 @@ fn main() Int64 {
     regTypes.add(def)
     let regFns Array<GenericFnDef>: []
     let regSumTypes Array<GenericSumTypeDef>: []
-    let registry GenericRegistry: { fns: regFns, types: regTypes, sumTypes: regSumTypes }
+    let registry GenericRegistry: collect.newGenericRegistry(regFns, regTypes, regSumTypes)
 
     let req1 InstantiationRequest: { genericName: "Pair", concreteTypes: concreteTypes }
-    let req2 InstantiationRequest: { genericName: "Pair", concreteTypes: concreteTypes }
+    let req2 InstantiationRequest: { genericName: "Pair", concreteTypes: concreteTypes.clone() }
     let reqs Array<InstantiationRequest>: []
     reqs.add(req1)
     reqs.add(req2)
@@ -58,5 +62,8 @@ fn main() Int64 {
     let results Array<AstNode>: mono.instantiateAll(registry, reqs)
     printLn(results.len())
 
-    return 0
+    drop(concrete)
+    drop(results)
+    drop(reqs)
+    drop(registry)
 }

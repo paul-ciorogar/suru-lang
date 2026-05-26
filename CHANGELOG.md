@@ -7,6 +7,191 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Object types supported as sum type variants
+
+Sum type variants can now be object types (types with method signatures). Previously only plain structs could appear as variants. This enables patterns like calling methods on a narrowed match arm value:
+
+```suru
+type Animal: {
+    fn speak() String
+}
+type Empty: { }
+type MaybeAnimal: Animal, Empty
+
+let a MaybeAnimal: makeAnimal(0)
+match a {
+    Animal: { printLn(a.speak()) }
+    Empty:  { printLn("empty") }
+}
+```
+
+No compiler changes were required — the codegen (`registerTypes` in `irRegisterPasses.suru`), object lowering (`lowerObjectsStructLit` in `pipeline.suru`), and clone/drop infrastructure (`irTypeCloneDropCodegen.suru`) already handled this case correctly. The change is validated by the new `sum-type-with-methods` fixture (58 tests total, all passing, valgrind clean).
+
+### Mono pass reorganized into `semantic/mono/` subfolder
+
+The five monomorphization files (`monoCollect`, `monoInfer`, `monoInstantiate`, `monoSubst`, `monoPass`) were moved from `src/compiler/semantic/` into a dedicated `src/compiler/semantic/mono/` subfolder, mirroring the existing `lexer/`, `parser/`, and `codegen/` layout. No behaviour changes — include paths updated throughout (`pipeline.suru`, the two unit test fixtures, and cross-references inside the mono files themselves).
+
+### Added `suru debug <pass> <file>` CLI command
+
+A new `debug` command stops the compilation pipeline after a named pass and prints the full AST and symbol table (functions, types, sum types, scopes, errors) to stdout. Useful for inspecting intermediate compiler state without reading LLVM IR.
+
+```sh
+suru debug resolve1 src/myprogram/main.suru   # before monomorphization
+suru debug mono     src/myprogram/main.suru   # after concrete nodes injected
+suru debug resolve2 src/myprogram/main.suru   # after second type resolution
+suru debug semantic src/myprogram/main.suru   # full symbol table
+```
+
+Implementation:
+- **`pipeline.suru`**: `DebugResult { stmts Array<AstNode>, state AnalyzerState }` type and `runPipelineDebug(sourcePath, stopPass)` function — mirrors `runPipelineFull` with early-return checkpoints after each named pass.
+- **`debug/debugPrint.suru`** (new file): `printDebugOutput(stmts, state, passName)` — prints the AST via `parserPrint.printModule` and a structured symbol table (functions with signatures, struct types with fields, sum types with variants, scope chain with variable bindings, error list).
+- **`cli/main.suru`**: `runDebug` function and `debug` dispatch in `main()`.
+
+### Parser refactored to object type with private state
+
+`Parser` is now an object interface type with private `pos` and `tokens` fields. All cursor logic moved from free functions to methods; `parseTypeAnnotation` returns `String` directly (no more `TypeAnnResult` threading). `newParser(tokens)` is the sole constructor.
+
+**Before:**
+```suru
+let parser Parser: { pos: 0, tokens: tokens }
+parser: util.advance(parser)
+parser: util.consume(parser, TOK_IDENT)
+if util.currentTokenIs(parser, TOK_EOF) { ... }
+let tr TypeAnnResult: util.parseTypeAnnotation(parser)
+parser: tr.parser
+let t String: tr.typeName
+```
+
+**After:**
+```suru
+let parser Parser: util.newParser(tokens)
+parser.advance()
+parser.consume(TOK_IDENT)
+if parser.currentTokenIs(TOK_EOF) { ... }
+let t String: parser.parseTypeAnnotation()
+```
+
+Changes:
+- **`parser/parserAst.suru`**: `type Parser` is now an object interface declaring 9 method signatures; `pos`/`tokens` removed from public interface.
+- **`parser/parserUtil.suru`**: `newParser()` returns an object literal with `_ pos Int64: 0` and `_ tokens Array<Token>: tokens` as private fields, plus all method bodies (`advance`, `currentToken`, `currentTokenIs`, `peekToken`, `peekIs`, `consume`, `consumeIf`, `error`, `parseTypeAnnotation`). Old free functions removed.
+- **`parser/parser.suru`**: ~215 `util.fn(parser, ...)` call sites converted to `parser.fn(...)`. Dead cleanup boilerplate (`r.parser: {}`, `drop(r)`) removed throughout — safe because field assignment is not RAII and intermediate result Parser copies share the same underlying tokens.
+- **Known limitation** (`tests/fixtures/private-fields-constructor`, xfail): `augPrivInBody` in `pipeline.suru` only registers private fields from `LetNode → StructLitNode`, not from `ReturnNode → StructLitNode`. Constructor functions using `return { _ field ... }` must use an intermediate `let` binding as a workaround.
+
+### Rich error diagnostics with source location and code snippets
+
+Compiler errors now include file path, line number, column, and a source code snippet with a caret pointing at the exact error site — matching the Rust/TypeScript diagnostic style.
+
+**Before:**
+```
+/path/to/file.suru: variable 's' has been moved
+```
+
+**After:**
+```
+/path/to/file.suru:8:13: error: variable 's' has been moved
+  8 |     printLn(s)
+                  ^
+```
+
+All semantic errors carry position. Errors that lack position (e.g. duplicate type declarations in pre-passes) fall back to `path: error: message`.
+
+Implementation:
+- **`parser/parserAst.suru`**: Added `line Int64, col Int64` to 13 node types: `FnDeclNode`, `LetNode`, `AssignNode`, `FieldAssignNode`, `ReturnNode`, `WhileNode`, `IfNode`, `BreakNode`, `ContinueNode`, `VarRefNode`, `CallNode`, `MethodCallNode`, `FieldAccessNode`.
+- **`parser/parser.suru`**: All node creation sites now capture the relevant token's `line`/`col` and store it in the node.
+- **`semantic/semantic.suru`**: `AnalysisError` extended with `line Int64, col Int64, srcPath String`; `AnalyzerState` gains `currentSrcPath String`; `addError` takes `line Int64, col Int64`.
+- **`semantic/passes.suru`**: `appendError` updated; `registerFnDecl` sets `currentSrcPath` from `FnDeclNode.srcPath`; all call sites pass position.
+- **`semantic/stmts.suru`**, **`semantic/exprs.suru`**, **`semantic/fns.suru`**, **`semantic/resolveTypes.suru`**: All ~25 error call sites updated to pass `node.line, node.col`.
+- **`semantic/fns.suru`**: `analyzeFunctionDeclaration` sets/restores `state.currentSrcPath` on function entry/exit so errors inside functions point to the correct included file.
+- **`semantic/monoSubst.suru`**, **`semantic/monoPass.suru`**: Deep-clone operations propagate `line`/`col` through all reconstructed nodes.
+- **`pipeline.suru`**: Sets `state.currentSrcPath = sourcePath` before analysis passes; `printErrorsFrom` rewritten with `extractSourceLine`/`buildSpaces` helpers to emit the three-line diagnostic format; synthetic nodes (method-lift) get `line: 0, col: 0`.
+- **Test fixtures**: `break-error`, `continue-error`, `move-error`, `private-fields-error`, `xmod-error` expected outputs updated to new format.
+
+---
+
+### Added `break` and `continue` for `while` loops
+
+`break` exits the enclosing `while` loop immediately; `continue` skips the rest of the current iteration and jumps back to the loop condition. Both are compile-time errors when used outside a loop.
+
+```suru
+// break: exit early
+let i Int64: 0
+while i.lt(10) {
+    if i.equals(3) { break }
+    printLn(i)
+    i: i.add(1)
+}
+// prints 0, 1, 2
+
+// continue: skip an iteration
+let j Int64: 0
+while j.lt(5) {
+    j: j.add(1)
+    if j.equals(3) { continue }
+    printLn(j)
+}
+// prints 1, 2, 4, 5
+```
+
+Nested loops are supported — `break`/`continue` always refer to the **innermost** enclosing loop.
+
+Implementation:
+- **`lexer/lexer.suru`**: `TOK_BREAK` (37) and `TOK_CONTINUE` (38) added to the token set and `keywordKind` dispatch.
+- **`parser/parserAst.suru`**: `BreakNode {}` and `ContinueNode {}` appended to `AstNode` (indices 30, 31 — appended last to keep prior indices stable).
+- **`parser/parser.suru`**: `parseBreakStmt` / `parseContinueStmt` consume the keyword and return the empty node; dispatched from `parseStatement`.
+- **`parser/parserPrint.suru`**: pretty-printer cases for both nodes.
+- **`semantic/semantic.suru`**: `AnalyzerState` gains `insideLoop Int64` (incremented/decremented around `while` body analysis).
+- **`semantic/stmts.suru`**: `analyzeWhileStatement` tracks loop depth; `analyzeBreakStatement` / `analyzeContinueStatement` emit a compile error when `insideLoop == 0`.
+- **`codegen/irCodegenTypes.suru`**: `IrCodegenContext` gains `loopCondLabels Array<String>` and `loopAfterLabels Array<String>` — a stack of label names for the current loop nest.
+- **`codegen/irCodegen.suru`**: `emitWhile` pushes/pops the cond/after labels around body emission; `emitBreak` branches to `while_after_N`; `emitContinue` branches to `while_cond_N`; both set `blockOpen: false`.
+- **Test fixtures**: `break-valid`, `continue-valid` (runtime output), `break-error`, `continue-error` (compile-error assertions).
+
+### Added `move()` builtin — ownership transfer without cloning
+
+`move(x)` transfers ownership of a variable to the caller without performing a deep copy. The compiler enforces that `x` cannot be read or passed again after the move — any subsequent use is a compile-time error. Re-assigning `x` with `x: newValue` clears the moved state.
+
+```suru
+fn consume(s String) void {
+    printLn(s)
+    drop(s)
+}
+
+fn main() Int64 {
+    let s String: "hello".append(" world")
+    consume(move(s))        // s is moved; consume owns it and drops it
+
+    s: "goodbye".append(" world")   // re-assign: s is valid again
+    printLn(s)
+    drop(s)
+    return 0
+}
+```
+
+Compile-time enforcement:
+
+```suru
+fn main() Int64 {
+    let s String: "hello".append(" world")
+    let t String: move(s)
+    printLn(s)    // compile error: variable 's' has been moved
+    drop(t)
+    return 0
+}
+```
+
+Design:
+- `move(x)` is a 1-arg builtin; its argument must be a variable (a `VarRefNode`), not an arbitrary expression.
+- Move state is tracked per-function; each function body starts with a clean slate.
+- Re-assigning a moved variable (`x: expr`) is valid and clears the moved flag after the RHS is analysed.
+- **Known limitation:** tracking is linear, not flow-sensitive. A `move(x)` inside one branch of an `if` is treated as unconditional — `x` is considered moved on all paths after that point.
+
+Implementation:
+- **`semantic/semantic.suru`**: `AnalyzerState` gains `movedVars Array<String>` and helpers `isMoved`, `markMoved`, `clearMoved`, `resetMovedVars`.
+- **`semantic/exprs.suru`**: `VarRefNode` analysis checks `isMoved` and emits "variable 'x' has been moved"; `CallNode` analysis adds `move` to the 1-arg builtins and, when the argument is a `VarRefNode`, calls `markMoved`; `inferType` returns the variable's declared type for `move(x)`.
+- **`semantic/stmts.suru`**: `analyzeAssignmentStatement` calls `clearMoved` on the target after analysing the RHS; `analyzeLetStatement` calls `clearMoved` after the RHS.
+- **`semantic/fns.suru`**: `analyzeFunctionDeclaration` saves and restores `movedVars` around each function body, resetting it to `[]` on entry.
+- **`codegen/irCodegen.suru`**: `move(x)` emits a plain variable load (identical to reading `x` directly) — no clone is performed; the receiver takes ownership.
+- **Test fixtures**: `move-valid` (valid move + re-assign, runtime output) and `move-error` (use-after-move compile error).
+
 ### Added private fields and methods on object literals
 
 Object literals now support access-controlled members using a standalone `_`

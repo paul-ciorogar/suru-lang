@@ -1,3 +1,5 @@
+include "../diagUtils.suru" as diagUtils
+
 // Token kind constants — ordinals must stay in sync with the bootstrap binary's token kind encoding.
 let TOK_EOF      Int64: 0
 let TOK_IDENT    Int64: 1
@@ -36,38 +38,68 @@ let TOK_ELSE     Int64: 33
 let TOK_CHAR     Int64: 34
 let TOK_THIS     Int64: 35
 let TOK_EXTERN   Int64: 36
+let TOK_BREAK    Int64: 37
+let TOK_CONTINUE Int64: 38
 
 type Token: { kind Int64, text String, line Int64, col Int64 }
 
-// Mutable lexer state, threaded the same way the parser threads `Parser`
-// (see parserUtil.suru): each function mutates `lx`'s fields in place — Suru
-// structs are heap-allocated, so field assignment mutates the shared
-// allocation — and returns the same `lx`, so callers write `lx: f(lx)`.
-type Lexer: { source String, pos Int64, line Int64, col Int64, tokens Array<Token> }
 
-fn isDigit(ch String) Bool {
-    let c Int64: ch.ord()
-    return c.gte(48) and c.lt(58)
+// Mutable lexer state. Methods mutate fields in place — Suru structs are
+// heap-allocated, so field assignment mutates the shared allocation.
+type Lexer: {
+    source String
+    pos Int64
+    line Int64
+    col Int64
+    tokens Array<Token>
+    srcPath String
+    fn current() Char
+    fn advance() void
+    fn notEOF() Bool
+    fn peek() Char
+    fn peekN(n Int64) Char
+    fn addToken(kind Int64, text String, line Int64, col Int64) void
+    fn consumeWhitespace() void
+    fn consumeLineComment() void
+    fn isLineComment() Bool
+    fn processNonWhitespace() void
+    fn readIdentOrKeyword() void
+    fn readNumber() void
+    fn checkFloat() Bool
+    fn makeFloatToken(intText String, startCol Int64) void
+    fn readIdent() String
+    fn readDigits() String
+    fn readString() void
+    fn readChar() void
+    fn processSingleChar() void
+    fn processSymbolOrString() void
 }
 
-fn isLetter(ch String) Bool {
+let CHAR_DIGIT_0 Int64: 48
+let CHAR_DIGIT_9 Int64: 57
+let CHAR_LOWER_A Int64: 97
+let CHAR_LOWER_Z Int64: 122
+let CHAR_UPPER_A     Int64: 65
+let CHAR_UPPER_Z     Int64: 90
+
+fn isDigit(ch Char) Bool {
     let c Int64: ch.ord()
-    let lower Bool: c.gte(97) and c.lt(123)
-    let upper Bool: c.gte(65) and c.lt(91)
+    return c.gte(CHAR_DIGIT_0) and c.lte(CHAR_DIGIT_9)
+}
+
+fn isLetter(ch Char) Bool {
+    let c Int64: ch.ord()
+    let lower Bool: c.gte(CHAR_LOWER_A) and c.lte(CHAR_LOWER_Z)
+    let upper Bool: c.gte(CHAR_UPPER_A) and c.lte(CHAR_UPPER_Z)
     return lower or upper
 }
 
-fn isLetterDigitUnderscore(ch String) Bool {
-    return isLetter(ch) or isDigit(ch) or ch.equals("_")
+fn isLetterDigitUnderscore(ch Char) Bool {
+    return isLetter(ch) or isDigit(ch) or ch.equals('_')
 }
 
-fn isWhitespace(ch String) Bool {
-    return ch.equals(" ") or ch.equals("\n") or ch.equals("\t")
-}
-
-fn isLineComment(source String, pos Int64) Bool {
-    let next Int64: pos.add(1)
-    return source.at(pos).equals("/") and next.lt(source.len()) and source.at(next).equals("/")
+fn isWhitespace(ch Char) Bool {
+    return ch.equals(' ') or ch.equals('\n') or ch.equals('\t')
 }
 
 fn makeToken(kind Int64, text String, line Int64, col Int64) Token {
@@ -93,287 +125,326 @@ fn keywordKind(text String) Int64 {
         "as":      TOK_AS
         "if":      TOK_IF
         "else":    TOK_ELSE
-        "this":    TOK_THIS
-        "extern":  TOK_EXTERN
-        _:         TOK_IDENT
+        "this":     TOK_THIS
+        "extern":   TOK_EXTERN
+        "break":    TOK_BREAK
+        "continue": TOK_CONTINUE
+        _:          TOK_IDENT
     }
 }
 
-fn escapeChar(esc String) String {
+fn escapeChar(esc Char) Char {
     return match esc {
-        "n":  "\n"
-        "t":  "\t"
-        "\\": "\\"
-        "\"": "\""
-        "'":  "'"
+        'n':  '\n'
+        't':  '\t'
         _:    esc
     }
 }
 
-fn singleCharKind(ch String) Int64 {
+fn singleCharKind(ch Char) Int64 {
     return match ch {
-        "(":  TOK_LPAREN
-        ")":  TOK_RPAREN
-        "{":  TOK_LBRACE
-        "}":  TOK_RBRACE
-        "[":  TOK_LBRACKET
-        "]":  TOK_RBRACKET
-        ",":  TOK_COMMA
-        ".":  TOK_DOT
-        ":":  TOK_COLON
-        "-":  TOK_MINUS
-        "<":  TOK_LT
-        ">":  TOK_GT
+        '(':  TOK_LPAREN
+        ')':  TOK_RPAREN
+        '{':  TOK_LBRACE
+        '}':  TOK_RBRACE
+        '[':  TOK_LBRACKET
+        ']':  TOK_RBRACKET
+        ',':  TOK_COMMA
+        '.':  TOK_DOT
+        ':':  TOK_COLON
+        '-':  TOK_MINUS
+        '<':  TOK_LT
+        '>':  TOK_GT
         _:    TOK_EOF
     }
 }
 
-fn checkFloat(source String, pos Int64) Bool {
-    let next Int64: pos.add(1)
-    return pos.lt(source.len()) and source.at(pos).equals(".") and next.lt(source.len()) and isDigit(source.at(next))
-}
 
-// Read an identifier, advancing lx.pos/lx.col; return the identifier text.
-fn readIdent(lx Lexer) String {
-    let text String: ""
-    let char String: lx.source.at(lx.pos)
-    while lx.pos.lt(lx.source.len()) and isLetterDigitUnderscore(char) {
-        let charTmp String: char
-        let textTmp String: text
 
-        text: text.append(char)
-        lx.pos: lx.pos.add(1)
-        lx.col: lx.col.add(1)
-        char: lx.source.at(lx.pos)
 
-        drop(charTmp)
-        drop(textTmp)
-    }
-    drop(char)
-    return text
-}
-
-fn readIdentOrKeyword(lx Lexer) Lexer {
-    let startCol Int64: lx.col
-    let text String: readIdent(lx)
-    let kind Int64: keywordKind(text)
-    lx.tokens.add(makeToken(kind, text, lx.line, startCol))
-    return lx
-}
-
-// Read a run of digits, advancing lx.pos/lx.col; return the digit text.
-fn readDigits(lx Lexer) String {
-    let text String: ""
-    while lx.pos.lt(lx.source.len()) and isDigit(lx.source.at(lx.pos)) {
-        let textTmp String: text
-        text: text.append(lx.source.at(lx.pos))
-        lx.pos: lx.pos.add(1)
-        lx.col: lx.col.add(1)
-        drop(textTmp)
-    }
-    return text
-}
-
-fn makeFloatToken(lx Lexer, intText String, startCol Int64) Lexer {
-    // Consume the '.' then the fractional digits.
-    lx.pos: lx.pos.add(1)
-    lx.col: lx.col.add(1)
-    let fracText String: readDigits(lx)
-    lx.tokens.add(makeToken(TOK_FLOAT, intText.append(".").append(fracText), lx.line, startCol))
-    return lx
-}
-
-fn makeIntToken(lx Lexer, intText String, startCol Int64) Lexer {
-    lx.tokens.add(makeToken(TOK_INT, intText, lx.line, startCol))
-    return lx
-}
-
-fn readNumber(lx Lexer) Lexer {
-    let startCol Int64: lx.col
-    let intText String: readDigits(lx)
-    return match checkFloat(lx.source, lx.pos) {
-        true: makeFloatToken(lx, intText, startCol)
-        _:    makeIntToken(lx, intText, startCol)
-    }
-}
-
-fn readString(lx Lexer) Lexer {
-    let startCol Int64: lx.col
-    lx.pos: lx.pos.add(1)
-    lx.col: lx.col.add(1)
-    let text String: ""
-    while lx.pos.lt(lx.source.len()) and not lx.source.at(lx.pos).equals("\"") {
-        let isEscape Bool: lx.source.at(lx.pos).equals("\\") and lx.pos.add(1).lt(lx.source.len())
-        let ch String: match isEscape { true: escapeChar(lx.source.at(lx.pos.add(1))), _: lx.source.at(lx.pos) }
-        let skip Int64: match isEscape { true: 2, _: 1 }
-        let textTmp String: text
-        text: text.append(ch)
-        lx.pos: lx.pos.add(skip)
-        lx.col: lx.col.add(skip)
-        drop(textTmp)
-    }
-    let advanced Int64: match lx.pos.lt(lx.source.len()) { true: 1, _: 0 }
-    lx.pos: lx.pos.add(advanced)
-    lx.col: lx.col.add(advanced)
-    lx.tokens.add(makeToken(TOK_STRING, text, lx.line, startCol))
-    return lx
-}
-
-// Read a single-quoted char literal: 'x' or an escape '\n' '\t' '\\' '\''.
-// The token text holds the one decoded character, same shape as a 1-char
-// string token — codegen folds it to an i8 immediate via .ord().
-fn readChar(lx Lexer) Lexer {
-    let startCol Int64: lx.col
-    lx.pos: lx.pos.add(1)
-    lx.col: lx.col.add(1)
-    let isEscape Bool: lx.source.at(lx.pos).equals("\\") and lx.pos.add(1).lt(lx.source.len())
-    let ch String: match isEscape { true: escapeChar(lx.source.at(lx.pos.add(1))), _: lx.source.at(lx.pos) }
-    let skip Int64: match isEscape { true: 2, _: 1 }
-    lx.pos: lx.pos.add(skip)
-    lx.col: lx.col.add(skip)
-    let advanced Int64: match lx.pos.lt(lx.source.len()) and lx.source.at(lx.pos).equals("'") { true: 1, _: 0 }
-    lx.pos: lx.pos.add(advanced)
-    lx.col: lx.col.add(advanced)
-    lx.tokens.add(makeToken(TOK_CHAR, ch, lx.line, startCol))
-    return lx
-}
-
-fn processSingleChar(lx Lexer, ch String) Lexer {
-    let kind Int64: singleCharKind(ch)
-    lx.tokens.add(makeToken(kind, ch, lx.line, lx.col))
-    lx.pos: lx.pos.add(1)
-    lx.col: lx.col.add(1)
-    return lx
-}
-
-fn processSymbolOrString(lx Lexer, ch String) Lexer {
-    if ch.equals("\"") { return readString(lx) }
-    if ch.equals("'")  { return readChar(lx) }
-    return processSingleChar(lx, ch)
-}
-
-fn processNonWhitespace(lx Lexer, ch String) Lexer {
-    match isLetter(ch) or ch.equals("_") {
-        true: { return readIdentOrKeyword(lx) }
-        _: {
-            match isDigit(ch) {
-                true: { return readNumber(lx) }
-                _: { return processSymbolOrString(lx, ch) }
-            }
-        }
-    }
-}
-
-fn advanceWhitespace(lx Lexer, ch String) Lexer {
-    match ch.equals("\n") {
-        true: {
-            lx.pos: lx.pos.add(1)
-            lx.line: lx.line.add(1)
-            lx.col: 1
-            return lx
-        }
-        _: {
-            lx.pos: lx.pos.add(1)
-            lx.col: lx.col.add(1)
-            return lx
-        }
-    }
-}
-
-fn skipLineComment(lx Lexer) Lexer {
-    // Advance past '//' to end of line; the '\n' itself is left for the
-    // whitespace handler so line/col accounting stays identical.
-    while lx.pos.lt(lx.source.len()) and not lx.source.at(lx.pos).equals("\n") {
-        lx.pos: lx.pos.add(1)
-        lx.col: lx.col.add(1)
-    }
-    return lx
-}
 
 // Map a token kind ordinal to its display name.
 fn tokenKindName(kind Int64) String {
-    if kind.equals(0)  { return "EOF"      }
-    if kind.equals(1)  { return "IDENT"    }
-    if kind.equals(2)  { return "TRUE"     }
-    if kind.equals(3)  { return "FALSE"    }
-    if kind.equals(4)  { return "INT"      }
-    if kind.equals(5)  { return "FLOAT"    }
-    if kind.equals(6)  { return "STRING"   }
-    if kind.equals(7)  { return "LPAREN"   }
-    if kind.equals(8)  { return "RPAREN"   }
-    if kind.equals(9)  { return "LBRACE"   }
-    if kind.equals(10) { return "RBRACE"   }
-    if kind.equals(11) { return "LBRACKET" }
-    if kind.equals(12) { return "RBRACKET" }
-    if kind.equals(13) { return "COMMA"    }
-    if kind.equals(14) { return "DOT"      }
-    if kind.equals(15) { return "COLON"    }
-    if kind.equals(16) { return "MINUS"    }
-    if kind.equals(17) { return "LT"       }
-    if kind.equals(18) { return "GT"       }
-    if kind.equals(19) { return "LET"      }
-    if kind.equals(20) { return "NOT"      }
-    if kind.equals(21) { return "AND"      }
-    if kind.equals(22) { return "OR"       }
-    if kind.equals(23) { return "MATCH"    }
-    if kind.equals(24) { return "WILDCARD" }
-    if kind.equals(25) { return "FN"       }
-    if kind.equals(26) { return "RETURN"   }
-    if kind.equals(27) { return "VOID"     }
-    if kind.equals(28) { return "WHILE"    }
-    if kind.equals(29) { return "INCLUDE"  }
-    if kind.equals(30) { return "TYPE"     }
-    if kind.equals(31) { return "AS"       }
-    if kind.equals(32) { return "IF"       }
-    if kind.equals(33) { return "ELSE"     }
-    if kind.equals(34) { return "CHAR"     }
-    if kind.equals(35) { return "THIS"     }
-    if kind.equals(36) { return "EXTERN"   }
-    return "UNKNOWN"
+    return match kind {
+        TOK_EOF      : "EOF"
+        TOK_IDENT    : "IDENT"
+        TOK_TRUE     : "TRUE"
+        TOK_FALSE    : "FALSE"
+        TOK_INT      : "INT"
+        TOK_FLOAT    : "FLOAT"
+        TOK_STRING   : "STRING"
+        TOK_LPAREN   : "LPAREN"
+        TOK_RPAREN   : "RPAREN"
+        TOK_LBRACE   : "LBRACE"
+        TOK_RBRACE   : "RBRACE"
+        TOK_LBRACKET : "LBRACKET"
+        TOK_RBRACKET : "RBRACKET"
+        TOK_COMMA    : "COMMA"
+        TOK_DOT      : "DOT"
+        TOK_COLON    : "COLON"
+        TOK_MINUS    : "MINUS"
+        TOK_LT       : "LT"
+        TOK_GT       : "GT"
+        TOK_LET      : "LET"
+        TOK_NOT      : "NOT"
+        TOK_AND      : "AND"
+        TOK_OR       : "OR"
+        TOK_MATCH    : "MATCH"
+        TOK_WILDCARD : "WILDCARD"
+        TOK_FN       : "FN"
+        TOK_RETURN   : "RETURN"
+        TOK_VOID     : "VOID"
+        TOK_WHILE    : "WHILE"
+        TOK_INCLUDE  : "INCLUDE"
+        TOK_TYPE     : "TYPE"
+        TOK_AS       : "AS"
+        TOK_IF       : "IF"
+        TOK_ELSE     : "ELSE"
+        TOK_CHAR     : "CHAR"
+        TOK_THIS     : "THIS"
+        TOK_EXTERN   : "EXTERN"
+        TOK_BREAK    : "BREAK"
+        TOK_CONTINUE : "CONTINUE"
+        _            : "UNKNOWN"
+    }
 }
 
 // Tokenize source and format all non-EOF tokens as "KIND text line:col\n" lines.
 fn toString(source String) String {
-    let tokens Array<Token>: tokenize(source)
+    let tokens Array<Token>: tokenize(move(source), "")
     let result String: ""
     let i Int64: 0
     while i.lt(tokens.len()) {
         let tok Token: tokens.at(i)
-        match tok.kind.equals(TOK_EOF) {
-            true: {}
-            _: {
-                let line String: tokenKindName(tok.kind)
-                    .append(" ")
-                    .append(tok.text)
-                    .append(" ")
-                    .append(tok.line.toString())
-                    .append(":")
-                    .append(tok.col.toString())
-                    .append("\n")
-                result: result.append(line)
-                drop(line)
-            }
-        }
+        if tok.kind.equals(TOK_EOF) { break }
+        let line String: tokenKindName(tok.kind)
+            .append(" ")
+            .append(tok.text)
+            .append(" ")
+            .append(tok.line.toString())
+            .append(":")
+            .append(tok.col.toString())
+            .append("\n")
+        result.__append(line)
+        drop(line)
         i: i.add(1)
     }
     drop(tokens)
     return result
 }
 
-fn tokenize(source String) Array<Token> {
-    let lx Lexer: { source: source, pos: 0, line: 1, col: 1, tokens: [] }
+fn tokenize(source String, srcPath String) Array<Token> {
+    let lx Lexer: newLexer(source, srcPath)
 
-    while lx.pos.lt(lx.source.len()) {
-        let ch String: lx.source.at(lx.pos)
-        lx: match isWhitespace(ch) {
-            true: advanceWhitespace(lx, ch)
-            _: match isLineComment(lx.source, lx.pos) {
-                true: skipLineComment(lx)
-                _:    processNonWhitespace(lx, ch)
-            }
+    while lx.notEOF() {
+        if isWhitespace(lx.current()) {
+            lx.consumeWhitespace()
+        } else if lx.isLineComment() {
+            lx.consumeLineComment()
+        } else {
+            lx.processNonWhitespace()
         }
     }
 
-    lx.tokens.add(makeToken(TOK_EOF, "", lx.line, lx.col))
-    return lx.tokens
+    lx.addToken(TOK_EOF, "", lx.line, lx.col)
+
+    let result Array<Token>: clone(lx.tokens)
+    drop(lx)
+
+    return result
+}
+
+fn newLexer(source String, srcPath String) Lexer {
+    return {
+        source: source
+        pos: 0
+        line: 1
+        col: 1
+        tokens: []
+        srcPath: clone(srcPath)
+
+
+        fn current() Char {
+            return this.source.__at(this.pos)
+        }
+        
+        fn advance() {
+            this.pos: this.pos.add(1)
+            this.col: this.col.add(1)
+        }
+
+        fn notEOF() Bool {
+            return this.pos.lt(this.source.len())
+        }
+
+        fn peekN(n Int64) Char {
+            return this.source.__at(this.pos.add(n))
+        }
+
+        fn peek() Char {
+            let next Int64: this.pos.add(1)
+            if next.lt(this.source.len()) { return this.peekN(1) }
+            return '\0'
+        }
+
+        fn addToken(kind Int64, text String, line Int64, col Int64) {
+            this.tokens.add(makeToken(kind, text, line, col))
+        }
+
+        fn consumeWhitespace() {
+            if this.source.at(this.pos).equals("\n") {
+                this.pos: this.pos.add(1)
+                this.line: this.line.add(1)
+                this.col: 1
+                return
+            }
+            this.advance()
+        }
+
+        fn consumeLineComment() {
+            // Advance past '//' to end of line; the '\n' itself is left for the
+            // whitespace handler so line/col accounting stays identical.
+            while this.notEOF() and not this.current().equals('\n') {
+                this.advance()
+            }
+        }
+
+        fn isLineComment() Bool {
+            return this.notEOF() and this.current().equals('/') and this.peek().equals('/')
+        }
+
+        fn processNonWhitespace() {
+            let ch Char: this.current()
+
+            if isLetter(ch) or ch.equals('_') {
+                return this.readIdentOrKeyword()
+            }
+
+            if isDigit(ch) { return this.readNumber() }
+
+            this.processSymbolOrString()
+        }
+
+        fn readIdentOrKeyword() {
+            let startCol Int64: this.col
+            let text String: this.readIdent()
+            let kind Int64: keywordKind(text)
+            this.addToken(kind, text, this.line, startCol)
+        }
+
+        fn readNumber() {
+            let startCol Int64: this.col
+            let intText String: this.readDigits()
+
+            if this.checkFloat() {
+                return this.makeFloatToken(intText, startCol)
+            }
+
+            this.addToken(TOK_INT, intText, this.line, startCol)
+        }
+
+        fn checkFloat() Bool {
+            return this.notEOF() and this.current().equals('.') and isDigit(this.peek())
+        }
+
+        fn makeFloatToken(intText String, startCol Int64) {
+            // Consume the '.' then the fractional digits.
+            this.advance()
+
+            let fracText String: this.readDigits()
+
+            this.addToken(TOK_FLOAT, intText.append(".").append(fracText), this.line, startCol)
+        }
+
+        // Read an identifier, advancing pos/col; return the identifier text.
+        fn readIdent() String {
+            let start Int64: this.pos
+            while this.notEOF() and isLetterDigitUnderscore(this.current()) {
+                this.advance()
+            }
+            return this.source.slice(start, this.pos)
+        }
+
+        // Read a run of digits, advancing pos/col; return the digit text.
+        fn readDigits() String {
+            let start Int64: this.pos
+            while this.notEOF() and isDigit(this.current()) {
+                this.advance()
+            }
+            return this.source.slice(start, this.pos)
+        }
+
+        fn readString() {
+            let startCol Int64: this.col
+            this.advance()
+            let text String: ""
+            while this.notEOF() and not this.current().equals('"') {
+                let isEscape Bool: this.current().equals('\\') and not this.peek().equals('\0')
+                if isEscape {
+                    this.advance()
+                    text.__append(escapeChar(this.current()).toString())
+                } else {
+                    text.__append(this.current().toString())
+                }
+                this.advance()
+            }
+            this.advance()
+            this.addToken(TOK_STRING, text, this.line, startCol)
+        }
+
+        // Read a single-quoted char literal: 'x' or an escape '\n' '\t' '\\' '\''.
+        // The token text holds the decoded byte as a 1-char string (or "" for '\0').
+        // Codegen folds it to an i8 immediate via .ord(); "" → 0 (null byte).
+        fn readChar() {
+            let startCol Int64: this.col
+            this.advance() // consume '
+
+            let isEscape Bool: this.current().equals('\\') and not this.peek().equals('\0')
+            let tokenText String: ""
+            if isEscape {
+                this.advance()  // consume \
+                if this.current().equals('0') {
+                    tokenText: ""
+                } else {
+                    tokenText: escapeChar(this.current()).toString()
+                }
+            } else {
+                tokenText: this.current().toString()
+            }
+
+            this.advance()
+
+            if not this.current().equals('\'') {
+                let errHeader String: this.srcPath
+                    .append(":").append(this.line.toString())
+                    .append(":").append(startCol.toString())
+                    .append(": error: unterminated char literal")
+                printError(errHeader)
+                let srcLine String: extractSourceLine(this.source, this.line)
+                let lineLabel String: "  ".append(this.line.toString()).append(" | ")
+                printError(lineLabel.append(srcLine))
+                let prefixLen Int64: lineLabel.len().add(startCol.take(1))
+                printError(buildSpaces(prefixLen).append("^"))
+                exit(1)
+            }
+
+            this.advance()
+
+            this.addToken(TOK_CHAR, tokenText, this.line, startCol)
+        }
+
+        fn processSingleChar() {
+            let ch Char: this.current()
+            let kind Int64: singleCharKind(ch)
+            this.addToken(kind, ch.toString(), this.line, this.col)
+            this.advance()
+        }
+
+        fn processSymbolOrString() {
+            let ch Char: this.current()
+            if ch.equals('"') { return this.readString() }
+            if ch.equals('\'') { return this.readChar() }
+            this.processSingleChar()
+        }
+    }
 }

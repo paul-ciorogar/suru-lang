@@ -531,6 +531,17 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                 }
                 _: {}
             }
+            match expr.name.equals("move") {
+                true: {
+                    // Transfer ownership: load the variable's value without cloning.
+                    // The semantic layer has already verified the arg is a variable
+                    // and that it hasn't been used after this point.
+                    let ar CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: ar.ctx
+                    return ar
+                }
+                _: {}
+            }
             match expr.name.equals("exec") {
                 true: {
                     ctx: types.addDecl(ctx, "declare i32 @system(ptr)\n")
@@ -862,15 +873,27 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                     ctx: result.ctx
                     newPtr: result.name
                 }
+                CharLitNode: {
+                    let code Int64: argNode.text.ord()
+                    let result CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, code.toString())
+                    ctx: result.ctx
+                    newPtr: result.name
+                }
                 _: {
                     let ar CodegenResult: emitValue(ctx, argNode)
                     ctx: ar.ctx
-                    let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
-                    ctx: result.ctx
-                    newPtr: result.name
-                    if isOwnedStringTemp(ctx, argNode) {
-                        let adr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                        ctx: adr.ctx
+                    if ar.suruType.equals("Char") {
+                        let result CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, ar.name)
+                        ctx: result.ctx
+                        newPtr: result.name
+                    } else {
+                        let result CodegenResult: irStr.emitStringAppend(ctx, recvVal, ar.name)
+                        ctx: result.ctx
+                        newPtr: result.name
+                        if isOwnedStringTemp(ctx, argNode) {
+                            let adr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                            ctx: adr.ctx
+                        }
                     }
                 }
             }
@@ -1367,12 +1390,16 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
 // ─── Statement and function emission ─────────────────────────────────────────
 
 // Emit a while loop: three labeled blocks (cond/body/after).
+// Pushes the cond/after label strings onto the loop-label stacks before emitting the body
+// so that nested break/continue can find the correct branch targets.
 fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCodegenContext {
     let wnR IrResult: ir.nextWhileNum(ctx.builder)
     ctx.builder: wnR.builder
     let wn String: wnR.name
-    ctx.builder: ir.emitBr(ctx.builder, "while_cond_".append(wn))
-    ctx.builder: ir.emitLabel(ctx.builder, "while_cond_".append(wn))
+    let condLabel String: "while_cond_".append(wn)
+    let afterLabel String: "while_after_".append(wn)
+    ctx.builder: ir.emitBr(ctx.builder, condLabel)
+    ctx.builder: ir.emitLabel(ctx.builder, condLabel)
     let condR CodegenResult: emitValue(ctx, condition)
     ctx: condR.ctx
     let condI1 String: condR.name
@@ -1381,12 +1408,36 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
         ctx: ur.ctx
         condI1: ur.name
     }
-    ctx.builder: ir.emitCondBr(ctx.builder, condI1, "while_body_".append(wn), "while_after_".append(wn))
+    ctx.builder: ir.emitCondBr(ctx.builder, condI1, "while_body_".append(wn), afterLabel)
     ctx.builder: ir.emitLabel(ctx.builder, "while_body_".append(wn))
+    ctx.loopCondLabels.add(condLabel)
+    ctx.loopAfterLabels.add(afterLabel)
     ctx: emitStmts(ctx, body)
-    if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, "while_cond_".append(wn)) }
-    ctx.builder: ir.emitLabel(ctx.builder, "while_after_".append(wn))
+    let newCondLen Int64: ctx.loopCondLabels.len().take(1)
+    ctx.loopCondLabels: ctx.loopCondLabels.slice(0, newCondLen)
+    let newAfterLen Int64: ctx.loopAfterLabels.len().take(1)
+    ctx.loopAfterLabels: ctx.loopAfterLabels.slice(0, newAfterLen)
+    if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, condLabel) }
+    ctx.builder: ir.emitLabel(ctx.builder, afterLabel)
     ctx.blockOpen: true
+    return ctx
+}
+
+// Emit a `break` — unconditional branch to the enclosing while loop's after-label.
+fn emitBreak(ctx IrCodegenContext) IrCodegenContext {
+    let topIdx Int64: ctx.loopAfterLabels.len().take(1)
+    let afterLabel String: ctx.loopAfterLabels.at(topIdx)
+    ctx.builder: ir.emitBr(ctx.builder, afterLabel)
+    ctx.blockOpen: false
+    return ctx
+}
+
+// Emit a `continue` — unconditional branch back to the enclosing while loop's cond-label.
+fn emitContinue(ctx IrCodegenContext) IrCodegenContext {
+    let topIdx Int64: ctx.loopCondLabels.len().take(1)
+    let condLabel String: ctx.loopCondLabels.at(topIdx)
+    ctx.builder: ir.emitBr(ctx.builder, condLabel)
+    ctx.blockOpen: false
     return ctx
 }
 
@@ -1474,6 +1525,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
     match stmt {
         MatchStmtNode: { return emitMatchStmt(ctx, stmt) }
         WhileNode:     { return emitWhile(ctx, stmt.condition, stmt.body) }
+        BreakNode:     { return emitBreak(ctx) }
+        ContinueNode:  { return emitContinue(ctx) }
         IfNode:        { return emitIf(ctx, stmt) }
         ReturnNode: {
             let retVal String: box.defaultReturnValue(ctx.currentReturnSuruType)
@@ -1502,6 +1555,14 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                         retVal: rawRet
                     }
                 }
+            }
+            // In suru_main: drop the Array<String> built by @main before returning.
+            if ctx.isMain {
+                let argsEntry VarEntry: types.lookupVar(ctx, "args")
+                let argsLoadR IrResult: ir.emitLoad(ctx.builder, "ptr", argsEntry.allocaName)
+                ctx.builder: argsLoadR.builder
+                let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name)
+                ctx: dropR.ctx
             }
             ctx.builder: ir.emitRet(ctx.builder, ctx.currentReturnLlvmType, retVal)
             ctx.blockOpen: false
@@ -1897,6 +1958,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
 
     // main → suru_main(ptr %args) i64
     if fnDecl.name.equals("main") {
+        ctx.isMain: true
         ctx.currentReturnLlvmType: "i64"
         ctx.currentReturnSuruType: "Int64"
         ctx.builder: ir.emitFnStart(ctx.builder, "internal i64", "suru_main", "ptr %args")
@@ -1904,6 +1966,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
         ctx.builder: ir.emitStore(ctx.builder, "ptr", "%args", "%args.addr")
         ctx: types.addVar(ctx, "args", "%args.addr", "Array:String")
     } else {
+        ctx.isMain: false
         let retSuru String: tyh.makeSuruType(fnDecl.returnType)
         let retLlvm String: match fnDecl.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
         ctx.currentReturnLlvmType: retLlvm

@@ -1,0 +1,36 @@
+fn main(args Array<String>) {
+    // String escape sequences — compare against known string values.
+    let nl  String: "\n"
+    let tab String: "\t"
+    let bs  String: "\\"
+    let dq  String: "\""
+    let sq  String: "\'"
+
+    printLn(nl.at(0).equals("\n"))   // true  — newline   (10)
+    printLn(tab.at(0).equals("\t"))  // true  — tab       (9)
+    printLn(bs.at(0).equals("\\"))   // true  — backslash (92)
+    printLn(dq.at(0).equals("\""))   // true  — dquote    (34)
+    printLn(sq.at(0).equals("'"))    // true  — squote    (39)
+
+    drop(nl)
+    drop(tab)
+    drop(bs)
+    drop(dq)
+    drop(sq)
+
+    // Char escape sequences — compare using .equals() on Char literals.
+    let cnl  Char: '\n'
+    let ctab Char: '\t'
+    let cbs  Char: '\\'
+    let csq  Char: '\''
+    let cnul Char: '\0'
+
+    printLn(cnl.equals('\n'))        // true  — newline   (10)
+    printLn(ctab.equals('\t'))       // true  — tab       (9)
+    printLn(cbs.equals('\\'))        // true  — backslash (92)
+    printLn(csq.equals('\''))        // true  — squote    (39)
+
+    // \0 char must be byte 0, not '0' (48)
+    printLn(cnul.equals('\0'))       // true  — null byte (0)
+    printLn(cnul.equals('0'))        // false — not '0'
+}

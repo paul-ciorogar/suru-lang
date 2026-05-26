@@ -127,8 +127,13 @@ type IrCodegenContext: {
     rootPath          String
     vars              Array<VarEntry>
     blockOpen         Bool
+    isMain            Bool
     currentReturnLlvmType String
     currentReturnSuruType String
+    // Loop label stacks: top element is the innermost enclosing while loop.
+    // emitWhile pushes on entry and pops on exit; emitBreak/emitContinue peek the top.
+    loopCondLabels    Array<String>
+    loopAfterLabels   Array<String>
     builder           IrBuilder
     declares          Array<String>
 }
@@ -156,9 +161,11 @@ fn makeIrContext() IrCodegenContext {
     let fnSrcPath    Array<String>:       []
     let aliasNs      Array<String>:       []
     let aliasSrc     Array<String>:       []
-    let vars         Array<VarEntry>:     []
+    let vars              Array<VarEntry>: []
     let declares              Array<String>: []
     let extCloneDropTypeNames Array<String>: []
+    let loopCondLabels        Array<String>: []
+    let loopAfterLabels       Array<String>: []
     return {
         fns:                  ""
         helpers:              ""
@@ -183,8 +190,11 @@ fn makeIrContext() IrCodegenContext {
         rootPath:          ""
         vars:              vars
         blockOpen:         false
+        isMain:            false
         currentReturnLlvmType: ""
         currentReturnSuruType: ""
+        loopCondLabels:    loopCondLabels
+        loopAfterLabels:   loopAfterLabels
         builder:           ir.makeBuilder()
         declares:          declares
     }

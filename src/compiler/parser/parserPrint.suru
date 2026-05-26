@@ -36,6 +36,8 @@ fn printStmt(stmt AstNode, indent String) {
         MatchStmtNode:   { printStmtMatchStatement(stmt, indent) }
         IfNode:          { printStmtIf(stmt, indent) }
         ExternFnNode:    { printStmtExternFnDecl(stmt, indent) }
+        BreakNode:       { printLn(indent.append("BreakStatement")) }
+        ContinueNode:    { printLn(indent.append("ContinueStatement")) }
         _:               { printLn(indent.append("UnknownStatement")) }
     }
 }

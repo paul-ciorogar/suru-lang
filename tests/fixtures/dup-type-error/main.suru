@@ -1,0 +1,12 @@
+// tests/fixtures/dup-type-error/main.suru
+//
+// Validates that a duplicate type declaration is a semantic error with
+// file path, line, and column in the diagnostic.
+
+type Foo: { x Int64 }
+type Foo: { y String }
+
+fn main() {
+    let f Foo: { x: 0 }
+    drop(f)
+}

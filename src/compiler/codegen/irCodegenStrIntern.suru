@@ -8,15 +8,46 @@
 
 include "irCodegenTypes.suru" as types
 
+// Map a nibble (0–15) to its uppercase hex character.
+fn _hexDigit(n Int64) String {
+    return match n {
+        0: "0"  
+        1: "1"
+        2: "2" 
+        3: "3"
+        4: "4"  
+        5: "5"  
+        6: "6" 
+        7: "7"
+        8: "8"  
+        9: "9" 
+        10: "A" 
+        11: "B"
+        12: "C" 
+        13: "D"
+        14: "E"
+        _: "F"
+    }
+}
+
+// Format a byte ordinal as a two-digit uppercase hex LLVM escape: \HH.
+fn _hexEscape(ord Int64) String {
+    let hi Int64: ord.split(16)
+    let lo Int64: ord.take(hi.multiply(16))
+    return "\\".append(_hexDigit(hi)).append(_hexDigit(lo))
+}
+
 // Escape a Suru string for inclusion in an LLVM c-string constant.
-// Printable ASCII (32-126) except '"' and '\' pass through unchanged.
-// All other characters are encoded as \HH (two-digit uppercase hex).
+// Printable ASCII (32–126) except '"' (34) and '\' (92) pass through.
+// All other bytes — including null (0) — are encoded as \HH.
 fn irEscapeStr(text String) String {
     let r String: ""
     let i Int64: 0
     while i.lt(text.len()) {
         let c String: text.at(i)
-        let ec String: match c.equals("\n") { true: "\\0A", _: match c.equals("\t") { true: "\\09", _: match c.equals("\\") { true: "\\5C", _: match c.equals("\"") { true: "\\22", _: c } } } }
+        let ord Int64: c.ord()
+        let printable Bool: ord.gte(32) and ord.lte(126) and not ord.equals(34) and not ord.equals(92)
+        let ec String: match printable { true: c, _: _hexEscape(ord) }
         r: r.append(ec)
         i: i.add(1)
     }

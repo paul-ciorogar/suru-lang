@@ -1,0 +1,47 @@
+// astNodes.suru — Constructor functions for AST helper object types.
+//
+// Provides newXxx(...) factory functions for the six helper types declared in
+// parserAst.suru that are now object types: Param, MethodSig, StructFieldNode,
+// MatchArm, MatchStmtArm, and BlockNode.
+//
+// Each factory returns an object literal whose update methods mutate `this` and
+// return `this` for chaining.  All update methods drop the old heap value before
+// overwriting to avoid memory leaks.
+//
+// For transformation passes that must not mutate the original node (e.g.
+// monoSubst.suru), use clone(node) then call update methods on the fresh copy.
+
+include "parserAst.suru" as ast
+
+fn newParam(name String, typeName String) Param {
+    return { name: name, typeName: typeName }
+}
+
+fn newMethodSig(name String, params Array<Param>, returnType String) MethodSig {
+    return { name: name, params: params, returnType: returnType }
+}
+
+fn newStructFieldNode(name String, value AstNode, isMethod Bool, isPrivate Bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) StructFieldNode {
+    return {
+        name:               name
+        value:              value
+        isMethod:           isMethod
+        isPrivate:          isPrivate
+        privateTypeName:    privateTypeName
+        methodParams:       methodParams
+        methodRet:          methodRet
+        methodBody:         methodBody
+    }
+}
+
+fn newMatchArm(isWildcard Bool, pattern AstNode, body AstNode) MatchArm {
+    return { isWildcard: isWildcard, pattern: pattern, body: body }
+}
+
+fn newMatchStmtArm(isWildcard Bool, pattern AstNode, stmts Array<AstNode>) MatchStmtArm {
+    return { isWildcard: isWildcard, pattern: pattern, stmts: stmts }
+}
+
+fn newBlockNode(stmts Array<AstNode>) BlockNode {
+    return { stmts: stmts, }
+}

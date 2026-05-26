@@ -78,18 +78,65 @@ fn ltrimCG(s String) String {
     return ""
 }
 
+// flattenCGTypeArg — recursively flatten a type-name string to an
+// identifier-safe form, using the same conventions as monoInstantiate's
+// flattenTypeArg (duplicated here because irCodegenTypeHelpers.suru is a leaf).
+//   "Array<Int64>"          → "Array__Int64"
+//   "Option<Int64>"         → "Option__Int64"
+//   "Option<Array<Int64>>"  → "Option__Array__Int64"
+//   plain names             → trimmed clone
+fn flattenCGTypeArg(typeName String) String {
+    let trimmed String: ltrimCG(typeName)
+    let ltIdx Int64: indexOfAngleCG(trimmed)
+    if ltIdx.equals(trimmed.len()) { return trimmed }
+    let base String: trimmed.slice(0, ltIdx)
+    let inner String: trimmed.slice(ltIdx.add(1), trimmed.len().take(1))
+    let acc String: base
+    let start Int64: 0
+    let i Int64: 0
+    while i.lt(inner.len()) {
+        if inner.at(i).equals(",") {
+            let seg String: flattenCGTypeArg(inner.slice(start, i))
+            let next String: acc.append("__").append(seg)
+            drop(seg)
+            drop(acc)
+            acc: next
+            i: i.add(1)
+            start: i
+        } else {
+            i: i.add(1)
+        }
+    }
+    let seg String: flattenCGTypeArg(inner.slice(start, inner.len()))
+    let result String: acc.append("__").append(seg)
+    drop(seg)
+    drop(acc)
+    return result
+}
+
 // appendMangledCGAt — scan inner[i..] for comma-separated type args and append
-// "__<arg>" for each to acc.
-fn appendMangledCGAt(inner String, start Int64, i Int64, acc String) String {
-    if not i.lt(inner.len()) {
-        let seg String: ltrimCG(inner.slice(start, inner.len()))
-        return acc.append("__").append(seg)
+// "__<flattenCGTypeArg(arg)>" for each to acc, so nested generic names like
+// "Array<Int64>" are flattened to "Array__Int64" in the resulting identifier.
+fn appendMangledCGAt(inner String, start Int64, acc String) String {
+    let i Int64: start
+    while i.lt(inner.len()) {
+        if inner.at(i).equals(",") {
+            let seg String: flattenCGTypeArg(inner.slice(start, i))
+            let next String: acc.append("__").append(seg)
+            drop(seg)
+            drop(acc)
+            acc: next
+            i: i.add(1)
+            start: i
+        } else {
+            i: i.add(1)
+        }
     }
-    if inner.at(i).equals(",") {
-        let seg String: ltrimCG(inner.slice(start, i))
-        return appendMangledCGAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
-    }
-    return appendMangledCGAt(inner, start, i.add(1), acc)
+    let seg String: flattenCGTypeArg(inner.slice(start, inner.len()))
+    let result String: acc.append("__").append(seg)
+    drop(seg)
+    drop(acc)
+    return result
 }
 
 // isUserGenericTypeName — true when typeName has a '<' but is not the builtin
@@ -109,7 +156,7 @@ fn mangleGenericAnnotation(typeName String) String {
     let ltIdx Int64: indexOfAngleCG(typeName)
     let base String: typeName.slice(0, ltIdx)
     let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
-    return appendMangledCGAt(inner, 0, 0, base)
+    return appendMangledCGAt(inner, 0, base)
 }
 
 // Convert a Suru type annotation name to the suruType encoding used in VarEntry.

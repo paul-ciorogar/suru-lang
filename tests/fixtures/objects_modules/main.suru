@@ -11,7 +11,15 @@ fn main() Int64 {
         fn greet(p String) String { return p.append("?").append(this.name) }
     }
     let remote Greeter: gmod.makeGreeter("Remote")
-    printLn(local.greet("Hi "))
-    printLn(remote.greet("Hello "))
+    let msg String: local.greet("Hi ")
+    printLn(msg)
+    drop(msg)
+
+    msg: remote.greet("Hello ")
+    printLn(msg)
+    drop(msg)
+
+    drop(local)
+    drop(remote)
     return 0
 }

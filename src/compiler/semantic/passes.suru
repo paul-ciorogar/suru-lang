@@ -26,17 +26,6 @@
 include "semantic.suru" as sem
 include "../parser/parser.suru" as parser
 
-// ─── Error helper ─────────────────────────────────────────────────────────────
-
-// appendError — appends one AnalysisError to state.errors.
-// Uses an intermediate typed variable to avoid the struct-field-type-unknown issue.
-fn appendError(state AnalyzerState, message String) AnalyzerState {
-    let err AnalysisError: { message: message }
-    let errors Array<AnalysisError>: state.errors
-    errors.add(err)
-    return state
-}
-
 // ─── Type resolution ──────────────────────────────────────────────────────────
 
 // isArrayGeneric — true when name is a generic Array type like "Array<Int64>".
@@ -51,34 +40,24 @@ fn isArrayGeneric(name String) Bool {
 
 // isBuiltinType — true for the six primitive type names and generic Array forms.
 fn isBuiltinType(name String) Bool {
-    return name.equals("Bool") or name.equals("Int32") or name.equals("Int64") or name.equals("Float64") or name.equals("Char") or name.equals("String") or name.equals("Array") or isArrayGeneric(name)
+    return name.equals("Bool") 
+        or name.equals("Int32") 
+        or name.equals("Int64") 
+        or name.equals("Float64") 
+        or name.equals("Char") 
+        or name.equals("String") 
+        or name.equals("Array") 
+        or isArrayGeneric(name)
 }
 
-// typeNameExistsAt — linear search from index i; true if name is in typeNames.
-fn typeNameExistsAt(typeNames Array<String>, name String, i Int64) Bool {
-    if not i.lt(typeNames.len()) { return false }
-    if typeNames.at(i).equals(name) { return true }
-    return typeNameExistsAt(typeNames, name, i.add(1))
-}
-
-// fnNameExistsAt — linear search from index i; true if name matches any FunctionSig.
-fn fnNameExistsAt(fns Array<FunctionSig>, name String, i Int64) Bool {
-    if not i.lt(fns.len()) { return false }
-    if fns.at(i).name.equals(name) { return true }
-    return fnNameExistsAt(fns, name, i.add(1))
-}
-
-// fnSigExistsAt — linear search from index i; true only when BOTH the source
-// file and the name match an existing FunctionSig. Two functions with the same
-// name in different files (e.g. `theFunction` in a.suru and b.suru reached via
-// `include … as alias`) are distinct and must NOT be reported as a duplicate;
-// a genuine re-declaration within one file still is.
-fn fnSigExistsAt(fns Array<FunctionSig>, srcPath String, name String, i Int64) Bool {
-    if not i.lt(fns.len()) { return false }
-    let sig FunctionSig: fns.at(i)
-    let hit Bool: sig.name.equals(name) and sig.srcPath.equals(srcPath)
-    if hit { return true }
-    return fnSigExistsAt(fns, srcPath, name, i.add(1))
+// typeNameExistsAt — linear search; true if name is in typeNames.
+fn typeNameExistsAt(typeNames Array<String>, name String) Bool {
+    let i Int64: 0
+    while i.lt(typeNames.len()) {
+        if typeNames.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
 }
 
 // ─── Generic type-annotation mangling ────────────────────────────────────────
@@ -105,18 +84,66 @@ fn ltrimStr(s String) String {
     return ""
 }
 
-// appendMangledArgsAt — scan inner[i..] for comma-separated type arguments and
-// append "__<arg>" for each to acc.  Used by mangleAnnotation.
-fn appendMangledArgsAt(inner String, start Int64, i Int64, acc String) String {
-    if not i.lt(inner.len()) {
-        let seg String: ltrimStr(inner.slice(start, inner.len()))
-        return acc.append("__").append(seg)
+// flattenPassTypeArg — recursively flatten a type-name string to an
+// identifier-safe form (duplicated from monoInstantiate because passes.suru
+// is a separate include chain).
+//   "Array<Int64>"          → "Array__Int64"
+//   "Option<Int64>"         → "Option__Int64"
+//   "Option<Array<Int64>>"  → "Option__Array__Int64"
+//   plain names             → trimmed clone
+fn flattenPassTypeArg(typeName String) String {
+    let trimmed String: ltrimStr(typeName)
+    let ltIdx Int64: indexOfAngle(trimmed)
+    if ltIdx.equals(trimmed.len()) { return trimmed }
+    let base String: trimmed.slice(0, ltIdx)
+    let inner String: trimmed.slice(ltIdx.add(1), trimmed.len().take(1))
+    let acc String: base
+    let start Int64: 0
+    let i Int64: 0
+    while i.lt(inner.len()) {
+        if inner.at(i).equals(",") {
+            let seg String: flattenPassTypeArg(inner.slice(start, i))
+            let next String: acc.append("__").append(seg)
+            drop(seg)
+            drop(acc)
+            acc: next
+            i: i.add(1)
+            start: i
+        } else {
+            i: i.add(1)
+        }
     }
-    if inner.at(i).equals(",") {
-        let seg String: ltrimStr(inner.slice(start, i))
-        return appendMangledArgsAt(inner, i.add(1), i.add(1), acc.append("__").append(seg))
+    let seg String: flattenPassTypeArg(inner.slice(start, inner.len()))
+    let result String: acc.append("__").append(seg)
+    drop(seg)
+    drop(acc)
+    return result
+}
+
+// appendMangledArgsAt — scan inner for comma-separated type arguments and
+// append "__<flattenPassTypeArg(arg)>" for each to acc.  Used by mangleAnnotation.
+// Calls flattenPassTypeArg so nested generics like "Array<Int64>" become
+// "Array__Int64" in the resulting identifier rather than the raw annotation string.
+fn appendMangledArgsAt(inner String, start Int64, acc String) String {
+    let i Int64: start
+    while i.lt(inner.len()) {
+        if inner.at(i).equals(",") {
+            let seg String: flattenPassTypeArg(inner.slice(start, i))
+            let next String: acc.append("__").append(seg)
+            drop(seg)
+            drop(acc)
+            acc: next
+            i: i.add(1)
+            start: i
+        } else {
+            i: i.add(1)
+        }
     }
-    return appendMangledArgsAt(inner, start, i.add(1), acc)
+    let seg String: flattenPassTypeArg(inner.slice(start, inner.len()))
+    let result String: acc.append("__").append(seg)
+    drop(seg)
+    drop(acc)
+    return result
 }
 
 // mangleAnnotation — convert a generic type annotation string to its mangled
@@ -125,7 +152,7 @@ fn mangleAnnotation(name String) String {
     let ltIdx Int64: indexOfAngle(name)
     let base String: name.slice(0, ltIdx)
     let inner String: name.slice(ltIdx.add(1), name.len().take(1))
-    return appendMangledArgsAt(inner, 0, 0, base)
+    return appendMangledArgsAt(inner, 0, base)
 }
 
 // isUserGenericAnnotation — true when name is a generic type annotation for a
@@ -146,8 +173,8 @@ fn isUserGenericAnnotation(name String) Bool {
 // because Suru's boolean `and` is not short-circuit (both sides are always evaluated).
 fn resolveTypeName(state AnalyzerState, name String) Bool {
     let typeNames Array<String>: state.typeNames
-    if isBuiltinType(name) or typeNameExistsAt(typeNames, name, 0) { return true }
-    if isUserGenericAnnotation(name) { return typeNameExistsAt(typeNames, mangleAnnotation(name), 0) }
+    if isBuiltinType(name) or typeNameExistsAt(typeNames, name) { return true }
+    if isUserGenericAnnotation(name) { return typeNameExistsAt(typeNames, mangleAnnotation(name)) }
     return false
 }
 
@@ -214,8 +241,8 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
         match stmt {
             TypeDeclNode: {
                 let typed TypeDeclNode: stmt
-                if typeNameExistsAt(typeNames, typed.name, 0) {
-                    appendError(state, "type '".append(typed.name).append("' is already declared"))
+                if typeNameExistsAt(typeNames, typed.name) {
+                    state.addError("type '".append(typed.name).append("' is already declared"), typed.line, typed.col)
                 } else {
                     typeNames.add(typed.name)
                     recordTypeDecl(state, typed)
@@ -223,11 +250,11 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
             }
             SumTypeDeclNode: {
                 let sumTyped SumTypeDeclNode: stmt
-                if typeNameExistsAt(typeNames, sumTyped.name, 0) {
-                    appendError(state, "type '".append(sumTyped.name).append("' is already declared"))
+                if typeNameExistsAt(typeNames, sumTyped.name) {
+                    state.addError("type '".append(sumTyped.name).append("' is already declared"), sumTyped.line, sumTyped.col)
                 } else {
                     typeNames.add(sumTyped.name)
-                    sem.recordSumType(state, sumTyped.name, sumTyped.variants)
+                    state.recordSumType(sumTyped.name, sumTyped.variants)
                 }
             }
             _: {}
@@ -244,6 +271,7 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
 // typeParams holds the generic type-param names for this function; any param or
 // return type that matches one of them is accepted without a resolveTypeName check.
 fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>) AnalyzerState {
+    state.currentSrcPath: stmt.srcPath
     let paramTypes Array<String>: []
     let params Array<Param>: stmt.params
     let pi Int64: 0
@@ -253,18 +281,17 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
         if resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
             paramTypes.add(pType)
         } else {
-            appendError(state, "unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"))
+            state.addError("unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"), stmt.line, stmt.col)
         }
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
     let validReturn Bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
     if not validReturn {
-        appendError(state, "unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"))
+        state.addError("unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"), stmt.line, stmt.col)
     }
-    let sig FunctionSig: { name: stmt.name, paramTypes: paramTypes, returnType: returnType, srcPath: stmt.srcPath }
-    let functions Array<FunctionSig>: state.functions
-    functions.add(sig)
+    let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, stmt.srcPath)
+    state.functions.add(sig)
     return state
 }
 
@@ -281,41 +308,40 @@ fn registerExternFnDecl(state AnalyzerState, stmt ExternFnNode) AnalyzerState {
         if resolveTypeName(state, pType) {
             paramTypes.add(pType)
         } else {
-            appendError(state, "unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of extern fn '").append(stmt.name).append("'"))
+            state.addError("unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of extern fn '").append(stmt.name).append("'"), 0, 0)
         }
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
     let validReturn Bool: returnType.equals("void") or resolveTypeName(state, returnType)
     if not validReturn {
-        appendError(state, "unknown return type '".append(returnType).append("' for extern fn '").append(stmt.name).append("'"))
+        state.addError("unknown return type '".append(returnType).append("' for extern fn '").append(stmt.name).append("'"), 0, 0)
     }
-    let sig FunctionSig: { name: stmt.name, paramTypes: paramTypes, returnType: returnType, srcPath: "" }
-    let functions Array<FunctionSig>: state.functions
-    functions.add(sig)
+    let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, "")
+    state.functions.add(sig)
     return state
 }
 
 // collectFunctionDeclarations — walk stmts; for each FnDeclNode or ExternFnNode
 // either report a duplicate-function error or register the signature.
 fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
-    let functions Array<FunctionSig>: state.functions
     let i Int64: 0
     while i.lt(stmts.len()) {
         let stmt AstNode: stmts.at(i)
         match stmt {
             FnDeclNode: {
                 let typed FnDeclNode: stmt
-                if fnSigExistsAt(functions, typed.srcPath, typed.name, 0) {
-                    appendError(state, "function '".append(typed.name).append("' is already declared"))
+                if state.functions.hasSig(typed.srcPath, typed.name) {
+                    state.currentSrcPath: typed.srcPath
+                    state.addError("function '".append(typed.name).append("' is already declared"), typed.line, typed.col)
                 } else {
                     registerFnDecl(state, typed, typed.typeParams)
                 }
             }
             ExternFnNode: {
                 let typed ExternFnNode: stmt
-                if fnSigExistsAt(functions, "", typed.name, 0) {
-                    appendError(state, "function '".append(typed.name).append("' is already declared"))
+                if state.functions.hasSig("", typed.name) {
+                    state.addError("function '".append(typed.name).append("' is already declared"), 0, 0)
                 } else {
                     registerExternFnDecl(state, typed)
                 }

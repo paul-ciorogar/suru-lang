@@ -1,0 +1,3 @@
+/work/tests/fixtures/move-error/main.suru:8:13: error: variable 's' has been moved
+  8 |     printLn(s)
+                  ^

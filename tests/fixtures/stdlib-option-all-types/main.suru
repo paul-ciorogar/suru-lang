@@ -1,0 +1,128 @@
+// stdlib-option-all-types — exercises Option<T> with every major type category:
+//   primitives (Int64, String, Bool), user-defined structs, Array<Int64>,
+//   and Option<Option<Int64>> (nested generic).
+
+type Point: { x Int64, y Int64 }
+
+// Color is a plain struct so opt.some(col) correctly infers T=Color from the
+// argument's resolvedType.  Using a sum-type variant like Red would cause
+// monoInfer to bind T=Red (bottom-up from the arg) instead of T=Color.
+type Color: { r Int64, g Int64, b Int64 }
+
+include "../../../src/stdlib/option.suru" as opt
+
+fn checkInt64(x Option<Int64>) {
+    match x {
+        Some: { printLn(x.value) }
+        None: { printLn("none") }
+    }
+}
+
+fn checkString(x Option<String>) {
+    match x {
+        Some: { printLn(x.value) }
+        None: { printLn("none") }
+    }
+}
+
+fn checkBool(x Option<Bool>) {
+    match x {
+        Some: { printLn(x.value) }
+        None: { printLn("none") }
+    }
+}
+
+fn checkPoint(x Option<Point>) {
+    match x {
+        Some: {
+            printLn(x.value.x)
+            printLn(x.value.y)
+        }
+        None: { printLn("none") }
+    }
+}
+
+fn checkColor(x Option<Color>) {
+    match x {
+        Some: { printLn("some color") }
+        None: { printLn("none") }
+    }
+}
+
+fn checkArray(x Option<Array<Int64>>) {
+    match x {
+        Some: { printLn(x.value.len()) }
+        None: { printLn("none") }
+    }
+}
+
+fn checkNested(x Option<Option<Int64>>) {
+    match x {
+        Some: { printLn("has option") }
+        None: { printLn("outer none") }
+    }
+}
+
+fn main(args Array<String>) {
+    // ── Int64 ────────────────────────────────────────────────────────────────────
+    let i Option<Int64>: opt.some(42)
+    let in None: {}
+    checkInt64(i)
+    checkInt64(in)
+    drop(i)
+    drop(in)
+
+    // ── String ───────────────────────────────────────────────────────────────────
+    let s Option<String>: opt.some("hello")
+    let sn None: {}
+    checkString(s)
+    checkString(sn)
+    drop(s)
+    drop(sn)
+
+    // ── Bool ─────────────────────────────────────────────────────────────────────
+    let b Option<Bool>: opt.some(true)
+    let bn None: {}
+    checkBool(b)
+    checkBool(bn)
+    drop(b)
+    drop(bn)
+
+    // ── Point (user-defined struct) ───────────────────────────────────────────────
+    // Use a named pt variable so resolveTypes sets resolvedType="Point" on the
+    // arg, allowing monoInfer to bind T=Point for some__Point.
+    let pt Point: { x: 3, y: 4 }
+    let p Option<Point>: opt.some(pt)
+    let pn None: {}
+    checkPoint(p)
+    checkPoint(pn)
+    drop(p)
+    drop(pn)
+
+    // ── Color (user-defined struct) ───────────────────────────────────────────────
+    let col Color: { r: 255, g: 0, b: 0 }
+    let c Option<Color>: opt.some(col)
+    let cn None: {}
+    checkColor(c)
+    checkColor(cn)
+    drop(c)
+    drop(cn)
+
+    // ── Array<Int64> ──────────────────────────────────────────────────────────────
+    let arr Array<Int64>: [1, 2, 3]
+    let a Option<Array<Int64>>: opt.some(arr)
+    let an None: {}
+    checkArray(a)
+    checkArray(an)
+    drop(a)
+    drop(an)
+
+    // ── Option<Option<Int64>> (nested generic) ─────────────────────────────────────
+    let inner Option<Int64>: opt.some(99)
+    let o Option<Option<Int64>>: opt.some(inner)
+    let on None: {}
+    checkNested(o)
+    checkNested(on)
+    drop(o)
+    drop(on)
+}

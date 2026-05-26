@@ -1,0 +1,8 @@
+// tests/fixtures/lex-error/main.suru
+//
+// Validates that an unterminated char literal is a lex-time error with
+// file path, line, and column in the diagnostic.
+
+fn main() {
+    let c Char: 'ab
+}

@@ -25,17 +25,15 @@ include "exprs.suru" as exprs
 
 // ─── Constants array helpers ──────────────────────────────────────────────────
 
-// isConstantAt — recursive linear search from index i.
-fn isConstantAt(constants Array<String>, name String, i Int64) Bool {
-    if not i.lt(constants.len()) { return false }
-    if constants.at(i).equals(name) { return true }
-    return isConstantAt(constants, name, i.add(1))
-}
-
 // isConstant — true when name is in state.constants (module-level constant).
 fn isConstant(state AnalyzerState, name String) Bool {
     let constants Array<String>: state.constants
-    return isConstantAt(constants, name, 0)
+    let i Int64: 0
+    while i.lt(constants.len()) {
+        if constants.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
 }
 
 // addConstant — appends name to state.constants.
@@ -59,9 +57,9 @@ fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate Bool)
 
 // checkBareReturn — emits an error when state.currentReturnType indicates a
 // non-void function context.
-fn checkBareReturn(state AnalyzerState) AnalyzerState {
+fn checkBareReturn(state AnalyzerState, line Int64, col Int64) AnalyzerState {
     let isVoid Bool: state.currentReturnType.equals("void") or state.currentReturnType.equals("")
-    if not isVoid { semantic.addError(state, "bare 'return' in non-void function") }
+    if not isVoid { state.addError("bare 'return' in non-void function", line, col) }
     return state
 }
 
@@ -74,16 +72,18 @@ fn checkBareReturn(state AnalyzerState) AnalyzerState {
 //
 // stmt fields: stmt.name (String), stmt.typeName (String), stmt.value (AstNode).
 fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
-    let isDuplicate Bool: semantic.existsInCurrentScope(state, stmt.name)
-    if isDuplicate { semantic.addError(state, "variable '".append(stmt.name).append("' is already declared")) }
+    let isDuplicate Bool: state.existsInCurrentScope(stmt.name)
+    if isDuplicate { state.addError("variable '".append(stmt.name).append("' is already declared"), stmt.line, stmt.col) }
     let typeResolved Bool: passes.resolveTypeName(state, stmt.typeName)
-    if not isDuplicate and typeResolved { semantic.declareSymbol(state, stmt.name, stmt.typeName) }
+    if not isDuplicate and typeResolved { state.declareSymbol(stmt.name, stmt.typeName) }
     if not isDuplicate and not typeResolved {
-        semantic.addError(state, "unknown type '".append(stmt.typeName).append("' for variable '").append(stmt.name).append("'"))
+        state.addError("unknown type '".append(stmt.typeName).append("' for variable '").append(stmt.name).append("'"), stmt.line, stmt.col)
     }
     markConstantIfModuleScope(state, stmt.name, isDuplicate)
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
+    // Re-binding a name clears any prior moved state for that variable.
+    if not isDuplicate { state.clearMoved(stmt.name) }
     return state
 }
 
@@ -91,13 +91,15 @@ fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
 // (lines 150–157). Constant reassignment takes priority over undefined-variable check.
 fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerState {
     let isConst Bool: isConstant(state, stmt.name)
-    if isConst { semantic.addError(state, "cannot reassign constant '".append(stmt.name).append("'")) }
-    let isDefined Bool: not semantic.lookupSymbol(state, stmt.name).equals("")
+    if isConst { state.addError("cannot reassign constant '".append(stmt.name).append("'"), stmt.line, stmt.col) }
+    let isDefined Bool: not state.lookupSymbol(stmt.name).equals("")
     if not isConst and not isDefined {
-        semantic.addError(state, "undefined variable '".append(stmt.name).append("'"))
+        state.addError("undefined variable '".append(stmt.name).append("'"), stmt.line, stmt.col)
     }
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
+    // Re-assigning a variable clears its moved state (it has a new value now).
+    if not isConst and isDefined { state.clearMoved(stmt.name) }
     return state
 }
 
@@ -110,8 +112,8 @@ fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) An
     match rcv {
         VarRefNode: {
             let typedRcv VarRefNode: rcv
-            if semantic.lookupSymbol(state, typedRcv.name).equals("") {
-                semantic.addError(state, "undefined variable '".append(typedRcv.name).append("'"))
+            if state.lookupSymbol(typedRcv.name).equals("") {
+                state.addError("undefined variable '".append(typedRcv.name).append("'"), typedRcv.line, typedRcv.col)
             }
         }
         _: {}
@@ -134,12 +136,12 @@ fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
         let retType String: exprs.inferType(state, val)
         let expected String: state.currentReturnType
         let typesKnown Bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-        let assignable Bool: retType.equals(expected) or semantic.isSumVariant(state, expected, retType)
+        let assignable Bool: retType.equals(expected) or state.isSumVariant(expected, retType)
         if typesKnown and not assignable {
-            semantic.addError(state, "return type mismatch: expected ".append(expected).append(", got ").append(retType))
+            state.addError("return type mismatch: expected ".append(expected).append(", got ").append(retType), stmt.line, stmt.col)
         }
     } else {
-        checkBareReturn(state)
+        checkBareReturn(state, stmt.line, stmt.col)
     }
     return state
 }
@@ -157,17 +159,36 @@ fn analyzeStatements(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
 }
 
 // analyzeWhileStatement — mirrors SemanticAnalyzer.AnalyzeWhileStatement (lines 153–163).
+// Increments insideLoop before analyzing the body so break/continue can validate context.
 fn analyzeWhileStatement(state AnalyzerState, stmt WhileNode) AnalyzerState {
     let cond AstNode: stmt.condition
     exprs.analyzeExpr(state, cond)
     let condType String: exprs.inferType(state, cond)
     if not condType.equals("") and not condType.equals("Bool") {
-        semantic.addError(state, "while condition must be Bool, got ".append(condType))
+        state.addError("while condition must be Bool, got ".append(condType), stmt.line, stmt.col)
     }
-    semantic.pushScope(state)
+    state.insideLoop: state.insideLoop.add(1)
+    state.pushScope()
     let body Array<AstNode>: stmt.body
     analyzeStatements(state, body)
-    semantic.popScope(state)
+    state.popScope()
+    state.insideLoop: state.insideLoop.take(1)
+    return state
+}
+
+// analyzeBreakStatement — validates that `break` appears inside a while loop.
+fn analyzeBreakStatement(state AnalyzerState, stmt BreakNode) AnalyzerState {
+    if not state.insideLoop.gt(0) {
+        state.addError("'break' used outside of a while loop", stmt.line, stmt.col)
+    }
+    return state
+}
+
+// analyzeContinueStatement — validates that `continue` appears inside a while loop.
+fn analyzeContinueStatement(state AnalyzerState, stmt ContinueNode) AnalyzerState {
+    if not state.insideLoop.gt(0) {
+        state.addError("'continue' used outside of a while loop", stmt.line, stmt.col)
+    }
     return state
 }
 
@@ -188,20 +209,20 @@ fn analyzeIfStatement(state AnalyzerState, stmt IfNode) AnalyzerState {
     exprs.analyzeExpr(state, cond)
     let condType String: exprs.inferType(state, cond)
     if not condType.equals("") and not condType.equals("Bool") {
-        semantic.addError(state, "if condition must be Bool, got ".append(condType))
+        state.addError("if condition must be Bool, got ".append(condType), stmt.line, stmt.col)
     }
     let thenBlock BlockNode: stmt.thenBranch
     let thenStmts Array<AstNode>: thenBlock.stmts
-    semantic.pushScope(state)
+    state.pushScope()
     analyzeStatements(state, thenStmts)
-    semantic.popScope(state)
+    state.popScope()
 
     let elseBlock BlockNode: stmt.elseBranch
     let elseStmts Array<AstNode>: elseBlock.stmts
     if elseStmts.len().gt(0) {
-        semantic.pushScope(state)
+        state.pushScope()
         analyzeStatements(state, elseStmts)
-        semantic.popScope(state)
+        state.popScope()
     }
     return state
 }
@@ -218,6 +239,8 @@ fn analyzeStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
         FieldAssignNode: { analyzeFieldAssignmentStatement(state, stmt) }
         ReturnNode:      { analyzeReturnStatement(state, stmt) }
         WhileNode:       { analyzeWhileStatement(state, stmt) }
+        BreakNode:       { analyzeBreakStatement(state, stmt) }
+        ContinueNode:    { analyzeContinueStatement(state, stmt) }
         IfNode:          { analyzeIfStatement(state, stmt) }
         ExprStmtNode: {
             let typed ExprStmtNode: stmt

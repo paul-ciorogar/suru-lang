@@ -1,0 +1,78 @@
+// monoCollect.suru — Collect generic function and type definitions from a
+// statement list into a GenericRegistry.
+//
+// collectGenericDefs is called once after the first resolveModuleTypes pass.
+// Any FnDeclNode or TypeDeclNode whose typeParams list is non-empty is a
+// generic definition; the registry is used by monoInfer and monoInstantiate
+// to drive monomorphization.
+
+include "../../parser/parserAst.suru" as ast
+
+// ─── Registry types ───────────────────────────────────────────────────────────
+
+// typeParams() delegates to the node to avoid storing an aliased array pointer
+// alongside the node that owns it (which would cause a double-free on drop).
+type GenericFnDef:      { name String, srcPath String, node FnDeclNode, fn typeParams() Array<String> }
+type GenericTypeDef:    { name String, node TypeDeclNode, fn typeParams() Array<String> }
+// GenericSumTypeDef — a SumTypeDeclNode with a non-empty typeParams list.
+// Collected alongside generic structs/fns so the mono pass can instantiate
+// generic sum types (e.g. Option<T>, Result<T,E>) the same way.
+type GenericSumTypeDef: { name String, node SumTypeDeclNode, fn typeParams() Array<String> }
+type GenericRegistry:   { fns Array<GenericFnDef>, types Array<GenericTypeDef>, sumTypes Array<GenericSumTypeDef>, fn hasType(name String) Bool, fn hasSumType(name String) Bool, fn findFn(name String) Int64 }
+
+// ─── Constructors ─────────────────────────────────────────────────────────────
+// Each constructor supplies the typeParams() method body once so call sites
+// don't repeat the inline method literal.
+
+fn newGenericFnDef(name String, srcPath String, node FnDeclNode) GenericFnDef {
+    return { name: name, srcPath: srcPath, node: node, fn typeParams() Array<String> { return this.node.typeParams } }
+}
+
+fn newGenericTypeDef(name String, node TypeDeclNode) GenericTypeDef {
+    return { name: name, node: node, fn typeParams() Array<String> { return this.node.typeParams } }
+}
+
+fn newGenericSumTypeDef(name String, node SumTypeDeclNode) GenericSumTypeDef {
+    return { name: name, node: node, fn typeParams() Array<String> { return this.node.typeParams } }
+}
+
+fn newGenericRegistry(fns Array<GenericFnDef>, types Array<GenericTypeDef>, sumTypes Array<GenericSumTypeDef>) GenericRegistry {
+    return { fns: fns, types: types, sumTypes: sumTypes, fn hasType(name String) Bool { let i Int64: 0  while i.lt(this.types.len()) { if this.types.at(i).name.equals(name) { return true }  i: i.add(1) }  return false }, fn hasSumType(name String) Bool { let i Int64: 0  while i.lt(this.sumTypes.len()) { if this.sumTypes.at(i).name.equals(name) { return true }  i: i.add(1) }  return false }, fn findFn(name String) Int64 { let i Int64: 0  while i.lt(this.fns.len()) { if this.fns.at(i).name.equals(name) { return i }  i: i.add(1) }  return this.fns.len() } }
+}
+
+// ─── Collection ───────────────────────────────────────────────────────────────
+
+// collectGenericDefs — walks stmts once and collects every FnDeclNode /
+// TypeDeclNode that has a non-empty typeParams list into the returned registry.
+fn collectGenericDefs(stmts Array<AstNode>) GenericRegistry {
+    let fns Array<GenericFnDef>: []
+    let types Array<GenericTypeDef>: []
+    let sumTypes Array<GenericSumTypeDef>: []
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            FnDeclNode: {
+                let fd FnDeclNode: stmt
+                if fd.typeParams.len().gt(0) {
+                    fns.add(newGenericFnDef(fd.name, fd.srcPath, fd))
+                }
+            }
+            TypeDeclNode: {
+                let td TypeDeclNode: stmt
+                if td.typeParams.len().gt(0) {
+                    types.add(newGenericTypeDef(td.name, td))
+                }
+            }
+            SumTypeDeclNode: {
+                let sd SumTypeDeclNode: stmt
+                if sd.typeParams.len().gt(0) {
+                    sumTypes.add(newGenericSumTypeDef(sd.name, sd))
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return newGenericRegistry(fns, types, sumTypes)
+}

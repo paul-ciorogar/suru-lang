@@ -13,13 +13,14 @@
 
 include "lexer/lexer.suru"           as lex
 include "parser/parser.suru"         as parser
+include "parser/astNodes.suru"       as nodes
 include "codegen/irCodegen.suru"     as irCodegen
 include "semantic/semantic.suru"     as semantic
 include "semantic/passes.suru"       as passes
 include "semantic/stmts.suru"        as semstmts
 include "semantic/fns.suru"          as fns
 include "semantic/resolveTypes.suru" as semresolve
-include "semantic/monoPass.suru"     as monoPass
+include "semantic/mono/monoPass.suru" as monoPass
 
 // ─── Path utilities ────────────────────────────────────────────────────────────
 
@@ -161,8 +162,8 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state R
                 if not pathResolved(state.resolved, fullPath) {
                     state.resolved.add(fullPath)
                     let src String: readFile(fullPath)
-                    let toks Array<Token>: lex.tokenize(src)
-                    let mod AstModule: parser.parse(toks)
+                    let toks Array<Token>: lex.tokenize(src, fullPath)
+                    let mod AstModule: parser.parse(toks, fullPath)
                     state: resolveIncludesRec(mod.stmts, dirName(fullPath), fullPath, state)
                 }
             }
@@ -192,8 +193,8 @@ fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String) Resolv
                 if not pathResolved(state.resolved, fullPath) {
                     state.resolved.add(fullPath)
                     let src String: readFile(fullPath)
-                    let toks Array<Token>: lex.tokenize(src)
-                    let mod AstModule: parser.parse(toks)
+                    let toks Array<Token>: lex.tokenize(src, fullPath)
+                    let mod AstModule: parser.parse(toks, fullPath)
                     state: resolveIncludesRec(mod.stmts, dirName(fullPath), fullPath, state)
                 }
             }
@@ -297,7 +298,9 @@ fn loFindMethodMember(fields Array<StructFieldNode>, name String) StructFieldNod
         i: i.add(1)
     }
     let dummy WildcardNode: {}
-    let none StructFieldNode: { name: "", value: dummy, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: [], methodRet: "", methodBody: [] }
+    let noP Array<Param>: []
+    let noB Array<AstNode>: []
+    let none StructFieldNode: nodes.newStructFieldNode("", dummy, false, false, "", noP, "", noB)
     return none
 }
 
@@ -454,7 +457,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
         }
         let synth String: "__m_".append(typeName).append("_").append(m.name).append("_").append(siteStr)
         let params Array<Param>: []
-        params.add({ name: "this", typeName: typeName })
+        params.add(nodes.newParam("this", typeName))
         let mp Array<Param>: member.methodParams
         let k Int64: 0
         while k.lt(mp.len()) {
@@ -464,7 +467,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
         let body Array<AstNode>: member.methodBody
         // Lift nested object literals inside the method body too.
         lowerObjectsBody(state, body, newDecls, ctr, srcPath, root)
-        let fnDecl FnDeclNode: { name: synth, params: params, returnType: member.methodRet, body: body, srcPath: srcPath, typeParams: [] }
+        let fnDecl FnDeclNode: { name: synth, params: params, returnType: member.methodRet, body: body, srcPath: srcPath, typeParams: [], line: 0, col: 0 }
         newDecls.add(fnDecl)
         entrySyms.add(irCodegen.mangleSym(srcPath, synth))
         j: j.add(1)
@@ -479,7 +482,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
     let vr VtableRefNode: { sym: vtsym, entries: entrySyms, resolvedType: typeName }
     let noP Array<Param>: []
     let noB Array<AstNode>: []
-    newFields.add({ name: "__vtable", value: vr, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: noP, methodRet: "", methodBody: noB })
+    newFields.add(nodes.newStructFieldNode("__vtable", vr, false, false, "", noP, "", noB))
     let d Int64: 0
     while d.lt(fields.len()) {
         let f StructFieldNode: fields.at(d)
@@ -514,7 +517,7 @@ fn augPrivAddField(stmts Array<AstNode>, typeName String, fieldName String, fiel
                         if fields.at(k).name.equals(fieldName) { alreadyHas: true }
                         k: k.add(1)
                     }
-                    if not alreadyHas { fields.add({ name: fieldName, typeName: fieldTypeName }) }
+                    if not alreadyHas { fields.add(nodes.newParam(fieldName, fieldTypeName)) }
                 }
             }
             _: {}
@@ -525,47 +528,67 @@ fn augPrivAddField(stmts Array<AstNode>, typeName String, fieldName String, fiel
 
 // augPrivFromLitFields — iterates a struct literal's fields; for each private
 // data field, calls augPrivAddField to update the TypeDeclNode.
-fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<StructFieldNode>, i Int64) {
-    if not i.lt(litFields.len()) { return }
-    let f StructFieldNode: litFields.at(i)
-    if f.isPrivate and not f.isMethod {
-        augPrivAddField(stmts, typeName, f.name, f.privateTypeName)
+fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<StructFieldNode>) {
+    let i Int64: 0
+    while i.lt(litFields.len()) {
+        let f StructFieldNode: litFields.at(i)
+        if f.isPrivate and not f.isMethod {
+            augPrivAddField(stmts, typeName, f.name, f.privateTypeName)
+        }
+        i: i.add(1)
     }
-    augPrivFromLitFields(stmts, typeName, litFields, i.add(1))
 }
 
-// augPrivInBody — scans a function body for LetNode struct literals and calls
-// augPrivFromLitFields for any that have private fields.
-fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, i Int64) {
-    if not i.lt(body.len()) { return }
-    match body.at(i) {
-        LetNode: {
-            let ln LetNode: body.at(i)
-            match ln.value {
-                StructLitNode: {
-                    let sl StructLitNode: ln.value
-                    augPrivFromLitFields(stmts, ln.typeName, sl.fields, 0)
+// augPrivInBody — scans a function body for LetNode and ReturnNode struct
+// literals and calls augPrivFromLitFields for any that have private fields.
+// returnTypeName is the enclosing function's declared return type, used to
+// identify the TypeDeclNode when a ReturnNode directly contains a struct lit.
+fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, returnTypeName String) {
+    let i Int64: 0
+    while i.lt(body.len()) {
+        match body.at(i) {
+            LetNode: {
+                let ln LetNode: body.at(i)
+                match ln.value {
+                    StructLitNode: {
+                        let sl StructLitNode: ln.value
+                        augPrivFromLitFields(stmts, ln.typeName, sl.fields)
+                    }
+                    _: {}
                 }
-                _: {}
             }
+            ReturnNode: {
+                let rn ReturnNode: body.at(i)
+                if rn.hasValue {
+                    match rn.value {
+                        StructLitNode: {
+                            let sl StructLitNode: rn.value
+                            augPrivFromLitFields(stmts, returnTypeName, sl.fields)
+                        }
+                        _: {}
+                    }
+                }
+            }
+            _: {}
         }
-        _: {}
+        i: i.add(1)
     }
-    augPrivInBody(stmts, body, i.add(1))
 }
 
 // augmentPrivateFields — top-level pass: walks function declarations and
 // injects private data fields from their body struct literals into TypeDeclNodes.
-fn augmentPrivateFields(stmts Array<AstNode>, i Int64) {
-    if not i.lt(stmts.len()) { return }
-    match stmts.at(i) {
-        FnDeclNode: {
-            let fd FnDeclNode: stmts.at(i)
-            augPrivInBody(stmts, fd.body, 0)
+fn augmentPrivateFields(stmts Array<AstNode>) {
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        match stmts.at(i) {
+            FnDeclNode: {
+                let fd FnDeclNode: stmts.at(i)
+                augPrivInBody(stmts, fd.body, fd.returnType)
+            }
+            _: {}
         }
-        _: {}
+        i: i.add(1)
     }
-    augmentPrivateFields(stmts, i.add(1))
 }
 
 // lowerObjects — module driver. Walks `stmts`, lifts object methods, and
@@ -573,7 +596,7 @@ fn augmentPrivateFields(stmts Array<AstNode>, i Int64) {
 fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String) {
     // Pre-pass: inject private data fields from object literals into TypeDeclNodes
     // so the codegen's registerTypes creates the correct struct layout (size + GEP offsets).
-    augmentPrivateFields(stmts, 0)
+    augmentPrivateFields(stmts)
     let newDecls Array<AstNode>: []
     let ctr Array<Int64>: [0]
     let n Int64: stmts.len()
@@ -610,14 +633,30 @@ fn analyzeModuleStatements(state AnalyzerState, moduleStmts Array<AstNode>) Anal
     return state
 }
 
-// printErrorsFrom — prints each analysis error prefixed with the source path.
-fn printErrorsFrom(state AnalyzerState, path String, i Int64) {
+// printErrorsFrom — prints each analysis error in rich diagnostic format.
+// When line > 0:  path:line:col: error: message\n  N | sourceline\n      ^
+// When line == 0: path: error: message  (no position info available)
+fn printErrorsFrom(state AnalyzerState, path String) {
     let errors Array<AnalysisError>: state.errors
-    if not i.lt(errors.len()) { return }
-    let err AnalysisError: errors.at(i)
-    let line String: path.append(": ").append(err.message)
-    printLn(line)
-    printErrorsFrom(state, path, i.add(1))
+    let i Int64: 0
+    while i.lt(errors.len()) {
+        let err AnalysisError: errors.at(i)
+        let errPath String: match err.srcPath.equals("") { true: path, _: err.srcPath }
+        if err.line.gt(0) {
+            let header String: errPath.append(":").append(err.line.toString()).append(":").append(err.col.toString()).append(": error: ").append(err.message)
+            printError(header)
+            let src String: readFile(errPath)
+            let srcLine String: extractSourceLine(src, err.line)
+            let lineLabel String: "  ".append(err.line.toString()).append(" | ")
+            printError(lineLabel.append(srcLine))
+            let prefixLen Int64: lineLabel.len().add(err.col.take(1))
+            let caretLine String: buildSpaces(prefixLen).append("^")
+            printError(caretLine)
+        } else {
+            printError(errPath.append(": error: ").append(err.message))
+        }
+        i: i.add(1)
+    }
 }
 
 // ─── Own-declaration collectors ────────────────────────────────────────────────
@@ -654,22 +693,6 @@ fn collectTypeNames(stmts Array<AstNode>) Array<String> {
     return names
 }
 
-// stampConcreteFnSrcPath — walk newNodes and set srcPath = rootPath on every
-// FnDeclNode.  Concrete instantiations inherit the generic template's srcPath
-// (the included file), but they are emitted in the root file's IR, so they
-// must carry the root file's path so emitFunction emits a full definition.
-fn stampConcreteFnSrcPath(newNodes Array<AstNode>, rootPath String, i Int64) {
-    if not i.lt(newNodes.len()) { return }
-    match newNodes.at(i) {
-        FnDeclNode: {
-            let fd FnDeclNode: newNodes.at(i)
-            fd.srcPath: rootPath
-        }
-        _: {}
-    }
-    stampConcreteFnSrcPath(newNodes, rootPath, i.add(1))
-}
-
 // ─── Per-file compilation helper ───────────────────────────────────────────────
 
 // Compile a single source file and write its .ll to outDir/<stem>.ll.
@@ -681,10 +704,11 @@ fn stampConcreteFnSrcPath(newNodes Array<AstNode>, rootPath String, i Int64) {
 // type name and crash the compiler.
 fn compileOneFile(sourcePath String, outDir String) {
     let src String: readFile(sourcePath)
-    let tokens Array<Token>: lex.tokenize(src)
-    let mod AstModule: parser.parse(tokens)
+    let tokens Array<Token>: lex.tokenize(src, sourcePath)
+    let mod AstModule: parser.parse(tokens, sourcePath)
     let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
     let state AnalyzerState: semantic.makeAnalyzerState()
+    state.currentSrcPath: sourcePath
     passes.runPrePasses(state, resolved.stmts)
     semresolve.resolveModuleTypes(state, resolved.stmts)
     lowerObjects(state, resolved.stmts, sourcePath)
@@ -708,17 +732,23 @@ fn compileOneFile(sourcePath String, outDir String) {
 // Carries the IR text for the main file and the list of resolved include paths.
 type PipelineResult: { irText String, includedPaths Array<String> }
 
+// Carries intermediate pipeline state for per-pass debugging.
+// stmts is the statement list as it exists at the named stop point;
+// state is the AnalyzerState populated up to that point.
+type DebugResult: { stmts Array<AstNode>, state AnalyzerState }
+
 // runPipelineFull — lex→parse→semantic→codegen for sourcePath.
 // Exits with code 1 if semantic analysis produces errors.
 fn runPipelineFull(sourcePath String) PipelineResult {
     let source String: readFile(sourcePath)
-    let tokens Array<Token>: lex.tokenize(source)
-    let mod AstModule: parser.parse(tokens)
+    let tokens Array<Token>: lex.tokenize(source, sourcePath)
+    let mod AstModule: parser.parse(tokens, sourcePath)
     let ownFnNames Array<String>: collectFnNames(mod.stmts)
     let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
     let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
     let stmts Array<AstNode>: resolved.stmts
     let state AnalyzerState: semantic.makeAnalyzerState()
+    state.currentSrcPath: sourcePath
     passes.runPrePasses(state, stmts)
     // Pass 1: annotate every expression node with its resolvedType so that
     // monoInfer can read resolvedType fields from call-site arguments.
@@ -749,6 +779,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     }
     // Pass 2: fresh state sees only concrete types (no generic templates).
     state: semantic.makeAnalyzerState()
+    state.currentSrcPath: sourcePath
     passes.runPrePasses(state, stmts)
     semresolve.resolveModuleTypes(state, stmts)
     // Rewrite generic call-site names to mangled forms now that pass-2
@@ -766,11 +797,81 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     let rawOwnStmts Array<AstNode>: collectNonInclude(mod.stmts)
     let ownStmts Array<AstNode>: monoPass.filterGenericDefs(rawOwnStmts)
     analyzeModuleStatements(state, ownStmts)
-    printErrorsFrom(state, sourcePath, 0)
+    printErrorsFrom(state, sourcePath)
     let errors Array<AnalysisError>: state.errors
     if errors.len().gt(0) { exit(1) }
     let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, monoResult.newFnNames, resolved.aliases, sourcePath)
     return { irText: irText, includedPaths: resolved.includedPaths }
+}
+
+// runPipelineDebug — run the pipeline for sourcePath and stop after the named
+// pass, returning the intermediate AST and AnalyzerState for inspection.
+//
+// Valid pass names:
+//   "resolve1"  — after first resolveModuleTypes (before monomorphization)
+//   "mono"      — after mono: injected, filtered, callSites + variantArms rewritten
+//   "resolve2"  — after second resolveModuleTypes
+//   "semantic"  — after analyzeModuleStatements (full symbol table visible)
+//
+// Exits with code 1 for unknown pass names.
+fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
+    let source String: readFile(sourcePath)
+    let tokens Array<Token>: lex.tokenize(source, sourcePath)
+    let mod AstModule: parser.parse(tokens, sourcePath)
+    let ownFnNames Array<String>: collectFnNames(mod.stmts)
+    let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
+    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
+    let stmts Array<AstNode>: resolved.stmts
+    let state AnalyzerState: semantic.makeAnalyzerState()
+    state.currentSrcPath: sourcePath
+    passes.runPrePasses(state, stmts)
+    semresolve.resolveModuleTypes(state, stmts)
+
+    if stopPass.equals("resolve1") { return { stmts: stmts, state: state } }
+
+    // ─── Monomorphization ─────────────────────────────────────────────────────
+    let registry GenericRegistry: collect.collectGenericDefs(stmts)
+    let monoResult MonoResult: monoPass.runMonoPass(stmts, registry)
+    let ni Int64: 0
+    while ni.lt(monoResult.newNodes.len()) {
+        stmts.add(monoResult.newNodes.at(ni))
+        ni: ni.add(1)
+    }
+    stmts: monoPass.filterGenericDefs(stmts)
+    let fi Int64: 0
+    while fi.lt(monoResult.newFnNames.len()) {
+        ownFnNames.add(monoResult.newFnNames.at(fi))
+        fi: fi.add(1)
+    }
+    let ti Int64: 0
+    while ti.lt(monoResult.newTypeNames.len()) {
+        ownTypeNames.add(monoResult.newTypeNames.at(ti))
+        ti: ti.add(1)
+    }
+    state: semantic.makeAnalyzerState()
+    state.currentSrcPath: sourcePath
+    passes.runPrePasses(state, stmts)
+    semresolve.resolveModuleTypes(state, stmts)
+    stmts: monoPass.rewriteCallSites(stmts, registry)
+    stmts: monoPass.rewriteVariantArms(stmts)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if stopPass.equals("mono") { return { stmts: stmts, state: state } }
+
+    lowerObjects(state, stmts, sourcePath)
+
+    if stopPass.equals("resolve2") { return { stmts: stmts, state: state } }
+
+    let rawOwnStmts Array<AstNode>: collectNonInclude(mod.stmts)
+    let ownStmts Array<AstNode>: monoPass.filterGenericDefs(rawOwnStmts)
+    analyzeModuleStatements(state, ownStmts)
+
+    if stopPass.equals("semantic") { return { stmts: stmts, state: state } }
+
+    printError("error: unknown debug pass '".append(stopPass).append("'"))
+    printError("Valid passes: resolve1, mono, resolve2, semantic")
+    exit(1)
+    return { stmts: stmts, state: state }
 }
 
 // generateIRText — run the full pipeline for sourcePath and return the LLVM IR

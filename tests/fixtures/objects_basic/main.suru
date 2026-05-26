@@ -4,21 +4,44 @@ fn shout(g Greeter) String {
     return g.greet("HEY ")
 }
 
-fn main() Int64 {
+fn main() {
     let a Greeter: {
         name: "World",
         fn greet(prefix String) String { return prefix.append(this.name) }
-        fn rename(n String) { this.name: n }
+        fn rename(n String) { 
+            let tmp String: this.name
+            this.name: n 
+            drop(tmp)
+        }
     }
     let b Greeter: {
         name: "Suru",
         fn greet(prefix String) String { return prefix.append("!").append(this.name) }
-        fn rename(n String) { this.name: n }
+        fn rename(n String) { 
+            let tmp String: this.name
+            this.name: n 
+            drop(tmp)
+        }
     }
-    printLn(a.greet("Hello "))
+    
+    let msg String: a.greet("Hello ")
+    printLn(msg)
+    drop(msg)
+
     a.rename("Earth")
-    printLn(a.greet("Hello "))
-    printLn(b.greet("Hi "))
-    printLn(shout(a))
-    return 0
+
+    msg: a.greet("Hello ")
+    printLn(msg)
+    drop(msg)
+
+    msg: b.greet("Hi ")
+    printLn(msg)
+    drop(msg)
+
+    msg: shout(a)
+    printLn(msg)
+    drop(msg)
+    
+    drop(a)
+    drop(b)
 }

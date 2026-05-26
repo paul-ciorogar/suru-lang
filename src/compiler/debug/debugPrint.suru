@@ -1,0 +1,155 @@
+// debugPrint.suru — Per-pass debug output for the Suru compiler.
+//
+// printDebugOutput prints the AST (via parserPrint) and a summary of the
+// AnalyzerState (functions, types, sum types, scopes, errors) after any
+// named pipeline pass.  Used by the `suru debug <pass> <file>` CLI command.
+
+include "../parser/parserPrint.suru" as pprint
+include "../semantic/semantic.suru"  as sem
+
+// ─── Function registry ────────────────────────────────────────────────────────
+
+fn joinParamsAt(params Array<String>) String {
+    let acc String: ""
+    let i Int64: 0
+    while i.lt(params.len()) {
+        let sep String: match i.equals(0) { true: "", _: ", " }
+        acc: acc.append(sep).append(params.at(i))
+        i: i.add(1)
+    }
+    return acc
+}
+
+fn printFunctionsAt(functions Array<FunctionSig>) {
+    let i Int64: 0
+    while i.lt(functions.len()) {
+        let sig FunctionSig: functions.at(i)
+        let paramStr String: joinParamsAt(sig.paramTypes)
+        printLn("  ".append(sig.name).append("(").append(paramStr).append(") → ").append(sig.returnType))
+        i: i.add(1)
+    }
+}
+
+fn printFunctions(functions Array<FunctionSig>) {
+    printLn("Functions (".append(functions.len().toString()).append("):"))
+    printFunctionsAt(functions)
+}
+
+// ─── Type declarations ────────────────────────────────────────────────────────
+
+fn joinFieldsAt(fields Array<SemFieldEntry>) String {
+    let acc String: ""
+    let i Int64: 0
+    while i.lt(fields.len()) {
+        let f SemFieldEntry: fields.at(i)
+        let sep String: match i.equals(0) { true: "", _: ", " }
+        acc: acc.append(sep).append(f.name).append(" ").append(f.typeName)
+        i: i.add(1)
+    }
+    return acc
+}
+
+fn printTypeDeclsAt(typeDecls Array<SemTypeEntry>) {
+    let i Int64: 0
+    while i.lt(typeDecls.len()) {
+        let t SemTypeEntry: typeDecls.at(i)
+        let fieldStr String: joinFieldsAt(t.fields)
+        printLn("  ".append(t.name).append(": { ").append(fieldStr).append(" }"))
+        i: i.add(1)
+    }
+}
+
+fn printTypeDecls(typeDecls Array<SemTypeEntry>) {
+    printLn("Types (".append(typeDecls.len().toString()).append("):"))
+    printTypeDeclsAt(typeDecls)
+}
+
+// ─── Sum types ────────────────────────────────────────────────────────────────
+
+fn joinVariantsAt(variants Array<SemFieldEntry>) String {
+    let acc String: ""
+    let i Int64: 0
+    while i.lt(variants.len()) {
+        let sep String: match i.equals(0) { true: "", _: ", " }
+        acc: acc.append(sep).append(variants.at(i).name)
+        i: i.add(1)
+    }
+    return acc
+}
+
+fn printSumTypesAt(sumTypes Array<SemTypeEntry>) {
+    let i Int64: 0
+    while i.lt(sumTypes.len()) {
+        let st SemTypeEntry: sumTypes.at(i)
+        let variantStr String: joinVariantsAt(st.fields)
+        printLn("  ".append(st.name).append(": ").append(variantStr))
+        i: i.add(1)
+    }
+}
+
+fn printSumTypes(sumTypes Array<SemTypeEntry>) {
+    printLn("Sum Types (".append(sumTypes.len().toString()).append("):"))
+    printSumTypesAt(sumTypes)
+}
+
+// ─── Scopes ───────────────────────────────────────────────────────────────────
+
+fn printSymbolsAt(symbols Array<SymbolEntry>) {
+    let i Int64: 0
+    while i.lt(symbols.len()) {
+        let s SymbolEntry: symbols.at(i)
+        printLn("    ".append(s.name).append(" → ").append(s.typeName))
+        i: i.add(1)
+    }
+}
+
+fn printScopesAt(scopes Array<Scope>) {
+    let i Int64: 0
+    while i.lt(scopes.len()) {
+        let sc Scope: scopes.at(i)
+        printLn("  [".append(i.toString()).append("] parent=").append(sc.parent.toString()))
+        printSymbolsAt(sc.symbols)
+        i: i.add(1)
+    }
+}
+
+fn printScopes(scopes Array<Scope>) {
+    printLn("Scopes (".append(scopes.len().toString()).append("):"))
+    printScopesAt(scopes)
+}
+
+// ─── Errors ───────────────────────────────────────────────────────────────────
+
+fn printDebugErrorsAt(errors Array<AnalysisError>) {
+    let i Int64: 0
+    while i.lt(errors.len()) {
+        let e AnalysisError: errors.at(i)
+        printLn("  ".append(e.srcPath).append(":").append(e.line.toString()).append(":").append(e.col.toString()).append(": ").append(e.message))
+        i: i.add(1)
+    }
+}
+
+fn printErrors(errors Array<AnalysisError>) {
+    printLn("Errors (".append(errors.len().toString()).append("):"))
+    if errors.len().equals(0) {
+        printLn("  (none)")
+        return
+    }
+    printDebugErrorsAt(errors)
+}
+
+// ─── Public entry point ───────────────────────────────────────────────────────
+
+// printDebugOutput — print the AST and symbol table after a named pipeline pass.
+fn printDebugOutput(stmts Array<AstNode>, state AnalyzerState, passName String) {
+    printLn("=== AST after ".append(passName).append(" ==="))
+    let mod AstModule: { stmts: stmts }
+    pprint.printModule(mod, passName)
+    printLn("")
+    printLn("=== Symbol Table after ".append(passName).append(" ==="))
+    printFunctions(state.functions.sigs)
+    printTypeDecls(state.typeDecls)
+    printSumTypes(state.sumTypes)
+    printScopes(state.scopes)
+    printErrors(state.errors)
+}

@@ -1,0 +1,3 @@
+/work/tests/fixtures/struct-missing-field-error/main.suru:9:18: error: struct literal of type 'Point' is missing required field 'y'
+  9 |     let p Point: { x: 1 }
+                       ^

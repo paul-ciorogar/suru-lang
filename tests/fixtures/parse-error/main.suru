@@ -1,0 +1,8 @@
+// tests/fixtures/parse-error/main.suru
+//
+// Validates that a missing type annotation on `let` is a parse-time error
+// with file path, line, and column in the diagnostic.
+
+fn main() {
+    let x: 5
+}

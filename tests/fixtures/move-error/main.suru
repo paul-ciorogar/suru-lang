@@ -1,0 +1,10 @@
+// tests/fixtures/move-error/main.suru
+//
+// Validates that using a variable after move() is a compile-time error.
+
+fn main()  {
+    let s String: "hello".append(" world")
+    let t String: move(s)
+    printLn(s)
+    drop(t)
+}

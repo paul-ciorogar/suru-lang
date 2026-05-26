@@ -1,0 +1,31 @@
+// tests/fixtures/private-fields-constructor/main.suru
+//
+// Validates that private fields declared in a constructor function's
+// `return { _ name Type: value, ... }` struct literal are processed correctly.
+//
+// Bug: augPrivInBody only scans LetNode → StructLitNode, so private fields
+// inside a ReturnNode's struct literal are not registered in the TypeDeclNode.
+// This causes the struct layout to be missing the private field, leading to
+// incorrect GEP offsets and wrong output or a crash.
+
+type Counter: {
+    fn increment()
+    fn get() Int64
+}
+
+fn makeCounter() Counter {
+    return {
+        _ count Int64: 0,
+        fn increment() { this.count: this.count.add(1) }
+        fn get() Int64 { return this.count }
+    }
+}
+
+fn main() {
+    let c Counter: makeCounter()
+    c.increment()
+    c.increment()
+    c.increment()
+    printLn(c.get().toString())
+    drop(c)
+}

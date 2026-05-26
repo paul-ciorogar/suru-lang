@@ -10,14 +10,16 @@
 // Also verifies that a duplicate annotation produces only one request
 // (deduplication), and that inferFromAnnotation alone works correctly.
 
-include "../../../src/compiler/semantic/monoInfer.suru" as mono
+include "../../../src/compiler/semantic/mono/monoCollect.suru" as collect
+include "../../../src/compiler/semantic/mono/monoInfer.suru"  as mono
+include "../../../src/compiler/parser/astNodes.suru"          as nodes
 
-fn main() Int64 {
+fn main() {
     // ── Build a GenericRegistry with Pair<T, U> ──────────────────────────────
 
     let fields Array<Param>: []
-    let f1 Param: { name: "first",  typeName: "T" }
-    let f2 Param: { name: "second", typeName: "U" }
+    let f1 Param: nodes.newParam("first",  "T")
+    let f2 Param: nodes.newParam("second", "U")
     fields.add(f1)
     fields.add(f2)
 
@@ -26,20 +28,20 @@ fn main() Int64 {
     typeParams.add("U")
 
     let methods Array<MethodSig>: []
-    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams }
-    let def GenericTypeDef: { name: "Pair", typeParams: typeParams, node: pairNode }
+    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams, line: 0, col: 0 }
+    let def GenericTypeDef: collect.newGenericTypeDef("Pair", pairNode)
 
     let regTypes Array<GenericTypeDef>: []
     regTypes.add(def)
     let regFns Array<GenericFnDef>: []
     let regSumTypes Array<GenericSumTypeDef>: []
-    let registry GenericRegistry: { fns: regFns, types: regTypes, sumTypes: regSumTypes }
+    let registry GenericRegistry: collect.newGenericRegistry(regFns, regTypes, regSumTypes)
 
     // ── Build stmts: one LetNode with typeName "Pair<Int64, String>" ─────────
     // The value is a bare IntLitNode (contents don't matter for annotation inference).
 
     let litVal IntLitNode: { text: "0", resolvedType: "Int64" }
-    let letStmt LetNode: { name: "x", typeName: "Pair<Int64, String>", value: litVal }
+    let letStmt LetNode: { name: "x", typeName: "Pair<Int64, String>", value: litVal, line: 0, col: 0 }
 
     let stmts Array<AstNode>: []
     stmts.add(letStmt)
@@ -56,11 +58,16 @@ fn main() Int64 {
 
     // ── Deduplication: two identical LetNodes → still one request ─────────────
 
-    let letStmt2 LetNode: { name: "y", typeName: "Pair<Int64, String>", value: litVal }
+    // Use a fresh litVal so letStmt2.value doesn't alias letStmt.value (would double-free on drop(stmts)).
+    let litVal2 IntLitNode: { text: "0", resolvedType: "Int64" }
+    let letStmt2 LetNode: { name: "y", typeName: "Pair<Int64, String>", value: litVal2, line: 0, col: 0 }
     stmts.add(letStmt2)
 
     let reqs2 Array<InstantiationRequest>: mono.collectInstantiations(stmts, registry)
     printLn(reqs2.len())
-
-    return 0
+    
+    drop(reqs2)
+    drop(reqs)
+    drop(stmts)
+    drop(registry)
 }

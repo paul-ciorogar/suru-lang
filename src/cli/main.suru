@@ -11,14 +11,14 @@ include "../compiler/pipeline.suru"          as pipeline
 include "../compiler/lexer/lexer.suru"       as lex
 include "../compiler/parser/parser.suru"      as parser
 include "../compiler/parser/parserPrint.suru" as pprint
+include "../compiler/debug/debugPrint.suru"  as debugPrint
 
 // ─── Lex command ───────────────────────────────────────────────────────────────
 
 // Print each token as "KIND text line:col", one per line (EOF omitted).
 fn runLex(sourcePath String) {
     let source String: readFile(sourcePath)
-    let output String: lex.toString(source)
-    drop(source)
+    let output String: lex.toString(move(source))
     printLn(output)
     drop(output)
 }
@@ -28,7 +28,7 @@ fn runLex(sourcePath String) {
 // Tokenize and parse sourcePath, then print the AST tree to stdout.
 fn runParse(sourcePath String) {
     let source String: readFile(sourcePath)
-    let tokens Array<Token>: lex.tokenize(source)
+    let tokens Array<Token>: lex.tokenize(move(source), sourcePath)
     let mod AstModule: parser.parse(tokens)
     pprint.printModule(mod, sourcePath)
 }
@@ -57,6 +57,15 @@ fn runCompile(sourcePath String, outputPath String) {
     pipeline.runBuildDriver(sourcePath, outputPath)
 }
 
+// ─── Debug command ─────────────────────────────────────────────────────────────
+
+// Stop the pipeline after the named pass and print the AST + symbol table.
+// Valid passes: resolve1, mono, resolve2, semantic.
+fn runDebug(pass String, sourcePath String) {
+    let result DebugResult: pipeline.runPipelineDebug(sourcePath, pass)
+    debugPrint.printDebugOutput(result.stmts, result.state, pass)
+}
+
 // ─── Usage ─────────────────────────────────────────────────────────────────────
 
 fn printUsage() {
@@ -68,77 +77,70 @@ fn printUsage() {
     printError("  lex     <file>            Print all tokens produced by the lexer, one per line")
     printError("  parse   <file>            Print the parsed AST as an indented tree (includes are expanded)")
     printError("  ir      <file>            Print the generated LLVM IR without invoking clang")
+    printError("  debug   <pass> <file>     Stop after a pass and print AST + symbol table")
+    printError("                            Passes: resolve1, mono, resolve2, semantic")
 }
 
 // ─── Entry point ───────────────────────────────────────────────────────────────
 
 fn main(args Array<String>) {
     // args.at(0) = argv[0] (binary name); args.at(1) = command; args.at(2) = file
-    match args.len().lt(2) {
-        true: {
-            printUsage()
-            exit(1)
-        }
-        _: {}
+    if args.len().lt(2) {
+        printUsage()
+        exit(1)
     }
 
     let command String: args.at(1)
 
     match command {
         "compile": {
-            match args.len().lt(4) {
-                true: {
-                    printError("error: 'compile' requires a source file and output path")
-                    printError("Usage: suru compile <file.suru> <output.ll>")
-                    exit(1)
-                }
-                _: {}
+            if args.len().lt(4) {
+                printError("error: 'compile' requires a source file and output path")
+                printError("Usage: suru compile <file.suru> <output.ll>")
+                exit(1)
             }
             runCompile(args.at(2), args.at(3))
         }
         "build": {
-            match args.len().lt(3) {
-                true: {
-                    printError("error: 'build' requires a file argument")
-                    printError("Usage: suru build <file.suru>")
-                    exit(1)
-                }
-                _: {}
+            if args.len().lt(3) {
+                printError("error: 'build' requires a file argument")
+                printError("Usage: suru build <file.suru>")
+                exit(1)
             }
             runBuild(args.at(2))
         }
         "lex": {
-            match args.len().lt(3) {
-                true: {
-                    printError("error: 'lex' requires a file argument")
-                    printError("Usage: suru lex <file.suru>")
-                    exit(1)
-                }
-                _: {}
+            if args.len().lt(3) {
+                printError("error: 'lex' requires a file argument")
+                printError("Usage: suru lex <file.suru>")
+                exit(1)
             }
             runLex(args.at(2))
         }
         "parse": {
-            match args.len().lt(3) {
-                true: {
-                    printError("error: 'parse' requires a file argument")
-                    printError("Usage: suru parse <file.suru>")
-                    exit(1)
-                }
-                _: {}
+            if args.len().lt(3) {
+                printError("error: 'parse' requires a file argument")
+                printError("Usage: suru parse <file.suru>")
+                exit(1)
             }
             runParse(args.at(2))
         }
         "ir": {
-            match args.len().lt(3) {
-                true: {
-                    printError("error: 'ir' requires a file argument")
-                    printError("Usage: suru ir <file.suru>")
-                    exit(1)
-                }
-                _: {}
+            if args.len().lt(3) {
+                printError("error: 'ir' requires a file argument")
+                printError("Usage: suru ir <file.suru>")
+                exit(1)
             }
             runIR(args.at(2))
+        }
+        "debug": {
+            if args.len().lt(4) {
+                printError("error: 'debug' requires a pass name and a source file")
+                printError("Usage: suru debug <pass> <file.suru>")
+                printError("Passes: resolve1, mono, resolve2, semantic")
+                exit(1)
+            }
+            runDebug(args.at(2), args.at(3))
         }
         _: {
             printError("error: unknown command '".append(command).append("'"))

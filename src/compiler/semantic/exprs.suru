@@ -24,64 +24,6 @@
 include "semantic.suru" as semantic
 include "passes.suru" as passes
 
-// ─── Function signature lookup helpers ───────────────────────────────────────
-
-// lookupFnReturnTypeAt — linear search from index i.
-fn lookupFnReturnTypeAt(fns Array<FunctionSig>, name String, i Int64) String {
-    if not i.lt(fns.len()) { return "" }
-    if fns.at(i).name.equals(name) { return fns.at(i).returnType }
-    return lookupFnReturnTypeAt(fns, name, i.add(1))
-}
-
-// lookupFnReturnType — returns the declared return type of a user function,
-// or "" if no such function exists in state.functions.
-fn lookupFnReturnType(state AnalyzerState, name String) String {
-    let fns Array<FunctionSig>: state.functions
-    return lookupFnReturnTypeAt(fns, name, 0)
-}
-
-// getParamCountOf — returns the param count for one FunctionSig.
-fn getParamCountOf(sig FunctionSig) Int64 {
-    let pts Array<String>: sig.paramTypes
-    return pts.len()
-}
-
-// lookupFnParamCountAt — linear search from index i.
-fn lookupFnParamCountAt(fns Array<FunctionSig>, name String, i Int64) Int64 {
-    if not i.lt(fns.len()) { return -1 }
-    if fns.at(i).name.equals(name) { return getParamCountOf(fns.at(i)) }
-    return lookupFnParamCountAt(fns, name, i.add(1))
-}
-
-// lookupFnParamCount — returns the param count for a user function, or -1.
-fn lookupFnParamCount(state AnalyzerState, name String) Int64 {
-    let fns Array<FunctionSig>: state.functions
-    return lookupFnParamCountAt(fns, name, 0)
-}
-
-// lookupFnParamTypeAt — linear search from index i; returns the declared
-// type of parameter paramIdx in function name, or "" if not found.
-fn lookupFnParamTypeAt(fns Array<FunctionSig>, name String, paramIdx Int64, i Int64) String {
-    if i.lt(fns.len()) {
-        if fns.at(i).name.equals(name) {
-            let pts Array<String>: fns.at(i).paramTypes
-            if paramIdx.lt(pts.len()) {
-                return pts.at(paramIdx)
-            }
-            return ""
-        }
-        return lookupFnParamTypeAt(fns, name, paramIdx, i.add(1))
-    }
-    return ""
-}
-
-// lookupFnParamType — returns the declared type of parameter paramIdx in
-// function name, or "" if the function is not found.
-fn lookupFnParamType(state AnalyzerState, name String, paramIdx Int64) String {
-    let fns Array<FunctionSig>: state.functions
-    return lookupFnParamTypeAt(fns, name, paramIdx, 0)
-}
-
 // ─── Type inference ───────────────────────────────────────────────────────────
 
 // inferTypeFromMethod — infers the return type of a MethodCallNode from its
@@ -142,7 +84,7 @@ fn inferType(state AnalyzerState, expr AstNode) String {
         CharLitNode:    { return "Char"    }
         VarRefNode: {
             let typed VarRefNode: expr
-            return semantic.lookupSymbol(state, typed.name)
+            return state.lookupSymbol(typed.name)
         }
         UnaryNode:  { return "Bool" }
         BinaryNode: { return "Bool" }
@@ -154,7 +96,20 @@ fn inferType(state AnalyzerState, expr AstNode) String {
             let typed CallNode: expr
             let name String: typed.name
             if name.equals("readFile") { return "String" }
-            return lookupFnReturnType(state, name)
+            if name.equals("move") {
+                let args Array<AstNode>: typed.args
+                if args.len().equals(1) {
+                    match args.at(0) {
+                        VarRefNode: {
+                            let typedArg VarRefNode: args.at(0)
+                            return state.lookupSymbol(typedArg.name)
+                        }
+                        _: {}
+                    }
+                }
+                return ""
+            }
+            return state.functions.returnType(name)
         }
         MatchExprNode: {
             let typed MatchExprNode: expr
@@ -168,54 +123,57 @@ fn inferType(state AnalyzerState, expr AstNode) String {
 
 // ─── Expression recursion helpers ─────────────────────────────────────────────
 
-// analyzeExprAt — iterates an Array<AstNode> from index i, calling analyzeExpr.
-fn analyzeExprAt(state AnalyzerState, nodes Array<AstNode>, i Int64) AnalyzerState {
-    if not i.lt(nodes.len()) { return state }
-    analyzeExpr(state, nodes.at(i))
-    analyzeExprAt(state, nodes, i.add(1))
+// analyzeExprAt — iterates an Array<AstNode>, calling analyzeExpr on each.
+fn analyzeExprAt(state AnalyzerState, nodes Array<AstNode>) AnalyzerState {
+    let i Int64: 0
+    while i.lt(nodes.len()) {
+        analyzeExpr(state, nodes.at(i))
+        i: i.add(1)
+    }
     return state
 }
 
-// analyzeMatchArmsAt — iterates MatchArm array from index i.
+// analyzeMatchArmsAt — iterates MatchArm array.
 // For each non-wildcard arm: analyzes the pattern expression.
 // Always analyzes the arm body.
-fn analyzeMatchArmsAt(state AnalyzerState, arms Array<MatchArm>, i Int64) AnalyzerState {
-    if not i.lt(arms.len()) { return state }
-    let arm MatchArm: arms.at(i)
-    if not arm.isWildcard {
-        let pat AstNode: arm.pattern
-        analyzeExpr(state, pat)
+fn analyzeMatchArmsAt(state AnalyzerState, arms Array<MatchArm>) AnalyzerState {
+    let i Int64: 0
+    while i.lt(arms.len()) {
+        let arm MatchArm: arms.at(i)
+        if not arm.isWildcard {
+            analyzeExpr(state, arm.pattern)
+        }
+        analyzeExpr(state, arm.body)
+        i: i.add(1)
     }
-    let body AstNode: arm.body
-    analyzeExpr(state, body)
-    analyzeMatchArmsAt(state, arms, i.add(1))
     return state
 }
 
-// analyzeStructFieldsAt — iterates StructFieldNode array from index i,
+// analyzeStructFieldsAt — iterates StructFieldNode array,
 // calling analyzeExpr on each field's value expression.
-fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>, i Int64) AnalyzerState {
-    if not i.lt(fields.len()) { return state }
-    let field StructFieldNode: fields.at(i)
-    let val AstNode: field.value
-    analyzeExpr(state, val)
-    analyzeStructFieldsAt(state, fields, i.add(1))
+fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) AnalyzerState {
+    let i Int64: 0
+    while i.lt(fields.len()) {
+        analyzeExpr(state, fields.at(i).value)
+        i: i.add(1)
+    }
     return state
 }
 
 // checkCallArgTypesAt — validates argument types against declared parameter
-// types for function fnName starting at index i.
+// types for function fnName.
 // Emits "argument type mismatch: expected X, got Y" when both types are known
 // and do not match (and the actual type is not a sum-type variant of expected).
-fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, i Int64) AnalyzerState {
-    if i.lt(args.len()) {
-        let expected String: lookupFnParamType(state, fnName, i)
+fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine Int64, callCol Int64) AnalyzerState {
+    let i Int64: 0
+    while i.lt(args.len()) {
+        let expected String: state.functions.paramType(fnName, i)
         let argType String: inferType(state, args.at(i))
-        let assignable Bool: argType.equals(expected) or semantic.isSumVariant(state, expected, argType)
+        let assignable Bool: argType.equals(expected) or state.isSumVariant(expected, argType)
         if not expected.equals("") and not argType.equals("") and not assignable {
-            semantic.addError(state, "argument type mismatch: expected ".append(expected).append(", got ").append(argType))
+            state.addError("argument type mismatch: expected ".append(expected).append(", got ").append(argType), callLine, callCol)
         }
-        checkCallArgTypesAt(state, fnName, args, i.add(1))
+        i: i.add(1)
     }
     return state
 }
@@ -241,9 +199,12 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
         VarRefNode: {
             let typed VarRefNode: expr
             let name String: typed.name
-            let inScope Bool: not semantic.lookupSymbol(state, name).equals("")
+            let inScope Bool: not state.lookupSymbol(name).equals("")
             if not isBuiltinTypeName(name) and not inScope {
-                semantic.addError(state, "undefined variable '".append(name).append("'"))
+                state.addError("undefined variable '".append(name).append("'"), typed.line, typed.col)
+            }
+            if inScope and state.isMoved(name) {
+                state.addError("variable '".append(name).append("' has been moved"), typed.line, typed.col)
             }
         }
 
@@ -255,21 +216,19 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                     let typedRcv VarRefNode: rcv
                     let rcvName String: typedRcv.name
                     let isStaticRcv Bool: rcvName.equals("Int32") or rcvName.equals("Int64") or rcvName.equals("Float64") or rcvName.equals("Bool")
-                    let rcvInScope Bool: not semantic.lookupSymbol(state, rcvName).equals("")
+                    let rcvInScope Bool: not state.lookupSymbol(rcvName).equals("")
                     if not isStaticRcv and not rcvInScope {
                         let args Array<AstNode>: typed.args
-                        analyzeExprAt(state, args, 0)
-                        checkCallArgTypesAt(state, typed.methodName, args, 0)
+                        analyzeExprAt(state, args)
+                        checkCallArgTypesAt(state, typed.methodName, args, typed.line, typed.col)
                     } else {
                         analyzeExpr(state, rcv)
-                        let args Array<AstNode>: typed.args
-                        analyzeExprAt(state, args, 0)
+                        analyzeExprAt(state, typed.args)
                     }
                 }
                 _: {
                     analyzeExpr(state, rcv)
-                    let args Array<AstNode>: typed.args
-                    analyzeExprAt(state, args, 0)
+                    analyzeExprAt(state, typed.args)
                 }
             }
         }
@@ -279,19 +238,35 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let name String: typed.name
             let args Array<AstNode>: typed.args
             let argCount Int64: args.len()
-            let is1ArgBuiltin Bool: name.equals("printLn") or name.equals("printError") or name.equals("exit") or name.equals("readFile") or name.equals("clone") or name.equals("drop") or name.equals("exec")
+            let is1ArgBuiltin Bool: name.equals("printLn") or name.equals("printError") or name.equals("exit") or name.equals("readFile") or name.equals("clone") or name.equals("drop") or name.equals("exec") or name.equals("move")
             if is1ArgBuiltin and not argCount.equals(1) {
-                semantic.addError(state, "'".append(name).append("' expects exactly 1 argument"))
+                state.addError("'".append(name).append("' expects exactly 1 argument"), typed.line, typed.col)
             }
             let is2ArgBuiltin Bool: name.equals("writeFile") or name.equals("appendToFile")
             if is2ArgBuiltin and not argCount.equals(2) {
-                semantic.addError(state, "'".append(name).append("' expects exactly 2 arguments"))
+                state.addError("'".append(name).append("' expects exactly 2 arguments"), typed.line, typed.col)
             }
-            let paramCount Int64: lookupFnParamCount(state, name)
+            let paramCount Int64: state.functions.paramCount(name)
             if not is1ArgBuiltin and not is2ArgBuiltin and paramCount.gte(0) and not argCount.equals(paramCount) {
-                semantic.addError(state, "function '".append(name).append("' called with ").append(argCount.toString()).append(" argument(s), expected ").append(paramCount.toString()))
+                state.addError("function '".append(name).append("' called with ").append(argCount.toString()).append(" argument(s), expected ").append(paramCount.toString()), typed.line, typed.col)
             }
-            analyzeExprAt(state, args, 0)
+            if name.equals("move") and argCount.equals(1) {
+                match args.at(0) {
+                    VarRefNode: {
+                        let typedArg VarRefNode: args.at(0)
+                        if state.isMoved(typedArg.name) {
+                            state.addError("variable '".append(typedArg.name).append("' has already been moved"), typedArg.line, typedArg.col)
+                        }
+                        state.markMoved(typedArg.name)
+                    }
+                    _: {
+                        state.addError("move() argument must be a variable", typed.line, typed.col)
+                        analyzeExprAt(state, args)
+                    }
+                }
+            } else {
+                analyzeExprAt(state, args)
+            }
         }
 
         MatchExprNode: {
@@ -301,42 +276,35 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let condType String: inferType(state, cond)
             let isValidCondType Bool: condType.equals("") or condType.equals("Bool") or condType.equals("Int64") or condType.equals("Float64") or condType.equals("String") or condType.equals("Char")
             if not isValidCondType {
-                semantic.addError(state, "match condition must be Bool, Int64, Float64, String, or Char, got ".append(condType))
+                state.addError("match condition must be Bool, Int64, Float64, String, or Char, got ".append(condType), typed.line, typed.col)
             }
-            let arms Array<MatchArm>: typed.arms
-            analyzeMatchArmsAt(state, arms, 0)
+            analyzeMatchArmsAt(state, typed.arms)
         }
 
         FieldAccessNode: {
             let typed FieldAccessNode: expr
-            let rcv AstNode: typed.receiver
-            analyzeExpr(state, rcv)
+            analyzeExpr(state, typed.receiver)
         }
 
         ArrayLitNode: {
             let typed ArrayLitNode: expr
-            let elems Array<AstNode>: typed.elems
-            analyzeExprAt(state, elems, 0)
+            analyzeExprAt(state, typed.elems)
         }
 
         StructLitNode: {
             let typed StructLitNode: expr
-            let fields Array<StructFieldNode>: typed.fields
-            analyzeStructFieldsAt(state, fields, 0)
+            analyzeStructFieldsAt(state, typed.fields)
         }
 
         UnaryNode: {
             let typed UnaryNode: expr
-            let operand AstNode: typed.operand
-            analyzeExpr(state, operand)
+            analyzeExpr(state, typed.operand)
         }
 
         BinaryNode: {
             let typed BinaryNode: expr
-            let left AstNode: typed.left
-            analyzeExpr(state, left)
-            let right AstNode: typed.right
-            analyzeExpr(state, right)
+            analyzeExpr(state, typed.left)
+            analyzeExpr(state, typed.right)
         }
 
         _: {}

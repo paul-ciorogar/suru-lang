@@ -1,0 +1,7 @@
+// tests/fixtures/break-error/main.suru
+//
+// Validates that `break` outside a while loop is a compile-time error.
+
+fn main() {
+    break
+}

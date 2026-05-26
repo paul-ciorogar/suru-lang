@@ -1,0 +1,52 @@
+// sum-type-with-methods: verify that an object type (a type with method
+// signatures) can be used as a sum type variant, and that methods can be
+// called on the narrowed value inside a match arm.
+
+type Animal: {
+    fn speak() String
+}
+
+type Empty: { }
+type MaybeAnimal: Animal, Empty
+
+fn makeAnimal(kind Int64) MaybeAnimal {
+    match kind {
+        0: {
+            let dog Animal: {
+                fn speak() String { return "woof" }
+            }
+            return dog
+        }
+        1: {
+            let cat Animal: {
+                fn speak() String { return "meow" }
+            }
+            return cat
+        }
+        _: {
+            let e Empty: { }
+            return e
+        }
+    }
+}
+
+fn main() {
+    let a MaybeAnimal: makeAnimal(0)
+    let b MaybeAnimal: makeAnimal(1)
+    let c MaybeAnimal: makeAnimal(2)
+    match a {
+        Animal: { printLn(a.speak()) }
+        Empty:  { printLn("empty") }
+    }
+    match b {
+        Animal: { printLn(b.speak()) }
+        Empty:  { printLn("empty") }
+    }
+    match c {
+        Animal: { printLn(c.speak()) }
+        Empty:  { printLn("empty") }
+    }
+    drop(a)
+    drop(b)
+    drop(c)
+}

@@ -1,0 +1,21 @@
+// tests/fixtures/move-valid/main.suru
+//
+// Validates that move() transfers ownership without cloning:
+//   - move() returns the value of the variable
+//   - the callee can use and drop the moved value
+//   - re-assigning a moved variable with := is valid (provides a new value)
+
+fn consume(s String) void {
+    printLn(s)
+    drop(s)
+}
+
+fn main() {
+    let s String: "hello".append(" world")
+    consume(move(s))
+
+    // Re-assigning after move is valid: s gets a fresh value.
+    s: "goodbye".append(" world")
+    printLn(s)
+    drop(s)
+}

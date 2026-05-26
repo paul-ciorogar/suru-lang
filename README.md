@@ -51,10 +51,10 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
 - Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
-- Control flow: `while`, `if` / `else if` / `else`, `match` (statement and expression forms)
+- Control flow: `while` (with `break` and `continue`), `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
-- Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `exit`, `exec`
+- Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `move`, `exit`, `exec`
 - Type expectations flow inward: struct and array literals take their type
   from the surrounding context (the `let` annotation, the enclosing function's
   return type, the parent struct's field type, or the surrounding array's
@@ -159,6 +159,28 @@ while i.lt(5) {
     i: i.add(1)
 }
 ```
+
+Use `break` to exit the loop early and `continue` to skip to the next iteration:
+
+```suru
+// Print 0, 1, 2 — stop when i reaches 3
+let i Int64: 0
+while i.lt(10) {
+    if i.equals(3) { break }
+    printLn(i)
+    i: i.add(1)
+}
+
+// Print 1, 2, 4, 5 — skip 3
+let j Int64: 0
+while j.lt(5) {
+    j: j.add(1)
+    if j.equals(3) { continue }
+    printLn(j)
+}
+```
+
+`break` and `continue` always refer to the **innermost** enclosing `while` loop. Using either outside a loop is a compile error.
 
 ### Control flow — if / else
 
@@ -566,7 +588,7 @@ other binding still pointing at the old string is left dangling — treat
 
 `Char` is a value type — a single byte. Unlike `String`, a `Char` is never
 heap-allocated and never needs `drop`. Char literals use single quotes;
-supported escapes are `\n`, `\t`, `\\`, `\'`.
+supported escapes are `\n`, `\t`, `\\`, `\'`, `\0`.
 
 ```suru
 let c Char: 'h'
@@ -669,6 +691,7 @@ printError(42)
 | `appendToFile` | `appendToFile(path, content)` | Appends `content` to the file at `path`. Creates the file if it does not exist. |
 | `clone` | `clone(x) → T` | Returns a deep copy of `x`. Required before storing a heap value (String, Array, or struct) in a second variable, passing it somewhere that takes ownership, or outliving the original. |
 | `drop` | `drop(x)` | Frees the heap memory owned by `x` (String, Array, or struct). After `drop`, `x` must not be used. |
+| `move` | `move(x) → T` | Transfers ownership of `x` without cloning. After `move(x)`, any use of `x` is a compile-time error. Re-assigning `x` clears the moved state. The argument must be a variable, not an expression. |
 | `exit` | `exit(code)` | Terminates the process immediately with the given exit code (`Int64`). Counts as a terminal statement — no `return` is needed after it in a non-void function. |
 | `exec` | `exec(cmd) → Int64` | Runs `cmd` as a shell command via `system()` and returns the exit code as `Int64`. Stdout and stderr pass through to the process. |
 
@@ -685,6 +708,7 @@ appendToFile("log.txt", "done\n")
 // memory
 let copy String: clone(src)
 drop(src)
+let moved String: move(copy)   // copy is now invalid; moved owns the value
 
 // process
 let code Int64: exec("ls -la")
@@ -758,7 +782,7 @@ Bootstrap a new compiler binary from source:
 
 ## CLI
 
-The Suru CLI (`src/cli/main.suru`) is the compiler. It wraps the compiler pipeline and exposes five commands: `compile`, `build`, `lex`, `parse`, and `ir`.
+The Suru CLI (`src/cli/main.suru`) is the compiler. It wraps the compiler pipeline and exposes six commands: `compile`, `build`, `lex`, `parse`, `ir`, and `debug`.
 
 ### Building the CLI
 
@@ -826,6 +850,39 @@ build/cli/main ir src/myprogram/main.suru
 
 Useful for inspecting codegen output or diffing IR across changes without producing a binary.
 
+### debug
+
+Stop the pipeline after a named pass and print the full AST and symbol table (functions, types, sum types, scopes, errors) to stdout:
+
+```sh
+build/cli/main debug <pass> src/myprogram/main.suru
+```
+
+Valid pass names:
+
+| Pass | Stops after |
+|---|---|
+| `resolve1` | First `resolveModuleTypes` — before monomorphization; generic templates still present |
+| `mono` | Monomorphization complete — concrete nodes injected, call-sites and variant arms rewritten |
+| `resolve2` | Second `resolveModuleTypes` — types resolved on concrete code |
+| `semantic` | `analyzeModuleStatements` — full symbol table visible, all semantic errors collected |
+
+Example output:
+```
+=== AST after mono ===
+Module [mono]
+  TypeDecl Box__Int64 { value Int64 }
+  FnDecl main(args Array<String>) ...
+
+=== Symbol Table after mono ===
+Functions (3):
+  main(Array<String>) → void
+  ...
+Types (1):
+  Box__Int64: { value Int64 }
+...
+```
+
 ## Repository layout
 
 ```
@@ -834,7 +891,11 @@ src/
     lexer/
     parser/
     semantic/
+      mono/       Monomorphization pass (monoCollect, monoInfer, monoInstantiate, monoSubst, monoPass)
     codegen/
+    debug/        Per-pass debug printer (debugPrint.suru)
+  stdlib/         Generic stdlib types (option.suru, result.suru)
+  cli/            User-facing CLI entry point (main.suru)
 runtime/          LLVM IR runtime modules (box, string, array, struct, variant)
 tests/fixtures/   Corpus programs; each dir contains main.suru + expected.txt
 tests/runner/     Suru test runner compiled and invoked by scripts/test.sh

@@ -1,0 +1,13 @@
+// tests/fixtures/break-valid/main.suru
+//
+// Validates that `break` exits a while loop early.
+// Counts 0..9 but stops at 3, so only 0, 1, 2 are printed.
+
+fn main() {
+    let i Int64: 0
+    while i.lt(10) {
+        if i.equals(3) { break }
+        printLn(i)
+        i: i.add(1)
+    }
+}

@@ -19,6 +19,23 @@ docker compose run --rm suru \
   bash << 'DOCKER_EOF'
 set -euo pipefail
 
+_t0=$(date +%s%3N)
+_step_t=$_t0
+
+_fmt_ms() {
+    local ms=$1
+    if (( ms < 1000 )); then
+        printf "%dms" "$ms"
+    elif (( ms < 60000 )); then
+        printf "%d:%03d" "$(( ms / 1000 ))" "$(( ms % 1000 ))"
+    else
+        printf "%d:%02d:%03d" "$(( ms / 60000 ))" "$(( (ms % 60000) / 1000 ))" "$(( ms % 1000 ))"
+    fi
+}
+_elapsed() { _fmt_ms "$(( $(date +%s%3N) - $1 ))"; }
+_step_done() { printf "  [elapsed: %s]\n" "$(_elapsed $_step_t)"; _step_t=$(date +%s%3N); }
+_total()     { printf "=== total: %s ===\n" "$(_elapsed $_t0)"; }
+
 # Clean /tmp/ artifacts and stale build outputs from previous runs. Without
 # this, a broken candidate can appear to pass tests because leftover binaries
 # from earlier runs get re-executed when the new compile silently fails (the
@@ -37,6 +54,7 @@ build_self() {  # $1 = output path
 # ── Stage 1: current bin/suru-build → C1 ────────────────────────────────────
 echo "--- Stage 1: building C1 with current bin/suru-build ---"
 build_self /tmp/cstage-c1
+_step_done
 
 # ── Stage 2: C1 → C2 (first binary on the candidate's own codegen) ──────────
 echo "--- Stage 2: building C2 with C1 ---"
@@ -45,6 +63,7 @@ ln -sf /tmp/cstage-c1 /tmp/candidate-bin/suru
 ln -sf /tmp/cstage-c1 /tmp/candidate-bin/suru-build
 export PATH="/tmp/candidate-bin:${PATH}"
 build_self /tmp/cstage-c2
+_step_done
 
 # ── Stage 3: C2 → C3, must equal C2 (self-hosting fixed point) ──────────────
 echo "--- Stage 3: building C3 with C2 (fixed-point check) ---"
@@ -58,6 +77,7 @@ if ! cmp -s /tmp/cstage-c2 /tmp/cstage-c3; then
     exit 1
 fi
 echo "fixed point confirmed: C2 == C3"
+_step_done
 
 # ── Full test suite with the converged compiler (C2) ───────────────────────
 echo "--- Running full test suite with C2 ---"
@@ -68,8 +88,10 @@ if ! /work/tests/runner/build/main; then
     echo "bootstrap: candidate failed the test suite — bin/suru-build NOT replaced" >&2
     exit 1
 fi
+_step_done
 
 # ── Replace bin/suru-build with the converged compiler ─────────────────────
 cp /tmp/cstage-c2 /work/bin/suru-build
 echo "bin/suru-build updated ($(md5sum /work/bin/suru-build | awk '{print $1}'))"
+_total
 DOCKER_EOF

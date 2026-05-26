@@ -10,7 +10,8 @@
 //
 // Used by monoInstantiate.suru to produce concrete copies of generic defs.
 
-include "../parser/parserAst.suru" as ast
+include "../../parser/parserAst.suru" as ast
+include "../../parser/astNodes.suru" as nodes
 
 // ─── String helpers ───────────────────────────────────────────────────────────
 
@@ -34,33 +35,39 @@ fn trimLeft(s String) String {
     return ""
 }
 
-// splitByCommaAt — accumulates comma-separated substrings of s into results.
-fn splitByCommaAt(s String, start Int64, i Int64, results Array<String>) Array<String> {
-    if not i.lt(s.len()) {
-        results.add(s.slice(start, s.len()))
-        return results
-    }
-    if s.at(i).equals(",") {
-        results.add(s.slice(start, i))
-        return splitByCommaAt(s, i.add(1), i.add(1), results)
-    }
-    return splitByCommaAt(s, start, i.add(1), results)
-}
-
 // splitByComma — split s by ',' into an Array<String>.
 fn splitByComma(s String) Array<String> {
     let results Array<String>: []
-    return splitByCommaAt(s, 0, 0, results)
+    let start Int64: 0
+    let i Int64: 0
+    while i.lt(s.len()) {
+        if s.at(i).equals(",") {
+            results.add(s.slice(start, i))
+            start: i.add(1)
+        }
+        i: i.add(1)
+    }
+    results.add(s.slice(start, s.len()))
+    return results
 }
 
 // joinSubstituted — substitute each element of args and join with ','.
-fn joinSubstituted(args Array<String>, paramNames Array<String>, concreteTypes Array<String>, i Int64) String {
-    if not i.lt(args.len()) { return "" }
-    let arg String: trimLeft(args.at(i))
-    let sub String: substituteType(arg, paramNames, concreteTypes)
-    let rest String: joinSubstituted(args, paramNames, concreteTypes, i.add(1))
-    if rest.len().gt(0) { return sub.append(",").append(rest) }
-    return sub
+fn joinSubstituted(args Array<String>, paramNames Array<String>, concreteTypes Array<String>) String {
+    let result String: ""
+    let i Int64: 0
+    while i.lt(args.len()) {
+        let arg String: trimLeft(args.at(i))
+        let sub String: substituteType(arg, paramNames, concreteTypes)
+        if result.len().gt(0) {
+            let next String: result.append(",").append(sub)
+            drop(result)
+            result: next
+        } else {
+            result: sub
+        }
+        i: i.add(1)
+    }
+    return result
 }
 
 // substituteType — replace type-variable names with concrete types.
@@ -81,7 +88,7 @@ fn substituteType(typeName String, paramNames Array<String>, concreteTypes Array
     let base String: typeName.slice(0, ltIdx)
     let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
     let args Array<String>: splitByComma(inner)
-    let substArgs String: joinSubstituted(args, paramNames, concreteTypes, 0)
+    let substArgs String: joinSubstituted(args, paramNames, concreteTypes)
     return base.append("<").append(substArgs).append(">")
 }
 
@@ -92,17 +99,15 @@ fn substParam(p Param, paramNames Array<String>, concreteTypes Array<String>) Pa
     return { name: p.name, typeName: substituteType(p.typeName, paramNames, concreteTypes) }
 }
 
-// substParamsAt — append substituted copies of params[i..] to out.
-fn substParamsAt(params Array<Param>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<Param>) Array<Param> {
-    if not i.lt(params.len()) { return out }
-    out.add(substParam(params.at(i), paramNames, concreteTypes))
-    return substParamsAt(params, paramNames, concreteTypes, i.add(1), out)
-}
-
 // substParams — return a new Array<Param> with all typeName fields substituted.
 fn substParams(params Array<Param>, paramNames Array<String>, concreteTypes Array<String>) Array<Param> {
     let out Array<Param>: []
-    return substParamsAt(params, paramNames, concreteTypes, 0, out)
+    let i Int64: 0
+    while i.lt(params.len()) {
+        out.add(substParam(params.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // substMethodSig — produce a new MethodSig with all type annotations substituted.
@@ -112,17 +117,15 @@ fn substMethodSig(ms MethodSig, paramNames Array<String>, concreteTypes Array<St
     return { name: ms.name, params: newParams, returnType: newRet }
 }
 
-// substMethodSigsAt — append substituted copies of methods[i..] to out.
-fn substMethodSigsAt(methods Array<MethodSig>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<MethodSig>) Array<MethodSig> {
-    if not i.lt(methods.len()) { return out }
-    out.add(substMethodSig(methods.at(i), paramNames, concreteTypes))
-    return substMethodSigsAt(methods, paramNames, concreteTypes, i.add(1), out)
-}
-
 // substMethodSigs — return a new Array<MethodSig> with all type annotations substituted.
 fn substMethodSigs(methods Array<MethodSig>, paramNames Array<String>, concreteTypes Array<String>) Array<MethodSig> {
     let out Array<MethodSig>: []
-    return substMethodSigsAt(methods, paramNames, concreteTypes, 0, out)
+    let i Int64: 0
+    while i.lt(methods.len()) {
+        out.add(substMethodSig(methods.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // ─── Array helpers (forward-reference substStmt / substExpr) ─────────────────
@@ -130,30 +133,26 @@ fn substMethodSigs(methods Array<MethodSig>, paramNames Array<String>, concreteT
 // functions are resolved at module scope, so forward references within a single
 // file are legal even though the callee appears later in the source.
 
-// substStmtsAt — append substituted copies of stmts[i..] to out.
-fn substStmtsAt(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<AstNode>) Array<AstNode> {
-    if not i.lt(stmts.len()) { return out }
-    out.add(substStmt(stmts.at(i), paramNames, concreteTypes))
-    return substStmtsAt(stmts, paramNames, concreteTypes, i.add(1), out)
-}
-
 // substStmts — return a new statement array with all type annotations substituted.
 fn substStmts(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>) Array<AstNode> {
     let out Array<AstNode>: []
-    return substStmtsAt(stmts, paramNames, concreteTypes, 0, out)
-}
-
-// substExprsAt — append substituted copies of exprs[i..] to out.
-fn substExprsAt(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<AstNode>) Array<AstNode> {
-    if not i.lt(exprs.len()) { return out }
-    out.add(substExpr(exprs.at(i), paramNames, concreteTypes))
-    return substExprsAt(exprs, paramNames, concreteTypes, i.add(1), out)
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        out.add(substStmt(stmts.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // substExprs — return a new expression array with all type annotations substituted.
 fn substExprs(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>) Array<AstNode> {
     let out Array<AstNode>: []
-    return substExprsAt(exprs, paramNames, concreteTypes, 0, out)
+    let i Int64: 0
+    while i.lt(exprs.len()) {
+        out.add(substExpr(exprs.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // ─── BlockNode helper ─────────────────────────────────────────────────────────
@@ -174,20 +173,18 @@ fn substStructField(sf StructFieldNode, paramNames Array<String>, concreteTypes 
     let newMparams Array<Param>: substParams(sf.methodParams, paramNames, concreteTypes)
     let newMret String: substituteType(sf.methodRet, paramNames, concreteTypes)
     let newMbody Array<AstNode>: substStmts(sf.methodBody, paramNames, concreteTypes)
-    return { name: sf.name, value: newVal, isMethod: sf.isMethod, methodParams: newMparams, methodRet: newMret, methodBody: newMbody }
-}
-
-// substStructFieldsAt — append substituted copies of fields[i..] to out.
-fn substStructFieldsAt(fields Array<StructFieldNode>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<StructFieldNode>) Array<StructFieldNode> {
-    if not i.lt(fields.len()) { return out }
-    out.add(substStructField(fields.at(i), paramNames, concreteTypes))
-    return substStructFieldsAt(fields, paramNames, concreteTypes, i.add(1), out)
+    return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: newMparams, methodRet: newMret, methodBody: newMbody }
 }
 
 // substStructFields — return a new StructFieldNode array with all type annotations substituted.
 fn substStructFields(fields Array<StructFieldNode>, paramNames Array<String>, concreteTypes Array<String>) Array<StructFieldNode> {
     let out Array<StructFieldNode>: []
-    return substStructFieldsAt(fields, paramNames, concreteTypes, 0, out)
+    let i Int64: 0
+    while i.lt(fields.len()) {
+        out.add(substStructField(fields.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // ─── MatchArm / MatchStmtArm substitution ────────────────────────────────────
@@ -200,17 +197,15 @@ fn substMatchArm(arm MatchArm, paramNames Array<String>, concreteTypes Array<Str
     return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
 }
 
-// substMatchArmsAt — append substituted copies of arms[i..] to out.
-fn substMatchArmsAt(arms Array<MatchArm>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<MatchArm>) Array<MatchArm> {
-    if not i.lt(arms.len()) { return out }
-    out.add(substMatchArm(arms.at(i), paramNames, concreteTypes))
-    return substMatchArmsAt(arms, paramNames, concreteTypes, i.add(1), out)
-}
-
 // substMatchArms — return a new MatchArm array with all type annotations substituted.
 fn substMatchArms(arms Array<MatchArm>, paramNames Array<String>, concreteTypes Array<String>) Array<MatchArm> {
     let out Array<MatchArm>: []
-    return substMatchArmsAt(arms, paramNames, concreteTypes, 0, out)
+    let i Int64: 0
+    while i.lt(arms.len()) {
+        out.add(substMatchArm(arms.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // substMatchStmtArm — substitute type annotations in a match-statement arm
@@ -221,17 +216,15 @@ fn substMatchStmtArm(arm MatchStmtArm, paramNames Array<String>, concreteTypes A
     return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
 }
 
-// substMatchStmtArmsAt — append substituted copies of arms[i..] to out.
-fn substMatchStmtArmsAt(arms Array<MatchStmtArm>, paramNames Array<String>, concreteTypes Array<String>, i Int64, out Array<MatchStmtArm>) Array<MatchStmtArm> {
-    if not i.lt(arms.len()) { return out }
-    out.add(substMatchStmtArm(arms.at(i), paramNames, concreteTypes))
-    return substMatchStmtArmsAt(arms, paramNames, concreteTypes, i.add(1), out)
-}
-
 // substMatchStmtArms — return a new MatchStmtArm array with all type annotations substituted.
 fn substMatchStmtArms(arms Array<MatchStmtArm>, paramNames Array<String>, concreteTypes Array<String>) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
-    return substMatchStmtArmsAt(arms, paramNames, concreteTypes, 0, out)
+    let i Int64: 0
+    while i.lt(arms.len()) {
+        out.add(substMatchStmtArm(arms.at(i), paramNames, concreteTypes))
+        i: i.add(1)
+    }
+    return out
 }
 
 // ─── Statement substitution ──────────────────────────────────────────────────
@@ -246,47 +239,47 @@ fn substStmt(node AstNode, paramNames Array<String>, concreteTypes Array<String>
             let newParams Array<Param>: substParams(fd.params, paramNames, concreteTypes)
             let newRet String: substituteType(fd.returnType, paramNames, concreteTypes)
             let newBody Array<AstNode>: substStmts(fd.body, paramNames, concreteTypes)
-            let result FnDeclNode: { name: fd.name, params: newParams, returnType: newRet, body: newBody, srcPath: fd.srcPath, typeParams: fd.typeParams }
+            let result FnDeclNode: { name: fd.name, params: newParams, returnType: newRet, body: newBody, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
             return result
         }
         TypeDeclNode: {
             let td TypeDeclNode: node
             let newFields Array<Param>: substParams(td.fields, paramNames, concreteTypes)
             let newMethods Array<MethodSig>: substMethodSigs(td.methods, paramNames, concreteTypes)
-            let result TypeDeclNode: { name: td.name, fields: newFields, methods: newMethods, typeParams: td.typeParams }
+            let result TypeDeclNode: { name: td.name, fields: newFields, methods: newMethods, typeParams: td.typeParams, line: td.line, col: td.col }
             return result
         }
         LetNode: {
             let ln LetNode: node
             let newType String: substituteType(ln.typeName, paramNames, concreteTypes)
             let newVal AstNode: substExpr(ln.value, paramNames, concreteTypes)
-            let result LetNode: { name: ln.name, typeName: newType, value: newVal }
+            let result LetNode: { name: ln.name, typeName: newType, value: newVal, line: ln.line, col: ln.col }
             return result
         }
         AssignNode: {
             let an AssignNode: node
             let newVal AstNode: substExpr(an.value, paramNames, concreteTypes)
-            let result AssignNode: { name: an.name, value: newVal }
+            let result AssignNode: { name: an.name, value: newVal, line: an.line, col: an.col }
             return result
         }
         FieldAssignNode: {
             let fan FieldAssignNode: node
             let newRec AstNode: substExpr(fan.receiver, paramNames, concreteTypes)
             let newVal AstNode: substExpr(fan.value, paramNames, concreteTypes)
-            let result FieldAssignNode: { receiver: newRec, fieldName: fan.fieldName, value: newVal }
+            let result FieldAssignNode: { receiver: newRec, fieldName: fan.fieldName, value: newVal, line: fan.line, col: fan.col }
             return result
         }
         ReturnNode: {
             let rn ReturnNode: node
             let newVal AstNode: substExpr(rn.value, paramNames, concreteTypes)
-            let result ReturnNode: { hasValue: rn.hasValue, value: newVal }
+            let result ReturnNode: { hasValue: rn.hasValue, value: newVal, line: rn.line, col: rn.col }
             return result
         }
         WhileNode: {
             let wn WhileNode: node
             let newCond AstNode: substExpr(wn.condition, paramNames, concreteTypes)
             let newBody Array<AstNode>: substStmts(wn.body, paramNames, concreteTypes)
-            let result WhileNode: { condition: newCond, body: newBody }
+            let result WhileNode: { condition: newCond, body: newBody, line: wn.line, col: wn.col }
             return result
         }
         ExprStmtNode: {
@@ -300,7 +293,7 @@ fn substStmt(node AstNode, paramNames Array<String>, concreteTypes Array<String>
             let newCond AstNode: substExpr(ifn.condition, paramNames, concreteTypes)
             let newThen BlockNode: substBlock(ifn.thenBranch, paramNames, concreteTypes)
             let newElse BlockNode: substBlock(ifn.elseBranch, paramNames, concreteTypes)
-            let result IfNode: { condition: newCond, thenBranch: newThen, elseBranch: newElse }
+            let result IfNode: { condition: newCond, thenBranch: newThen, elseBranch: newElse, line: ifn.line, col: ifn.col }
             return result
         }
         MatchStmtNode: {
@@ -356,26 +349,26 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         }
         VarRefNode: {
             let vr VarRefNode: node
-            let result VarRefNode: { name: vr.name, resolvedType: substituteType(vr.resolvedType, paramNames, concreteTypes) }
+            let result VarRefNode: { name: vr.name, line: vr.line, col: vr.col, resolvedType: substituteType(vr.resolvedType, paramNames, concreteTypes) }
             return result
         }
         CallNode: {
             let cn CallNode: node
             let newArgs Array<AstNode>: substExprs(cn.args, paramNames, concreteTypes)
-            let result CallNode: { name: cn.name, args: newArgs, resolvedType: substituteType(cn.resolvedType, paramNames, concreteTypes) }
+            let result CallNode: { name: cn.name, args: newArgs, line: cn.line, col: cn.col, resolvedType: substituteType(cn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         MethodCallNode: {
             let mcn MethodCallNode: node
             let newRec AstNode: substExpr(mcn.receiver, paramNames, concreteTypes)
             let newArgs Array<AstNode>: substExprs(mcn.args, paramNames, concreteTypes)
-            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, resolvedType: substituteType(mcn.resolvedType, paramNames, concreteTypes) }
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: substituteType(mcn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         FieldAccessNode: {
             let fan FieldAccessNode: node
             let newRec AstNode: substExpr(fan.receiver, paramNames, concreteTypes)
-            let result FieldAccessNode: { receiver: newRec, fieldName: fan.fieldName, resolvedType: substituteType(fan.resolvedType, paramNames, concreteTypes) }
+            let result FieldAccessNode: { receiver: newRec, fieldName: fan.fieldName, line: fan.line, col: fan.col, resolvedType: substituteType(fan.resolvedType, paramNames, concreteTypes) }
             return result
         }
         ArrayLitNode: {
@@ -387,14 +380,14 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         StructLitNode: {
             let sln StructLitNode: node
             let newFields Array<StructFieldNode>: substStructFields(sln.fields, paramNames, concreteTypes)
-            let result StructLitNode: { fields: newFields, resolvedType: substituteType(sln.resolvedType, paramNames, concreteTypes) }
+            let result StructLitNode: { fields: newFields, resolvedType: substituteType(sln.resolvedType, paramNames, concreteTypes), line: 0, col: 0 }
             return result
         }
         MatchExprNode: {
             let men MatchExprNode: node
             let newCond AstNode: substExpr(men.condition, paramNames, concreteTypes)
             let newArms Array<MatchArm>: substMatchArms(men.arms, paramNames, concreteTypes)
-            let result MatchExprNode: { condition: newCond, arms: newArms, resolvedType: substituteType(men.resolvedType, paramNames, concreteTypes) }
+            let result MatchExprNode: { condition: newCond, arms: newArms, line: men.line, col: men.col, resolvedType: substituteType(men.resolvedType, paramNames, concreteTypes) }
             return result
         }
         UnaryNode: {

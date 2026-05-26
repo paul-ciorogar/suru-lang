@@ -1,1 +1,3 @@
-/work/tests/fixtures/xmod-error/main.suru: argument type mismatch: expected Int64, got Array<String>
+/work/tests/fixtures/xmod-error/main.suru:14:21: error: argument type mismatch: expected Int64, got Array<String>
+  14 |     let r Bool: lib.needInt(args)
+                           ^

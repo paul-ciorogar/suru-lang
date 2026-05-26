@@ -1,0 +1,339 @@
+// monoInstantiate.suru — Produce concrete copies of generic definitions
+// via monomorphization.
+//
+// mangleGenericName builds the mangled name for a concrete instantiation
+// (e.g. "Pair__Int64__String").  instantiateType / instantiateFn deep-clone a
+// generic AST node with all type-parameter names substituted with their concrete
+// counterparts and the definition name replaced by the mangled form.
+// instantiateAll orchestrates deduplication across a list of
+// InstantiationRequests and returns only newly produced concrete nodes.
+//
+// Used by monoPass.suru after monoInfer.suru has collected all instantiation
+// sites from the first resolveModuleTypes pass.
+
+include "monoCollect.suru" as collect
+include "monoSubst.suru"   as subst
+
+// ─── InstantiationRequest ─────────────────────────────────────────────────────
+
+// InstantiationRequest names one concrete instantiation: the generic definition
+// identified by genericName, specialized with the listed concrete type arguments.
+// One request per usage site; duplicates are deduplicated by instantiateAll.
+type InstantiationRequest: { genericName String, concreteTypes Array<String> }
+
+// ─── Name mangling ────────────────────────────────────────────────────────────
+
+// flattenTypeArg — convert a concrete type name to a flat identifier-safe form.
+// Handles the suru canonical form ("Array:X") and annotation form ("Array<X>",
+// "Option<Int64>") recursively, so nested generics collapse correctly:
+//   "Array:Int64"           → "Array__Int64"
+//   "Array<Int64>"          → "Array__Int64"
+//   "Option<Int64>"         → "Option__Int64"
+//   "Option<Array<Int64>>"  → "Option__Array__Int64"
+// Plain names (no ':' prefix and no '<') are returned as a fresh clone.
+fn flattenTypeArg(typeName String) String {
+    let len Int64: typeName.len()
+    if len.gt(5) {
+        if typeName.slice(0, 6).equals("Array:") {
+            return "Array__".append(typeName.slice(6, len))
+        }
+    }
+    let ltIdx Int64: subst.indexOfLT(typeName)
+    if ltIdx.equals(len) { return typeName.clone() }
+    let base String: typeName.slice(0, ltIdx)
+    let inner String: typeName.slice(ltIdx.add(1), len.take(1))
+    let args Array<String>: subst.splitByComma(inner)
+    let acc String: base
+    let i Int64: 0
+    while i.lt(args.len()) {
+        let flat String: flattenTypeArg(subst.trimLeft(args.at(i)))
+        let next String: acc.append("__").append(flat)
+        drop(flat)
+        drop(acc)
+        acc: next
+        i: i.add(1)
+    }
+    return acc
+}
+
+// appendMangledTypes — append "__<flattenTypeArg(types[i])>" for each type in
+// types to acc, returning the grown string.  Calls flattenTypeArg so that nested
+// generic names like "Array<Int64>" are flattened to "Array__Int64" before
+// appending.  Drops each intermediate acc before replacing it.
+fn appendMangledTypes(acc String, types Array<String>) String {
+    let i Int64: 0
+    while i.lt(types.len()) {
+        let flat String: flattenTypeArg(types.at(i))
+        let next String: acc.append("__").append(flat)
+        drop(flat)
+        drop(acc)
+        acc: next
+        i: i.add(1)
+    }
+    return acc
+}
+
+// mangleGenericName — produce the monomorphized identifier for a generic
+// definition instantiated with the given concrete types.
+//   mangleGenericName("Box",  ["Int64"])          → "Box__Int64"
+//   mangleGenericName("Pair", ["Int64","String"]) → "Pair__Int64__String"
+// Always returns an owned heap String; the caller is responsible for dropping it.
+fn mangleGenericName(baseName String, concreteTypes Array<String>) String {
+    let acc String: baseName.clone()
+    return appendMangledTypes(acc, concreteTypes)
+}
+
+// ─── Instantiation ────────────────────────────────────────────────────────────
+
+// instantiateType — produce a concrete TypeDeclNode from a generic definition.
+// The result has the mangled name, empty typeParams, and all field/method type
+// annotations substituted by the monoSubst helpers.
+fn instantiateType(def GenericTypeDef, concreteTypes Array<String>) TypeDeclNode {
+    let mangledName String: mangleGenericName(def.name, concreteTypes)
+    let newFields Array<Param>: subst.substParams(def.node.fields, def.typeParams(), concreteTypes)
+    let newMethods Array<MethodSig>: subst.substMethodSigs(def.node.methods, def.typeParams(), concreteTypes)
+    let emptyTp Array<String>: []
+    return { name: mangledName, fields: newFields, methods: newMethods, typeParams: emptyTp, line: 0, col: 0 }
+}
+
+// instantiateFn — produce a concrete FnDeclNode from a generic definition.
+// The result has the mangled name, empty typeParams, and all type annotations
+// in params, returnType, and body substituted by the monoSubst helpers.
+fn instantiateFn(def GenericFnDef, concreteTypes Array<String>) FnDeclNode {
+    let mangledName String: mangleGenericName(def.name, concreteTypes)
+    let newParams Array<Param>: subst.substParams(def.node.params, def.typeParams(), concreteTypes)
+    let newRet String: subst.substituteType(def.node.returnType, def.typeParams(), concreteTypes)
+    let newBody Array<AstNode>: subst.substStmts(def.node.body, def.typeParams(), concreteTypes)
+    let emptyTp Array<String>: []
+    return { name: mangledName, params: newParams, returnType: newRet, body: newBody, srcPath: def.srcPath, typeParams: emptyTp, line: 0, col: 0 }
+}
+
+// ─── AstNode wrap helpers ────────────────────────────────────────────────────
+// The bootstrap binary's codegen only emits the AstNode sum-type header
+// (offset 0 = SumType runtime tag, offset 8 = variant index) when a new
+// struct LITERAL is returned from a function whose return type is AstNode.
+// Merely returning an existing TypeDeclNode/FnDeclNode pointer does NOT add
+// the header, leaving offset 8 as 0 (refCount), which match dispatch reads as
+// IncludeNode (variant 0) instead of TypeDeclNode (8) or FnDeclNode (1).
+// The workaround: create a fresh struct literal with all fields copied so
+// the codegen emits the correct variant index at offset 8.
+fn wrapTypeDeclNode(td TypeDeclNode) AstNode {
+    let n String: td.name
+    let f Array<Param>: td.fields
+    let m Array<MethodSig>: td.methods
+    let tp Array<String>: td.typeParams
+    let r TypeDeclNode: { name: n, fields: f, methods: m, typeParams: tp, line: 0, col: 0 }
+    return r
+}
+fn wrapFnDeclNode(fd FnDeclNode) AstNode {
+    let n String: fd.name
+    let p Array<Param>: fd.params
+    let rt String: fd.returnType
+    let b Array<AstNode>: fd.body
+    let sp String: fd.srcPath
+    let tp Array<String>: fd.typeParams
+    let r FnDeclNode: { name: n, params: p, returnType: rt, body: b, srcPath: sp, typeParams: tp, line: fd.line, col: fd.col }
+    return r
+}
+
+// ─── Sum type instantiation ───────────────────────────────────────────────────
+
+// mangleTypeExpr — convert a post-substitution type expression string into a
+// mangled identifier.  Plain names are returned unchanged; generic applications
+// are flattened to the mangled form.
+//   "None"        → "None"
+//   "Some<Int64>" → "Some__Int64"
+//   "Pair<Int64,String>" → "Pair__Int64__String"
+fn mangleTypeExpr(typeExpr String) String {
+    let ltIdx Int64: subst.indexOfLT(typeExpr)
+    // No '<': plain name — return as-is.
+    if ltIdx.equals(typeExpr.len()) { return typeExpr }
+    let base String: typeExpr.slice(0, ltIdx)
+    // Strip the enclosing '<' and '>' and split the type args by comma.
+    let inner String: typeExpr.slice(ltIdx.add(1), typeExpr.len().take(1))
+    let args Array<String>: subst.splitByComma(inner)
+    return appendMangledTypes(base, args)
+}
+
+// substAndMangleVariants — for each variant, apply substituteType then
+// mangleTypeExpr, appending results to out.
+fn substAndMangleVariants(variants Array<String>, paramNames Array<String>, concreteTypes Array<String>, out Array<String>) Array<String> {
+    let i Int64: 0
+    while i.lt(variants.len()) {
+        let substituted String: subst.substituteType(variants.at(i), paramNames, concreteTypes)
+        out.add(mangleTypeExpr(substituted))
+        i: i.add(1)
+    }
+    return out
+}
+
+// instantiateSumType — produce a concrete SumTypeDeclNode from a generic sum
+// type definition.  The result has the mangled name, empty typeParams, and all
+// variant type expressions substituted and mangled.
+fn instantiateSumType(def GenericSumTypeDef, concreteTypes Array<String>) SumTypeDeclNode {
+    let mangledName String: mangleGenericName(def.name, concreteTypes)
+    let outVariants Array<String>: []
+    let newVariants Array<String>: substAndMangleVariants(def.node.variants, def.typeParams(), concreteTypes, outVariants)
+    let emptyTp Array<String>: []
+    return { name: mangledName, variants: newVariants, typeParams: emptyTp, line: 0, col: 0 }
+}
+
+// wrapSumTypeDeclNode — forced-copy workaround so the returned AstNode carries
+// the correct SumTypeDeclNode variant tag (same rationale as wrapTypeDeclNode).
+fn wrapSumTypeDeclNode(sd SumTypeDeclNode) AstNode {
+    let n String: sd.name
+    let v Array<String>: sd.variants
+    let tp Array<String>: sd.typeParams
+    let ln Int64: sd.line
+    let cl Int64: sd.col
+    let r SumTypeDeclNode: { name: n, variants: v, typeParams: tp, line: ln, col: cl }
+    return r
+}
+
+// ─── Deduplication ────────────────────────────────────────────────────────────
+
+// alreadySeen — true if name is already in the seen set.
+fn alreadySeen(seen Array<String>, name String) Bool {
+    let i Int64: 0
+    while i.lt(seen.len()) {
+        if seen.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// ─── Dispatch helpers ─────────────────────────────────────────────────────────
+
+// findInstType — walk registry.types; if the name matches, instantiate and push
+// the concrete TypeDeclNode into out then stop.
+// Uses wrapTypeDeclNode + typed intermediate to ensure correct AstNode tagging.
+fn findInstType(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>) {
+    let i Int64: 0
+    while i.lt(registry.types.len()) {
+        if registry.types.at(i).name.equals(genericName) {
+            let concrete TypeDeclNode: instantiateType(registry.types.at(i), concreteTypes)
+            let outArr Array<AstNode>: out
+            outArr.add(wrapTypeDeclNode(concrete))
+            // wrapTypeDeclNode copies the field pointers into a new struct stored in out.
+            // Zero out concrete's fields so its drop doesn't free the shared inner data.
+            concrete.name: {}
+            concrete.fields: {}
+            concrete.methods: {}
+            concrete.typeParams: {}
+            drop(concrete)
+            break
+        }
+        i: i.add(1)
+    }
+}
+
+// findInstFn — walk registry.fns; if the name matches, instantiate and push
+// the concrete FnDeclNode into out then stop.
+// Uses wrapFnDeclNode + typed intermediate to ensure correct AstNode tagging.
+fn findInstFn(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>) {
+    let i Int64: 0
+    while i.lt(registry.fns.len()) {
+        if registry.fns.at(i).name.equals(genericName) {
+            let concrete FnDeclNode: instantiateFn(registry.fns.at(i), concreteTypes)
+            let outArr Array<AstNode>: out
+            outArr.add(wrapFnDeclNode(concrete))
+            concrete.name: {}
+            concrete.params: {}
+            concrete.returnType: {}
+            concrete.body: {}
+            concrete.srcPath: {}
+            concrete.typeParams: {}
+            drop(concrete)
+            break
+        }
+        i: i.add(1)
+    }
+}
+
+// instantiateVariantTypes — for each variant in rawVariants that has type
+// arguments (e.g. "Some<T>"), substitute the type params and call findInstType
+// to produce the concrete variant struct TypeDeclNode.
+// This ensures that when Option<T> is instantiated, the variant structs like
+// Some<T> → Some__Int64 are also generated (needed for field access in match arms).
+// seen is the same deduplication set used by instantiateAll so variant
+// structs are not added twice when the same generic struct is also inferred
+// from a direct type annotation.
+fn instantiateVariantTypes(registry GenericRegistry, rawVariants Array<String>, paramNames Array<String>, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>) {
+    let i Int64: 0
+    while i.lt(rawVariants.len()) {
+        let raw String: rawVariants.at(i)
+        let ltIdx Int64: subst.indexOfLT(raw)
+        // Only process generic variants (those with '<' in raw template form).
+        if not ltIdx.equals(raw.len()) {
+            // Substitute type params in the full variant expression, then
+            // re-parse to extract base name and concrete arg list.
+            // E.g. "Some<T>" + {T→Int64} → "Some<Int64>" → base="Some", args=["Int64"]
+            let substituted String: subst.substituteType(raw, paramNames, concreteTypes)
+            let subLtIdx Int64: subst.indexOfLT(substituted)
+            if not subLtIdx.equals(substituted.len()) {
+                let baseName String: substituted.slice(0, subLtIdx)
+                let inner String: substituted.slice(subLtIdx.add(1), substituted.len().take(1))
+                let variantArgs Array<String>: subst.splitByComma(inner)
+                let mangledVariant String: mangleGenericName(baseName, variantArgs)
+                // Skip if already instantiated (prevents duplicate TypeDeclNodes).
+                if not alreadySeen(seen, mangledVariant) {
+                    seen.add(mangledVariant)
+                    findInstType(registry, baseName, variantArgs, out)
+                }
+            }
+        }
+        i: i.add(1)
+    }
+}
+
+// findInstSumType — walk registry.sumTypes; if the name matches, instantiate
+// and push the concrete SumTypeDeclNode into out then stop.
+// Also instantiates the concrete variant struct TypeDeclNodes (e.g. Some<T> →
+// Some__Int64) so that field access inside match arms works correctly.
+// seen is the deduplication set from instantiateAll, shared to prevent
+// double-adding variant structs that were also directly inferred.
+fn findInstSumType(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>) {
+    let i Int64: 0
+    while i.lt(registry.sumTypes.len()) {
+        if registry.sumTypes.at(i).name.equals(genericName) {
+            let def GenericSumTypeDef: registry.sumTypes.at(i)
+            let concrete SumTypeDeclNode: instantiateSumType(def, concreteTypes)
+            let outArr Array<AstNode>: out
+            outArr.add(wrapSumTypeDeclNode(concrete))
+            concrete.name: {}
+            concrete.variants: {}
+            concrete.typeParams: {}
+            drop(concrete)
+            // Instantiate the variant struct types (e.g. Some<T> → Some__Int64).
+            instantiateVariantTypes(registry, def.node.variants, def.typeParams(), concreteTypes, out, seen)
+            break
+        }
+        i: i.add(1)
+    }
+}
+
+// ─── Batch instantiation ──────────────────────────────────────────────────────
+
+// instantiateAll — process all requests, deduplicate by mangled name, and
+// return an array of new concrete AstNodes (TypeDeclNode or FnDeclNode variants).
+// Requests whose genericName does not appear in the registry are silently skipped.
+fn instantiateAll(registry GenericRegistry, requests Array<InstantiationRequest>) Array<AstNode> {
+    let seen Array<String>: []
+    let out Array<AstNode>: []
+    let i Int64: 0
+    while i.lt(requests.len()) {
+        let req InstantiationRequest: requests.at(i)
+        let mangledName String: mangleGenericName(req.genericName, req.concreteTypes)
+        if not alreadySeen(seen, mangledName) {
+            seen.add(mangledName)
+            findInstType(registry, req.genericName, req.concreteTypes, out)
+            findInstFn(registry, req.genericName, req.concreteTypes, out)
+            findInstSumType(registry, req.genericName, req.concreteTypes, out, seen)
+        } else {
+            drop(mangledName)
+        }
+        i: i.add(1)
+    }
+    drop(seen)
+    return out
+}

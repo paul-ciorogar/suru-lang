@@ -21,28 +21,22 @@ include "stmts.suru" as analysis
 
 // ─── checkHasReturn ───────────────────────────────────────────────────────────
 
-// checkHasReturnInWhile — reads the WhileNode body and delegates to
-// checkHasReturnAt so the two functions can be mutually recursive.
-fn checkHasReturnInWhile(stmt WhileNode) Bool {
-    let body Array<AstNode>: stmt.body
-    return checkHasReturnAt(body, 0)
-}
-
 // allMatchArmsHaveReturn — true when every arm of a MatchStmtNode has a return/exit
 // path.  Typed as Array<MatchStmtArm> so arm.stmts resolves without an undeclared-field GEP.
-fn allMatchArmsHaveReturn(arms Array<MatchStmtArm>, i Int64) Bool {
-    if not i.lt(arms.len()) { return true }
-    let arm MatchStmtArm: arms.at(i)
-    let armStmts Array<AstNode>: arm.stmts
-    if not checkHasReturnAt(armStmts, 0) { return false }
-    return allMatchArmsHaveReturn(arms, i.add(1))
+fn allMatchArmsHaveReturn(arms Array<MatchStmtArm>) Bool {
+    let i Int64: 0
+    while i.lt(arms.len()) {
+        let arm MatchStmtArm: arms.at(i)
+        if not checkHasReturn(arm.stmts) { return false }
+        i: i.add(1)
+    }
+    return true
 }
 
 // Typed bridge: accepts a generic AstNode, casts to MatchStmtNode so .arms resolves.
 fn checkHasReturnInMatchStmt(node AstNode) Bool {
     let matchNode MatchStmtNode: node
-    let arms Array<MatchStmtArm>: matchNode.arms
-    return allMatchArmsHaveReturn(arms, 0)
+    return allMatchArmsHaveReturn(matchNode.arms)
 }
 
 // isExitCall — true when an ExprStmtNode contains a direct call to exit().
@@ -79,29 +73,33 @@ fn checkHasReturnInIf(node AstNode) Bool {
     let elseStmts Array<AstNode>: elseBlock.stmts
     if not elseStmts.len().gt(0) { return false }
     let thenBlock BlockNode: ifNode.thenBranch
-    let thenStmts Array<AstNode>: thenBlock.stmts
-    return checkHasReturnAt(thenStmts, 0) and checkHasReturnAt(elseStmts, 0)
+    return checkHasReturn(thenBlock.stmts) and checkHasReturn(elseStmts)
 }
 
-// checkHasReturnAt — linear scan starting at index i.
+// checkHasReturn — linear scan of stmts.
 // Returns true on ReturnNode, a WhileNode that transitively contains a return,
 // an ExprStmtNode that is a direct call to exit(), a MatchStmtNode whose every
 // arm returns, or an IfNode whose then+else branches both return.
-fn checkHasReturnAt(stmts Array<AstNode>, i Int64) Bool {
-    if not i.lt(stmts.len()) { return false }
-    match stmts.at(i) {
-        ReturnNode:    { return true }
-        WhileNode:     { if checkHasReturnInWhile(stmts.at(i))     { return true } return checkHasReturnAt(stmts, i.add(1)) }
-        ExprStmtNode:  { if isExitCall(stmts.at(i))                { return true } return checkHasReturnAt(stmts, i.add(1)) }
-        MatchStmtNode: { if checkHasReturnInMatchStmt(stmts.at(i)) { return true } return checkHasReturnAt(stmts, i.add(1)) }
-        IfNode:        { if checkHasReturnInIf(stmts.at(i))        { return true } return checkHasReturnAt(stmts, i.add(1)) }
-        _:             { return checkHasReturnAt(stmts, i.add(1)) }
-    }
-}
-
-// checkHasReturn — public entry point; starts from index 0.
 fn checkHasReturn(stmts Array<AstNode>) Bool {
-    return checkHasReturnAt(stmts, 0)
+    let i Int64: 0
+    while i.lt(stmts.len()) {
+        match stmts.at(i) {
+            ReturnNode:    { return true }
+            WhileNode:     {
+                let wn WhileNode: stmts.at(i)
+                if checkHasReturn(wn.body) { return true }
+            }
+            ExprStmtNode:  {
+                let es ExprStmtNode: stmts.at(i)
+                if isExitCall(es) { return true }
+            }
+            MatchStmtNode: { if checkHasReturnInMatchStmt(stmts.at(i)) { return true } }
+            IfNode:        { if checkHasReturnInIf(stmts.at(i))        { return true } }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return false
 }
 
 // ─── analyzeFunctionDeclaration ───────────────────────────────────────────────
@@ -122,16 +120,19 @@ fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerStat
     // 1. Save outer context for restoration after body analysis.
     let savedReturnType String: state.currentReturnType
     let savedInsideFunction Int64: state.insideFunction
+    let savedMovedVars Array<String>: state.movedVars
+    let savedSrcPath String: state.currentSrcPath
+    state.currentSrcPath: stmt.srcPath
 
     // 2. Push a fresh scope so param names and body locals are scoped to this function.
-    semantic.pushScope(state)
+    state.pushScope()
 
     // 3. Inject parameters as symbols in the new scope.
     let params Array<Param>: stmt.params
     let pi Int64: 0
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
-        semantic.declareSymbol(state, p.name, p.typeName)
+        state.declareSymbol(p.name, p.typeName)
         pi: pi.add(1)
     }
 
@@ -140,6 +141,8 @@ fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerStat
     let returnType String: stmt.returnType
     state.currentReturnType: returnType
     state.insideFunction: 1
+    // Each function body starts with a clean move-tracking slate.
+    state.resetMovedVars()
 
     // 5. Analyze the function body using the statement analyzer.
     let body Array<AstNode>: stmt.body
@@ -148,13 +151,15 @@ fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerStat
     // 6. Non-void functions must have at least one reachable return path.
     let isVoid Bool: returnType.equals("void") or returnType.equals("")
     if not isVoid and not checkHasReturn(body) {
-        semantic.addError(state, "function '".append(stmt.name).append("' has no return statement"))
+        state.addError("function '".append(stmt.name).append("' has no return statement"), stmt.line, stmt.col)
     }
 
     // 7. Pop function scope and restore context for the enclosing scope.
-    semantic.popScope(state)
+    state.popScope()
     state.currentReturnType: savedReturnType
     state.insideFunction: savedInsideFunction
+    state.movedVars: savedMovedVars
+    state.currentSrcPath: savedSrcPath
 
     return state
 }

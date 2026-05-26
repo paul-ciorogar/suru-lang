@@ -17,11 +17,13 @@
 //  19  CallNode        20 MethodCallNode  21 FieldAccessNode
 //  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
 //  25  UnaryNode       26 BinaryNode      27 CharLitNode
-//  28  VtableRefNode   29 ExternFnNode
+//  28  VtableRefNode   29 ExternFnNode    30 BreakNode
+//  31  ContinueNode
 //
-// CharLitNode (27), VtableRefNode (28), and ExternFnNode (29) are appended LAST:
-// variant tags are derived from declaration order, so appending keeps indices 0–27
-// stable and the bootstrap fixed point intact. Never insert a variant mid-list.
+// CharLitNode (27), VtableRefNode (28), ExternFnNode (29), BreakNode (30), and
+// ContinueNode (31) are appended LAST: variant tags are derived from declaration
+// order, so appending keeps indices 0–29 stable and the bootstrap fixed point
+// intact. Never insert a variant mid-list.
 //
 // `this` is NOT a distinct variant — the parser emits VarRefNode{name:"this"};
 // the method lambda-lift (pipeline.suru) introduces a real `this` param so it
@@ -37,6 +39,7 @@
 // valid as match patterns and never appear in value position.
 
 include "../lexer/lexer.suru" as lexer
+include "../diagUtils.suru" as diagUtils
 
 // Operator constants for UnaryNode.op and BinaryNode.op.
 let OP_NOT Int64: 1
@@ -45,7 +48,77 @@ let OP_OR  Int64: 3
 
 // ─── Parser state ─────────────────────────────────────────────────────────────
 
-type Parser: { pos Int64, tokens Array<Token> }
+type Parser: {
+    fn advance()
+    fn currentToken() Token
+    fn currentTokenIs(kind Int64) Bool
+    fn peekToken() Token
+    fn peekIs(kind Int64) Bool
+    fn consume(expectedKind Int64)
+    fn consumeIf(kind Int64)
+    fn error(msg String)
+    fn parseTypeAnnotation() String
+    fn parseStatement() AstNode
+    fn parseIncludeDirective() AstNode
+    fn parseTypeParamList() Array<String>
+    fn parseFnDecl() AstNode
+    fn parseExternFnDecl() AstNode
+    fn parseFnReturnType() String
+    fn parseFnReturnTypeAnnotation() String
+    fn parseTypeDeclaration() AstNode
+    fn parseStructTypeBody(typeName String, typeParams Array<String>, line Int64, col Int64) AstNode
+    fn parseStructTypeMemberInto(fields Array<Param>, methods Array<MethodSig>)
+    fn parseDataFieldInto(fields Array<Param>)
+    fn parseMethodSigInto(methods Array<MethodSig>)
+    fn parseMethodSigReturn() String
+    fn parseSumTypeBody(typeName String, typeParams Array<String>, line Int64, col Int64) AstNode
+    fn parseMatchStatement() AstNode
+    fn parseMatchStmtArm() MatchStmtArm
+    fn parseMatchStmtArmBlock(pat AstNode, stmts Array<AstNode>) MatchStmtArm
+    fn parseMatchStmtArmSimple(pat AstNode, stmts Array<AstNode>) MatchStmtArm
+    fn parseMatchStmtArmExprBody(pat AstNode, stmts Array<AstNode>, isWc Bool) MatchStmtArm
+    fn parseWhileStmt() AstNode
+    fn parseBlock() BlockNode
+    fn parseElseBranch() BlockNode
+    fn parseElseBranchPresent() BlockNode
+    fn parseElseIfBranch() BlockNode
+    fn parseIfStmt() AstNode
+    fn parseReturnStmt() AstNode
+    fn parseReturnValue(retTok Token) AstNode
+    fn parseBreakStmt() AstNode
+    fn parseContinueStmt() AstNode
+    fn parseLetStmt() AstNode
+    fn parseIdentStmt() AstNode
+    fn parseAssignStmt() AstNode
+    fn parseIdentExprOrFieldAssign() AstNode
+    fn parseFieldAssignStmt(fieldExpr AstNode) AstNode
+    fn parseExprStmt() AstNode
+    fn parseExpr() AstNode
+    fn parseOrExpr() AstNode
+    fn parseAndExpr() AstNode
+    fn parseNotExpr() AstNode
+    fn parseNotExprBody() AstNode
+    fn parsePostfixChain(initial AstNode) AstNode
+    fn processPostfixStep(expr AstNode) AstNode
+    fn parseMethodCallPart(expr AstNode, memberName String, nameTok Token) AstNode
+    fn parsePrimary() AstNode
+    fn parsePrimaryArray() AstNode
+    fn parsePrimaryStruct() AstNode
+    fn parseStructLitMemberInto(fields Array<StructFieldNode>)
+    fn parseStructLitFieldInto(fields Array<StructFieldNode>)
+    fn parseStructLitPrivateFieldInto(fields Array<StructFieldNode>)
+    fn parseStructLitMethodInto(fields Array<StructFieldNode>)
+    fn parseStructLitPrivateMethodInto(fields Array<StructFieldNode>)
+    fn parsePrimaryMatch() AstNode
+    fn parsePrimaryIdent(tok Token) AstNode
+    fn parsePrimaryCall(name String, tok Token) AstNode
+    fn parsePrimaryMinus() AstNode
+    fn parseMatchArm() MatchArm
+    fn parseMatchPattern() AstNode
+    fn parseNegativePattern() AstNode
+    fn parseArgs() Array<AstNode>
+    fn parseArgsList() Array<AstNode>
+}
 
 // ─── Helper types (not AstNode variants) ──────────────────────────────────────
 
@@ -73,17 +146,17 @@ type IncludeNode:     { path String, ns String }
 // the include resolver (pipeline.suru) and codegen (irCodegen.suru) so `ns.fn()`
 // can be mangled to the callee file's symbol.
 type IncludeAlias:    { ns String, srcPath String }
-type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String, typeParams Array<String> }
-type LetNode:         { name String, typeName String, value AstNode }
-type AssignNode:      { name String, value AstNode }
-type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode }
-type ReturnNode:      { hasValue Bool, value AstNode }
-type WhileNode:       { condition AstNode, body Array<AstNode> }
+type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String, typeParams Array<String>, line Int64, col Int64 }
+type LetNode:         { name String, typeName String, value AstNode, line Int64, col Int64 }
+type AssignNode:      { name String, value AstNode, line Int64, col Int64 }
+type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode, line Int64, col Int64 }
+type ReturnNode:      { hasValue Bool, value AstNode, line Int64, col Int64 }
+type WhileNode:       { condition AstNode, body Array<AstNode>, line Int64, col Int64 }
 type ExprStmtNode:    { expr AstNode }
 // TypeDeclNode: a struct/interface type. `fields` are data members; `methods`
 // are declared method signatures (empty for a plain data record).
-type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String> }
-type SumTypeDeclNode: { name String, variants Array<String>, typeParams Array<String> }
+type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String>, line Int64, col Int64 }
+type SumTypeDeclNode: { name String, variants Array<String>, typeParams Array<String>, line Int64, col Int64 }
 type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
 // BlockNode: a brace-delimited sequence of statements.
 // Used as the then/else branches of IfNode; stmts empty means the branch is absent.
@@ -91,12 +164,16 @@ type BlockNode:       { stmts Array<AstNode> }
 // IfNode: if/else if/else statement.
 // elseBranch.stmts empty    → no else clause.
 // elseBranch.stmts = [IfNode] → else-if chain (recursive).
-type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch BlockNode }
+type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch BlockNode, line Int64, col Int64 }
 // ExternFnNode: an `extern fn` declaration — a function signature with no body.
 // Declares a raw IR function (defined in runtime/*.ll) so Suru call sites can
 // resolve its name and type. No typeParams: extern fns are never generic.
 // Appended LAST (index 29) — see the header comment on variant ordering.
 type ExternFnNode:    { name String, params Array<Param>, returnType String }
+// BreakNode / ContinueNode: control flow in while loops. No fields — the keyword
+// is the entire statement. Appended LAST (indices 30, 31) to keep prior indices stable.
+type BreakNode:       { line Int64, col Int64 }
+type ContinueNode:    { line Int64, col Int64 }
 
 // ─── Expression node types (AstNode variants 13–26) ───────────────────────────
 
@@ -111,13 +188,13 @@ type FloatLitNode:    { text String, resolvedType String }
 type StrLitNode:      { text String, resolvedType String }
 // WildcardNode is pattern-only and has no value, so no resolvedType.
 type WildcardNode:    { }
-type VarRefNode:      { name String, resolvedType String }
-type CallNode:        { name String, args Array<AstNode>, resolvedType String }
-type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, resolvedType String }
-type FieldAccessNode: { receiver AstNode, fieldName String, resolvedType String }
+type VarRefNode:      { name String, line Int64, col Int64, resolvedType String }
+type CallNode:        { name String, args Array<AstNode>, line Int64, col Int64, resolvedType String }
+type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, line Int64, col Int64, resolvedType String }
+type FieldAccessNode: { receiver AstNode, fieldName String, line Int64, col Int64, resolvedType String }
 type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
-type StructLitNode:   { fields Array<StructFieldNode>, resolvedType String }
-type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, resolvedType String }
+type StructLitNode:   { fields Array<StructFieldNode>, resolvedType String, line Int64, col Int64 }
+type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, line Int64, col Int64, resolvedType String }
 type UnaryNode:       { op Int64, operand AstNode, resolvedType String }
 type BinaryNode:      { op Int64, left AstNode, right AstNode, resolvedType String }
 // CharLitNode: a single-quoted char literal. `text` holds the one decoded
@@ -136,18 +213,8 @@ type VtableRefNode:   { sym String, entries Array<String>, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode
+type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode
 
-// ─── Module and result types ───────────────────────────────────────────────────
+// ─── Module type ───────────────────────────────────────────────────────────────
 
-type AstModule:     { stmts Array<AstNode> }
-type ParseResult:   { parser Parser, expr AstNode }
-type TypeAnnResult: { parser Parser, typeName String }
-type RetTypeResult: { parser Parser, returnType String }
-type ArgsResult:    { parser Parser, args Array<AstNode> }
-type ArmResult:     { parser Parser, arm MatchArm }
-type StmtArmResult: { parser Parser, arm MatchStmtArm }
-type PatResult:     { parser Parser, pat AstNode }
-type StmtResult:      { parser Parser, stmt AstNode }
-type BlockResult:     { parser Parser, block BlockNode }
-type TypeParamsResult: { parser Parser, typeParams Array<String> }
+type AstModule: { stmts Array<AstNode> }

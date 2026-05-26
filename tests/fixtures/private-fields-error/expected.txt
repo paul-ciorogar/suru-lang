@@ -1,1 +1,3 @@
-/work/tests/fixtures/private-fields-error/main.suru: cannot access private field 'count' from outside its object
+/work/tests/fixtures/private-fields-error/main.suru:15:15: error: cannot access private field 'count' from outside its object
+  15 |     printLn(c.count.toString())
+                     ^

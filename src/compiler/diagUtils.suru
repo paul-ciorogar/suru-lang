@@ -1,0 +1,31 @@
+// diagUtils.suru — shared diagnostic formatting helpers used by the lexer,
+// parser, and pipeline to emit rich error messages with source snippets.
+
+// extractSourceLine — return the 1-based targetLine from src (empty when not found).
+fn extractSourceLine(src String, targetLine Int64) String {
+    let currentLine Int64: 1
+    let lineStart Int64: 0
+    let i Int64: 0
+    while i.lt(src.len()) {
+        let ch String: src.at(i)
+        if ch.equals("\n") {
+            if currentLine.equals(targetLine) { return src.slice(lineStart, i) }
+            currentLine: currentLine.add(1)
+            lineStart: i.add(1)
+        }
+        i: i.add(1)
+    }
+    if currentLine.equals(targetLine) { return src.slice(lineStart, src.len()) }
+    return ""
+}
+
+// buildSpaces — return a string of n space characters.
+fn buildSpaces(n Int64) String {
+    let acc String: ""
+    let i Int64: 0
+    while i.lt(n) {
+        acc: acc.append(" ")
+        i: i.add(1)
+    }
+    return acc
+}

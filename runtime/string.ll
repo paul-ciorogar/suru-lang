@@ -238,8 +238,25 @@ entry:
 
 ; ─── suru_string_from_char ─────────────────────────────────────────────────────
 ; Materialize a Char into an owned heap String of length 1 (tag=6).
+; '\0' (null byte) is treated as end-of-string and returns an empty string.
 define ptr @suru_string_from_char(i8 %c) {
 entry:
+  %is_nul = icmp eq i8 %c, 0
+  br i1 %is_nul, label %empty, label %normal
+
+empty:
+  %ebuf = call ptr @malloc(i64 1)
+  store i8 0, ptr %ebuf
+  %eseq = call ptr @malloc(i64 24)
+  %etg  = getelementptr %suru.String, ptr %eseq, i32 0, i32 0
+  store i64 6, ptr %etg
+  %esl  = getelementptr %suru.String, ptr %eseq, i32 0, i32 1
+  store i64 0, ptr %esl
+  %esd  = getelementptr %suru.String, ptr %eseq, i32 0, i32 2
+  store ptr %ebuf, ptr %esd
+  ret ptr %eseq
+
+normal:
   %buf = call ptr @malloc(i64 2)
   store i8 %c, ptr %buf
   %np  = getelementptr i8, ptr %buf, i64 1

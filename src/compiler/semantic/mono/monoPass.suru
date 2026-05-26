@@ -17,6 +17,7 @@
 include "monoCollect.suru"     as collect
 include "monoInfer.suru"       as infer
 include "monoInstantiate.suru" as inst
+include "../../parser/astNodes.suru" as nodes
 
 // ─── Result type ─────────────────────────────────────────────────────────────
 
@@ -119,17 +120,15 @@ fn filterGenericDefs(stmts Array<AstNode>) Array<AstNode> {
 // the name with the mangled form inferred from the arg resolvedTypes.
 
 // rewriteCallName — return the (possibly mangled) name for a call.
-// Reuses monoInfer's binding helpers: findRegistryFnAt, collectArgTypesAt,
-// buildConcreteTypesAt, allBoundAt.
+// Reuses monoInfer's binding helpers: collectArgTypes, buildConcreteTypes, allBound.
 fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
-    let fnIdx Int64: infer.findRegistryFnAt(registry, cn.name, 0)
+    let fnIdx Int64: registry.findFn(cn.name)
     if fnIdx.equals(registry.fns.len()) { return cn.name }
     let def GenericFnDef: registry.fns.at(fnIdx)
-    let argTypesOut Array<String>: []
-    let argTypes Array<String>: infer.collectArgTypesAt(cn.args, argTypesOut, 0)
+    let argTypes Array<String>: infer.collectArgTypes(cn.args)
     let concretesOut Array<String>: []
-    let concretes Array<String>: infer.buildConcreteTypesAt(def.typeParams, def.node.params, argTypes, 0, concretesOut)
-    if not infer.allBoundAt(concretes, 0) { return cn.name }
+    let concretes Array<String>: infer.buildConcreteTypes(def.typeParams(), def.node.params, argTypes, concretesOut)
+    if not infer.allBound(concretes) { return cn.name }
     return inst.mangleGenericName(cn.name, concretes)
 }
 
@@ -206,7 +205,7 @@ fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Arra
 fn rewriteStructField(sf StructFieldNode, registry GenericRegistry) StructFieldNode {
     let newVal AstNode: rewriteCallsInExpr(sf.value, registry)
     let newMbody Array<AstNode>: rewriteCallsInStmts(sf.methodBody, registry)
-    return { name: sf.name, value: newVal, isMethod: sf.isMethod, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newMbody }
+    return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newMbody }
 }
 
 // rewriteStructFieldsAt — append rewritten copies of fields[i..] to out.
@@ -243,7 +242,7 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
             let cn CallNode: node
             let newName String: rewriteCallName(cn, registry)
             let newArgs Array<AstNode>: rewriteCallsInExprs(cn.args, registry)
-            let result CallNode: { name: newName, args: newArgs, resolvedType: cn.resolvedType }
+            let result CallNode: { name: newName, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
             return result
         }
         MethodCallNode: {
@@ -257,16 +256,16 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
             let recvType String: infer.resolvedTypeOf(mcn.receiver)
             let newName String: mcn.methodName
             if recvType.equals("") {
-                let synth CallNode: { name: mcn.methodName, args: mcn.args, resolvedType: mcn.resolvedType }
+                let synth CallNode: { name: mcn.methodName, args: mcn.args, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
                 newName: rewriteCallName(synth, registry)
             }
-            let result MethodCallNode: { receiver: newRec, methodName: newName, args: newArgs, resolvedType: mcn.resolvedType }
+            let result MethodCallNode: { receiver: newRec, methodName: newName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
             return result
         }
         FieldAccessNode: {
             let fan FieldAccessNode: node
             let newRec AstNode: rewriteCallsInExpr(fan.receiver, registry)
-            let result FieldAccessNode: { receiver: newRec, fieldName: fan.fieldName, resolvedType: fan.resolvedType }
+            let result FieldAccessNode: { receiver: newRec, fieldName: fan.fieldName, line: fan.line, col: fan.col, resolvedType: fan.resolvedType }
             return result
         }
         ArrayLitNode: {
@@ -278,14 +277,14 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
         StructLitNode: {
             let sln StructLitNode: node
             let newFields Array<StructFieldNode>: rewriteStructFields(sln.fields, registry)
-            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType }
+            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
             return result
         }
         MatchExprNode: {
             let men MatchExprNode: node
             let newCond AstNode: rewriteCallsInExpr(men.condition, registry)
             let newArms Array<MatchArm>: rewriteMatchArms(men.arms, registry)
-            let result MatchExprNode: { condition: newCond, arms: newArms, resolvedType: men.resolvedType }
+            let result MatchExprNode: { condition: newCond, arms: newArms, line: men.line, col: men.col, resolvedType: men.resolvedType }
             return result
         }
         UnaryNode: {
@@ -313,40 +312,40 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
         FnDeclNode: {
             let fd FnDeclNode: node
             let newBody Array<AstNode>: rewriteCallsInStmts(fd.body, registry)
-            let result FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: newBody, srcPath: fd.srcPath, typeParams: fd.typeParams }
+            let result FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: newBody, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
             return result
         }
         TypeDeclNode: { return node }
         LetNode: {
             let ln LetNode: node
             let newVal AstNode: rewriteCallsInExpr(ln.value, registry)
-            let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal }
+            let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col }
             return result
         }
         AssignNode: {
             let an AssignNode: node
             let newVal AstNode: rewriteCallsInExpr(an.value, registry)
-            let result AssignNode: { name: an.name, value: newVal }
+            let result AssignNode: { name: an.name, value: newVal, line: an.line, col: an.col }
             return result
         }
         FieldAssignNode: {
             let fan FieldAssignNode: node
             let newRec AstNode: rewriteCallsInExpr(fan.receiver, registry)
             let newVal AstNode: rewriteCallsInExpr(fan.value, registry)
-            let result FieldAssignNode: { receiver: newRec, fieldName: fan.fieldName, value: newVal }
+            let result FieldAssignNode: { receiver: newRec, fieldName: fan.fieldName, value: newVal, line: fan.line, col: fan.col }
             return result
         }
         ReturnNode: {
             let rn ReturnNode: node
             let newVal AstNode: rewriteCallsInExpr(rn.value, registry)
-            let result ReturnNode: { hasValue: rn.hasValue, value: newVal }
+            let result ReturnNode: { hasValue: rn.hasValue, value: newVal, line: rn.line, col: rn.col }
             return result
         }
         WhileNode: {
             let wn WhileNode: node
             let newCond AstNode: rewriteCallsInExpr(wn.condition, registry)
             let newBody Array<AstNode>: rewriteCallsInStmts(wn.body, registry)
-            let result WhileNode: { condition: newCond, body: newBody }
+            let result WhileNode: { condition: newCond, body: newBody, line: wn.line, col: wn.col }
             return result
         }
         ExprStmtNode: {
@@ -360,7 +359,7 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
             let newCond AstNode: rewriteCallsInExpr(ifn.condition, registry)
             let newThen BlockNode: rewriteBlock(ifn.thenBranch, registry)
             let newElse BlockNode: rewriteBlock(ifn.elseBranch, registry)
-            let result IfNode: { condition: newCond, thenBranch: newThen, elseBranch: newElse }
+            let result IfNode: { condition: newCond, thenBranch: newThen, elseBranch: newElse, line: ifn.line, col: ifn.col }
             return result
         }
         MatchStmtNode: {
@@ -444,7 +443,7 @@ fn rewriteArmPat(pat AstNode, variants Array<String>) AstNode {
         VarRefNode: {
             let vr VarRefNode: pat
             let newName String: resolveVariantNameAt(vr.name, variants, 0)
-            let r VarRefNode: { name: newName, resolvedType: vr.resolvedType }
+            let r VarRefNode: { name: newName, line: vr.line, col: vr.col, resolvedType: vr.resolvedType }
             return r
         }
         _: { return pat }
@@ -488,14 +487,14 @@ fn rewriteVariantArmsInStmt(stmt AstNode, sumTypes Array<SumTypeDeclNode>) AstNo
             let fd FnDeclNode: stmt
             let newBody Array<AstNode>: []
             let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(fd.body, sumTypes, newBody, 0)
-            let r FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: rewritten, srcPath: fd.srcPath, typeParams: fd.typeParams }
+            let r FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: rewritten, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
             return r
         }
         WhileNode: {
             let wn WhileNode: stmt
             let newBody Array<AstNode>: []
             let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(wn.body, sumTypes, newBody, 0)
-            let r WhileNode: { condition: wn.condition, body: rewritten }
+            let r WhileNode: { condition: wn.condition, body: rewritten, line: wn.line, col: wn.col }
             return r
         }
         IfNode: {
@@ -506,7 +505,7 @@ fn rewriteVariantArmsInStmt(stmt AstNode, sumTypes Array<SumTypeDeclNode>) AstNo
             let newElse Array<AstNode>: rewriteVariantArmsInStmtsAt(ifn.elseBranch.stmts, sumTypes, elseStmts, 0)
             let newThenBranch BlockNode: { stmts: newThen }
             let newElseBranch BlockNode: { stmts: newElse }
-            let r IfNode: { condition: ifn.condition, thenBranch: newThenBranch, elseBranch: newElseBranch }
+            let r IfNode: { condition: ifn.condition, thenBranch: newThenBranch, elseBranch: newElseBranch, line: ifn.line, col: ifn.col }
             return r
         }
         _: { return stmt }

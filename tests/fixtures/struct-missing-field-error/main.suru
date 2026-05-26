@@ -1,0 +1,11 @@
+// tests/fixtures/struct-missing-field-error/main.suru
+//
+// Validates that a struct literal missing a declared field is rejected
+// with a compile-time error.
+
+type Point: { x Int64, y Int64 }
+
+fn main() {
+    let p Point: { x: 1 }
+    printLn(p.x.toString())
+}

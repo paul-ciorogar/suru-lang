@@ -9,7 +9,7 @@ type Counter: {
     fn get() Int64
 }
 
-fn main() Int64 {
+fn main() {
     let c Counter: {
         _ count Int64: 0,
         fn increment() { this.count: this.count.add(1) }
@@ -19,5 +19,5 @@ fn main() Int64 {
     c.increment()
     c.increment()
     printLn(c.get().toString())
-    return 0
+    drop(c)
 }

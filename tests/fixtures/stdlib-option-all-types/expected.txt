@@ -1,0 +1,15 @@
+42
+none
+hello
+none
+true
+none
+3
+4
+none
+some color
+none
+3
+none
+has option
+outer none
