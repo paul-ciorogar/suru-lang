@@ -2,19 +2,19 @@
 // method calls on variable receivers — patterns that previously caused
 // use-after-free in the bootstrapped compiler (isPrintTempString / CallNode).
 
-fn identity(x Int64) Int64 {
+fn identity(x i64) i64 {
     return x
 }
 
-fn addOne(x Int64) Int64 {
+fn addOne(x i64) i64 {
     return x.add(1)
 }
 
-fn double(x Int64) Int64 {
+fn double(x i64) i64 {
     return x.multiply(2)
 }
 
-fn isPositive(x Int64) Bool {
+fn isPositive(x i64) bool {
     return x.gt(0)
 }
 
@@ -22,7 +22,7 @@ fn greet(name String) String {
     return "hello, ".append(name)
 }
 
-fn strLen(s String) Int64 {
+fn strLen(s String) i64 {
     return s.len()
 }
 
@@ -37,12 +37,12 @@ fn main(args Array<String>) {
     printLn(g)
     drop(g)
 
-    let x Int64: 4
-    let y Int64: x.add(3)
+    let x i64: 4
+    let y i64: x.add(3)
     printLn(y)
 
     let s String: "hello"
-    let n Int64: s.len()
+    let n i64: s.len()
     printLn(n)
     drop(s)
 }

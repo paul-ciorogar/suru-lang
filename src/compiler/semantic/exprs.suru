@@ -4,13 +4,13 @@
 // completes the semantic analyzer.
 //
 // Key design decisions:
-//   - inferType returns a String type name ("Bool", "Int64", etc.) or "" for
+//   - inferType returns a String type name ("bool", "i64", etc.) or "" for
 //     unknown/context-dependent types (array/struct literals, field access).
 //     The "" return suppresses type-mismatch errors rather than reporting false positives.
 //
 //   - Namespace alias detection: when a MethodCallNode receiver is a VarRefNode
 //     whose name is not in scope and not a static builtin type receiver
-//     (Int32/Int64/Float64/Bool), the receiver is assumed to be a namespace alias
+//     (i32/i64/f64/bool), the receiver is assumed to be a namespace alias
 //     (e.g. `semantic.pushScope`). The call is silently skipped — no "undefined
 //     variable" error and no arity check.
 //
@@ -32,31 +32,31 @@ include "passes.suru" as passes
 fn inferTypeFromMethod(state AnalyzerState, expr MethodCallNode) String {
     let m String: expr.methodName
     match m {
-        "compare": { return "Int64" }
-        "len":     { return "Int64" }
-        "ord":     { return "Int64" }
+        "compare": { return "i64" }
+        "len":     { return "i64" }
+        "ord":     { return "i64" }
         _: {}
     }
     match m {
-        "equals": { return "Bool" }
-        "lt":     { return "Bool" }
-        "gt":     { return "Bool" }
-        "lte":    { return "Bool" }
-        "gte":    { return "Bool" }
+        "equals": { return "bool" }
+        "lt":     { return "bool" }
+        "gt":     { return "bool" }
+        "lte":    { return "bool" }
+        "gte":    { return "bool" }
         _: {}
     }
     if m.equals("toString") { return "String" }
     if m.equals("__append") { return "String" }
-    if m.equals("__at")     { return "Char" }
+    if m.equals("__at")     { return "char" }
     if m.equals("from") {
         let rcv AstNode: expr.receiver
         match rcv {
             VarRefNode: {
                 let typedRcv VarRefNode: rcv
                 let rcvName String: typedRcv.name
-                if rcvName.equals("Int32")   { return "Int32"   }
-                if rcvName.equals("Int64")   { return "Int64"   }
-                if rcvName.equals("Float64") { return "Float64" }
+                if rcvName.equals("i32")   { return "i32" }
+                if rcvName.equals("i64")   { return "i64" }
+                if rcvName.equals("f64")   { return "f64" }
             }
             _: {}
         }
@@ -77,17 +77,17 @@ fn inferTypeFromFirstArm(state AnalyzerState, arms Array<MatchArm>) String {
 // Mirrors InferType in SemanticAnalyzer.cs:456–517.
 fn inferType(state AnalyzerState, expr AstNode) String {
     match expr {
-        BoolLitNode:    { return "Bool"    }
-        IntLitNode:     { return "Int64"   }
-        FloatLitNode:   { return "Float64" }
+        BoolLitNode:    { return "bool"    }
+        IntLitNode:     { return "i64"   }
+        FloatLitNode:   { return "f64" }
         StrLitNode:     { return "String"  }
-        CharLitNode:    { return "Char"    }
+        CharLitNode:    { return "char"    }
         VarRefNode: {
             let typed VarRefNode: expr
             return state.lookupSymbol(typed.name)
         }
-        UnaryNode:  { return "Bool" }
-        BinaryNode: { return "Bool" }
+        UnaryNode:  { return "bool" }
+        BinaryNode: { return "bool" }
         MethodCallNode: {
             let typed MethodCallNode: expr
             return inferTypeFromMethod(state, typed)
@@ -125,7 +125,7 @@ fn inferType(state AnalyzerState, expr AstNode) String {
 
 // analyzeExprAt — iterates an Array<AstNode>, calling analyzeExpr on each.
 fn analyzeExprAt(state AnalyzerState, nodes Array<AstNode>) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(nodes.len()) {
         analyzeExpr(state, nodes.at(i))
         i: i.add(1)
@@ -137,7 +137,7 @@ fn analyzeExprAt(state AnalyzerState, nodes Array<AstNode>) AnalyzerState {
 // For each non-wildcard arm: analyzes the pattern expression.
 // Always analyzes the arm body.
 fn analyzeMatchArmsAt(state AnalyzerState, arms Array<MatchArm>) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
         if not arm.isWildcard {
@@ -152,7 +152,7 @@ fn analyzeMatchArmsAt(state AnalyzerState, arms Array<MatchArm>) AnalyzerState {
 // analyzeStructFieldsAt — iterates StructFieldNode array,
 // calling analyzeExpr on each field's value expression.
 fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         analyzeExpr(state, fields.at(i).value)
         i: i.add(1)
@@ -164,12 +164,12 @@ fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) Ana
 // types for function fnName.
 // Emits "argument type mismatch: expected X, got Y" when both types are known
 // and do not match (and the actual type is not a sum-type variant of expected).
-fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine Int64, callCol Int64) AnalyzerState {
-    let i Int64: 0
+fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
+    let i i64: 0
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
         let argType String: inferType(state, args.at(i))
-        let assignable Bool: argType.equals(expected) or state.isSumVariant(expected, argType)
+        let assignable bool: argType.equals(expected) or state.isSumVariant(expected, argType)
         if not expected.equals("") and not argType.equals("") and not assignable {
             state.addError("argument type mismatch: expected ".append(expected).append(", got ").append(argType), callLine, callCol)
         }
@@ -181,9 +181,15 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
 // ─── Expression analysis ──────────────────────────────────────────────────────
 
 // isBuiltinTypeName — true for the static type-receiver names that appear as
-// VarRefNode without being declared in scope (e.g. Int64.from, Bool.toString).
-fn isBuiltinTypeName(name String) Bool {
-    return name.equals("Int32") or name.equals("Int64") or name.equals("Float64") or name.equals("Bool") or name.equals("Char") or name.equals("String") or name.equals("Array")
+// VarRefNode without being declared in scope (e.g. i64.from, bool.toString).
+fn isBuiltinTypeName(name String) bool {
+    return name.equals("i32")
+        or name.equals("i64")
+        or name.equals("f64")
+        or name.equals("bool")
+        or name.equals("char")
+        or name.equals("String")
+        or name.equals("Array")
 }
 
 // analyzeExpr — analyzes one expression node, mutating state.errors for any
@@ -199,7 +205,7 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
         VarRefNode: {
             let typed VarRefNode: expr
             let name String: typed.name
-            let inScope Bool: not state.lookupSymbol(name).equals("")
+            let inScope bool: not state.lookupSymbol(name).equals("")
             if not isBuiltinTypeName(name) and not inScope {
                 state.addError("undefined variable '".append(name).append("'"), typed.line, typed.col)
             }
@@ -215,8 +221,11 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                 VarRefNode: {
                     let typedRcv VarRefNode: rcv
                     let rcvName String: typedRcv.name
-                    let isStaticRcv Bool: rcvName.equals("Int32") or rcvName.equals("Int64") or rcvName.equals("Float64") or rcvName.equals("Bool")
-                    let rcvInScope Bool: not state.lookupSymbol(rcvName).equals("")
+                    let isStaticRcv bool: rcvName.equals("i32")
+                        or rcvName.equals("i64")
+                        or rcvName.equals("f64")
+                        or rcvName.equals("bool")
+                    let rcvInScope bool: not state.lookupSymbol(rcvName).equals("")
                     if not isStaticRcv and not rcvInScope {
                         let args Array<AstNode>: typed.args
                         analyzeExprAt(state, args)
@@ -237,16 +246,16 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let typed CallNode: expr
             let name String: typed.name
             let args Array<AstNode>: typed.args
-            let argCount Int64: args.len()
-            let is1ArgBuiltin Bool: name.equals("printLn") or name.equals("printError") or name.equals("exit") or name.equals("readFile") or name.equals("clone") or name.equals("drop") or name.equals("exec") or name.equals("move")
+            let argCount i64: args.len()
+            let is1ArgBuiltin bool: name.equals("printLn") or name.equals("printError") or name.equals("exit") or name.equals("readFile") or name.equals("clone") or name.equals("drop") or name.equals("exec") or name.equals("move")
             if is1ArgBuiltin and not argCount.equals(1) {
                 state.addError("'".append(name).append("' expects exactly 1 argument"), typed.line, typed.col)
             }
-            let is2ArgBuiltin Bool: name.equals("writeFile") or name.equals("appendToFile")
+            let is2ArgBuiltin bool: name.equals("writeFile") or name.equals("appendToFile")
             if is2ArgBuiltin and not argCount.equals(2) {
                 state.addError("'".append(name).append("' expects exactly 2 arguments"), typed.line, typed.col)
             }
-            let paramCount Int64: state.functions.paramCount(name)
+            let paramCount i64: state.functions.paramCount(name)
             if not is1ArgBuiltin and not is2ArgBuiltin and paramCount.gte(0) and not argCount.equals(paramCount) {
                 state.addError("function '".append(name).append("' called with ").append(argCount.toString()).append(" argument(s), expected ").append(paramCount.toString()), typed.line, typed.col)
             }
@@ -274,9 +283,9 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let cond AstNode: typed.condition
             analyzeExpr(state, cond)
             let condType String: inferType(state, cond)
-            let isValidCondType Bool: condType.equals("") or condType.equals("Bool") or condType.equals("Int64") or condType.equals("Float64") or condType.equals("String") or condType.equals("Char")
+            let isValidCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("char")
             if not isValidCondType {
-                state.addError("match condition must be Bool, Int64, Float64, String, or Char, got ".append(condType), typed.line, typed.col)
+                state.addError("match condition must be bool, i64, f64, String, or char, got ".append(condType), typed.line, typed.col)
             }
             analyzeMatchArmsAt(state, typed.arms)
         }

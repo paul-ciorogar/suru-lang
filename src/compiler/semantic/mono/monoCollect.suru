@@ -18,7 +18,7 @@ type GenericTypeDef:    { name String, node TypeDeclNode, fn typeParams() Array<
 // Collected alongside generic structs/fns so the mono pass can instantiate
 // generic sum types (e.g. Option<T>, Result<T,E>) the same way.
 type GenericSumTypeDef: { name String, node SumTypeDeclNode, fn typeParams() Array<String> }
-type GenericRegistry:   { fns Array<GenericFnDef>, types Array<GenericTypeDef>, sumTypes Array<GenericSumTypeDef>, fn hasType(name String) Bool, fn hasSumType(name String) Bool, fn findFn(name String) Int64 }
+type GenericRegistry:   { fns Array<GenericFnDef>, types Array<GenericTypeDef>, sumTypes Array<GenericSumTypeDef>, fn hasType(name String) bool, fn hasSumType(name String) bool, fn findFn(name String) i64 }
 
 // ─── Constructors ─────────────────────────────────────────────────────────────
 // Each constructor supplies the typeParams() method body once so call sites
@@ -37,7 +37,7 @@ fn newGenericSumTypeDef(name String, node SumTypeDeclNode) GenericSumTypeDef {
 }
 
 fn newGenericRegistry(fns Array<GenericFnDef>, types Array<GenericTypeDef>, sumTypes Array<GenericSumTypeDef>) GenericRegistry {
-    return { fns: fns, types: types, sumTypes: sumTypes, fn hasType(name String) Bool { let i Int64: 0  while i.lt(this.types.len()) { if this.types.at(i).name.equals(name) { return true }  i: i.add(1) }  return false }, fn hasSumType(name String) Bool { let i Int64: 0  while i.lt(this.sumTypes.len()) { if this.sumTypes.at(i).name.equals(name) { return true }  i: i.add(1) }  return false }, fn findFn(name String) Int64 { let i Int64: 0  while i.lt(this.fns.len()) { if this.fns.at(i).name.equals(name) { return i }  i: i.add(1) }  return this.fns.len() } }
+    return { fns: fns, types: types, sumTypes: sumTypes, fn hasType(name String) bool { let i i64: 0  while i.lt(this.types.len()) { if this.types.at(i).name.equals(name) { return true }  i: i.add(1) }  return false }, fn hasSumType(name String) bool { let i i64: 0  while i.lt(this.sumTypes.len()) { if this.sumTypes.at(i).name.equals(name) { return true }  i: i.add(1) }  return false }, fn findFn(name String) i64 { let i i64: 0  while i.lt(this.fns.len()) { if this.fns.at(i).name.equals(name) { return i }  i: i.add(1) }  return this.fns.len() } }
 }
 
 // ─── Collection ───────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ fn collectGenericDefs(stmts Array<AstNode>) GenericRegistry {
     let fns Array<GenericFnDef>: []
     let types Array<GenericTypeDef>: []
     let sumTypes Array<GenericSumTypeDef>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let stmt AstNode: stmts.at(i)
         match stmt {

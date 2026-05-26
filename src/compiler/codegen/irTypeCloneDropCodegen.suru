@@ -34,17 +34,17 @@ include "irCodegenTypeHelpers.suru" as tyh
 // Result of a field-copy helper: the emitted IR text fragment and the updated cgTmp
 // counter.  The counter must be threaded so SSA names stay globally unique across
 // all clone/drop bodies emitted for the module.
-type CgTextResult: { text String, cgTmp Int64 }
+type CgTextResult: { text String, cgTmp i64 }
 
 // Result of emitting one type's clone+drop pair: updated context (ctx.helpers,
 // ctx.decls, ctx.suruDecls extended) and updated cgTmp counter.
-type CloneDropResult: { ctx IrCodegenContext, cgTmp Int64 }
+type CloneDropResult: { ctx IrCodegenContext, cgTmp i64 }
 
 // ─── Counter helper ───────────────────────────────────────────────────────────
 
 // Build a counter-indexed SSA name: %prefix_N.
 // The counter is passed in as cgTmp; callers advance it by the slot count consumed.
-fn cgName(prefix String, n Int64) String {
+fn cgName(prefix String, n i64) String {
     return "%".append(prefix).append("_").append(n.toString())
 }
 
@@ -56,7 +56,7 @@ fn cgName(prefix String, n Int64) String {
 // Emit an i64 word copy from %s to dst at byte byteOffset.
 // Uses names: cgep (src GEP), cv (load), dgep (dst GEP).
 // Consumes 3 counter slots.
-fn copyI64Field(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
+fn copyI64Field(dst String, byteOffset i64, cgTmp i64) CgTextResult {
     let sgep String: cgName("cgep", cgTmp)
     let cv   String: cgName("cv",   cgTmp.add(1))
     let dgep String: cgName("dgep", cgTmp.add(2))
@@ -71,7 +71,7 @@ fn copyI64Field(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
 // Emit a ptr word copy from %s to dst at byte byteOffset.
 // Uses names: pgep (src GEP), pv (load), dpgep (dst GEP).
 // Consumes 3 counter slots.
-fn copyPtrField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
+fn copyPtrField(dst String, byteOffset i64, cgTmp i64) CgTextResult {
     let sgep String: cgName("pgep",  cgTmp)
     let pv   String: cgName("pv",    cgTmp.add(1))
     let dgep String: cgName("dpgep", cgTmp.add(2))
@@ -89,7 +89,7 @@ fn copyPtrField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
 // Counter pre-allocation order is fixed: raw/ptr/cloned/i64 first, then sgep/dgep,
 // even though fsgep is emitted first in the IR text.
 // Consumes 6 counter slots.
-fn cloneHeapField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
+fn cloneHeapField(dst String, byteOffset i64, cgTmp i64) CgTextResult {
     let fraw    String: cgName("fraw",    cgTmp)
     let fptr    String: cgName("fptr",    cgTmp.add(1))
     let fcloned String: cgName("fcloned", cgTmp.add(2))
@@ -110,7 +110,7 @@ fn cloneHeapField(dst String, byteOffset Int64, cgTmp Int64) CgTextResult {
 // Emit recursive drop of one heap field: load i64 slot → inttoptr → suru_drop_dyn.
 // Counter pre-allocation order: fraw/fptr/fgep; fgep is emitted first in IR text.
 // Consumes 3 counter slots.
-fn dropHeapField(byteOffset Int64, cgTmp Int64) CgTextResult {
+fn dropHeapField(byteOffset i64, cgTmp i64) CgTextResult {
     let fraw String: cgName("fraw", cgTmp)
     let fptr String: cgName("fptr", cgTmp.add(1))
     let fgep String: cgName("fgep", cgTmp.add(2))
@@ -131,13 +131,13 @@ fn dropHeapField(byteOffset Int64, cgTmp Int64) CgTextResult {
 // returned cgTmp for subsequent types so names stay globally unique.
 // A field needs no deep clone / drop when it is a scalar OR the synthetic
 // `__vtable` slot (a static constant pointer, not heap-owned).
-fn cdNonOwnedField(ann String, st String) Bool {
+fn cdNonOwnedField(ann String, st String) bool {
     return tyh.isScalarSuruType(st) or ann.equals("__vtable")
 }
 
-fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDropResult {
+fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDropResult {
     let decl TypeDecl: types.lookupType(ctx, typeName)
-    let fc   Int64:    decl.fields.len()
+    let fc   i64:    decl.fields.len()
     let size String:   32.add(fc.multiply(8)).toString()
 
     // malloc + free are required for the clone allocation and drop deallocation.
@@ -147,8 +147,8 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
 
     // If any field is a heap type, we need suru_clone_dyn / suru_drop_dyn.
     // Scalar fields are copied directly; heap fields go through dynamic dispatch.
-    let hasHeapField Bool: false
-    let chi Int64: 0
+    let hasHeapField bool: false
+    let chi i64: 0
     while chi.lt(fc) {
         let ann String: decl.fields.at(chi).typeName
         let st  String: tyh.makeSuruType(ann)
@@ -185,9 +185,9 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
 
     // Per-field: scalar fields are i64-copied directly; heap fields require
     // recursive clone so the new struct doesn't alias the old allocation.
-    let fi Int64: 0
+    let fi i64: 0
     while fi.lt(fc) {
-        let off  Int64:  32.add(fi.multiply(8))
+        let off  i64:  32.add(fi.multiply(8))
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
         if cdNonOwnedField(ann, st) {
@@ -208,7 +208,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp Int64) CloneDr
     h: h.append("define void @suru_drop_".append(typeName).append("(ptr %s) {\nentry:\n"))
     fi: 0
     while fi.lt(fc) {
-        let off  Int64:  32.add(fi.multiply(8))
+        let off  i64:  32.add(fi.multiply(8))
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
         if not cdNonOwnedField(ann, st) {
@@ -244,8 +244,8 @@ fn emitExternalCloneDropDeclare(ctx IrCodegenContext, typeName String) IrCodegen
 // unique SSA names across the entire helpers block.
 //
 fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
-    let cgTmp Int64: 0
-    let i Int64: 0
+    let cgTmp i64: 0
+    let i i64: 0
     while i.lt(ctx.typeDecls.len()) {
         let decl TypeDecl: ctx.typeDecls.at(i)
         if types.isOwnType(ctx, decl.name) {

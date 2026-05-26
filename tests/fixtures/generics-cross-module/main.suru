@@ -5,7 +5,7 @@
 include "boxlib.suru" as boxlib
 
 fn main(args Array<String>) {
-    let b Box<Int64>: { value: 42 }
+    let b Box<i64>: { value: 42 }
     printLn(b.value)
     drop(b)
 }

@@ -9,7 +9,7 @@
 include "irCodegenTypes.suru" as types
 
 // Map a nibble (0–15) to its uppercase hex character.
-fn _hexDigit(n Int64) String {
+fn _hexDigit(n i64) String {
     return match n {
         0: "0"  
         1: "1"
@@ -31,9 +31,9 @@ fn _hexDigit(n Int64) String {
 }
 
 // Format a byte ordinal as a two-digit uppercase hex LLVM escape: \HH.
-fn _hexEscape(ord Int64) String {
-    let hi Int64: ord.split(16)
-    let lo Int64: ord.take(hi.multiply(16))
+fn _hexEscape(ord i64) String {
+    let hi i64: ord.split(16)
+    let lo i64: ord.take(hi.multiply(16))
     return "\\".append(_hexDigit(hi)).append(_hexDigit(lo))
 }
 
@@ -42,11 +42,11 @@ fn _hexEscape(ord Int64) String {
 // All other bytes — including null (0) — are encoded as \HH.
 fn irEscapeStr(text String) String {
     let r String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(text.len()) {
         let c String: text.at(i)
-        let ord Int64: c.ord()
-        let printable Bool: ord.gte(32) and ord.lte(126) and not ord.equals(34) and not ord.equals(92)
+        let ord i64: c.ord()
+        let printable bool: ord.gte(32) and ord.lte(126) and not ord.equals(34) and not ord.equals(92)
         let ec String: match printable { true: c, _: _hexEscape(ord) }
         r: r.append(ec)
         i: i.add(1)
@@ -63,15 +63,15 @@ fn irEscapeStr(text String) String {
 // generate function can add a blank line after user literals but not after mode strings.
 fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
     // Dedup: if this text was already interned, nothing to do.
-    let i Int64: 0
+    let i i64: 0
     while i.lt(ctx.strIndex.len()) {
         if ctx.strIndex.at(i).text.equals(text) { return ctx }
         i: i.add(1)
     }
-    let n Int64: ctx.strIndex.len()
+    let n i64: ctx.strIndex.len()
     let gname String: "@.str_".append(n.toString())
-    let byteLen Int64: text.len().add(1)
-    let charLen Int64: text.len()
+    let byteLen i64: text.len().add(1)
+    let charLen i64: text.len()
     let escaped String: irEscapeStr(text)
     // Emit: @.str_N = private unnamed_addr constant [byteLen x i8] c"escaped\00"
     let line String: gname
@@ -98,7 +98,7 @@ fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
 // Look up the pre-interned global name for a string literal text.
 // Returns "" if the text was not previously passed to internString.
 fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)
         if e.text.equals(text) { return e.globalName }
@@ -111,7 +111,7 @@ fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
 // @.str_hdr_N is the companion to @.str_N — emitted together by internString.
 // Returns "" if the text was not previously passed to internString.
 fn lookupStrHdrGlobal(ctx IrCodegenContext, text String) String {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)
         if e.text.equals(text) {

@@ -1,0 +1,3 @@
+/work/tests/fixtures/struct-undeclared-method-error/main.suru:9:20: error: struct literal of type 'Greeter' provides method 'unknown' which is not declared on the type
+  9 |     let g Greeter: {
+                         ^

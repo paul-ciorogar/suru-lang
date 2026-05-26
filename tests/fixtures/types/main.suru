@@ -1,6 +1,6 @@
-type DataStruct: { tall Bool, height Int64 }
-type Named: { name String, height Int64 }
-type Lvl3: { someValue Int64, name String }
+type DataStruct: { tall bool, height i64 }
+type Named: { name String, height i64 }
+type Lvl3: { someValue i64, name String }
 type Lvl2: { anotherParam Lvl3 }
 type Lvl1: { otherParam Lvl2 }
 type Parent: { someArray Array<Lvl1> }
@@ -12,7 +12,7 @@ fn structFromFunction() Named {
     }
 }
 
-fn getHeight(data Named) Int64 {
+fn getHeight(data Named) i64 {
     return data.height
 }
 
@@ -35,13 +35,13 @@ fn main(args Array<String>) {
     let suruName String: suru.name
     printLn(suruName)
 
-    let suruHeight Int64: suru.height
+    let suruHeight i64: suru.height
     printLn(suruHeight)
     drop(suru)
 
     // struct passed to function, field returned
     let tok Named: { name: "hello", height: 42 }
-    let height Int64: getHeight(tok)
+    let height i64: getHeight(tok)
     printLn(height)
     drop(tok)
 

@@ -1,0 +1,13 @@
+namespace Test.Ns
+
+export {
+    greet
+}
+
+fn greet() {
+    printLn("hello from namespace")
+}
+
+fn main() {
+    greet()
+}

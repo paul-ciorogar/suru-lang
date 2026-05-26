@@ -1,5 +1,5 @@
 fn main(args Array<String>) {
-    let code Int64: exec("echo hello")
+    let code i64: exec("echo hello")
     printLn(code)
 }
 

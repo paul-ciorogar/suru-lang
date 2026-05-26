@@ -1,5 +1,5 @@
 fn main(args Array<String>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(50) {
         let s String: "prefix-".append(i.toString())
         drop(s)
@@ -8,7 +8,7 @@ fn main(args Array<String>) {
     printLn("string loop ok")
 
     let arr Array<String>: []
-    let j Int64: 0
+    let j i64: 0
     while j.lt(30) {
         let s String: "item-".append(j.toString())
         arr.add(s)
@@ -25,10 +25,10 @@ fn main(args Array<String>) {
     drop(base)
     printLn("clone drop ok")
 
-    let matrix Array<Array<Int64>>: []
-    let k Int64: 0
+    let matrix Array<Array<i64>>: []
+    let k i64: 0
     while k.lt(5) {
-        let row Array<Int64>: [k, k.add(1), k.add(2)]
+        let row Array<i64>: [k, k.add(1), k.add(2)]
         matrix.add(row)
         k: k.add(1)
     }
@@ -40,11 +40,11 @@ fn main(args Array<String>) {
     drop(some)
 }
 
-type SomeType: {name String, height Int64 }
-type OtherType: {otherName string, otherHeight Int64 }
+type SomeType: {name String, height i64 }
+type OtherType: {otherName string, otherHeight i64 }
 type SumType: SomeType, OtherType
 
-fn choseOne(index Int64) SumType {
+fn choseOne(index i64) SumType {
     if index.equals(1) {
         let result SomeType: {name: "Suru", height: 2283 } 
         return result

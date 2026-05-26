@@ -1,4 +1,4 @@
-// Verify a generic function can be instantiated with both scalar (Int64) and
+// Verify a generic function can be instantiated with both scalar (i64) and
 // heap (String) type arguments.  The mono pass must produce identity__Int64
 // and identity__String as separate concrete functions.
 fn identity<T>(x T) T {
@@ -6,7 +6,7 @@ fn identity<T>(x T) T {
 }
 
 fn main(args Array<String>) {
-    let r Int64: identity(42)
+    let r i64: identity(42)
     printLn(r)
     let s String: identity("hello")
     printLn(s)

@@ -5,7 +5,7 @@
 //
 // type_tag=5 at field 0: any heap ptr can be identified as Array at runtime.
 // elem_tag holds the SuruType TypeTag for the element type.
-// data is a typed buffer: Bool→i8[], Int32→i32[], Int64/Float64/heap→i64[].
+// data is a typed buffer: bool→i8[], i32→i32[], i64/f64/heap→i64[].
 // Scalars are stored without boxing; heap ptrs are stored via ptrtoint.
 //
 // ── Runtime module ─────────────────────────────────────────────────────────────
@@ -13,9 +13,9 @@
 // Non-trivial array operations are implemented in suru_array.ll and linked separately.
 // at() and set() are inlined as typed GEP+load/store — no runtime call.
 // add() calls a typed runtime variant:
-//   suru_array_add_i8(ptr arr, i8 val)    — Bool
-//   suru_array_add_i32(ptr arr, i32 val)  — Int32
-//   suru_array_add_i64(ptr arr, i64 val)  — Int64 / Float64 (bitcast) / heap (ptrtoint)
+//   suru_array_add_i8(ptr arr, i8 val)    — bool
+//   suru_array_add_i32(ptr arr, i32 val)  — i32
+//   suru_array_add_i64(ptr arr, i64 val)  — i64 / f64 (bitcast) / heap (ptrtoint)
 //   suru_array_clone_dyn(ptr arr) → ptr
 //   suru_array_drop_dyn(ptr arr) → void
 //
@@ -41,24 +41,24 @@ include "irBoxCodegen.suru" as box
 // ─── Element storage type ─────────────────────────────────────────────────────
 
 // LLVM type used in the data buffer for a given Suru element type.
-// Bool → i8 (1 byte), Int32 → i32 (4 bytes), everything else → i64 (8 bytes).
-// Float64 is stored as i64 via bitcast; heap ptrs via ptrtoint.
+// bool → i8 (1 byte), i32 → i32 (4 bytes), everything else → i64 (8 bytes).
+// f64 is stored as i64 via bitcast; heap ptrs via ptrtoint.
 fn elemStorageLlvmType(suruType String) String {
     return match suruType {
-        "Bool":  "i8"
-        "Char":  "i8"
-        "Int32": "i32"
+        "bool":  "i8"
+        "char":  "i8"
+        "i32": "i32"
         _:       "i64"
     }
 }
 
 // Byte size of one element for a given Suru type — used by emitArrayLit
 // in irCodegen.suru to compute the raw data buffer size.
-fn elemSizeBytes(suruType String) Int64 {
+fn elemSizeBytes(suruType String) i64 {
     return match suruType {
-        "Bool":  1
-        "Char":  1
-        "Int32": 4
+        "bool":  1
+        "char":  1
+        "i32": 4
         _:       8
     }
 }
@@ -68,28 +68,28 @@ fn elemSizeBytes(suruType String) Int64 {
 // rather than a uniform i64 slot.  No heap allocation for any scalar type.
 
 // Encode a Suru value to its storage-native LLVM type for array element storage.
-// Bool (i1) → i8 via zext; Int32 → i32 pass-through; Int64 → i64 pass-through;
-// Float64 → i64 via bitcast; heap (ptr) → i64 via ptrtoint.
+// bool (i1) → i8 via zext; i32 → i32 pass-through; i64 → i64 pass-through;
+// f64 → i64 via bitcast; heap (ptr) → i64 via ptrtoint.
 fn emitElemEncode(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     match suruType {
-        "Bool": {
+        "bool": {
             let r IrResult: ir.emitZext(ctx.builder, "i1", val, "i8")
             ctx.builder: r.builder
-            return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "Bool" }
+            return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "bool" }
         }
-        "Int32": {
-            return { ctx: ctx, name: val, llvmType: "i32", suruType: "Int32" }
+        "i32": {
+            return { ctx: ctx, name: val, llvmType: "i32", suruType: "i32" }
         }
-        "Char": {
-            return { ctx: ctx, name: val, llvmType: "i8", suruType: "Char" }
+        "char": {
+            return { ctx: ctx, name: val, llvmType: "i8", suruType: "char" }
         }
-        "Int64": {
-            return { ctx: ctx, name: val, llvmType: "i64", suruType: "Int64" }
+        "i64": {
+            return { ctx: ctx, name: val, llvmType: "i64", suruType: "i64" }
         }
-        "Float64": {
+        "f64": {
             let r IrResult: ir.emitBitcast(ctx.builder, "double", val, "i64")
             ctx.builder: r.builder
-            return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "Float64" }
+            return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "f64" }
         }
         _: {
             let r IrResult: ir.emitPtrToInt(ctx.builder, val)
@@ -100,28 +100,28 @@ fn emitElemEncode(ctx IrCodegenContext, val String, suruType String) CodegenResu
 }
 
 // Decode a storage-native value back to the Suru-native LLVM type.
-// i8 → Bool (i1) via trunc; i32 → Int32 pass-through; i64 → Int64 pass-through;
-// i64 → Float64 via bitcast; i64 → heap (ptr) via inttoptr.
+// i8 → bool (i1) via trunc; i32 → i32 pass-through; i64 → i64 pass-through;
+// i64 → f64 via bitcast; i64 → heap (ptr) via inttoptr.
 fn emitElemDecode(ctx IrCodegenContext, raw String, elemSuruType String) CodegenResult {
     match elemSuruType {
-        "Bool": {
+        "bool": {
             let r IrResult: ir.emitTrunc(ctx.builder, "i8", raw, "i1")
             ctx.builder: r.builder
-            return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "Bool" }
+            return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "bool" }
         }
-        "Int32": {
-            return { ctx: ctx, name: raw, llvmType: "i32", suruType: "Int32" }
+        "i32": {
+            return { ctx: ctx, name: raw, llvmType: "i32", suruType: "i32" }
         }
-        "Char": {
-            return { ctx: ctx, name: raw, llvmType: "i8", suruType: "Char" }
+        "char": {
+            return { ctx: ctx, name: raw, llvmType: "i8", suruType: "char" }
         }
-        "Int64": {
-            return { ctx: ctx, name: raw, llvmType: "i64", suruType: "Int64" }
+        "i64": {
+            return { ctx: ctx, name: raw, llvmType: "i64", suruType: "i64" }
         }
-        "Float64": {
+        "f64": {
             let r IrResult: ir.emitBitcast(ctx.builder, "i64", raw, "double")
             ctx.builder: r.builder
-            return { ctx: ctx, name: r.name, llvmType: "double", suruType: "Float64" }
+            return { ctx: ctx, name: r.name, llvmType: "double", suruType: "f64" }
         }
         _: {
             let r IrResult: ir.emitIntToPtr(ctx.builder, raw)
@@ -141,7 +141,7 @@ fn emitExtractArrayLen(ctx IrCodegenContext, arrVal String) CodegenResult {
     ctx.builder: gr.builder
     let lr IrResult: ir.emitLoad(ctx.builder, "i64", gr.name)
     ctx.builder: lr.builder
-    return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "i64" }
 }
 
 // ─── Array instance methods ───────────────────────────────────────────────────
@@ -153,7 +153,7 @@ fn emitArrayLen(ctx IrCodegenContext, recv String) CodegenResult {
 
 // .at(idx) → element value: inline GEP+load into the data buffer, then decode.
 // idx must already be a raw i64 SSA name (caller handles unboxing via argSuruTypes).
-// elemSuruType is the Suru type of the array's elements (e.g. "Int64", "Token").
+// elemSuruType is the Suru type of the array's elements (e.g. "i64", "Token").
 // Returns raw scalar for scalar element types; ptr for heap element types.
 fn emitArrayAt(ctx IrCodegenContext, recv String, idx String, elemSuruType String) CodegenResult {
     let storeType String: elemStorageLlvmType(elemSuruType)
@@ -188,21 +188,21 @@ fn emitArrayAdd(ctx IrCodegenContext, recv String, val String, valSuruType Strin
     let enc CodegenResult: emitElemEncode(ctx, val, valSuruType)
     ctx: enc.ctx
     match valSuruType {
-        "Bool": {
+        "bool": {
             ctx: types.addSuruDecl(ctx, "declare void @suru_array_add_i8(ptr, i8)\n")
             let args Array<String>: []
             args.add("ptr ".append(recv))
             args.add("i8 ".append(enc.name))
             ctx.builder: ir.emitVoidCall(ctx.builder, "suru_array_add_i8", args)
         }
-        "Char": {
+        "char": {
             ctx: types.addSuruDecl(ctx, "declare void @suru_array_add_i8(ptr, i8)\n")
             let args Array<String>: []
             args.add("ptr ".append(recv))
             args.add("i8 ".append(enc.name))
             ctx.builder: ir.emitVoidCall(ctx.builder, "suru_array_add_i8", args)
         }
-        "Int32": {
+        "i32": {
             ctx: types.addSuruDecl(ctx, "declare void @suru_array_add_i32(ptr, i32)\n")
             let args Array<String>: []
             args.add("ptr ".append(recv))
@@ -267,7 +267,7 @@ fn emitArrayDrop(ctx IrCodegenContext, recv String) CodegenResult {
 //
 // elemCount kept in signature so callers can document the intended count, though
 // the current implementation defers allocation to suru_array_add for simplicity.
-fn emitArrayLiteralAlloc(ctx IrCodegenContext, elemSuruType String, elemCount Int64) CodegenResult {
+fn emitArrayLiteralAlloc(ctx IrCodegenContext, elemSuruType String, elemCount i64) CodegenResult {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     let mallocArgs Array<String>: []
     mallocArgs.add("i64 40")
@@ -301,7 +301,7 @@ fn emitArrayLiteralAlloc(ctx IrCodegenContext, elemSuruType String, elemCount In
 // arrPtr is the array header ptr returned by emitArrayLiteralAlloc.
 // elemSSAs[i] / elemSuruTypes[i] are the SSA name and Suru type for element i.
 fn emitArrayLiteralElements(ctx IrCodegenContext, elemSSAs Array<String>, elemSuruTypes Array<String>, arrPtr String) IrCodegenContext {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(elemSSAs.len()) {
         ctx: emitArrayAdd(ctx, arrPtr, elemSSAs.at(i), elemSuruTypes.at(i))
         i: i.add(1)
@@ -316,7 +316,7 @@ fn emitArrayLiteralElements(ctx IrCodegenContext, elemSSAs Array<String>, elemSu
 // args:         pre-emitted SSA names of each argument.
 // argSuruTypes: Suru type encoding of each arg (for conditional i64 unboxing on index args).
 // elemSuruType: Suru type of the array's elements — extracted from VarEntry.suruType
-//               by stripping the "Array:" prefix (e.g. "Array:Int64" → "Int64").
+//               by stripping the "Array:" prefix (e.g. "Array:i64" → "i64").
 //
 fn emitArrayMethod(ctx IrCodegenContext, method String, recv String, args Array<String>, argSuruTypes Array<String>, elemSuruType String) CodegenResult {
     match method {

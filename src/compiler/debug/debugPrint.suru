@@ -11,7 +11,7 @@ include "../semantic/semantic.suru"  as sem
 
 fn joinParamsAt(params Array<String>) String {
     let acc String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(params.len()) {
         let sep String: match i.equals(0) { true: "", _: ", " }
         acc: acc.append(sep).append(params.at(i))
@@ -21,7 +21,7 @@ fn joinParamsAt(params Array<String>) String {
 }
 
 fn printFunctionsAt(functions Array<FunctionSig>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(functions.len()) {
         let sig FunctionSig: functions.at(i)
         let paramStr String: joinParamsAt(sig.paramTypes)
@@ -39,7 +39,7 @@ fn printFunctions(functions Array<FunctionSig>) {
 
 fn joinFieldsAt(fields Array<SemFieldEntry>) String {
     let acc String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         let f SemFieldEntry: fields.at(i)
         let sep String: match i.equals(0) { true: "", _: ", " }
@@ -50,7 +50,7 @@ fn joinFieldsAt(fields Array<SemFieldEntry>) String {
 }
 
 fn printTypeDeclsAt(typeDecls Array<SemTypeEntry>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(typeDecls.len()) {
         let t SemTypeEntry: typeDecls.at(i)
         let fieldStr String: joinFieldsAt(t.fields)
@@ -68,7 +68,7 @@ fn printTypeDecls(typeDecls Array<SemTypeEntry>) {
 
 fn joinVariantsAt(variants Array<SemFieldEntry>) String {
     let acc String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(variants.len()) {
         let sep String: match i.equals(0) { true: "", _: ", " }
         acc: acc.append(sep).append(variants.at(i).name)
@@ -78,7 +78,7 @@ fn joinVariantsAt(variants Array<SemFieldEntry>) String {
 }
 
 fn printSumTypesAt(sumTypes Array<SemTypeEntry>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(sumTypes.len()) {
         let st SemTypeEntry: sumTypes.at(i)
         let variantStr String: joinVariantsAt(st.fields)
@@ -95,7 +95,7 @@ fn printSumTypes(sumTypes Array<SemTypeEntry>) {
 // ─── Scopes ───────────────────────────────────────────────────────────────────
 
 fn printSymbolsAt(symbols Array<SymbolEntry>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(symbols.len()) {
         let s SymbolEntry: symbols.at(i)
         printLn("    ".append(s.name).append(" → ").append(s.typeName))
@@ -104,7 +104,7 @@ fn printSymbolsAt(symbols Array<SymbolEntry>) {
 }
 
 fn printScopesAt(scopes Array<Scope>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(scopes.len()) {
         let sc Scope: scopes.at(i)
         printLn("  [".append(i.toString()).append("] parent=").append(sc.parent.toString()))
@@ -121,7 +121,7 @@ fn printScopes(scopes Array<Scope>) {
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 fn printDebugErrorsAt(errors Array<AnalysisError>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(errors.len()) {
         let e AnalysisError: errors.at(i)
         printLn("  ".append(e.srcPath).append(":").append(e.line.toString()).append(":").append(e.col.toString()).append(": ").append(e.message))

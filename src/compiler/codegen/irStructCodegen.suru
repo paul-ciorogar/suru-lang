@@ -12,10 +12,10 @@
 //     offset 32 + i*8: i64 field[i]  (TypeDecl.fields order)
 //
 //   Field slot encoding:
-//     Bool    → zext i1  to i64; restore with trunc i64 to i1
-//     Int32   → sext i32 to i64; restore with trunc i64 to i32
-//     Int64   → stored as-is (i64)
-//     Float64 → bitcast double to i64; restore with bitcast i64 to double
+//     bool    → zext i1  to i64; restore with trunc i64 to i1
+//     i32   → sext i32 to i64; restore with trunc i64 to i32
+//     i64   → stored as-is (i64)
+//     f64 → bitcast double to i64; restore with bitcast i64 to double
 //     heap    → ptrtoint ptr to i64; restore with inttoptr i64 to ptr
 //
 //   Total size: (4 + field_count) * 8 bytes.  One malloc per struct literal.
@@ -45,12 +45,12 @@ include "irBoxCodegen.suru" as box
 
 // Total byte size of a flat struct with the given field count.
 // 32-byte header + 8 bytes per field.
-fn structSize(fieldCount Int64) Int64 {
+fn structSize(fieldCount i64) i64 {
     return 32.add(fieldCount.multiply(8))
 }
 
 // Byte offset of field i in the flat struct layout (0-based).
-fn fieldOffset(fieldIdx Int64) Int64 {
+fn fieldOffset(fieldIdx i64) i64 {
     return 32.add(fieldIdx.multiply(8))
 }
 
@@ -61,39 +61,39 @@ fn fieldOffset(fieldIdx Int64) Int64 {
 // Convert a Suru value to the i64 stored in a field slot.
 fn structFieldToI64(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     match suruType {
-        "Bool": {
+        "bool": {
             // Zero-extend i1 → i64 (preserves 0/1 without sign-extension).
             let tR IrResult: ir.emitZext(ctx.builder, "i1", val, "i64")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "i64" }
         }
-        "Int32": {
+        "i32": {
             // Sign-extend i32 → i64 to preserve negative values.
             let tR IrResult: ir.emitSext(ctx.builder, "i32", val, "i64")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "i64" }
         }
-        "Char": {
-            // Zero-extend i8 → i64 (Char is an unsigned byte, matching ord()).
+        "char": {
+            // Zero-extend i8 → i64 (char is an unsigned byte, matching ord()).
             let tR IrResult: ir.emitZext(ctx.builder, "i8", val, "i64")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "i64" }
         }
-        "Int64": {
+        "i64": {
             // Already i64 — pass through unchanged.
-            return { ctx: ctx, name: val, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: val, llvmType: "i64", suruType: "i64" }
         }
-        "Float64": {
+        "f64": {
             // Bitcast double bit-pattern to i64 — no numeric conversion.
             let tR IrResult: ir.emitBitcast(ctx.builder, "double", val, "i64")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "i64" }
         }
         _: {
             // Heap type (String, Array, NamedType): ptrtoint ptr → i64.
             let tR IrResult: ir.emitPtrToInt(ctx.builder, val)
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: tR.name, llvmType: "i64", suruType: "i64" }
         }
     }
 }
@@ -102,33 +102,33 @@ fn structFieldToI64(ctx IrCodegenContext, val String, suruType String) CodegenRe
 // Inverse of structFieldToI64.
 fn structFieldFromI64(ctx IrCodegenContext, raw String, suruType String) CodegenResult {
     match suruType {
-        "Bool": {
+        "bool": {
             // Truncate i64 → i1; recover the 0/1 boolean.
             let tR IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i1")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i1", suruType: "Bool" }
+            return { ctx: ctx, name: tR.name, llvmType: "i1", suruType: "bool" }
         }
-        "Int32": {
+        "i32": {
             // Truncate i64 → i32 (low 32 bits; sign preserved because sext stored the full value).
             let tR IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i32")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i32", suruType: "Int32" }
+            return { ctx: ctx, name: tR.name, llvmType: "i32", suruType: "i32" }
         }
-        "Char": {
+        "char": {
             // Truncate i64 → i8 (recover the byte stored via zext).
             let tR IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i8")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "i8", suruType: "Char" }
+            return { ctx: ctx, name: tR.name, llvmType: "i8", suruType: "char" }
         }
-        "Int64": {
+        "i64": {
             // Already i64 — pass through unchanged.
-            return { ctx: ctx, name: raw, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: raw, llvmType: "i64", suruType: "i64" }
         }
-        "Float64": {
+        "f64": {
             // Bitcast i64 bit-pattern back to double.
             let tR IrResult: ir.emitBitcast(ctx.builder, "i64", raw, "double")
             ctx.builder: tR.builder
-            return { ctx: ctx, name: tR.name, llvmType: "double", suruType: "Float64" }
+            return { ctx: ctx, name: tR.name, llvmType: "double", suruType: "f64" }
         }
         _: {
             // Heap type (String, Array, NamedType): inttoptr i64 → ptr.
@@ -158,8 +158,8 @@ fn emitStructLiteralAlloc(ctx IrCodegenContext, typeName String) CodegenResult {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     // Determine field count from the registered TypeDecl.
     let decl TypeDecl: types.lookupType(ctx, typeName)
-    let fcount Int64: decl.fields.len()
-    let size Int64: structSize(fcount)
+    let fcount i64: decl.fields.len()
+    let size i64: structSize(fcount)
     let mallocArgs Array<String>: []
     mallocArgs.add("i64 ".append(size.toString()))
     let hdrR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", mallocArgs)
@@ -205,15 +205,15 @@ fn emitStructLiteralAlloc(ctx IrCodegenContext, typeName String) CodegenResult {
 // fieldNames/fieldSSAs/fieldSuruTypes are parallel arrays for the literal's provided fields.
 fn emitStructLiteralFields(ctx IrCodegenContext, mem String, typeName String, fieldNames Array<String>, fieldSSAs Array<String>, fieldSuruTypes Array<String>) IrCodegenContext {
     let decl TypeDecl: types.lookupType(ctx, typeName)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(decl.fields.len()) {
         let tdFieldName String: decl.fields.at(i).name
-        let offset Int64: fieldOffset(i)
+        let offset i64: fieldOffset(i)
         let fGr IrResult: ir.emitGEP(ctx.builder, "i8", mem, "i64 ".append(offset.toString()))
         ctx.builder: fGr.builder
         // Linear scan: find this TypeDecl field in the literal's provided fields.
-        let foundIdx Int64: -1
-        let k Int64: 0
+        let foundIdx i64: -1
+        let k i64: 0
         while k.lt(fieldNames.len()) {
             if fieldNames.at(k).equals(tdFieldName) { foundIdx: k }
             k: k.add(1)
@@ -247,8 +247,8 @@ fn emitStructLiteralFields(ctx IrCodegenContext, mem String, typeName String, fi
 // @suru_variant_inner is identity (flat layout) — we skip it and GEP directly.
 fn emitFieldAccess(ctx IrCodegenContext, recv String, recvSuruType String, fieldName String) CodegenResult {
     let decl TypeDecl: types.lookupType(ctx, recvSuruType)
-    let fIdx Int64: types.fieldIndex(decl, fieldName)
-    let offset Int64: fieldOffset(fIdx)
+    let fIdx i64: types.fieldIndex(decl, fieldName)
+    let offset i64: fieldOffset(fIdx)
     let fGr IrResult: ir.emitGEP(ctx.builder, "i8", recv, "i64 ".append(offset.toString()))
     ctx.builder: fGr.builder
     // Emit "  {raw}  = load i64, ptr {fGep}" — two spaces after the SSA name.
@@ -271,8 +271,8 @@ fn emitFieldAccess(ctx IrCodegenContext, recv String, recvSuruType String, field
 // recv is the pre-emitted SSA ptr; val / valSuruType are the pre-emitted new value.
 fn emitFieldAssignment(ctx IrCodegenContext, recv String, recvSuruType String, fieldName String, val String, valSuruType String) IrCodegenContext {
     let decl TypeDecl: types.lookupType(ctx, recvSuruType)
-    let fIdx Int64: types.fieldIndex(decl, fieldName)
-    let offset Int64: fieldOffset(fIdx)
+    let fIdx i64: types.fieldIndex(decl, fieldName)
+    let offset i64: fieldOffset(fIdx)
     // Encode the new value as i64 before writing into the field slot.
     let asI64 CodegenResult: structFieldToI64(ctx, val, valSuruType)
     ctx: asI64.ctx

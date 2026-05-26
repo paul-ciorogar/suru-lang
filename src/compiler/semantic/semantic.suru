@@ -18,17 +18,17 @@ type SymbolEntry: { name String, typeName String }
 
 type Scope: {
     symbols Array<SymbolEntry>,
-    parent Int64,
+    parent i64,
     fn lookup(name String) String
 }
 
-type FunctionSig: { name String, paramTypes Array<String>, returnType String, srcPath String, fn paramCount() Int64 }
+type FunctionSig: { name String, paramTypes Array<String>, returnType String, srcPath String, fn paramCount() i64 }
 
 fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String) FunctionSig {
-    return { name: name, paramTypes: paramTypes, returnType: returnType, srcPath: srcPath, fn paramCount() Int64 { return this.paramTypes.len() } }
+    return { name: name, paramTypes: paramTypes, returnType: returnType, srcPath: srcPath, fn paramCount() i64 { return this.paramTypes.len() } }
 }
 
-type FunctionRegistry: { sigs Array<FunctionSig>, fn add(sig FunctionSig), fn hasSig(srcPath String, name String) Bool, fn returnType(name String) String, fn paramCount(name String) Int64, fn paramType(name String, idx Int64) String }
+type FunctionRegistry: { sigs Array<FunctionSig>, fn add(sig FunctionSig), fn hasSig(srcPath String, name String) bool, fn returnType(name String) String, fn paramCount(name String) i64, fn paramType(name String, idx i64) String }
 
 fn newFunctionRegistry() FunctionRegistry {
     return {
@@ -38,8 +38,8 @@ fn newFunctionRegistry() FunctionRegistry {
             this.sigs.add(sig)
         }
 
-        fn hasSig(srcPath String, name String) Bool {
-            let i Int64: 0
+        fn hasSig(srcPath String, name String) bool {
+            let i i64: 0
             while i.lt(this.sigs.len()) {
                 let s FunctionSig: this.sigs.at(i)
                 if s.name.equals(name) and s.srcPath.equals(srcPath) { return true }
@@ -49,7 +49,7 @@ fn newFunctionRegistry() FunctionRegistry {
         }
 
         fn returnType(name String) String {
-            let i Int64: 0
+            let i i64: 0
             while i.lt(this.sigs.len()) {
                 if this.sigs.at(i).name.equals(name) { return this.sigs.at(i).returnType }
                 i: i.add(1)
@@ -57,8 +57,8 @@ fn newFunctionRegistry() FunctionRegistry {
             return ""
         }
 
-        fn paramCount(name String) Int64 {
-            let i Int64: 0
+        fn paramCount(name String) i64 {
+            let i i64: 0
             while i.lt(this.sigs.len()) {
                 if this.sigs.at(i).name.equals(name) { return this.sigs.at(i).paramCount() }
                 i: i.add(1)
@@ -66,8 +66,8 @@ fn newFunctionRegistry() FunctionRegistry {
             return -1
         }
 
-        fn paramType(name String, idx Int64) String {
-            let i Int64: 0
+        fn paramType(name String, idx i64) String {
+            let i i64: 0
             while i.lt(this.sigs.len()) {
                 if this.sigs.at(i).name.equals(name) {
                     let pts Array<String>: this.sigs.at(i).paramTypes
@@ -81,7 +81,7 @@ fn newFunctionRegistry() FunctionRegistry {
     }
 }
 
-type AnalysisError: { message String, line Int64, col Int64, srcPath String }
+type AnalysisError: { message String, line i64, col i64, srcPath String }
 
 // SemFieldEntry / SemTypeEntry mirror parser TypeDeclNode + Param shape but live
 // inside the semantic layer so semantic.suru can stay a leaf (no parser/ast
@@ -107,24 +107,24 @@ type AnalyzerState: {
     sumTypes        Array<SemTypeEntry>
     errors          Array<AnalysisError>
     currentReturnType String
-    insideFunction  Int64
-    insideLoop      Int64
+    insideFunction  i64
+    insideLoop      i64
     constants       Array<String>
     movedVars       Array<String>
     currentSrcPath  String
     fn pushScope()
     fn popScope()
     fn declareSymbol(name String, typeName String)
-    fn lookupSymbolAt(name String, idx Int64) String
+    fn lookupSymbolAt(name String, idx i64) String
     fn lookupSymbol(name String) String
-    fn existsInCurrentScope(name String) Bool
+    fn existsInCurrentScope(name String) bool
     fn recordSumType(name String, variants Array<String>)
-    fn isSumVariant(sumName String, candidate String) Bool
-    fn isMoved(name String) Bool
+    fn isSumVariant(sumName String, candidate String) bool
+    fn isMoved(name String) bool
     fn markMoved(name String)
     fn clearMoved(name String)
     fn resetMovedVars()
-    fn addError(message String, line Int64, col Int64)
+    fn addError(message String, line i64, col i64)
 }
 
 // ─── State constructor ────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ fn makeAnalyzerState() AnalyzerState {
         // parent = index of the current last scope before the push (or -1 when empty).
         fn pushScope() {
             let scopes Array<Scope>: this.scopes
-            let parent Int64: scopes.len().take(1)
+            let parent i64: scopes.len().take(1)
             let scope Scope: newScope(parent)
             scopes.add(scope)
         }
@@ -159,7 +159,7 @@ fn makeAnalyzerState() AnalyzerState {
         // Uses slice to drop the last element; parent chain in remaining scopes is unchanged.
         fn popScope() {
             let scopes Array<Scope>: this.scopes
-            let newLen Int64: scopes.len().take(1)
+            let newLen i64: scopes.len().take(1)
             let newScopes Array<Scope>: scopes.slice(0, newLen)
             this.scopes: newScopes
         }
@@ -169,7 +169,7 @@ fn makeAnalyzerState() AnalyzerState {
         // declareSymbol — adds a name→typeName binding to the current (innermost) scope.
         fn declareSymbol(name String, typeName String) {
             let scopes Array<Scope>: this.scopes
-            let idx Int64: scopes.len().take(1)
+            let idx i64: scopes.len().take(1)
             let scope Scope: scopes.at(idx)
             let symbols Array<SymbolEntry>: scope.symbols
             let entry SymbolEntry: { name: name, typeName: typeName }
@@ -180,7 +180,7 @@ fn makeAnalyzerState() AnalyzerState {
 
         // lookupSymbolAt — walks the parent chain from scope[idx].
         // Returns the nearest binding, or "" when the chain is exhausted (parent = -1).
-        fn lookupSymbolAt(name String, idx Int64) String {
+        fn lookupSymbolAt(name String, idx i64) String {
             let scopes Array<Scope>: this.scopes
             return match idx.gte(0) {
                 true: match scopes.at(idx).lookup(name).equals("") {
@@ -194,14 +194,14 @@ fn makeAnalyzerState() AnalyzerState {
         // lookupSymbol — starts from the innermost scope.
         fn lookupSymbol(name String) String {
             let scopes Array<Scope>: this.scopes
-            let idx Int64: scopes.len().take(1)
+            let idx i64: scopes.len().take(1)
             return this.lookupSymbolAt(name, idx)
         }
 
         // existsInCurrentScope — checks only the innermost scope (for duplicate-let detection).
-        fn existsInCurrentScope(name String) Bool {
+        fn existsInCurrentScope(name String) bool {
             let scopes Array<Scope>: this.scopes
-            let idx Int64: scopes.len().take(1)
+            let idx i64: scopes.len().take(1)
             let scope Scope: scopes.at(idx)
             return not scope.lookup(name).equals("")
         }
@@ -211,7 +211,7 @@ fn makeAnalyzerState() AnalyzerState {
         // recordSumType — register a sum type and its variant names.
         fn recordSumType(name String, variants Array<String>) {
             let semVariants Array<SemFieldEntry>: []
-            let vi Int64: 0
+            let vi i64: 0
             while vi.lt(variants.len()) {
                 let v String: variants.at(vi)
                 let entry SemFieldEntry: { name: v, typeName: v }
@@ -225,14 +225,14 @@ fn makeAnalyzerState() AnalyzerState {
         }
 
         // isSumVariant — true when `candidate` is a declared variant of sum type `sumName`.
-        fn isSumVariant(sumName String, candidate String) Bool {
+        fn isSumVariant(sumName String, candidate String) bool {
             return isSumVariantAt(this.sumTypes, sumName, candidate, 0)
         }
 
         // ─── Move tracking ────────────────────────────────────────────────────
 
         // isMoved — returns true if `name` has been moved and not yet re-bound.
-        fn isMoved(name String) Bool {
+        fn isMoved(name String) bool {
             return isMovedAt(this.movedVars, name, 0)
         }
 
@@ -256,7 +256,7 @@ fn makeAnalyzerState() AnalyzerState {
 
         // ─── Error accumulation ───────────────────────────────────────────────
 
-        fn addError(message String, line Int64, col Int64) {
+        fn addError(message String, line i64, col i64) {
             let errors Array<AnalysisError>: this.errors
             let err AnalysisError: { message: message, line: line, col: col, srcPath: this.currentSrcPath }
             errors.add(err)
@@ -268,7 +268,7 @@ fn makeAnalyzerState() AnalyzerState {
 
 // ─── Scope constructor ────────────────────────────────────────────────────────
 
-fn newScope(parent Int64) Scope {
+fn newScope(parent i64) Scope {
     return {
         symbols: [],
         parent: parent,
@@ -276,7 +276,7 @@ fn newScope(parent Int64) Scope {
         // lookup — linear search.
         // Returns the typeName of the first matching entry, or "" when exhausted.
         fn lookup(name String) String {
-            let idx Int64: 0
+            let idx i64: 0
             while idx.lt(this.symbols.len()) {
                 if this.symbols.at(idx).name.equals(name) {
                     return this.symbols.at(idx).typeName
@@ -291,7 +291,7 @@ fn newScope(parent Int64) Scope {
 // ─── Private sum type helpers ─────────────────────────────────────────────────
 
 // sumHasVariantAt — linear search through a sum type's variant rows.
-fn sumHasVariantAt(variants Array<SemFieldEntry>, candidate String, i Int64) Bool {
+fn sumHasVariantAt(variants Array<SemFieldEntry>, candidate String, i i64) bool {
     return match i.lt(variants.len()) {
         true: match variants.at(i).name.equals(candidate) {
             true: true
@@ -303,7 +303,7 @@ fn sumHasVariantAt(variants Array<SemFieldEntry>, candidate String, i Int64) Boo
 
 // isSumVariantAt — linear search through state.sumTypes for `sumName`, then
 // check whether `candidate` is one of its variants.
-fn isSumVariantAt(sumTypes Array<SemTypeEntry>, sumName String, candidate String, i Int64) Bool {
+fn isSumVariantAt(sumTypes Array<SemTypeEntry>, sumName String, candidate String, i i64) bool {
     return match i.lt(sumTypes.len()) {
         true: match sumTypes.at(i).name.equals(sumName) {
             true: sumHasVariantAt(sumTypes.at(i).fields, candidate, 0)
@@ -316,14 +316,14 @@ fn isSumVariantAt(sumTypes Array<SemTypeEntry>, sumName String, candidate String
 // ─── Private move-tracking helpers ───────────────────────────────────────────
 
 // isMovedAt — linear scan of movedVars from index i.
-fn isMovedAt(moved Array<String>, name String, i Int64) Bool {
+fn isMovedAt(moved Array<String>, name String, i i64) bool {
     if not i.lt(moved.len()) { return false }
     if moved.at(i).equals(name) { return true }
     return isMovedAt(moved, name, i.add(1))
 }
 
 // clearMovedAt — rebuilds movedVars without `name`, from index i.
-fn clearMovedAt(src Array<String>, dst Array<String>, name String, i Int64) Array<String> {
+fn clearMovedAt(src Array<String>, dst Array<String>, name String, i i64) Array<String> {
     if not i.lt(src.len()) { return dst }
     if not src.at(i).equals(name) { dst.add(src.at(i)) }
     return clearMovedAt(src, dst, name, i.add(1))

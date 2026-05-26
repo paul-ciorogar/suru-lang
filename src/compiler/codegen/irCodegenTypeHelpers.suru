@@ -2,7 +2,7 @@
 //
 // No IrCodegenContext dependency; no state. Operates entirely on the suruType
 // encoding documented in irCodegenTypes.suru:
-//   scalars:    "Int64" | "Bool" | "Int32" | "Float64"
+//   scalars:    "i64" | "bool" | "i32" | "f64"
 //   strings:    "String"
 //   arrays:     "Array:" + elemSuruType
 //   structs:    the declared type name
@@ -10,40 +10,40 @@
 // Include DAG: leaf. Imported by irBoxCodegen.suru and everything above it.
 
 // True for the four scalar types that use raw LLVM values (not ptr).
-fn isScalarSuruType(suruType String) Bool {
+fn isScalarSuruType(suruType String) bool {
     return match suruType {
-        "Int64"   : true
-        "Bool"    : true
-        "Int32"   : true
-        "Float64" : true
-        "Char"    : true
+        "i64"   : true
+        "bool"    : true
+        "i32"   : true
+        "f64" : true
+        "char"    : true
         _ : false
     }
 }
 
-// True when suruType encodes an array (e.g. "Array:Int64", "Array:Lvl1").
-fn isArraySuruType(suruType String) Bool {
+// True when suruType encodes an array (e.g. "Array:i64", "Array:Lvl1").
+fn isArraySuruType(suruType String) bool {
     if suruType.len().lt(6) { return false }
     return suruType.slice(0, 6).equals("Array:")
 }
 
-// Extract the element Suru type from an array suruType like "Array:Int64" → "Int64".
+// Extract the element Suru type from an array suruType like "Array:i64" → "i64".
 fn elemSuruType(suruType String) String {
     return suruType.slice(6, suruType.len())
 }
 
-// True when a type annotation string names an Array (e.g. "Array<Int64>").
+// True when a type annotation string names an Array (e.g. "Array<i64>").
 // Must check for "Array<" (with angle bracket) to avoid matching user-defined
 // types whose names begin with "Array" (e.g. ArrayLitNode).
-fn isArrayTypeName(typeName String) Bool {
+fn isArrayTypeName(typeName String) bool {
     if typeName.len().lt(6) { return false }
     return typeName.slice(0, 6).equals("Array<")
 }
 
-// Extract the element type from a generic type annotation: "Array<Int64>" → "Int64".
+// Extract the element type from a generic type annotation: "Array<i64>" → "i64".
 fn extractElemType(typeName String) String {
-    let i Int64: 0
-    let start Int64: -1
+    let i i64: 0
+    let start i64: -1
     while i.lt(typeName.len()) {
         if typeName.at(i).equals("<") { start: i }
         i: i.add(1)
@@ -53,14 +53,14 @@ fn extractElemType(typeName String) String {
 }
 
 // ─── User-defined generic type-name mangling ─────────────────────────────────
-// Map annotations like "Box<Int64>" to their mangled suruType "Box__Int64" so
+// Map annotations like "Box<i64>" to their mangled suruType "Box__Int64" so
 // that codegen's type-registry lookup finds the concrete TypeDeclNode injected
 // by the mono pass.  (These helpers duplicate the equivalent logic in passes.suru
 // because irCodegenTypeHelpers.suru is a leaf with no semantic includes.)
 
 // indexOfAngleCG — index of the first '<' in s, or s.len() when absent.
-fn indexOfAngleCG(s String) Int64 {
-    let i Int64: 0
+fn indexOfAngleCG(s String) i64 {
+    let i i64: 0
     while i.lt(s.len()) {
         if s.at(i).equals("<") { return i }
         i: i.add(1)
@@ -70,7 +70,7 @@ fn indexOfAngleCG(s String) Int64 {
 
 // ltrimCG — strip leading ASCII space characters from s.
 fn ltrimCG(s String) String {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(s.len()) {
         if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
         i: i.add(1)
@@ -81,19 +81,19 @@ fn ltrimCG(s String) String {
 // flattenCGTypeArg — recursively flatten a type-name string to an
 // identifier-safe form, using the same conventions as monoInstantiate's
 // flattenTypeArg (duplicated here because irCodegenTypeHelpers.suru is a leaf).
-//   "Array<Int64>"          → "Array__Int64"
-//   "Option<Int64>"         → "Option__Int64"
-//   "Option<Array<Int64>>"  → "Option__Array__Int64"
+//   "Array<i64>"          → "Array__Int64"
+//   "Option<i64>"         → "Option__Int64"
+//   "Option<Array<i64>>"  → "Option__Array__Int64"
 //   plain names             → trimmed clone
 fn flattenCGTypeArg(typeName String) String {
     let trimmed String: ltrimCG(typeName)
-    let ltIdx Int64: indexOfAngleCG(trimmed)
+    let ltIdx i64: indexOfAngleCG(trimmed)
     if ltIdx.equals(trimmed.len()) { return trimmed }
     let base String: trimmed.slice(0, ltIdx)
     let inner String: trimmed.slice(ltIdx.add(1), trimmed.len().take(1))
     let acc String: base
-    let start Int64: 0
-    let i Int64: 0
+    let start i64: 0
+    let i i64: 0
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenCGTypeArg(inner.slice(start, i))
@@ -116,9 +116,9 @@ fn flattenCGTypeArg(typeName String) String {
 
 // appendMangledCGAt — scan inner[i..] for comma-separated type args and append
 // "__<flattenCGTypeArg(arg)>" for each to acc, so nested generic names like
-// "Array<Int64>" are flattened to "Array__Int64" in the resulting identifier.
-fn appendMangledCGAt(inner String, start Int64, acc String) String {
-    let i Int64: start
+// "Array<i64>" are flattened to "Array__Int64" in the resulting identifier.
+fn appendMangledCGAt(inner String, start i64, acc String) String {
+    let i i64: start
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenCGTypeArg(inner.slice(start, i))
@@ -140,10 +140,10 @@ fn appendMangledCGAt(inner String, start Int64, acc String) String {
 }
 
 // isUserGenericTypeName — true when typeName has a '<' but is not the builtin
-// "Array<...>" form.  Catches user-defined generics like "Box<Int64>".
-fn isUserGenericTypeName(typeName String) Bool {
+// "Array<...>" form.  Catches user-defined generics like "Box<i64>".
+fn isUserGenericTypeName(typeName String) bool {
     if isArrayTypeName(typeName) { return false }
-    let i Int64: 0
+    let i i64: 0
     while i.lt(typeName.len()) {
         if typeName.at(i).equals("<") { return true }
         i: i.add(1)
@@ -151,16 +151,22 @@ fn isUserGenericTypeName(typeName String) Bool {
     return false
 }
 
-// mangleGenericAnnotation — "Box<Int64>" → "Box__Int64".
+// mangleGenericAnnotation — "Box<i64>" → "Box__Int64".
 fn mangleGenericAnnotation(typeName String) String {
-    let ltIdx Int64: indexOfAngleCG(typeName)
+    let ltIdx i64: indexOfAngleCG(typeName)
     let base String: typeName.slice(0, ltIdx)
     let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
     return appendMangledCGAt(inner, 0, base)
 }
 
+// normalizeTypeName is now a no-op: all type names are already lowercase.
+// Kept as a call site so the bootstrap transition compiles cleanly.
+fn normalizeTypeName(name String) String {
+    return name
+}
+
 // Convert a Suru type annotation name to the suruType encoding used in VarEntry.
-// "Array<Int64>" → "Array:Int64"; user-defined generics "Box<Int64>" → "Box__Int64";
+// "Array<i64>" → "Array:i64"; user-defined generics "Box<i64>" → "Box__i64";
 // all other types pass through unchanged.
 fn makeSuruType(typeName String) String {
     if isArrayTypeName(typeName) { return "Array:".append(extractElemType(typeName)) }
@@ -174,11 +180,11 @@ fn irLlvmTypeOf(suruType String) String {
     // Void functions return `ret ptr null` per Suru's IR convention.
     return match suruType {
         "void":     "ptr"
-        "Int64":    "i64"
-        "Bool":     "i1"
-        "Int32":    "i32"
-        "Char":     "i8"
-        "Float64":  "double"
+        "i64":    "i64"
+        "bool":     "i1"
+        "i32":    "i32"
+        "char":     "i8"
+        "f64":  "double"
         _:          "ptr"
     }
 }
@@ -188,25 +194,25 @@ fn irLlvmTypeOf(suruType String) String {
 fn suruTypeTag(suruType String) String {
     if isArraySuruType(suruType) { return "5" }
     return match suruType {
-        "Bool":    "0"
-        "Int32":   "1"
-        "Int64":   "2"
-        "Float64": "3"
+        "bool":    "0"
+        "i32":   "1"
+        "i64":   "2"
+        "f64": "3"
         "String":  "6"
-        "Char":    "9"
+        "char":    "9"
         _:         "4"
     }
 }
 
 // True when name is one of the six builtin Suru type names (or a generic array).
-fn isBuiltinSuruType(name String) Bool {
+fn isBuiltinSuruType(name String) bool {
     if isArrayTypeName(name) { return true }
     return match name {
-        "Int64":   true
-        "Bool":    true
-        "Int32":   true
-        "Float64": true
-        "Char":    true
+        "i64":   true
+        "bool":  true
+        "i32":   true
+        "f64":   true
+        "char":  true
         "String":  true
         _:         false
     }

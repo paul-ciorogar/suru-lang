@@ -4,7 +4,7 @@
 //
 // Usage:
 //   include "stdlib/result.suru" as res
-//   let r Result<Int64, String>: res.ok(42)
+//   let r Result<i64, String>: res.ok(42)
 //   match r { Ok: { printLn(r.value) }  Err: { printLn(r.error) } }
 
 type Ok<T>:  { value T }

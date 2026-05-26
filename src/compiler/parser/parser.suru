@@ -20,6 +20,13 @@ include "astNodes.suru" as nodes
 fn parse(tokens Array<Token>, srcPath String) AstModule {
     let p Parser: newParser(tokens, srcPath)
     let stmts Array<AstNode>: []
+    // Module header: optional namespace declaration then zero or more export blocks.
+    if p.currentTokenIs(TOK_NAMESPACE) {
+        stmts.add(p.parseNamespaceDecl())
+    }
+    while p.currentTokenIs(TOK_EXPORT) {
+        stmts.add(p.parseExportBlock())
+    }
     while not p.currentTokenIs(TOK_EOF) {
         stmts.add(p.parseStatement())
     }
@@ -28,7 +35,7 @@ fn parse(tokens Array<Token>, srcPath String) AstModule {
 
 fn newParser(tokens Array<Token>, srcPath String) Parser {
     let p Parser: {
-        _ pos     Int64:         0
+        _ pos     i64:         0
         _ tokens  Array<Token>: tokens
         _ srcPath String:       clone(srcPath)
 
@@ -36,23 +43,23 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
 
         fn currentToken() Token { return this.tokens.at(this.pos) }
 
-        fn currentTokenIs(kind Int64) Bool {
+        fn currentTokenIs(kind i64) bool {
             return this.tokens.at(this.pos).kind.equals(kind)
         }
 
         fn peekToken() Token {
-            let next Int64: this.pos.add(1)
+            let next i64: this.pos.add(1)
             return match next.lt(this.tokens.len()) {
                 true: this.tokens.at(next)
                 _:    { kind: TOK_EOF, text: "", line: 0, col: 0 }
             }
         }
 
-        fn peekIs(kind Int64) Bool {
+        fn peekIs(kind i64) bool {
             return this.peekToken().kind.equals(kind)
         }
 
-        fn consume(expectedKind Int64) {
+        fn consume(expectedKind i64) {
             if not this.currentTokenIs(expectedKind) {
                 this.error("expected token kind ".append(expectedKind.toString())
                 .append(" got ")
@@ -64,7 +71,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             this.advance()
         }
 
-        fn consumeIf(kind Int64) {
+        fn consumeIf(kind i64) {
             if this.currentTokenIs(kind) { this.advance() }
         }
 
@@ -79,7 +86,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let srcLine String: extractSourceLine(src, tok.line)
             let lineLabel String: "  ".append(tok.line.toString()).append(" | ")
             printError(lineLabel.append(srcLine))
-            let prefixLen Int64: lineLabel.len().add(tok.col.take(1))
+            let prefixLen i64: lineLabel.len().add(tok.col.take(1))
             printError(buildSpaces(prefixLen).append("^"))
             exit(1)
         }
@@ -107,22 +114,24 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         }
 
         fn parseStatement() AstNode {
-            let k Int64: this.currentToken().kind
+            let k i64: this.currentToken().kind
             return match k {
-                TOK_INCLUDE:  this.parseIncludeDirective()
-                TOK_FN:       this.parseFnDecl()
-                TOK_EXTERN:   this.parseExternFnDecl()
-                TOK_WHILE:    this.parseWhileStmt()
-                TOK_IF:       this.parseIfStmt()
-                TOK_RETURN:   this.parseReturnStmt()
-                TOK_BREAK:    this.parseBreakStmt()
-                TOK_CONTINUE: this.parseContinueStmt()
-                TOK_LET:      this.parseLetStmt()
-                TOK_TYPE:     this.parseTypeDeclaration()
-                TOK_MATCH:    this.parseMatchStatement()
-                TOK_IDENT:    this.parseIdentStmt()
-                TOK_THIS:     this.parseIdentStmt()
-                _:            this.parseExprStmt()
+                TOK_INCLUDE:   this.parseIncludeDirective()
+                TOK_NAMESPACE: this.parseNamespaceDecl()
+                TOK_EXPORT:    this.parseExportBlock()
+                TOK_FN:        this.parseFnDecl()
+                TOK_EXTERN:    this.parseExternFnDecl()
+                TOK_WHILE:     this.parseWhileStmt()
+                TOK_IF:        this.parseIfStmt()
+                TOK_RETURN:    this.parseReturnStmt()
+                TOK_BREAK:     this.parseBreakStmt()
+                TOK_CONTINUE:  this.parseContinueStmt()
+                TOK_LET:       this.parseLetStmt()
+                TOK_TYPE:      this.parseTypeDeclaration()
+                TOK_MATCH:     this.parseMatchStatement()
+                TOK_IDENT:     this.parseIdentStmt()
+                TOK_THIS:      this.parseIdentStmt()
+                _:             this.parseExprStmt()
             }
         }
 
@@ -134,6 +143,55 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let nsTok Token: this.currentToken()
             this.consume(TOK_IDENT)
             let n IncludeNode: { path: clone(pathTok.text), ns: clone(nsTok.text) }
+            return n
+        }
+
+        fn parseNamespaceDecl() AstNode {
+            let tok Token: this.currentToken()
+            this.consume(TOK_NAMESPACE)
+            let nameTok Token: this.currentToken()
+            this.consume(TOK_IDENT)
+            let name String: nameTok.text
+            while this.currentTokenIs(TOK_DOT) {
+                this.advance()
+                if not this.currentTokenIs(TOK_IDENT) {
+                    this.error("invalid namespace: trailing dot")
+                }
+                let segTok Token: this.currentToken()
+                this.advance()
+                name: name.append(".").append(segTok.text)
+            }
+            let n NamespaceDeclNode: { name: name, line: tok.line, col: tok.col }
+            return n
+        }
+
+        // parseExportBlock — `export { name1, alias: localName2, ... }`
+        //
+        // Each entry is either a plain identifier (exportedAs == localName) or an
+        // alias form `publicName: localName` where the function/type is defined
+        // internally as localName but exported under publicName.
+        // Commas between entries are optional (consumeIf).
+        fn parseExportBlock() AstNode {
+            let tok Token: this.currentToken()
+            this.consume(TOK_EXPORT)
+            this.consume(TOK_LBRACE)
+            let entries Array<ExportEntry>: []
+            while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
+                let nameTok Token: this.currentToken()
+                this.consume(TOK_IDENT)
+                let exportedAs String: nameTok.text
+                let localName String: nameTok.text
+                if this.currentTokenIs(TOK_COLON) {
+                    this.advance()
+                    let localTok Token: this.currentToken()
+                    this.consume(TOK_IDENT)
+                    localName: localTok.text
+                }
+                entries.add({ exportedAs: exportedAs, localName: localName })
+                this.consumeIf(TOK_COMMA)
+            }
+            this.consume(TOK_RBRACE)
+            let n ExportNode: { entries: entries, line: tok.line, col: tok.col }
             return n
         }
 
@@ -225,7 +283,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             return this.parseSumTypeBody(nameTok.text, typeParams, nameTok.line, nameTok.col)
         }
 
-        fn parseStructTypeBody(typeName String, typeParams Array<String>, line Int64, col Int64) AstNode {
+        fn parseStructTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode {
             this.consume(TOK_LBRACE)
             let fields Array<Param>: []
             let methods Array<MethodSig>: []
@@ -275,7 +333,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         // member separator/terminator (`,`, `}`, next `fn`, or EOF) → "void".
         fn parseMethodSigReturn() String {
             if this.currentTokenIs(TOK_VOID) { this.advance() return "void" }
-            let noRet Bool: this.currentTokenIs(TOK_COMMA) or this.currentTokenIs(TOK_RBRACE) or this.currentTokenIs(TOK_FN) or this.currentTokenIs(TOK_EOF)
+            let noRet bool: this.currentTokenIs(TOK_COMMA) or this.currentTokenIs(TOK_RBRACE) or this.currentTokenIs(TOK_FN) or this.currentTokenIs(TOK_EOF)
             if noRet { return "void" }
             return this.parseFnReturnTypeAnnotation()
         }
@@ -284,7 +342,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         // after the colon in a sum-type declaration. Each variant is parsed as a full
         // type annotation (e.g. "Some<T>" or "None") so generic sum types like
         // `type Option<T>: Some<T>, None` are correctly captured.
-        fn parseSumTypeBody(typeName String, typeParams Array<String>, line Int64, col Int64) AstNode {
+        fn parseSumTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode {
             let variants Array<String>: []
             variants.add(this.parseTypeAnnotation())
             while this.currentTokenIs(TOK_COMMA) {
@@ -323,18 +381,18 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 stmts.add(this.parseStatement())
             }
             this.consume(TOK_RBRACE)
-            let isWc Bool: match pat { WildcardNode: true, _: false }
+            let isWc bool: match pat { WildcardNode: true, _: false }
             let arm MatchStmtArm: { isWildcard: isWc, pattern: pat, stmts: stmts }
             return arm
         }
 
         fn parseMatchStmtArmSimple(pat AstNode, stmts Array<AstNode>) MatchStmtArm {
-            let isWc Bool: match pat { WildcardNode: true, _: false }
+            let isWc bool: match pat { WildcardNode: true, _: false }
             if this.currentTokenIs(TOK_RBRACE) { return { isWildcard: isWc, pattern: pat, stmts: stmts } }
             return this.parseMatchStmtArmExprBody(pat, stmts, isWc)
         }
 
-        fn parseMatchStmtArmExprBody(pat AstNode, stmts Array<AstNode>, isWc Bool) MatchStmtArm {
+        fn parseMatchStmtArmExprBody(pat AstNode, stmts Array<AstNode>, isWc bool) MatchStmtArm {
             let val AstNode: this.parseExpr()
             let exprStmt ExprStmtNode: { expr: val }
             stmts.add(exprStmt)
@@ -407,7 +465,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         fn parseReturnStmt() AstNode {
             let retTok Token: this.currentToken()
             this.consume(TOK_RETURN)
-            let atEnd Bool: this.currentTokenIs(TOK_RBRACE) or this.currentTokenIs(TOK_EOF)
+            let atEnd bool: this.currentTokenIs(TOK_RBRACE) or this.currentTokenIs(TOK_EOF)
             if atEnd {
                 let dummy WildcardNode: {}
                 let n ReturnNode: { hasValue: false, value: dummy, line: retTok.line, col: retTok.col }
@@ -448,7 +506,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         }
 
         fn parseIdentStmt() AstNode {
-            let isAssign Bool: this.peekIs(TOK_COLON)
+            let isAssign bool: this.peekIs(TOK_COLON)
             if isAssign { return this.parseAssignStmt() }
             return this.parseIdentExprOrFieldAssign()
         }
@@ -465,8 +523,8 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
 
         fn parseIdentExprOrFieldAssign() AstNode {
             let e AstNode: this.parsePostfixChain(this.parsePrimary())
-            let isFA Bool: match e { FieldAccessNode: true, _: false }
-            let isAssign Bool: isFA and this.currentTokenIs(TOK_COLON)
+            let isFA bool: match e { FieldAccessNode: true, _: false }
+            let isAssign bool: isFA and this.currentTokenIs(TOK_COLON)
             if isAssign { return this.parseFieldAssignStmt(e) }
             let n ExprStmtNode: { expr: e }
             return n
@@ -561,7 +619,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
 
         fn parsePrimary() AstNode {
             let tok Token: this.currentToken()
-            let k Int64: tok.kind
+            let k i64: tok.kind
             match k {
                 TOK_LBRACKET: { return this.parsePrimaryArray() }
                 TOK_LBRACE:   { return this.parsePrimaryStruct() }
@@ -754,7 +812,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         fn parsePrimaryMinus() AstNode {
             this.advance()
             let numTok Token: this.currentToken()
-            let k Int64: numTok.kind
+            let k i64: numTok.kind
             match k {
                 TOK_INT: {
                     let n IntLitNode: { text: "-".append(numTok.text), resolvedType: "" }
@@ -776,14 +834,14 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let pat AstNode: this.parseMatchPattern()
             this.consume(TOK_COLON)
             let body AstNode: this.parseExpr()
-            let isWc Bool: match pat { WildcardNode: true, _: false }
+            let isWc bool: match pat { WildcardNode: true, _: false }
             let arm MatchArm: { isWildcard: isWc, pattern: pat, body: body }
             return arm
         }
 
         fn parseMatchPattern() AstNode {
             let tok Token: this.currentToken()
-            let k Int64: tok.kind
+            let k i64: tok.kind
             match k {
                 TOK_WILDCARD: {
                     let n WildcardNode: {}
@@ -829,7 +887,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         fn parseNegativePattern() AstNode {
             this.advance()
             let num Token: this.currentToken()
-            let k Int64: num.kind
+            let k i64: num.kind
             match k {
                 TOK_INT: {
                     let n IntLitNode: { text: "-".append(num.text), resolvedType: "" }

@@ -1,4 +1,4 @@
-fn fibonacci(n Int64) Int64 {
+fn fibonacci(n i64) i64 {
     return match n.lt(2) {
         true: n,
         _: fibonacci(n.take(1)).add(fibonacci(n.take(2)))

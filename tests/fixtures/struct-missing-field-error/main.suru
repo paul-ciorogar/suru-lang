@@ -3,7 +3,7 @@
 // Validates that a struct literal missing a declared field is rejected
 // with a compile-time error.
 
-type Point: { x Int64, y Int64 }
+type Point: { x i64, y i64 }
 
 fn main() {
     let p Point: { x: 1 }

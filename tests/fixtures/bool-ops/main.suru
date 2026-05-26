@@ -1,4 +1,4 @@
-fn isBig(n Int64) Bool {
+fn isBig(n i64) bool {
     return n.gt(100)
 }
 
@@ -25,18 +25,18 @@ fn main(args Array<String>) {
     printLn(not false and true)         // true
     printLn(true and not false)         // true
 
-    // Bool.equals()
+    // bool.equals()
     printLn(true.equals(true))          // true
     printLn(true.equals(false))         // false
     printLn(false.equals(false))        // true
 
-    // Bool.toString()
+    // bool.toString()
     printLn(true.toString())            // true
     printLn(false.toString())           // false
 
     // with function calls
-    let big Bool: isBig(200)
-    let small Bool: isBig(50)
+    let big bool: isBig(200)
+    let small bool: isBig(50)
     printLn(big and not small)          // true
     printLn(big or small)               // true
     printLn(not big or not small)       // true

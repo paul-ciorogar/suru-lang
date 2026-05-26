@@ -1,16 +1,16 @@
 fn main(args Array<String>) {
-    // String.__at(Int64) → Char
+    // String.__at(i64) → char
     let s String: "Suru"
-    let c0 Char: s.__at(0)
-    let c1 Char: s.__at(1)
-    let c3 Char: s.__at(3)
+    let c0 char: s.__at(0)
+    let c1 char: s.__at(1)
+    let c3 char: s.__at(3)
     printLn(c0.toString())   // S
     printLn(c0.ord())        // 83
     printLn(c1.toString())   // u
     printLn(c3.toString())   // u
     drop(s)
 
-    // String.compare() → Int64  (-1 / 0 / 1)
+    // String.compare() → i64  (-1 / 0 / 1)
     let apple String: "apple"
     let banana String: "banana"
     let apple2 String: "apple"
@@ -23,8 +23,8 @@ fn main(args Array<String>) {
 
     // Combined: extract char, get ord, compare against expected ord
     let word String: "hello"
-    let first Char: word.__at(0)
-    let ord Int64: first.ord()
+    let first char: word.__at(0)
+    let ord i64: first.ord()
     printLn(ord.equals(104))  // true  ('h' == 104)
     drop(word)
 }

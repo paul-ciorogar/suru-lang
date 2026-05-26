@@ -1,12 +1,12 @@
 fn main(args Array<String>) {
-    let i Int64: 1
+    let i i64: 1
     while i.lte(5) {
         printLn(i)
         i: i.add(1)
     }
 
-    let sum Int64: 0
-    let j Int64: 1
+    let sum i64: 0
+    let j i64: 1
     while j.lte(10) {
         sum: sum.add(j)
         j: j.add(1)
@@ -14,7 +14,7 @@ fn main(args Array<String>) {
     printLn(sum)
 
     let s String: ""
-    let k Int64: 0
+    let k i64: 0
     while k.lt(3) {
         let tmp String: s.append("x")
         drop(s)

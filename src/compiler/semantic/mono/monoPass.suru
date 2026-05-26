@@ -28,7 +28,7 @@ type MonoResult: { newNodes Array<AstNode>, newFnNames Array<String>, newTypeNam
 // ─── Name extraction ─────────────────────────────────────────────────────────
 
 // extractFnNamesAt — collect the name of every FnDeclNode in nodes[i..].
-fn extractFnNamesAt(nodes Array<AstNode>, out Array<String>, i Int64) {
+fn extractFnNamesAt(nodes Array<AstNode>, out Array<String>, i i64) {
     if not i.lt(nodes.len()) { return }
     let node AstNode: nodes.at(i)
     match node {
@@ -42,7 +42,7 @@ fn extractFnNamesAt(nodes Array<AstNode>, out Array<String>, i Int64) {
 }
 
 // extractTypeNamesAt — collect the name of every TypeDeclNode in nodes[i..].
-fn extractTypeNamesAt(nodes Array<AstNode>, out Array<String>, i Int64) {
+fn extractTypeNamesAt(nodes Array<AstNode>, out Array<String>, i i64) {
     if not i.lt(nodes.len()) { return }
     let node AstNode: nodes.at(i)
     match node {
@@ -74,7 +74,7 @@ fn runMonoPass(stmts Array<AstNode>, registry GenericRegistry) MonoResult {
 
 // isGenericStmt — true when stmt is a FnDeclNode, TypeDeclNode, or SumTypeDeclNode
 // with a non-empty typeParams list (i.e. it is still a generic template, not concrete).
-fn isGenericStmt(stmt AstNode) Bool {
+fn isGenericStmt(stmt AstNode) bool {
     match stmt {
         FnDeclNode: {
             let fd FnDeclNode: stmt
@@ -96,7 +96,7 @@ fn isGenericStmt(stmt AstNode) Bool {
 }
 
 // filterGenericDefsAt — append non-generic stmts[i..] to out.
-fn filterGenericDefsAt(stmts Array<AstNode>, out Array<AstNode>, i Int64) {
+fn filterGenericDefsAt(stmts Array<AstNode>, out Array<AstNode>, i i64) {
     if not i.lt(stmts.len()) { return }
     let stmt AstNode: stmts.at(i)
     if not isGenericStmt(stmt) { out.add(stmt) }
@@ -122,7 +122,7 @@ fn filterGenericDefs(stmts Array<AstNode>) Array<AstNode> {
 // rewriteCallName — return the (possibly mangled) name for a call.
 // Reuses monoInfer's binding helpers: collectArgTypes, buildConcreteTypes, allBound.
 fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
-    let fnIdx Int64: registry.findFn(cn.name)
+    let fnIdx i64: registry.findFn(cn.name)
     if fnIdx.equals(registry.fns.len()) { return cn.name }
     let def GenericFnDef: registry.fns.at(fnIdx)
     let argTypes Array<String>: infer.collectArgTypes(cn.args)
@@ -133,7 +133,7 @@ fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
 }
 
 // rewriteCallsInExprsAt — append rewritten copies of exprs[i..] to out.
-fn rewriteCallsInExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i Int64) Array<AstNode> {
+fn rewriteCallsInExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i i64) Array<AstNode> {
     if not i.lt(exprs.len()) { return out }
     out.add(rewriteCallsInExpr(exprs.at(i), registry))
     return rewriteCallsInExprsAt(exprs, registry, out, i.add(1))
@@ -146,7 +146,7 @@ fn rewriteCallsInExprs(exprs Array<AstNode>, registry GenericRegistry) Array<Ast
 }
 
 // rewriteCallsInStmtsAt — append rewritten copies of stmts[i..] to out.
-fn rewriteCallsInStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i Int64) Array<AstNode> {
+fn rewriteCallsInStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i i64) Array<AstNode> {
     if not i.lt(stmts.len()) { return out }
     out.add(rewriteCallsInStmt(stmts.at(i), registry))
     return rewriteCallsInStmtsAt(stmts, registry, out, i.add(1))
@@ -167,7 +167,7 @@ fn rewriteMatchArm(arm MatchArm, registry GenericRegistry) MatchArm {
 }
 
 // rewriteMatchArmsAt — append rewritten copies of arms[i..] to out.
-fn rewriteMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<MatchArm>, i Int64) Array<MatchArm> {
+fn rewriteMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<MatchArm>, i i64) Array<MatchArm> {
     if not i.lt(arms.len()) { return out }
     out.add(rewriteMatchArm(arms.at(i), registry))
     return rewriteMatchArmsAt(arms, registry, out, i.add(1))
@@ -188,7 +188,7 @@ fn rewriteMatchStmtArm(arm MatchStmtArm, registry GenericRegistry) MatchStmtArm 
 }
 
 // rewriteMatchStmtArmsAt — append rewritten copies of arms[i..] to out.
-fn rewriteMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<MatchStmtArm>, i Int64) Array<MatchStmtArm> {
+fn rewriteMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<MatchStmtArm>, i i64) Array<MatchStmtArm> {
     if not i.lt(arms.len()) { return out }
     out.add(rewriteMatchStmtArm(arms.at(i), registry))
     return rewriteMatchStmtArmsAt(arms, registry, out, i.add(1))
@@ -209,7 +209,7 @@ fn rewriteStructField(sf StructFieldNode, registry GenericRegistry) StructFieldN
 }
 
 // rewriteStructFieldsAt — append rewritten copies of fields[i..] to out.
-fn rewriteStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<StructFieldNode>, i Int64) Array<StructFieldNode> {
+fn rewriteStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<StructFieldNode>, i i64) Array<StructFieldNode> {
     if not i.lt(fields.len()) { return out }
     out.add(rewriteStructField(fields.at(i), registry))
     return rewriteStructFieldsAt(fields, registry, out, i.add(1))
@@ -398,7 +398,7 @@ fn rewriteCallSites(stmts Array<AstNode>, registry GenericRegistry) Array<AstNod
 
 // collectConcreteSumTypesAt — append every concrete SumTypeDeclNode in
 // stmts[i..] (typeParams empty) to out; skip generic templates.
-fn collectConcreteSumTypesAt(stmts Array<AstNode>, out Array<SumTypeDeclNode>, i Int64) {
+fn collectConcreteSumTypesAt(stmts Array<AstNode>, out Array<SumTypeDeclNode>, i i64) {
     if not i.lt(stmts.len()) { return }
     match stmts.at(i) {
         SumTypeDeclNode: {
@@ -413,7 +413,7 @@ fn collectConcreteSumTypesAt(stmts Array<AstNode>, out Array<SumTypeDeclNode>, i
 
 // getVariantsForAt — return the variants of sumTypes[i..] whose name equals
 // `name`, or an empty array if not found.
-fn getVariantsForAt(sumTypes Array<SumTypeDeclNode>, name String, i Int64) Array<String> {
+fn getVariantsForAt(sumTypes Array<SumTypeDeclNode>, name String, i i64) Array<String> {
     let empty Array<String>: []
     if not i.lt(sumTypes.len()) { return empty }
     if sumTypes.at(i).name.equals(name) { return sumTypes.at(i).variants }
@@ -422,14 +422,14 @@ fn getVariantsForAt(sumTypes Array<SumTypeDeclNode>, name String, i Int64) Array
 
 // resolveVariantNameAt — scan variants[i..] for one that equals armName (exact)
 // or starts with "armName__" (prefix).  Returns armName unchanged if not found.
-fn resolveVariantNameAt(armName String, variants Array<String>, i Int64) String {
+fn resolveVariantNameAt(armName String, variants Array<String>, i i64) String {
     if not i.lt(variants.len()) { return armName }
     let v String: variants.at(i)
     // Exact match (e.g. "None" in ["Some__Int64","None"]).
     if v.equals(armName) { return v }
     // Prefix match: variant starts with "armName__".
     let prefix String: armName.append("__")
-    let prefixLen Int64: prefix.len()
+    let prefixLen i64: prefix.len()
     if prefixLen.lt(v.len().add(1)) {
         if v.slice(0, prefixLen).equals(prefix) { return v }
     }
@@ -452,7 +452,7 @@ fn rewriteArmPat(pat AstNode, variants Array<String>) AstNode {
 }
 
 // rewriteStmtArmsAt — deep-clone arms[i..] rewriting non-wildcard patterns.
-fn rewriteStmtArmsAt(arms Array<MatchStmtArm>, variants Array<String>, out Array<MatchStmtArm>, i Int64, sumTypes Array<SumTypeDeclNode>) Array<MatchStmtArm> {
+fn rewriteStmtArmsAt(arms Array<MatchStmtArm>, variants Array<String>, out Array<MatchStmtArm>, i i64, sumTypes Array<SumTypeDeclNode>) Array<MatchStmtArm> {
     if not i.lt(arms.len()) { return out }
     let arm MatchStmtArm: arms.at(i)
     if arm.isWildcard {
@@ -514,7 +514,7 @@ fn rewriteVariantArmsInStmt(stmt AstNode, sumTypes Array<SumTypeDeclNode>) AstNo
 }
 
 // rewriteVariantArmsInStmtsAt — walk stmts[i..] applying rewriteVariantArmsInStmt.
-fn rewriteVariantArmsInStmtsAt(stmts Array<AstNode>, sumTypes Array<SumTypeDeclNode>, out Array<AstNode>, i Int64) Array<AstNode> {
+fn rewriteVariantArmsInStmtsAt(stmts Array<AstNode>, sumTypes Array<SumTypeDeclNode>, out Array<AstNode>, i i64) Array<AstNode> {
     if not i.lt(stmts.len()) { return out }
     out.add(rewriteVariantArmsInStmt(stmts.at(i), sumTypes))
     return rewriteVariantArmsInStmtsAt(stmts, sumTypes, out, i.add(1))

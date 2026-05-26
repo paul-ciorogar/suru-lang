@@ -1,34 +1,34 @@
 fn main(args Array<String>) {
-    // Char literals and Char.ord()
-    let a Char: 'a'
-    let z Char: 'z'
-    let nl Char: '\n'
-    let bs Char: '\\'
-    let tab Char: '\t'
+    // char literals and char.ord()
+    let a char: 'a'
+    let z char: 'z'
+    let nl char: '\n'
+    let bs char: '\\'
+    let tab char: '\t'
     printLn(a.ord())    // 97
     printLn(z.ord())    // 122
     printLn(nl.ord())   // 10
     printLn(bs.ord())   // 92
     printLn(tab.ord())  // 9
 
-    // Char.equals()
+    // char.equals()
     printLn(a.equals('a'))  // true
     printLn(a.equals('b'))  // false
 
-    // Char.toString()
+    // char.toString()
     let sa String: a.toString()
     printLn(sa)  // a
     drop(sa)
 
-    // String.__at(Int64) → Char
+    // String.__at(i64) → char
     let word String: "hello"
-    let ch0 Char: word.__at(0)
-    let ch4 Char: word.__at(4)
+    let ch0 char: word.__at(0)
+    let ch4 char: word.__at(4)
     printLn(ch0.ord())   // 104  (h)
     printLn(ch4.ord())   // 111  (o)
     drop(word)
 
-    // match on Char patterns
+    // match on char patterns
     match a {
         'a': { printLn("matched a") }
         'b': { printLn("matched b") }

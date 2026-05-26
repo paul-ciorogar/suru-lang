@@ -6,14 +6,14 @@
 
 type Counter: {
     fn increment()
-    fn get() Int64
+    fn get() i64
 }
 
 fn main() {
     let c Counter: {
-        _ count Int64: 0,
+        _ count i64: 0,
         fn increment() { this.count: this.count.add(1) }
-        fn get() Int64 { return this.count }
+        fn get() i64 { return this.count }
     }
     c.increment()
     c.increment()

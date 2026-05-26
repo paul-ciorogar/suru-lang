@@ -5,7 +5,7 @@
 //
 // Usage:
 //   include "stdlib/option.suru" as opt
-//   let x Option<Int64>: opt.some(42)
+//   let x Option<i64>: opt.some(42)
 //   match x { Some: { printLn(x.value) }  None: { printLn("none") } }
 
 type Some<T>: { value T }

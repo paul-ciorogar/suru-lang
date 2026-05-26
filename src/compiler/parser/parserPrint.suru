@@ -12,8 +12,8 @@ fn makeIndent(indent String) String {
 
 fn printModule(ast AstModule, path String) {
     printLn("Module [".append(path).append("]"))
-    let nstmts Int64: ast.stmts.len()
-    let i Int64: 0
+    let nstmts i64: ast.stmts.len()
+    let i i64: 0
     while i.lt(nstmts) {
         let s AstNode: ast.stmts.at(i)
         printStmt(s, "  ")
@@ -35,10 +35,14 @@ fn printStmt(stmt AstNode, indent String) {
         SumTypeDeclNode: { printStmtSumTypeDecl(stmt, indent) }
         MatchStmtNode:   { printStmtMatchStatement(stmt, indent) }
         IfNode:          { printStmtIf(stmt, indent) }
-        ExternFnNode:    { printStmtExternFnDecl(stmt, indent) }
-        BreakNode:       { printLn(indent.append("BreakStatement")) }
-        ContinueNode:    { printLn(indent.append("ContinueStatement")) }
-        _:               { printLn(indent.append("UnknownStatement")) }
+        ExternFnNode:      { printStmtExternFnDecl(stmt, indent) }
+        BreakNode:         { printLn(indent.append("BreakStatement")) }
+        ContinueNode:      { printLn(indent.append("ContinueStatement")) }
+        NamespaceDeclNode: { printLn(indent.append("NamespaceDeclaration [").append(stmt.name).append("]")) }
+        ExportNode:        { printStmtExport(stmt, indent) }
+        ImportNode:        { printStmtImport(stmt, indent) }
+        QualifiedNameNode: { printExprQualifiedName(stmt, indent) }
+        _:                 { printLn(indent.append("UnknownStatement")) }
     }
 }
 
@@ -46,8 +50,8 @@ fn printStmtFnDecl(stmt FnDeclNode, indent String) {
     let paramStr String: buildParamStr(stmt.params)
     printLn(indent.append("FunctionDeclaration [").append(stmt.name).append("](").append(paramStr).append(") -> ").append(stmt.returnType))
     let bodyIndent String: makeIndent(indent)
-    let nbody Int64: stmt.body.len()
-    let i Int64: 0
+    let nbody i64: stmt.body.len()
+    let i i64: 0
     while i.lt(nbody) {
         let s AstNode: stmt.body.at(i)
         printStmt(s, bodyIndent)
@@ -82,7 +86,7 @@ fn printStmtWhile(stmt WhileNode, indent String) {
     printLn(indent.append("WhileStatement"))
     let bodyIndent String: makeIndent(indent)
     printExpr(stmt.condition, bodyIndent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmt.body.len()) {
         let s AstNode: stmt.body.at(i)
         printStmt(s, bodyIndent)
@@ -99,7 +103,7 @@ fn printStmtTypeDecl(stmt TypeDeclNode, indent String) {
     printLn(indent.append("TypeDeclaration [").append(stmt.name).append("]"))
     let fieldIndent String: makeIndent(indent)
     let fields Array<Param>: stmt.fields
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         let f Param: fields.at(i)
         printLn(fieldIndent.append("Field [").append(f.name).append("] Type [").append(f.typeName).append("]"))
@@ -115,7 +119,7 @@ fn formatTypeParams(tp Array<String>) String {
         _: {}
     }
     let s String: "<"
-    let j Int64: 0
+    let j i64: 0
     while j.lt(tp.len()) {
         let sep String: match j.gt(0) { true: ", ", _: "" }
         s: s.append(sep).append(tp.at(j))
@@ -126,7 +130,7 @@ fn formatTypeParams(tp Array<String>) String {
 
 fn printStmtSumTypeDecl(stmt SumTypeDeclNode, indent String) {
     let variants Array<String>: stmt.variants
-    let i Int64: 0
+    let i i64: 0
     let varStr String: ""
     while i.lt(variants.len()) {
         let vname String: variants.at(i)
@@ -139,24 +143,24 @@ fn printStmtSumTypeDecl(stmt SumTypeDeclNode, indent String) {
 }
 
 fn printStmtMatchStatement(stmt MatchStmtNode, indent String) {
-    let narms Int64: stmt.arms.len()
+    let narms i64: stmt.arms.len()
     printLn(indent.append("MatchStatement [").append(narms.toString()).append(" arms]"))
     let bodyIndent String: makeIndent(indent)
     let armIndent String: makeIndent(bodyIndent)
     printExpr(stmt.condition, bodyIndent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(narms) {
         let arm MatchStmtArm: stmt.arms.at(i)
-        let isWc Bool: arm.isWildcard
+        let isWc bool: arm.isWildcard
         let pat AstNode: arm.pattern
         let patLabel String: matchPatternLabel(pat, isWc)
         printLn(bodyIndent.append("Arm [").append(patLabel).append("]"))
         let stmts Array<AstNode>: arm.stmts
-        let bodyLen Int64: stmts.len()
+        let bodyLen i64: stmts.len()
         match bodyLen.equals(0) {
             true: printLn(armIndent.append("(empty)"))
         }
-        let j Int64: 0
+        let j i64: 0
         while j.lt(bodyLen) {
             let s AstNode: stmts.at(j)
             printStmt(s, armIndent)
@@ -173,18 +177,18 @@ fn printStmtIf(stmt IfNode, indent String) {
     printExpr(stmt.condition, bodyIndent)
     printLn(bodyIndent.append("Then"))
     let thenIndent String: makeIndent(bodyIndent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmt.thenBranch.stmts.len()) {
         let s AstNode: stmt.thenBranch.stmts.at(i)
         printStmt(s, thenIndent)
         i: i.add(1)
     }
-    let hasElse Bool: stmt.elseBranch.stmts.len().gt(0)
+    let hasElse bool: stmt.elseBranch.stmts.len().gt(0)
     match hasElse {
         true: {
             printLn(bodyIndent.append("Else"))
             let elseIndent String: makeIndent(bodyIndent)
-            let j Int64: 0
+            let j i64: 0
             while j.lt(stmt.elseBranch.stmts.len()) {
                 let s AstNode: stmt.elseBranch.stmts.at(j)
                 printStmt(s, elseIndent)
@@ -203,7 +207,7 @@ fn printStmtExternFnDecl(stmt ExternFnNode, indent String) {
 
 fn buildParamStr(params Array<Param>) String {
     let result String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(params.len()) {
         let p Param: params.at(i)
         let sep String: match i.gt(0) { true: ", ", _: "" }
@@ -228,8 +232,9 @@ fn printExpr(expr AstNode, indent String) {
         StructLitNode:   { printExprStructLit(expr, indent) }
         MatchExprNode:   { printExprMatch(expr, indent) }
         UnaryNode:       { printExprUnary(expr, indent) }
-        BinaryNode:      { printExprBinary(expr, indent) }
-        _:               { printLn(indent.append("UnknownExpr")) }
+        BinaryNode:       { printExprBinary(expr, indent) }
+        QualifiedNameNode:{ printExprQualifiedName(expr, indent) }
+        _:                { printLn(indent.append("UnknownExpr")) }
     }
 }
 
@@ -246,7 +251,7 @@ fn printExprString(expr StrLitNode, indent String) {
 fn printExprCall(expr CallNode, indent String) {
     printLn(indent.append("CallExpression [").append(expr.name).append("]"))
     let argIndent String: makeIndent(indent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(expr.args.len()) {
         let a AstNode: expr.args.at(i)
         printExpr(a, argIndent)
@@ -258,7 +263,7 @@ fn printExprMethodCall(expr MethodCallNode, indent String) {
     printLn(indent.append("MethodCall [.").append(expr.methodName).append("]"))
     let argIndent String: makeIndent(indent)
     printExpr(expr.receiver, argIndent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(expr.args.len()) {
         let a AstNode: expr.args.at(i)
         printExpr(a, argIndent)
@@ -272,10 +277,10 @@ fn printExprFieldAccess(expr FieldAccessNode, indent String) {
 }
 
 fn printExprArrayLit(expr ArrayLitNode, indent String) {
-    let nelems Int64: expr.elems.len()
+    let nelems i64: expr.elems.len()
     printLn(indent.append("ArrayLiteral [").append(nelems.toString()).append(" elements]"))
     let argIndent String: makeIndent(indent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(nelems) {
         let e AstNode: expr.elems.at(i)
         printExpr(e, argIndent)
@@ -284,11 +289,11 @@ fn printExprArrayLit(expr ArrayLitNode, indent String) {
 }
 
 fn printExprStructLit(expr StructLitNode, indent String) {
-    let nfields Int64: expr.fields.len()
+    let nfields i64: expr.fields.len()
     printLn(indent.append("StructLiteral [").append(nfields.toString()).append(" fields]"))
     let fieldIndent String: makeIndent(indent)
     let valIndent String: makeIndent(fieldIndent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(nfields) {
         let f StructFieldNode: expr.fields.at(i)
         let privLabel String: match f.isPrivate { true: " [private]", _: "" }
@@ -299,15 +304,15 @@ fn printExprStructLit(expr StructLitNode, indent String) {
 }
 
 fn printExprMatch(expr MatchExprNode, indent String) {
-    let narms Int64: expr.arms.len()
+    let narms i64: expr.arms.len()
     printLn(indent.append("MatchExpression [").append(narms.toString()).append(" arms]"))
     let bodyIndent String: makeIndent(indent)
     let armIndent String: makeIndent(bodyIndent)
     printExpr(expr.condition, bodyIndent)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(narms) {
         let arm MatchArm: expr.arms.at(i)
-        let wc Bool: arm.isWildcard
+        let wc bool: arm.isWildcard
         let pat AstNode: arm.pattern
         let patLabel String: matchPatternLabel(pat, wc)
         printLn(bodyIndent.append("Arm [").append(patLabel).append("]"))
@@ -329,7 +334,7 @@ fn printExprBinary(expr BinaryNode, indent String) {
     printExpr(expr.right, childIndent)
 }
 
-fn matchPatternLabel(pat AstNode, isWildcard Bool) String {
+fn matchPatternLabel(pat AstNode, isWildcard bool) String {
     match isWildcard {
         true: { return "_" }
     }
@@ -348,7 +353,7 @@ fn matchPatternLabelInner(pat AstNode) String {
 
 fn escapeForPrint(s String) String {
     let result String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(s.len()) {
         let ch String: s.at(i)
         let out String: match ch.equals("\n") {
@@ -363,4 +368,37 @@ fn escapeForPrint(s String) String {
         i: i.add(1)
     }
     return result
+}
+
+fn printStmtExport(stmt ExportNode, indent String) {
+    printLn(indent.append("ExportBlock"))
+    let bodyIndent String: makeIndent(indent)
+    let i i64: 0
+    while i.lt(stmt.entries.len()) {
+        let e ExportEntry: stmt.entries.at(i)
+        printLn(bodyIndent.append("ExportEntry [exportedAs=").append(e.exportedAs).append(", localName=").append(e.localName).append("]"))
+        i: i.add(1)
+    }
+}
+
+fn printStmtImport(stmt ImportNode, indent String) {
+    printLn(indent.append("ImportBlock"))
+    let bodyIndent String: makeIndent(indent)
+    let i i64: 0
+    while i.lt(stmt.entries.len()) {
+        let e ImportEntry: stmt.entries.at(i)
+        printLn(bodyIndent.append("ImportEntry [ns=").append(e.ns).append(", alias=").append(e.alias).append("]"))
+        i: i.add(1)
+    }
+}
+
+fn printExprQualifiedName(expr QualifiedNameNode, indent String) {
+    let joined String: ""
+    let i i64: 0
+    while i.lt(expr.parts.len()) {
+        if i.gt(0) { joined: joined.append(".") }
+        joined: joined.append(expr.parts.at(i))
+        i: i.add(1)
+    }
+    printLn(indent.append("QualifiedName [").append(joined).append("]"))
 }

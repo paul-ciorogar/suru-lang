@@ -7,7 +7,7 @@
 //
 // ── Runtime module ────────────────────────────────────────────────────────────
 // All non-trivial string operations (append, at, equals, slice, ord, clone, drop,
-// Int64.from, toString) are implemented in suru_string.ll and linked separately.
+// i64.from, toString) are implemented in suru_string.ll and linked separately.
 // This file only emits idempotent `declare` stubs and call instructions.
 //
 // ── What stays inline ─────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ fn emitExtractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
     ctx.builder: gr.builder
     let lr IrResult: ir.emitLoad(ctx.builder, "i64", gr.name)
     ctx.builder: lr.builder
-    return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "i64" }
 }
 
 // ─── String literal value ─────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ fn emitStringAppend(ctx IrCodegenContext, recv String, arg String) CodegenResult
 
 // .append("literal") → String: concat lhs with a raw string-literal global.
 // gname is the interned @.str_N name; charLen is the char count (excl. null).
-fn emitStringAppendLit(ctx IrCodegenContext, recv String, gname String, charLen Int64) CodegenResult {
+fn emitStringAppendLit(ctx IrCodegenContext, recv String, gname String, charLen i64) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append_lit(ptr, ptr, i64)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -112,7 +112,7 @@ fn emitStringAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
 
-// .__at(idx) → Char (raw i8): byte at position idx. NO allocation — unlike
+// .__at(idx) → char (raw i8): byte at position idx. NO allocation — unlike
 // .at(), which mallocs a one-char String. The leak-free char accessor.
 // idx must already be a raw i64 SSA name (caller handles unboxing).
 fn emitStringCharAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
@@ -122,10 +122,10 @@ fn emitStringCharAt(ctx IrCodegenContext, recv String, idx String) CodegenResult
     args.add("i64 ".append(idx))
     let r IrResult: ir.emitCall(ctx.builder, "i8", "suru_string_char_at", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "Char" }
+    return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "char" }
 }
 
-// .append(ch Char) → String: lhs with one byte appended (new heap String).
+// .append(ch char) → String: lhs with one byte appended (new heap String).
 fn emitStringAppendChar(ctx IrCodegenContext, recv String, ch String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append_char(ptr, i8)\n")
     let args Array<String>: []
@@ -136,7 +136,7 @@ fn emitStringAppendChar(ctx IrCodegenContext, recv String, ch String) CodegenRes
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
 
-// Char.toString() → String: materialize a Char into an owned length-1 String.
+// char.toString() → String: materialize a char into an owned length-1 String.
 fn emitStringFromChar(ctx IrCodegenContext, ch String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_from_char(i8)\n")
     let args Array<String>: []
@@ -146,7 +146,7 @@ fn emitStringFromChar(ctx IrCodegenContext, ch String) CodegenResult {
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
 
-// .equals(other) → raw i1 Bool: byte-for-byte string comparison.
+// .equals(other) → raw i1 bool: byte-for-byte string comparison.
 // Both recv and other are ptr to suru.String.
 fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare i1   @suru_string_equals(ptr, ptr)\n")
@@ -155,10 +155,10 @@ fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResu
     args.add("ptr ".append(other))
     let r IrResult: ir.emitCall(ctx.builder, "i1", "suru_string_equals", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "bool" }
 }
 
-// .equals("literal") → raw i1 Bool: compare recv with a raw string-literal global.
+// .equals("literal") → raw i1 bool: compare recv with a raw string-literal global.
 // gname is the interned @.str_N constant; no suru.String wrapper needed for rhs.
 fn emitStringEqualsLit(ctx IrCodegenContext, recv String, gname String) CodegenResult {
     ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
@@ -173,7 +173,7 @@ fn emitStringEqualsLit(ctx IrCodegenContext, recv String, gname String) CodegenR
     ctx.builder: cmpR.builder
     let eqR IrResult: ir.emitICmp(ctx.builder, "eq", "i32", cmpR.name, "0")
     ctx.builder: eqR.builder
-    return { ctx: ctx, name: eqR.name, llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: eqR.name, llvmType: "i1", suruType: "bool" }
 }
 
 // .compare("literal") → i64: signed ordering via @strcmp against a raw global.
@@ -191,7 +191,7 @@ fn emitStringCompareLit(ctx IrCodegenContext, recv String, gname String) Codegen
     ctx.builder: cmpR.builder
     let sextR IrResult: ir.emitSext(ctx.builder, "i32", cmpR.name, "i64")
     ctx.builder: sextR.builder
-    return { ctx: ctx, name: sextR.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: sextR.name, llvmType: "i64", suruType: "i64" }
 }
 
 // .compare(rhs) → i64: signed ordering via @strcmp; negative/0/positive.
@@ -214,7 +214,7 @@ fn emitStringCompare(ctx IrCodegenContext, recv String, other String) CodegenRes
     ctx.builder: cmpR.builder
     let sextR IrResult: ir.emitSext(ctx.builder, "i32", cmpR.name, "i64")
     ctx.builder: sextR.builder
-    return { ctx: ctx, name: sextR.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: sextR.name, llvmType: "i64", suruType: "i64" }
 }
 
 // .slice(from, to) → String: substring [from, to) as a new heap allocation.
@@ -237,7 +237,7 @@ fn emitStringOrd(ctx IrCodegenContext, recv String) CodegenResult {
     args.add("ptr ".append(recv))
     let r IrResult: ir.emitCall(ctx.builder, "i64", "suru_string_ord", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "i64" }
 }
 
 // clone(str) → String: deep copy (new buffer + new header).
@@ -260,7 +260,7 @@ fn emitStringDrop(ctx IrCodegenContext, recv String) CodegenResult {
     return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
 }
 
-// ─── Int64 / Float64 string conversions ──────────────────────────────────────
+// ─── i64 / f64 string conversions ──────────────────────────────────────
 
 // n.toString() → String: format a raw i64 as a decimal string via snprintf.
 // val must be a raw i64 SSA name.
@@ -273,7 +273,7 @@ fn emitInt64ToString(ctx IrCodegenContext, val String) CodegenResult {
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
 
-// Int64.from(str) → raw i64: parse a decimal string via strtol.
+// i64.from(str) → raw i64: parse a decimal string via strtol.
 // seqPtr must be a ptr to suru.String.
 fn emitInt64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare i64  @suru_int64_from_string(ptr)\n")
@@ -281,10 +281,10 @@ fn emitInt64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
     args.add("ptr ".append(seqPtr))
     let r IrResult: ir.emitCall(ctx.builder, "i64", "suru_int64_from_string", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "i64" }
 }
 
-// Float64.from(str) → raw double: parse a decimal string via strtod.
+// f64.from(str) → raw double: parse a decimal string via strtod.
 // seqPtr must be a ptr to suru.String.
 fn emitFloat64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare double @suru_float64_from_string(ptr)\n")
@@ -292,7 +292,7 @@ fn emitFloat64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
     args.add("ptr ".append(seqPtr))
     let r IrResult: ir.emitCall(ctx.builder, "double", "suru_float64_from_string", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "double", suruType: "Float64" }
+    return { ctx: ctx, name: r.name, llvmType: "double", suruType: "f64" }
 }
 
 // f.llvmHex() → String: format a raw double as IEEE-754 hex, e.g. "0xC004000000000000".

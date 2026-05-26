@@ -5,8 +5,8 @@
 // codegen-canonical form so codegen can read it directly without further
 // conversion:
 //
-//   primitives : "Bool" | "Int32" | "Int64" | "Float64" | "String"
-//   arrays     : "Array:<elem>" (e.g. "Array:Int64", "Array:Foo")
+//   primitives : "bool" | "i32" | "i64" | "f64" | "String"
+//   arrays     : "Array:<elem>" (e.g. "Array:i64", "Array:Foo")
 //   structs    : the declared type name (e.g. "Outer")
 //   unknown    : "" (sentinel — parser initialises every node to this)
 //
@@ -44,7 +44,7 @@ include "../codegen/irCodegenTypeHelpers.suru" as tyh
 // (name="") when none is registered. Callers must check the returned name.
 fn rtLookupTypeEntry(state AnalyzerState, name String) SemTypeEntry {
     let decls Array<SemTypeEntry>: state.typeDecls
-    let i Int64: 0
+    let i i64: 0
     while i.lt(decls.len()) {
         if decls.at(i).name.equals(name) { return decls.at(i) }
         i: i.add(1)
@@ -56,7 +56,7 @@ fn rtLookupTypeEntry(state AnalyzerState, name String) SemTypeEntry {
 // or "" if the field is missing.
 fn rtLookupFieldType(decl SemTypeEntry, fieldName String) String {
     let fields Array<SemFieldEntry>: decl.fields
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         if fields.at(i).name.equals(fieldName) { return fields.at(i).typeName }
         i: i.add(1)
@@ -67,15 +67,15 @@ fn rtLookupFieldType(decl SemTypeEntry, fieldName String) String {
 // rtCheckMissingFields — emit a compile error for each publicly-declared field
 // absent from the struct literal. Private fields (in decl.privateFieldNames) are
 // user-additive extensions and are exempt from this check.
-fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, line Int64, col Int64) {
+fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, line i64, col i64) {
     let declFields Array<SemFieldEntry>: decl.fields
     let privNames Array<String>: decl.privateFieldNames
-    let di Int64: 0
+    let di i64: 0
     while di.lt(declFields.len()) {
         let df SemFieldEntry: declFields.at(di)
         if not isPrivateName(privNames, df.name) {
-            let found Bool: false
-            let fi Int64: 0
+            let found bool: false
+            let fi i64: 0
             while fi.lt(fields.len()) {
                 if fields.at(fi).name.equals(df.name) { found: true }
                 fi: fi.add(1)
@@ -88,11 +88,33 @@ fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl
     }
 }
 
+// rtCheckUndeclaredMethods — emit a compile error for each public method in the
+// struct literal that is not declared on the type. Private methods (isPrivate=true)
+// are literal-only extensions and are exempt from this check.
+fn rtCheckUndeclaredMethods(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, line i64, col i64) {
+    let i i64: 0
+    while i.lt(fields.len()) {
+        let f StructFieldNode: fields.at(i)
+        if f.isMethod and not f.isPrivate {
+            let found bool: false
+            let j i64: 0
+            while j.lt(decl.methods.len()) {
+                if decl.methods.at(j).name.equals(f.name) { found: true }
+                j: j.add(1)
+            }
+            if not found {
+                state.addError("struct literal of type '".append(decl.name).append("' provides method '").append(f.name).append("' which is not declared on the type"), line, col)
+            }
+        }
+        i: i.add(1)
+    }
+}
+
 // rtLookupMethodReturn — declared return type of `methodName` on `decl`, or ""
 // if the type has no such declared method (then it is a builtin method call).
 fn rtLookupMethodReturn(decl SemTypeEntry, methodName String) String {
     let methods Array<SemMethodEntry>: decl.methods
-    let i Int64: 0
+    let i i64: 0
     while i.lt(methods.len()) {
         if methods.at(i).name.equals(methodName) { return methods.at(i).returnType }
         i: i.add(1)
@@ -103,8 +125,8 @@ fn rtLookupMethodReturn(decl SemTypeEntry, methodName String) String {
 // ─── Private member access control helpers ────────────────────────────────────
 
 // isPrivateName — true if `name` appears in the private-member name list.
-fn isPrivateName(names Array<String>, name String) Bool {
-    let i Int64: 0
+fn isPrivateName(names Array<String>, name String) bool {
+    let i i64: 0
     while i.lt(names.len()) {
         if names.at(i).equals(name) { return true }
         i: i.add(1)
@@ -114,8 +136,8 @@ fn isPrivateName(names Array<String>, name String) Bool {
 
 // rtHasField — true if the SemFieldEntry list already contains a field named `name`.
 // Used to avoid double-adding private fields when the same type has multiple literals.
-fn rtHasField(fields Array<SemFieldEntry>, name String) Bool {
-    let i Int64: 0
+fn rtHasField(fields Array<SemFieldEntry>, name String) bool {
+    let i i64: 0
     while i.lt(fields.len()) {
         if fields.at(i).name.equals(name) { return true }
         i: i.add(1)
@@ -128,12 +150,12 @@ fn rtHasField(fields Array<SemFieldEntry>, name String) Bool {
 // Also records its name in privateFieldNames (data) or privateMethodNames (methods).
 // Must be called before rtResolveStructMethods so method bodies can resolve this.field.
 fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<StructFieldNode>) {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(litFields.len()) {
         let f StructFieldNode: litFields.at(i)
         if f.isPrivate {
             let decls Array<SemTypeEntry>: state.typeDecls
-            let di Int64: 0
+            let di i64: 0
             while di.lt(decls.len()) {
                 let entry SemTypeEntry: decls.at(di)
                 if entry.name.equals(typeName) {
@@ -163,7 +185,7 @@ fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<
 
 // isThisReceiver — true when expr is a VarRefNode named "this".
 // Used by privacy checks to allow access to private members inside method bodies.
-fn isThisReceiver(expr AstNode) Bool {
+fn isThisReceiver(expr AstNode) bool {
     match expr {
         VarRefNode: {
             let v VarRefNode: expr
@@ -204,7 +226,7 @@ fn rtNodeResolvedType(expr AstNode) String {
 
 // rtResolveArrayElems — resolve each element with `elemExpected`.
 fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected String) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(elems.len()) {
         resolveExpr(state, elems.at(i), elemExpected)
         i: i.add(1)
@@ -216,7 +238,7 @@ fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected S
 // up the declared field type on `decl` and using `makeSuruType` to canonicalise
 // the annotation into the codegen-form expected by resolveExpr.
 fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         let field StructFieldNode: fields.at(i)
         let annot String: rtLookupFieldType(decl, field.name)
@@ -234,14 +256,14 @@ fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, dec
 // the body expression nodes in place so the later method lambda-lift
 // (pipeline.suru) can move them into top-level functions already type-resolved.
 fn rtResolveStructMethods(state AnalyzerState, fields Array<StructFieldNode>, structType String) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         let field StructFieldNode: fields.at(i)
         if field.isMethod {
             state.pushScope()
             state.declareSymbol("this", structType)
             let mps Array<Param>: field.methodParams
-            let pj Int64: 0
+            let pj i64: 0
             while pj.lt(mps.len()) {
                 let p Param: mps.at(pj)
                 state.declareSymbol(p.name, p.typeName)
@@ -259,7 +281,7 @@ fn rtResolveStructMethods(state AnalyzerState, fields Array<StructFieldNode>, st
 // rtResolveMatchArms — resolve each arm body with the outer-match expected
 // type. Pattern expressions are resolved with no expectation.
 fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
         if not arm.isWildcard {
@@ -276,7 +298,7 @@ fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String
 // in state.functions so `paramType` returns "" — fine, args fall back to
 // pure bottom-up resolution.
 fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         let paramAnn String: state.functions.paramType(fnName, i)
         let expected String: tyh.makeSuruType(paramAnn)
@@ -302,20 +324,20 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
     match expr {
         BoolLitNode: {
             let typed BoolLitNode: expr
-            typed.resolvedType: "Bool"
+            typed.resolvedType: "bool"
         }
 
         IntLitNode: {
             let typed IntLitNode: expr
-            // Int32 literals are upgraded only when the surrounding context
-            // explicitly expects Int32. Default stays Int64 to preserve the
+            // i32 literals are upgraded only when the surrounding context
+            // explicitly expects i32. Default stays i64 to preserve the
             // existing inferType behaviour from exprs.suru.
-            if expected.equals("Int32") { typed.resolvedType: "Int32" } else { typed.resolvedType: "Int64" }
+            if expected.equals("i32") { typed.resolvedType: "i32" } else { typed.resolvedType: "i64" }
         }
 
         FloatLitNode: {
             let typed FloatLitNode: expr
-            typed.resolvedType: "Float64"
+            typed.resolvedType: "f64"
         }
 
         StrLitNode: {
@@ -325,7 +347,7 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 
         CharLitNode: {
             let typed CharLitNode: expr
-            typed.resolvedType: "Char"
+            typed.resolvedType: "char"
         }
 
         VarRefNode: {
@@ -411,9 +433,9 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
                 resolveExpr(state, elems.at(0), "")
                 elemType: rtNodeResolvedType(elems.at(0))
             }
-            // Empty arrays without context default to Int64 — matches the
+            // Empty arrays without context default to i64 — matches the
             // codegen fallback at irCodegen.suru:395.
-            if elemType.equals("") { elemType: "Int64" }
+            if elemType.equals("") { elemType: "i64" }
             rtResolveArrayElems(state, elems, elemType)
             typed.resolvedType: "Array:".append(elemType)
         }
@@ -428,6 +450,7 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // type information is invented, the AST simply stays under-typed.
             if not decl.name.equals("") {
                 rtCheckMissingFields(state, fields, decl, typed.line, typed.col)
+                rtCheckUndeclaredMethods(state, fields, decl, typed.line, typed.col)
             }
             rtResolveStructFields(state, fields, decl)
             // Augment the SemTypeEntry with private fields/methods from this literal
@@ -456,8 +479,8 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             let typed UnaryNode: expr
             resolveExpr(state, typed.operand, "")
             // The only unary operator today is logical `not`; semantic.suru's
-            // inferType already returns "Bool" for every UnaryNode.
-            typed.resolvedType: "Bool"
+            // inferType already returns "bool" for every UnaryNode.
+            typed.resolvedType: "bool"
         }
 
         BinaryNode: {
@@ -465,8 +488,8 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             resolveExpr(state, typed.left, "")
             resolveExpr(state, typed.right, "")
             // Mirrors the current inferType behaviour: every binary operator
-            // produces Bool. Expanded to arithmetic in a future task.
-            typed.resolvedType: "Bool"
+            // produces bool. Expanded to arithmetic in a future task.
+            typed.resolvedType: "bool"
         }
 
         _: {}
@@ -480,7 +503,7 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 // `expectedReturn` down to ReturnNodes. Manages its own scope frames so that
 // VarRef lookups resolve correctly inside loops and if/else branches.
 fn rtResolveBody(state AnalyzerState, stmts Array<AstNode>, expectedReturn String) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         rtResolveStmt(state, stmts.at(i), expectedReturn)
         i: i.add(1)
@@ -541,7 +564,7 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
 
         WhileNode: {
             let typed WhileNode: stmt
-            resolveExpr(state, typed.condition, "Bool")
+            resolveExpr(state, typed.condition, "bool")
             state.pushScope()
             rtResolveBody(state, typed.body, expectedReturn)
             state.popScope()
@@ -549,7 +572,7 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
 
         IfNode: {
             let typed IfNode: stmt
-            resolveExpr(state, typed.condition, "Bool")
+            resolveExpr(state, typed.condition, "bool")
             let thenBlock BlockNode: typed.thenBranch
             state.pushScope()
             rtResolveBody(state, thenBlock.stmts, expectedReturn)
@@ -588,7 +611,7 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
 // statement list (not a single expression) so we recurse via rtResolveBody.
 // Pattern expressions are resolved with no expectation.
 fn rtResolveMatchStmtArms(state AnalyzerState, arms Array<MatchStmtArm>, expectedReturn String) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchStmtArm: arms.at(i)
         if not arm.isWildcard {
@@ -611,7 +634,7 @@ fn rtResolveMatchStmtArms(state AnalyzerState, arms Array<MatchStmtArm>, expecte
 fn rtResolveFnDecl(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
     state.pushScope()
     let params Array<Param>: stmt.params
-    let pi Int64: 0
+    let pi i64: 0
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         state.declareSymbol(p.name, p.typeName)
@@ -643,7 +666,7 @@ fn resolveModuleTypes(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     myScopes.add(modScope)
     state.scopes: myScopes
 
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let stmt AstNode: stmts.at(i)
         match stmt {

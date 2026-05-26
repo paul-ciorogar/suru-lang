@@ -28,20 +28,20 @@ fn llvmTypeOf(suruType String) String {
 }
 
 // True for the four scalar types that use raw LLVM values (not heap ptr).
-fn isScalarType(suruType String) Bool {
+fn isScalarType(suruType String) bool {
     return tyh.isScalarSuruType(suruType)
 }
 
 // LLVM type for arithmetic/comparison operands.
-// NamedType (unknown struct field) falls back to "i64" — assumed Box<Int64>
+// NamedType (unknown struct field) falls back to "i64" — assumed Box<i64>
 // at runtime, consistent with UnboxScalar's NamedType arm.
 fn rawLlvmTypeOf(suruType String) String {
     return match suruType {
-        "Bool":    "i1"
-        "Int32":   "i32"
-        "Char":    "i8"
-        "Int64":   "i64"
-        "Float64": "double"
+        "bool":    "i1"
+        "i32":   "i32"
+        "char":    "i8"
+        "i64":   "i64"
+        "f64": "double"
         _:         "ptr"
     }
 }
@@ -49,11 +49,11 @@ fn rawLlvmTypeOf(suruType String) String {
 // Zero-value constant for implicit/fallback returns.
 fn defaultReturnValue(suruType String) String {
     return match suruType {
-        "Bool":    "0"
-        "Int32":   "0"
-        "Char":    "0"
-        "Int64":   "0"
-        "Float64": "0.0"
+        "bool":    "0"
+        "i32":   "0"
+        "char":    "0"
+        "i64":   "0"
+        "f64": "0.0"
         _:         "null"
     }
 }
@@ -79,7 +79,7 @@ fn boxBool(ctx IrCodegenContext, val String) CodegenResult {
     args.add("i1 ".append(val))
     let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_box_bool", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Bool" }
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "bool" }
 }
 
 // Box a raw i32 into a heap ptr.
@@ -89,7 +89,7 @@ fn boxInt32(ctx IrCodegenContext, val String) CodegenResult {
     args.add("i32 ".append(val))
     let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_box_int32", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Int32" }
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "i32" }
 }
 
 // Box a raw i8 char into a heap ptr.
@@ -99,7 +99,7 @@ fn boxChar(ctx IrCodegenContext, val String) CodegenResult {
     args.add("i8 ".append(val))
     let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_box_char", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Char" }
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "char" }
 }
 
 // Box a raw i64 into a heap ptr.
@@ -109,7 +109,7 @@ fn boxInt64(ctx IrCodegenContext, val String) CodegenResult {
     args.add("i64 ".append(val))
     let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_box_int64", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Int64" }
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "i64" }
 }
 
 // Box a raw double into a heap ptr.
@@ -119,7 +119,7 @@ fn boxFloat64(ctx IrCodegenContext, val String) CodegenResult {
     args.add("double ".append(val))
     let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_box_float64", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Float64" }
+    return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "f64" }
 }
 
 // Dispatch to the appropriate box helper based on suruType.
@@ -127,11 +127,11 @@ fn boxFloat64(ctx IrCodegenContext, val String) CodegenResult {
 // no boxing — val is returned as-is.
 fn boxValue(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     match suruType {
-        "Bool":    { return boxBool(ctx, val) }
-        "Int32":   { return boxInt32(ctx, val) }
-        "Char":    { return boxChar(ctx, val) }
-        "Int64":   { return boxInt64(ctx, val) }
-        "Float64": { return boxFloat64(ctx, val) }
+        "bool":    { return boxBool(ctx, val) }
+        "i32":   { return boxInt32(ctx, val) }
+        "char":    { return boxChar(ctx, val) }
+        "i64":   { return boxInt64(ctx, val) }
+        "f64": { return boxFloat64(ctx, val) }
         _: {}
     }
     return { ctx: ctx, name: val, llvmType: "ptr", suruType: suruType }
@@ -146,7 +146,7 @@ fn unboxBool(ctx IrCodegenContext, ptr String) CodegenResult {
     args.add("ptr ".append(ptr))
     let r IrResult: ir.emitCall(ctx.builder, "i1", "suru_unbox_bool", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: r.name, llvmType: "i1", suruType: "bool" }
 }
 
 // Unbox a heap ptr into a raw i32.
@@ -156,7 +156,7 @@ fn unboxInt32(ctx IrCodegenContext, ptr String) CodegenResult {
     args.add("ptr ".append(ptr))
     let r IrResult: ir.emitCall(ctx.builder, "i32", "suru_unbox_int32", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i32", suruType: "Int32" }
+    return { ctx: ctx, name: r.name, llvmType: "i32", suruType: "i32" }
 }
 
 // Unbox a heap ptr into a raw i8 char.
@@ -166,7 +166,7 @@ fn unboxChar(ctx IrCodegenContext, ptr String) CodegenResult {
     args.add("ptr ".append(ptr))
     let r IrResult: ir.emitCall(ctx.builder, "i8", "suru_unbox_char", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "Char" }
+    return { ctx: ctx, name: r.name, llvmType: "i8", suruType: "char" }
 }
 
 // Unbox a heap ptr into a raw i64.
@@ -176,7 +176,7 @@ fn unboxInt64(ctx IrCodegenContext, ptr String) CodegenResult {
     args.add("ptr ".append(ptr))
     let r IrResult: ir.emitCall(ctx.builder, "i64", "suru_unbox_int64", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: r.name, llvmType: "i64", suruType: "i64" }
 }
 
 // Unbox a heap ptr into a raw double.
@@ -186,20 +186,20 @@ fn unboxFloat64(ctx IrCodegenContext, ptr String) CodegenResult {
     args.add("ptr ".append(ptr))
     let r IrResult: ir.emitCall(ctx.builder, "double", "suru_unbox_float64", args)
     ctx.builder: r.builder
-    return { ctx: ctx, name: r.name, llvmType: "double", suruType: "Float64" }
+    return { ctx: ctx, name: r.name, llvmType: "double", suruType: "f64" }
 }
 
 // Dispatch to the appropriate unbox helper based on suruType.
 // NamedType (unknown struct field returned dynamically) is assumed to be a
-// Box<Int64> at runtime.
+// Box<i64> at runtime.
 // Called only for scalar types — caller must not pass String/Array/void.
 fn unboxScalar(ctx IrCodegenContext, ptr String, suruType String) CodegenResult {
     return match suruType {
-        "Bool":    unboxBool(ctx, ptr)
-        "Int32":   unboxInt32(ctx, ptr)
-        "Char":    unboxChar(ctx, ptr)
-        "Int64":   unboxInt64(ctx, ptr)
-        "Float64": unboxFloat64(ctx, ptr)
+        "bool":    unboxBool(ctx, ptr)
+        "i32":   unboxInt32(ctx, ptr)
+        "char":    unboxChar(ctx, ptr)
+        "i64":   unboxInt64(ctx, ptr)
+        "f64": unboxFloat64(ctx, ptr)
         _:         unboxInt64(ctx, ptr)
     }
 }

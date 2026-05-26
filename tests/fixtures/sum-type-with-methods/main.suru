@@ -9,7 +9,7 @@ type Animal: {
 type Empty: { }
 type MaybeAnimal: Animal, Empty
 
-fn makeAnimal(kind Int64) MaybeAnimal {
+fn makeAnimal(kind i64) MaybeAnimal {
     match kind {
         0: {
             let dog Animal: {

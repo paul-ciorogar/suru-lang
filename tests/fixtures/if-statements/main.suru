@@ -8,7 +8,7 @@
 //   - `if` inside a non-void function whose return-path analysis
 //     depends on both branches returning
 
-fn classify(n Int64) String {
+fn classify(n i64) String {
     if n.lt(0) {
         return "negative"
     } else if n.equals(0) {
@@ -18,14 +18,14 @@ fn classify(n Int64) String {
     }
 }
 
-fn absVal(n Int64) Int64 {
+fn absVal(n i64) i64 {
     if n.lt(0) {
         return n.invert()
     }
     return n
 }
 
-fn describe(flag Bool) String {
+fn describe(flag bool) String {
     if flag {
         return "on"
     } else {
@@ -35,9 +35,9 @@ fn describe(flag Bool) String {
 
 // Sums every odd number in [1, limit].
 // Demonstrates an `if` nested inside a `while`.
-fn sumOdds(limit Int64) Int64 {
-    let total Int64: 0
-    let i Int64: 1
+fn sumOdds(limit i64) i64 {
+    let total i64: 0
+    let i i64: 1
     while i.lte(limit) {
         if i.take(i.split(2).multiply(2)).equals(1) {
             total: total.add(i)
@@ -59,7 +59,7 @@ fn main(args Array<String>) {
     printLn(describe(false))
 
     // Plain `if` with no else — message printed only when condition holds.
-    let n Int64: 10
+    let n i64: 10
     if n.gt(0) {
         printLn("positive-only branch")
     }

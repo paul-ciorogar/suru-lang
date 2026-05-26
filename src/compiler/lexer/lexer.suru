@@ -1,72 +1,75 @@
 include "../diagUtils.suru" as diagUtils
 
 // Token kind constants — ordinals must stay in sync with the bootstrap binary's token kind encoding.
-let TOK_EOF      Int64: 0
-let TOK_IDENT    Int64: 1
-let TOK_TRUE     Int64: 2
-let TOK_FALSE    Int64: 3
-let TOK_INT      Int64: 4
-let TOK_FLOAT    Int64: 5
-let TOK_STRING   Int64: 6
-let TOK_LPAREN   Int64: 7
-let TOK_RPAREN   Int64: 8
-let TOK_LBRACE   Int64: 9
-let TOK_RBRACE   Int64: 10
-let TOK_LBRACKET Int64: 11
-let TOK_RBRACKET Int64: 12
-let TOK_COMMA    Int64: 13
-let TOK_DOT      Int64: 14
-let TOK_COLON    Int64: 15
-let TOK_MINUS    Int64: 16
-let TOK_LT       Int64: 17
-let TOK_GT       Int64: 18
-let TOK_LET      Int64: 19
-let TOK_NOT      Int64: 20
-let TOK_AND      Int64: 21
-let TOK_OR       Int64: 22
-let TOK_MATCH    Int64: 23
-let TOK_WILDCARD Int64: 24
-let TOK_FN       Int64: 25
-let TOK_RETURN   Int64: 26
-let TOK_VOID     Int64: 27
-let TOK_WHILE    Int64: 28
-let TOK_INCLUDE  Int64: 29
-let TOK_TYPE     Int64: 30
-let TOK_AS       Int64: 31
-let TOK_IF       Int64: 32
-let TOK_ELSE     Int64: 33
-let TOK_CHAR     Int64: 34
-let TOK_THIS     Int64: 35
-let TOK_EXTERN   Int64: 36
-let TOK_BREAK    Int64: 37
-let TOK_CONTINUE Int64: 38
+let TOK_EOF      i64: 0
+let TOK_IDENT    i64: 1
+let TOK_TRUE     i64: 2
+let TOK_FALSE    i64: 3
+let TOK_INT      i64: 4
+let TOK_FLOAT    i64: 5
+let TOK_STRING   i64: 6
+let TOK_LPAREN   i64: 7
+let TOK_RPAREN   i64: 8
+let TOK_LBRACE   i64: 9
+let TOK_RBRACE   i64: 10
+let TOK_LBRACKET i64: 11
+let TOK_RBRACKET i64: 12
+let TOK_COMMA    i64: 13
+let TOK_DOT      i64: 14
+let TOK_COLON    i64: 15
+let TOK_MINUS    i64: 16
+let TOK_LT       i64: 17
+let TOK_GT       i64: 18
+let TOK_LET      i64: 19
+let TOK_NOT      i64: 20
+let TOK_AND      i64: 21
+let TOK_OR       i64: 22
+let TOK_MATCH    i64: 23
+let TOK_WILDCARD i64: 24
+let TOK_FN       i64: 25
+let TOK_RETURN   i64: 26
+let TOK_VOID     i64: 27
+let TOK_WHILE    i64: 28
+let TOK_INCLUDE  i64: 29
+let TOK_TYPE     i64: 30
+let TOK_AS       i64: 31
+let TOK_IF       i64: 32
+let TOK_ELSE     i64: 33
+let TOK_CHAR     i64: 34
+let TOK_THIS     i64: 35
+let TOK_EXTERN   i64: 36
+let TOK_BREAK    i64: 37
+let TOK_CONTINUE  i64: 38
+let TOK_NAMESPACE i64: 39
+let TOK_IMPORT    i64: 40
+let TOK_EXPORT    i64: 41
 
-type Token: { kind Int64, text String, line Int64, col Int64 }
+type Token: { kind i64, text String, line i64, col i64 }
 
 
 // Mutable lexer state. Methods mutate fields in place — Suru structs are
 // heap-allocated, so field assignment mutates the shared allocation.
 type Lexer: {
     source String
-    pos Int64
-    line Int64
-    col Int64
+    pos i64
+    line i64
+    col i64
     tokens Array<Token>
     srcPath String
-    fn current() Char
+    fn current() char
     fn advance() void
-    fn notEOF() Bool
-    fn peek() Char
-    fn peekN(n Int64) Char
-    fn addToken(kind Int64, text String, line Int64, col Int64) void
+    fn notEOF() bool
+    fn peek() char
+    fn peekN(n i64) char
+    fn addToken(kind i64, text String, line i64, col i64) void
     fn consumeWhitespace() void
     fn consumeLineComment() void
-    fn isLineComment() Bool
+    fn isLineComment() bool
     fn processNonWhitespace() void
     fn readIdentOrKeyword() void
     fn readNumber() void
-    fn checkFloat() Bool
-    fn makeFloatToken(intText String, startCol Int64) void
+    fn checkFloat() bool
+    fn makeFloatToken(intText String, startCol i64) void
     fn readIdent() String
     fn readDigits() String
     fn readString() void
@@ -75,38 +78,38 @@ type Lexer: {
     fn processSymbolOrString() void
 }
 
-let CHAR_DIGIT_0 Int64: 48
-let CHAR_DIGIT_9 Int64: 57
-let CHAR_LOWER_A Int64: 97
-let CHAR_LOWER_Z Int64: 122
-let CHAR_UPPER_A     Int64: 65
-let CHAR_UPPER_Z     Int64: 90
+let CHAR_DIGIT_0 i64: 48
+let CHAR_DIGIT_9 i64: 57
+let CHAR_LOWER_A i64: 97
+let CHAR_LOWER_Z i64: 122
+let CHAR_UPPER_A     i64: 65
+let CHAR_UPPER_Z     i64: 90
 
-fn isDigit(ch Char) Bool {
-    let c Int64: ch.ord()
+fn isDigit(ch char) bool {
+    let c i64: ch.ord()
     return c.gte(CHAR_DIGIT_0) and c.lte(CHAR_DIGIT_9)
 }
 
-fn isLetter(ch Char) Bool {
-    let c Int64: ch.ord()
-    let lower Bool: c.gte(CHAR_LOWER_A) and c.lte(CHAR_LOWER_Z)
-    let upper Bool: c.gte(CHAR_UPPER_A) and c.lte(CHAR_UPPER_Z)
+fn isLetter(ch char) bool {
+    let c i64: ch.ord()
+    let lower bool: c.gte(CHAR_LOWER_A) and c.lte(CHAR_LOWER_Z)
+    let upper bool: c.gte(CHAR_UPPER_A) and c.lte(CHAR_UPPER_Z)
     return lower or upper
 }
 
-fn isLetterDigitUnderscore(ch Char) Bool {
+fn isLetterDigitUnderscore(ch char) bool {
     return isLetter(ch) or isDigit(ch) or ch.equals('_')
 }
 
-fn isWhitespace(ch Char) Bool {
+fn isWhitespace(ch char) bool {
     return ch.equals(' ') or ch.equals('\n') or ch.equals('\t')
 }
 
-fn makeToken(kind Int64, text String, line Int64, col Int64) Token {
+fn makeToken(kind i64, text String, line i64, col i64) Token {
     return { kind: kind, text: text, line: line, col: col }
 }
 
-fn keywordKind(text String) Int64 {
+fn keywordKind(text String) i64 {
     return match text {
         "true":    TOK_TRUE
         "false":   TOK_FALSE
@@ -128,12 +131,15 @@ fn keywordKind(text String) Int64 {
         "this":     TOK_THIS
         "extern":   TOK_EXTERN
         "break":    TOK_BREAK
-        "continue": TOK_CONTINUE
-        _:          TOK_IDENT
+        "continue":  TOK_CONTINUE
+        "namespace": TOK_NAMESPACE
+        "import":    TOK_IMPORT
+        "export":    TOK_EXPORT
+        _:           TOK_IDENT
     }
 }
 
-fn escapeChar(esc Char) Char {
+fn escapeChar(esc char) char {
     return match esc {
         'n':  '\n'
         't':  '\t'
@@ -141,7 +147,7 @@ fn escapeChar(esc Char) Char {
     }
 }
 
-fn singleCharKind(ch Char) Int64 {
+fn singleCharKind(ch char) i64 {
     return match ch {
         '(':  TOK_LPAREN
         ')':  TOK_RPAREN
@@ -164,7 +170,7 @@ fn singleCharKind(ch Char) Int64 {
 
 
 // Map a token kind ordinal to its display name.
-fn tokenKindName(kind Int64) String {
+fn tokenKindName(kind i64) String {
     return match kind {
         TOK_EOF      : "EOF"
         TOK_IDENT    : "IDENT"
@@ -203,9 +209,12 @@ fn tokenKindName(kind Int64) String {
         TOK_CHAR     : "CHAR"
         TOK_THIS     : "THIS"
         TOK_EXTERN   : "EXTERN"
-        TOK_BREAK    : "BREAK"
-        TOK_CONTINUE : "CONTINUE"
-        _            : "UNKNOWN"
+        TOK_BREAK     : "BREAK"
+        TOK_CONTINUE  : "CONTINUE"
+        TOK_NAMESPACE : "NAMESPACE"
+        TOK_IMPORT    : "IMPORT"
+        TOK_EXPORT    : "EXPORT"
+        _             : "UNKNOWN"
     }
 }
 
@@ -213,7 +222,7 @@ fn tokenKindName(kind Int64) String {
 fn toString(source String) String {
     let tokens Array<Token>: tokenize(move(source), "")
     let result String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(tokens.len()) {
         let tok Token: tokens.at(i)
         if tok.kind.equals(TOK_EOF) { break }
@@ -264,7 +273,7 @@ fn newLexer(source String, srcPath String) Lexer {
         srcPath: clone(srcPath)
 
 
-        fn current() Char {
+        fn current() char {
             return this.source.__at(this.pos)
         }
         
@@ -273,21 +282,21 @@ fn newLexer(source String, srcPath String) Lexer {
             this.col: this.col.add(1)
         }
 
-        fn notEOF() Bool {
+        fn notEOF() bool {
             return this.pos.lt(this.source.len())
         }
 
-        fn peekN(n Int64) Char {
+        fn peekN(n i64) char {
             return this.source.__at(this.pos.add(n))
         }
 
-        fn peek() Char {
-            let next Int64: this.pos.add(1)
+        fn peek() char {
+            let next i64: this.pos.add(1)
             if next.lt(this.source.len()) { return this.peekN(1) }
             return '\0'
         }
 
-        fn addToken(kind Int64, text String, line Int64, col Int64) {
+        fn addToken(kind i64, text String, line i64, col i64) {
             this.tokens.add(makeToken(kind, text, line, col))
         }
 
@@ -309,12 +318,12 @@ fn newLexer(source String, srcPath String) Lexer {
             }
         }
 
-        fn isLineComment() Bool {
+        fn isLineComment() bool {
             return this.notEOF() and this.current().equals('/') and this.peek().equals('/')
         }
 
         fn processNonWhitespace() {
-            let ch Char: this.current()
+            let ch char: this.current()
 
             if isLetter(ch) or ch.equals('_') {
                 return this.readIdentOrKeyword()
@@ -326,14 +335,14 @@ fn newLexer(source String, srcPath String) Lexer {
         }
 
         fn readIdentOrKeyword() {
-            let startCol Int64: this.col
+            let startCol i64: this.col
             let text String: this.readIdent()
-            let kind Int64: keywordKind(text)
+            let kind i64: keywordKind(text)
             this.addToken(kind, text, this.line, startCol)
         }
 
         fn readNumber() {
-            let startCol Int64: this.col
+            let startCol i64: this.col
             let intText String: this.readDigits()
 
             if this.checkFloat() {
@@ -343,11 +352,11 @@ fn newLexer(source String, srcPath String) Lexer {
             this.addToken(TOK_INT, intText, this.line, startCol)
         }
 
-        fn checkFloat() Bool {
+        fn checkFloat() bool {
             return this.notEOF() and this.current().equals('.') and isDigit(this.peek())
         }
 
-        fn makeFloatToken(intText String, startCol Int64) {
+        fn makeFloatToken(intText String, startCol i64) {
             // Consume the '.' then the fractional digits.
             this.advance()
 
@@ -358,7 +367,7 @@ fn newLexer(source String, srcPath String) Lexer {
 
         // Read an identifier, advancing pos/col; return the identifier text.
         fn readIdent() String {
-            let start Int64: this.pos
+            let start i64: this.pos
             while this.notEOF() and isLetterDigitUnderscore(this.current()) {
                 this.advance()
             }
@@ -367,7 +376,7 @@ fn newLexer(source String, srcPath String) Lexer {
 
         // Read a run of digits, advancing pos/col; return the digit text.
         fn readDigits() String {
-            let start Int64: this.pos
+            let start i64: this.pos
             while this.notEOF() and isDigit(this.current()) {
                 this.advance()
             }
@@ -375,11 +384,11 @@ fn newLexer(source String, srcPath String) Lexer {
         }
 
         fn readString() {
-            let startCol Int64: this.col
+            let startCol i64: this.col
             this.advance()
             let text String: ""
             while this.notEOF() and not this.current().equals('"') {
-                let isEscape Bool: this.current().equals('\\') and not this.peek().equals('\0')
+                let isEscape bool: this.current().equals('\\') and not this.peek().equals('\0')
                 if isEscape {
                     this.advance()
                     text.__append(escapeChar(this.current()).toString())
@@ -396,10 +405,10 @@ fn newLexer(source String, srcPath String) Lexer {
         // The token text holds the decoded byte as a 1-char string (or "" for '\0').
         // Codegen folds it to an i8 immediate via .ord(); "" → 0 (null byte).
         fn readChar() {
-            let startCol Int64: this.col
+            let startCol i64: this.col
             this.advance() // consume '
 
-            let isEscape Bool: this.current().equals('\\') and not this.peek().equals('\0')
+            let isEscape bool: this.current().equals('\\') and not this.peek().equals('\0')
             let tokenText String: ""
             if isEscape {
                 this.advance()  // consume \
@@ -423,7 +432,7 @@ fn newLexer(source String, srcPath String) Lexer {
                 let srcLine String: extractSourceLine(this.source, this.line)
                 let lineLabel String: "  ".append(this.line.toString()).append(" | ")
                 printError(lineLabel.append(srcLine))
-                let prefixLen Int64: lineLabel.len().add(startCol.take(1))
+                let prefixLen i64: lineLabel.len().add(startCol.take(1))
                 printError(buildSpaces(prefixLen).append("^"))
                 exit(1)
             }
@@ -434,14 +443,14 @@ fn newLexer(source String, srcPath String) Lexer {
         }
 
         fn processSingleChar() {
-            let ch Char: this.current()
-            let kind Int64: singleCharKind(ch)
+            let ch char: this.current()
+            let kind i64: singleCharKind(ch)
             this.addToken(kind, ch.toString(), this.line, this.col)
             this.advance()
         }
 
         fn processSymbolOrString() {
-            let ch Char: this.current()
+            let ch char: this.current()
             if ch.equals('"') { return this.readString() }
             if ch.equals('\'') { return this.readChar() }
             this.processSingleChar()

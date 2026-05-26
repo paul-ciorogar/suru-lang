@@ -1,25 +1,25 @@
 // Exercises:
-//   1. identity<T> instantiated at Int64, Bool, and String in one program
+//   1. identity<T> instantiated at i64, bool, and String in one program
 //      (String variant must not be dropped — the literal is a static global)
-//   2. Nested builtin generic Array<Array<Int64>>
+//   2. Nested builtin generic Array<Array<i64>>
 fn identity<T>(x T) T {
     return x
 }
 
 fn main(args Array<String>) {
     // identity instantiated at three concrete types
-    let n Int64: identity(7)
-    let b Bool: identity(false)
+    let n i64: identity(7)
+    let b bool: identity(false)
     printLn(n)       // 7
     printLn(b)       // false
 
     // String identity — result is a static literal; no drop
     printLn(identity("hello"))   // hello
 
-    // Nested builtin generic: Array<Array<Int64>>
-    let matrix Array<Array<Int64>>: []
-    let row0 Array<Int64>: [1, 2, 3]
-    let row1 Array<Int64>: [4, 5, 6]
+    // Nested builtin generic: Array<Array<i64>>
+    let matrix Array<Array<i64>>: []
+    let row0 Array<i64>: [1, 2, 3]
+    let row1 Array<i64>: [4, 5, 6]
     matrix.add(row0)
     matrix.add(row1)
     printLn(matrix.len())   // 2

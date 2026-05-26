@@ -1,7 +1,7 @@
-let CONST_MONDAY Int64: 1
-let CONST_FRIDAY Int64: 5
+let CONST_MONDAY i64: 1
+let CONST_FRIDAY i64: 5
 
-fn classify(n Int64) String {
+fn classify(n i64) String {
     match n {
         0: { return "zero" }
         1: { return "one" }
@@ -10,7 +10,7 @@ fn classify(n Int64) String {
     return "many"
 }
 
-fn describeSign(n Int64) String {
+fn describeSign(n i64) String {
     match n.lt(0) {
         true: {
             let msg String: "negative"
@@ -21,7 +21,7 @@ fn describeSign(n Int64) String {
     return "non-negative"
 }
 
-fn voidMatch(flag Bool) {
+fn voidMatch(flag bool) {
     match flag {
         true: { printLn("yes") }
         _: { printLn("no") }
@@ -38,28 +38,28 @@ fn main(args Array<String>) {
     voidMatch(false)
     match true { true: printLn("backward-compat"), _: printLn("nope") }
 
-    let x Bool: true
+    let x bool: true
     match x { true: printLn(1), _: printLn(0) }
 
-    let y Int64: match x { true: 1, _: 0 }
+    let y i64: match x { true: 1, _: 0 }
     printLn(y)
 
-    let a Bool: 3.equals(3)
+    let a bool: 3.equals(3)
     printLn(a)
 
-    let b Bool: 5.lt(10)
+    let b bool: 5.lt(10)
     printLn(b)
 
-    let c Bool: 5.lt(3)
+    let c bool: 5.lt(3)
     printLn(c)
 
     let day String: "Monday"
     match day { "Monday": printLn(1), "Friday": printLn(2), _: printLn(0) }
 
-    let n Int64: 0.take(1)
+    let n i64: 0.take(1)
     match n { -1: printLn(1), 0: printLn(2), 1: printLn(3), _: printLn(0) }
 
-    let cmp Int64: 2.compare(5)
+    let cmp i64: 2.compare(5)
     printLn(cmp)
 
     match 5 {
@@ -68,8 +68,8 @@ fn main(args Array<String>) {
         _: printLn("undefined")
     }
 
-    let monday Int64: 1
-    let friday Int64: 5
+    let monday i64: 1
+    let friday i64: 5
     match 5 {
         monday: printLn("Monday")
         friday: printLn("Friday")

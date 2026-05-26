@@ -50,7 +50,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
-- Types: `Bool`, `Int32`, `Int64`, `Float64`, `Char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
+- Types: `bool`, `i32`, `i64`, `f64`, `char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
 - Control flow: `while` (with `break` and `continue`), `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Cross-file includes: `include "path/file.suru" as ns`
@@ -77,9 +77,9 @@ printLn(3.14)
 Declare with `let`. The type annotation is **mandatory** and appears between the variable name and the `:`:
 
 ```suru
-let x Int64: 42
-let ratio Float64: 1.5
-let flag Bool: true
+let x i64: 42
+let ratio f64: 1.5
+let flag bool: true
 let name String: "suru"
 ```
 
@@ -92,14 +92,14 @@ flag: false
 A `let` declared at module level (outside any function) is a **constant** — reassignment is a compile error:
 
 ```suru
-let MAX_SIZE Int64: 1024
+let MAX_SIZE i64: 1024
 
 fn main(args Array<String>) {
     MAX_SIZE: 2048  // error: cannot reassign constant 'MAX_SIZE'
 }
 ```
 
-Available types: `Bool`, `Int32`, `Int64`, `Float64`, `String`, `Array<T>`, and any declared named type (e.g. `Point`).
+Available types: `bool`, `i32`, `i64`, `f64`, `String`, `Array<T>`, and any declared named type (e.g. `Point`).
 
 ### Comments
 
@@ -107,7 +107,7 @@ Use `//` for line comments. Everything from `//` to the end of the line is ignor
 
 ```suru
 // full-line comment
-let x Int64: 42  // inline comment
+let x i64: 42  // inline comment
 ```
 
 ### Arithmetic
@@ -125,7 +125,7 @@ Arithmetic is expressed as method calls on values:
 Methods chain naturally:
 
 ```suru
-let result Int64: 2.add(3).multiply(4)
+let result i64: 2.add(3).multiply(4)
 printLn(result)
 ```
 
@@ -148,12 +148,12 @@ printLn(not true)         // false
 | `gte(n)` | greater-than-or-equal | `5.gte(3)` → `true` |
 | `compare(n)` | three-way comparison | `2.compare(5)` → `-1` |
 
-`equals`, `lt`, `gt`, `lte`, `gte` work on `Int64`, `Float64`, and `Bool`; always return `Bool`. `compare` works on `Int64` and `Float64`; returns `Int64` (`-1` = less, `0` = equal, `1` = greater).
+`equals`, `lt`, `gt`, `lte`, `gte` work on `i64`, `f64`, and `bool`; always return `bool`. `compare` works on `i64` and `f64`; returns `i64` (`-1` = less, `0` = equal, `1` = greater).
 
 ### Control flow — while
 
 ```suru
-let i Int64: 0
+let i i64: 0
 while i.lt(5) {
     printLn(i)
     i: i.add(1)
@@ -164,7 +164,7 @@ Use `break` to exit the loop early and `continue` to skip to the next iteration:
 
 ```suru
 // Print 0, 1, 2 — stop when i reaches 3
-let i Int64: 0
+let i i64: 0
 while i.lt(10) {
     if i.equals(3) { break }
     printLn(i)
@@ -172,7 +172,7 @@ while i.lt(10) {
 }
 
 // Print 1, 2, 4, 5 — skip 3
-let j Int64: 0
+let j i64: 0
 while j.lt(5) {
     j: j.add(1)
     if j.equals(3) { continue }
@@ -184,10 +184,10 @@ while j.lt(5) {
 
 ### Control flow — if / else
 
-`if` evaluates a `Bool` condition and runs the matching brace block. The `else` clause is optional, and `else if` chains arbitrarily many conditions. Each branch is its own scope — `let` bindings inside a branch are not visible after the `if`.
+`if` evaluates a `bool` condition and runs the matching brace block. The `else` clause is optional, and `else if` chains arbitrarily many conditions. Each branch is its own scope — `let` bindings inside a branch are not visible after the `if`.
 
 ```suru
-fn classify(n Int64) String {
+fn classify(n i64) String {
     if n.lt(0) {
         return "negative"
     } else if n.equals(0) {
@@ -197,18 +197,18 @@ fn classify(n Int64) String {
     }
 }
 
-let n Int64: 10
+let n i64: 10
 if n.gt(0) {
     printLn("positive")
 }
 ```
 
-The condition must be `Bool` — passing an `Int64` or other type is a compile-time error (`if condition must be Bool, got Int64`).
+The condition must be `bool` — passing an `i64` or other type is a compile-time error (`if condition must be bool, got i64`).
 
 When used inside a non-void function, an `if` only counts as "all paths return" when it has an `else` branch **and** both branches transitively return. An `if` with no `else`, or with one branch falling through, still requires a trailing `return` after the statement:
 
 ```suru
-fn absVal(n Int64) Int64 {
+fn absVal(n i64) i64 {
     if n.lt(0) {
         return n.invert()
     }
@@ -223,7 +223,7 @@ fn absVal(n Int64) Int64 {
 **Match statement** — used at statement level; each arm has a `{ }` block body that can contain multiple statements, `let` bindings, and early `return`. An empty arm is written `{}`.
 
 ```suru
-fn classify(n Int64) String {
+fn classify(n i64) String {
     match n {
         0: { return "zero" }
         1: {
@@ -241,16 +241,16 @@ A match statement satisfies the non-void return requirement when every arm (incl
 **Match expression** — used on the right-hand side of `let`, `return`, or any expression position; each arm body is a single expression that produces the result value.
 
 ```suru
-let y Int64: match x { true: 1, _: 0 }
+let y i64: match x { true: 1, _: 0 }
 printLn(y)
 ```
 
-Both forms use the same arm syntax (`pattern: body`) and support the same pattern types: `Bool` literals, integer/float literals (including negative), string literals, and identifier patterns (variable or constant lookup).
+Both forms use the same arm syntax (`pattern: body`) and support the same pattern types: `bool` literals, integer/float literals (including negative), string literals, and identifier patterns (variable or constant lookup).
 
 Match on integers (negative literals supported):
 
 ```suru
-let n Int64: 0.take(1)
+let n i64: 0.take(1)
 match n { -1: printLn("negative"), 0: printLn("zero"), 1: printLn("positive"), _: printLn("other") }
 ```
 
@@ -264,10 +264,10 @@ match day { "Monday": printLn("start"), "Friday": printLn("end"), _: printLn("mi
 Match on variables or constants:
 
 ```suru
-let THRESHOLD Int64: 10
+let THRESHOLD i64: 10
 
 fn main(args Array<String>) {
-    let score Int64: 10
+    let score i64: 10
     match score {
         THRESHOLD: printLn("exact")
         _: printLn("other")
@@ -275,14 +275,14 @@ fn main(args Array<String>) {
 }
 ```
 
-Arms are separated by `,` or newlines. The condition must be `Bool`, `Int64`, `Float64`, or `String`.
+Arms are separated by `,` or newlines. The condition must be `bool`, `i64`, `f64`, or `String`.
 
 ### Functions
 
 Declare with `fn`. Parameters are `name Type` pairs. The return type follows the parameter list:
 
 ```suru
-fn add(a Int64, b Int64) Int64 {
+fn add(a i64, b i64) i64 {
   return a.add(b)
 }
 
@@ -292,7 +292,7 @@ printLn(add(3, 4))
 Use `void` for functions that return no value:
 
 ```suru
-fn printDouble(n Int64) void {
+fn printDouble(n i64) void {
   printLn(n.add(n))
 }
 ```
@@ -300,7 +300,7 @@ fn printDouble(n Int64) void {
 Recursion is supported:
 
 ```suru
-fn fibonacci(n Int64) Int64 {
+fn fibonacci(n i64) i64 {
   return match n.lt(2) {
     true: n,
     _: fibonacci(n.take(1)).add(fibonacci(n.take(2)))
@@ -316,19 +316,19 @@ Declare a named type with `type Name: { field Type, ... }`. Fields use only a na
 
 ```suru
 // inline
-type Point: { x Int64, y Int64 }
+type Point: { x i64, y i64 }
 
 // multiline
 type Person: {
     name String
-    age  Int64
+    age  i64
 }
 ```
 
 Create a value with `{ field: value, ... }`. Fields are separated by `,` or newlines. No per-field type annotations — types come from the `type` declaration:
 
 ```suru
-type Person: { tall Bool, height Int64 }
+type Person: { tall bool, height i64 }
 
 let person Person: { tall: true, height: 2283 }
 ```
@@ -357,11 +357,11 @@ drop(person)
 Use the type name in `let` declarations, function parameters, and return types:
 
 ```suru
-fn makePoint(x Int64, y Int64) Point {
+fn makePoint(x i64, y i64) Point {
     return { x: x, y: y }
 }
 
-fn getX(p Point) Int64 {
+fn getX(p Point) i64 {
     return p.x
 }
 ```
@@ -392,13 +392,13 @@ Object literals support private fields and private methods using a standalone `_
 ```suru
 type Counter: {
     fn increment()
-    fn get() Int64
+    fn get() i64
 }
 
 let c Counter: {
-    _ count Int64: 0,                                       // private data field
+    _ count i64: 0,                                       // private data field
     fn increment() { this.count: this.count.add(1) }
-    fn get() Int64 { return this.count }
+    fn get() i64 { return this.count }
 }
 c.increment()
 printLn(c.get().toString())   // 1
@@ -414,8 +414,8 @@ Private methods follow the same `_ fn name(params) Ret { ... }` syntax and are a
 Declare a sum type with `type Name: Variant1, Variant2, ...`. Each variant name must refer to a declared struct type:
 
 ```suru
-type Circle: { radius Int64 }
-type Square: { side   Int64 }
+type Circle: { radius i64 }
+type Square: { side   i64 }
 type Shape: Circle, Square
 ```
 
@@ -460,16 +460,16 @@ fn identity<T>(x T) T {
 }
 
 fn main(args Array<String>) {
-    let b Box<Int64>: { value: 42 }
+    let b Box<i64>: { value: 42 }
     printLn(b.value)    // 42
     drop(b)
 
-    let r Int64: identity(42)
+    let r i64: identity(42)
     printLn(r)          // 42
 }
 ```
 
-Type parameters are declared in `<...>` after the name. Concrete type arguments are inferred at each usage site — no explicit instantiation syntax is needed. Each unique combination of type arguments produces a separate concrete copy (e.g. `Box<Int64>` and `Box<String>` are distinct types). Because Suru has no GC, heap-allocated generic structs must be explicitly `drop`ped like any other struct.
+Type parameters are declared in `<...>` after the name. Concrete type arguments are inferred at each usage site — no explicit instantiation syntax is needed. Each unique combination of type arguments produces a separate concrete copy (e.g. `Box<i64>` and `Box<String>` are distinct types). Because Suru has no GC, heap-allocated generic structs must be explicitly `drop`ped like any other struct.
 
 Multiple type parameters are supported:
 
@@ -477,7 +477,7 @@ Multiple type parameters are supported:
 type Pair<T, U>: { first T, second U }
 
 fn main(args Array<String>) {
-    let p Pair<Int64, String>: { first: 42, second: "hello" }
+    let p Pair<i64, String>: { first: 42, second: "hello" }
     printLn(p.first)    // 42
     printLn(p.second)   // hello
     drop(p)
@@ -491,7 +491,7 @@ type Some<T>: { value T }
 type None: {}
 type Option<T>: Some<T>, None
 
-fn describeOpt(x Option<Int64>) {
+fn describeOpt(x Option<i64>) {
     match x {
         Some: { printLn(x.value) }   // arm pattern "Some" resolved automatically
         None: { printLn("none") }
@@ -506,9 +506,9 @@ include "../../src/stdlib/option.suru" as opt
 include "../../src/stdlib/result.suru" as res
 
 fn main(args Array<String>) {
-    let s Option<Int64>: opt.some(42)
-    let ok Result<Int64, String>: res.ok(99)
-    let err Result<Int64, String>: res.err("oops")
+    let s Option<i64>: opt.some(42)
+    let ok Result<i64, String>: res.ok(99)
+    let err Result<i64, String>: res.err("oops")
     drop(s)
     drop(ok)
     drop(err)
@@ -520,11 +520,11 @@ fn main(args Array<String>) {
 Create an array with `[e1, e2, ...]`. The element type is specified with the `Array<T>` generic annotation:
 
 ```suru
-let nums Array<Int64>: [10, 20, 30]
+let nums Array<i64>: [10, 20, 30]
 let words Array<String>: ["hello", "world"]
 ```
 
-The type parameter `T` can be any Suru type: `Bool`, `Int32`, `Int64`, `Float64`, `String`, or any named type (e.g. `Array<Token>`).
+The type parameter `T` can be any Suru type: `bool`, `i32`, `i64`, `f64`, `String`, or any named type (e.g. `Array<Token>`).
 
 | Method | Description | Example |
 |---|---|---|
@@ -532,15 +532,15 @@ The type parameter `T` can be any Suru type: `Bool`, `Int32`, `Int64`, `Float64`
 | `at(i)` | element at index | `nums.at(0)` → `10` |
 | `set(val, i)` | update element in-place | `nums.set(99, 1)` |
 | `add(v)` | append element | `nums.add(40)` |
-| `equals(other)` | element-wise equality | `nums.equals(other)` → `Bool` |
+| `equals(other)` | element-wise equality | `nums.equals(other)` → `bool` |
 | `slice(from, to)` | new array copy of `[from, to)` | `nums.slice(1, 3)` |
 
 ```suru
-let nums Array<Int64>: [10, 20, 30]
+let nums Array<i64>: [10, 20, 30]
 printLn(nums.len())      // 3
 nums.add(40)
 printLn(nums.at(3))      // 40
-let part Array<Int64>: nums.slice(0, 2)
+let part Array<i64>: nums.slice(0, 2)
 printLn(part.len())      // 2
 ```
 
@@ -559,9 +559,9 @@ printLn(s)
 |---|---|---|---|
 | `len()` | byte length | value | `s.len()` → `5` |
 | `at(i)` | single-char `String` at index (allocates) | new instance | `s.at(0)` → `"h"` |
-| `__at(i)` | byte at index as a `Char` (no allocation) | value | `s.__at(0)` → `'h'` |
+| `__at(i)` | byte at index as a `char` (no allocation) | value | `s.__at(0)` → `'h'` |
 | `equals(other)` | string equality | value | `s.equals("hello")` → `true` |
-| `append(other)` | concatenate `String` or `Char`, new string | new instance | `s.append(" world")`, `s.append('!')` |
+| `append(other)` | concatenate `String` or `char`, new string | new instance | `s.append(" world")`, `s.append('!')` |
 | `__append(other)` | append in place, returns self | rebound self | `s.__append("!")` mutates `s` |
 | `slice(from, to)` | substring copy of `[from, to)` | new instance | `s.slice(1, 3)` → `"el"` |
 | `ord()` | ASCII code of first byte | value | `"A".ord()` → `65` |
@@ -586,22 +586,22 @@ other binding still pointing at the old string is left dangling — treat
 
 ### Characters
 
-`Char` is a value type — a single byte. Unlike `String`, a `Char` is never
-heap-allocated and never needs `drop`. Char literals use single quotes;
+`char` is a value type — a single byte. Unlike `String`, a `char` is never
+heap-allocated and never needs `drop`. char literals use single quotes;
 supported escapes are `\n`, `\t`, `\\`, `\'`, `\0`.
 
 ```suru
-let c Char: 'h'
-let nl Char: '\n'
+let c char: 'h'
+let nl char: '\n'
 ```
 
-Read a character out of a `String` with `__at(i)`, which returns a `Char`
+Read a character out of a `String` with `__at(i)`, which returns a `char`
 without allocating (contrast `at(i)`, which mallocs a one-character
 `String`):
 
 ```suru
 let s String: "hello"
-let first Char: s.__at(0)
+let first char: s.__at(0)
 printLn(first.equals('h'))   // true
 printLn(s.__at(1).ord())     // 101  (ASCII 'e')
 ```
@@ -609,17 +609,17 @@ printLn(s.__at(1).ord())     // 101  (ASCII 'e')
 | Method | Description | Returns | Example |
 |---|---|---|---|
 | `equals(other)` | char equality | value | `c.equals('h')` → `true` |
-| `ord()` | byte value as `Int64` | value | `'A'.ord()` → `65` |
+| `ord()` | byte value as `i64` | value | `'A'.ord()` → `65` |
 | `toString()` | owned one-char `String` | new instance | `'h'.toString()` → `"h"` |
 
-A `Char` can be appended to a `String` with `append`:
+A `char` can be appended to a `String` with `append`:
 
 ```suru
 let s String: "ab".append('c')   // "abc"
 ```
 
 > Migration note: `String.__at` is an interim accessor. `String.at` still
-> returns a `String` today; a later step replaces it with the `Char`-returning
+> returns a `String` today; a later step replaces it with the `char`-returning
 > form and retires `__at`.
 
 ### Type conversions
@@ -627,8 +627,8 @@ let s String: "ab".append('c')   // "abc"
 Convert a `String` to a number with the static `from` method:
 
 ```suru
-let n Int64: Int64.from("42")
-let f Float64: Float64.from("3.14")
+let n i64: i64.from("42")
+let f f64: f64.from("3.14")
 ```
 
 Convert any primitive to a `String` with `toString()`:
@@ -673,7 +673,7 @@ fn main(args Array<String>) {
 
 ### printError
 
-Write to stderr. Accepts the same types as `printLn` (`Bool`, `Int64`, `Float64`, `String`):
+Write to stderr. Accepts the same types as `printLn` (`bool`, `i64`, `f64`, `String`):
 
 ```suru
 printError("error: file not found")
@@ -684,7 +684,7 @@ printError(42)
 
 | Function | Signature | Description |
 |---|---|---|
-| `printLn` | `printLn(value)` | Prints `value` to stdout followed by a newline. Accepts `Bool`, `Int32`, `Int64`, `Float64`, and `String`. |
+| `printLn` | `printLn(value)` | Prints `value` to stdout followed by a newline. Accepts `bool`, `i32`, `i64`, `f64`, and `String`. |
 | `printError` | `printError(value)` | Same as `printLn` but writes to stderr. |
 | `readFile` | `readFile(path) → String` | Reads the entire contents of the file at `path` and returns it as a `String`. Aborts if the file cannot be opened. |
 | `writeFile` | `writeFile(path, content)` | Writes `content` to the file at `path`, creating it if it does not exist and truncating it if it does. |
@@ -692,8 +692,8 @@ printError(42)
 | `clone` | `clone(x) → T` | Returns a deep copy of `x`. Required before storing a heap value (String, Array, or struct) in a second variable, passing it somewhere that takes ownership, or outliving the original. |
 | `drop` | `drop(x)` | Frees the heap memory owned by `x` (String, Array, or struct). After `drop`, `x` must not be used. |
 | `move` | `move(x) → T` | Transfers ownership of `x` without cloning. After `move(x)`, any use of `x` is a compile-time error. Re-assigning `x` clears the moved state. The argument must be a variable, not an expression. |
-| `exit` | `exit(code)` | Terminates the process immediately with the given exit code (`Int64`). Counts as a terminal statement — no `return` is needed after it in a non-void function. |
-| `exec` | `exec(cmd) → Int64` | Runs `cmd` as a shell command via `system()` and returns the exit code as `Int64`. Stdout and stderr pass through to the process. |
+| `exit` | `exit(code)` | Terminates the process immediately with the given exit code (`i64`). Counts as a terminal statement — no `return` is needed after it in a non-void function. |
+| `exec` | `exec(cmd) → i64` | Runs `cmd` as a shell command via `system()` and returns the exit code as `i64`. Stdout and stderr pass through to the process. |
 
 ```suru
 // print
@@ -711,7 +711,7 @@ drop(src)
 let moved String: move(copy)   // copy is now invalid; moved owns the value
 
 // process
-let code Int64: exec("ls -la")
+let code i64: exec("ls -la")
 exit(code)
 ```
 
@@ -723,14 +723,14 @@ Split a program across multiple `.suru` files using `include`. Functions from th
 include "lib.suru" as lib
 
 fn main(args Array<String>) {
-    let result Int64: lib.double(21)
+    let result i64: lib.double(21)
     printLn(result)   // 42
 }
 ```
 
 `lib.suru`:
 ```suru
-fn double(n Int64) Int64 {
+fn double(n i64) i64 {
     return n.multiply(2)
 }
 ```
@@ -871,7 +871,7 @@ Example output:
 ```
 === AST after mono ===
 Module [mono]
-  TypeDecl Box__Int64 { value Int64 }
+  TypeDecl Box__i64 { value i64 }
   FnDecl main(args Array<String>) ...
 
 === Symbol Table after mono ===
@@ -879,7 +879,7 @@ Functions (3):
   main(Array<String>) → void
   ...
 Types (1):
-  Box__Int64: { value Int64 }
+  Box__i64: { value i64 }
 ...
 ```
 

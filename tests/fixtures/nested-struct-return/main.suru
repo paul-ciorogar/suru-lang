@@ -10,7 +10,7 @@
 // top-down expectation propagation, so the inner literal knows its true
 // type at codegen time.
 
-type Inner: { x Int64 }
+type Inner: { x i64 }
 type Outer: { inner Inner }
 
 fn make() Outer {

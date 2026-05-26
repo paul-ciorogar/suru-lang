@@ -30,7 +30,7 @@ include "irBuilder.suru" as ir
 // Generic helper: append `line` to ctx.strGlobals only if not already declared.
 // Uses ctx.declares (shared dedup set) for idempotency, like addDecl/addSuruDecl.
 fn addModeGlobal(ctx IrCodegenContext, line String) IrCodegenContext {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(ctx.declares.len()) {
         match ctx.declares.at(i).equals(line) { true: { return ctx } _: {} }
         i: i.add(1)
@@ -74,7 +74,7 @@ fn extractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
     ctx.builder: gr.builder
     let lr IrResult: ir.emitLoad(ctx.builder, "i64", gr.name)
     ctx.builder: lr.builder
-    return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: lr.name, llvmType: "i64", suruType: "i64" }
 }
 
 // ─── File I/O built-ins ───────────────────────────────────────────────────────
@@ -291,7 +291,7 @@ fn emitWriteFile(ctx IrCodegenContext, pathData String, contentPtr String) IrCod
 
 // Emit writeFile(path, "literal") — content is a raw string-literal global.
 // pathData is a pre-extracted raw char*; gname is the interned content global; charLen is the char count.
-fn emitWriteFileLit(ctx IrCodegenContext, pathData String, gname String, charLen Int64) IrCodegenContext {
+fn emitWriteFileLit(ctx IrCodegenContext, pathData String, gname String, charLen i64) IrCodegenContext {
     ctx: types.addDecl(ctx, "declare ptr @fopen(ptr, ptr)\n")
     ctx: addModeW(ctx)
     let fopenArgs Array<String>: []
@@ -366,7 +366,7 @@ fn emitAppendToFile(ctx IrCodegenContext, pathData String, contentPtr String) Ir
 
 // Emit appendToFile(path, "literal") — content is a raw string-literal global.
 // pathData is a pre-extracted raw char*; gname is the interned content global; charLen is the char count.
-fn emitAppendToFileLit(ctx IrCodegenContext, pathData String, gname String, charLen Int64) IrCodegenContext {
+fn emitAppendToFileLit(ctx IrCodegenContext, pathData String, gname String, charLen i64) IrCodegenContext {
     ctx: types.addDecl(ctx, "declare ptr @fopen(ptr, ptr)\n")
     ctx: addModeA(ctx)
     let fopenArgsL Array<String>: []

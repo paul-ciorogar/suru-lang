@@ -9,13 +9,13 @@
 //   - struct literal returned from a function with explicit return type
 //   - `match` expression in `let` position (top-down expectation through arms)
 
-type Point: { x Int64, y Int64 }
+type Point: { x i64, y i64 }
 
-fn makePoint(x Int64, y Int64) Point {
+fn makePoint(x i64, y i64) Point {
     return { x: x, y: y }
 }
 
-fn pickBoxSide(big Bool) Int64 {
+fn pickBoxSide(big bool) i64 {
     return match big {
         true: 100
         _:    10
@@ -35,7 +35,7 @@ fn main(args Array<String>) {
     printLn(q.x)
     printLn(q.y)
 
-    let side Int64: pickBoxSide(true)
+    let side i64: pickBoxSide(true)
     printLn(side)
 
     drop(p)

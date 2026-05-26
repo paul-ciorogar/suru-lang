@@ -4,7 +4,7 @@
 type Box<T>: { value T }
 
 fn main(args Array<String>) {
-    let a Box<Int64>: { value: 42 }
+    let a Box<i64>: { value: 42 }
     let b Box<String>: { value: "hello" }
     printLn(a.value)
     printLn(b.value)

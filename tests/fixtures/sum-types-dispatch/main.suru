@@ -1,8 +1,8 @@
-type Dog: { name String, age Int64 }
-type Cat: { lives Int64 }
+type Dog: { name String, age i64 }
+type Cat: { lives i64 }
 type Animal: Dog, Cat
 
-fn makeAnimal(kind Int64) Animal {
+fn makeAnimal(kind i64) Animal {
     match kind {
         0: {
             let d Dog: { name: "Rex", age: 3 }
@@ -24,7 +24,7 @@ fn describe(a Animal) String {
 }
 
 // Access inner fields after narrowing
-fn dogYears(a Animal) Int64 {
+fn dogYears(a Animal) i64 {
     match a {
         Dog: { return a.age.multiply(7) }
         Cat: { return a.lives }

@@ -26,9 +26,9 @@ include "exprs.suru" as exprs
 // ─── Constants array helpers ──────────────────────────────────────────────────
 
 // isConstant — true when name is in state.constants (module-level constant).
-fn isConstant(state AnalyzerState, name String) Bool {
+fn isConstant(state AnalyzerState, name String) bool {
     let constants Array<String>: state.constants
-    let i Int64: 0
+    let i i64: 0
     while i.lt(constants.len()) {
         if constants.at(i).equals(name) { return true }
         i: i.add(1)
@@ -47,7 +47,7 @@ fn addConstant(state AnalyzerState, name String) AnalyzerState {
 // module scope (scopes.len() == 1) and the let was not a duplicate declaration.
 // Duplicate lets are skipped to avoid registering an invalid constant name that
 // would later produce a spurious "cannot reassign constant" error.
-fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate Bool) AnalyzerState {
+fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate bool) AnalyzerState {
     let scopes Array<Scope>: state.scopes
     if scopes.len().equals(1) and not isDuplicate { addConstant(state, name) }
     return state
@@ -57,8 +57,8 @@ fn markConstantIfModuleScope(state AnalyzerState, name String, isDuplicate Bool)
 
 // checkBareReturn — emits an error when state.currentReturnType indicates a
 // non-void function context.
-fn checkBareReturn(state AnalyzerState, line Int64, col Int64) AnalyzerState {
-    let isVoid Bool: state.currentReturnType.equals("void") or state.currentReturnType.equals("")
+fn checkBareReturn(state AnalyzerState, line i64, col i64) AnalyzerState {
+    let isVoid bool: state.currentReturnType.equals("void") or state.currentReturnType.equals("")
     if not isVoid { state.addError("bare 'return' in non-void function", line, col) }
     return state
 }
@@ -72,9 +72,9 @@ fn checkBareReturn(state AnalyzerState, line Int64, col Int64) AnalyzerState {
 //
 // stmt fields: stmt.name (String), stmt.typeName (String), stmt.value (AstNode).
 fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
-    let isDuplicate Bool: state.existsInCurrentScope(stmt.name)
+    let isDuplicate bool: state.existsInCurrentScope(stmt.name)
     if isDuplicate { state.addError("variable '".append(stmt.name).append("' is already declared"), stmt.line, stmt.col) }
-    let typeResolved Bool: passes.resolveTypeName(state, stmt.typeName)
+    let typeResolved bool: passes.resolveTypeName(state, stmt.typeName)
     if not isDuplicate and typeResolved { state.declareSymbol(stmt.name, stmt.typeName) }
     if not isDuplicate and not typeResolved {
         state.addError("unknown type '".append(stmt.typeName).append("' for variable '").append(stmt.name).append("'"), stmt.line, stmt.col)
@@ -90,9 +90,9 @@ fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
 // analyzeAssignmentStatement — mirrors SemanticAnalyzer.AnalyzeAssignmentStatement
 // (lines 150–157). Constant reassignment takes priority over undefined-variable check.
 fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerState {
-    let isConst Bool: isConstant(state, stmt.name)
+    let isConst bool: isConstant(state, stmt.name)
     if isConst { state.addError("cannot reassign constant '".append(stmt.name).append("'"), stmt.line, stmt.col) }
-    let isDefined Bool: not state.lookupSymbol(stmt.name).equals("")
+    let isDefined bool: not state.lookupSymbol(stmt.name).equals("")
     if not isConst and not isDefined {
         state.addError("undefined variable '".append(stmt.name).append("'"), stmt.line, stmt.col)
     }
@@ -135,8 +135,8 @@ fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
         exprs.analyzeExpr(state, val)
         let retType String: exprs.inferType(state, val)
         let expected String: state.currentReturnType
-        let typesKnown Bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-        let assignable Bool: retType.equals(expected) or state.isSumVariant(expected, retType)
+        let typesKnown bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
+        let assignable bool: retType.equals(expected) or state.isSumVariant(expected, retType)
         if typesKnown and not assignable {
             state.addError("return type mismatch: expected ".append(expected).append(", got ").append(retType), stmt.line, stmt.col)
         }
@@ -150,7 +150,7 @@ fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
 // Mutually recursive with analyzeWhileStatement: while bodies are analyzed by
 // calling back into analyzeStatements, enabling arbitrarily nested loops.
 fn analyzeStatements(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         analyzeStatement(state, stmts.at(i))
         i: i.add(1)
@@ -164,8 +164,8 @@ fn analyzeWhileStatement(state AnalyzerState, stmt WhileNode) AnalyzerState {
     let cond AstNode: stmt.condition
     exprs.analyzeExpr(state, cond)
     let condType String: exprs.inferType(state, cond)
-    if not condType.equals("") and not condType.equals("Bool") {
-        state.addError("while condition must be Bool, got ".append(condType), stmt.line, stmt.col)
+    if not condType.equals("") and not condType.equals("bool") {
+        state.addError("while condition must be bool, got ".append(condType), stmt.line, stmt.col)
     }
     state.insideLoop: state.insideLoop.add(1)
     state.pushScope()
@@ -195,7 +195,7 @@ fn analyzeContinueStatement(state AnalyzerState, stmt ContinueNode) AnalyzerStat
 // analyzeIfStatement — type-check the condition and analyze each branch in its own scope.
 //
 // Mirrors analyzeWhileStatement's scope discipline:
-//   1. Analyze + type-check condition; emit error if inferred type is non-empty and not Bool.
+//   1. Analyze + type-check condition; emit error if inferred type is non-empty and not bool.
 //   2. Push scope, analyze thenBranch.stmts, pop scope.
 //   3. If elseBranch.stmts is non-empty, repeat the push/analyze/pop for the else branch.
 //
@@ -208,8 +208,8 @@ fn analyzeIfStatement(state AnalyzerState, stmt IfNode) AnalyzerState {
     let cond AstNode: stmt.condition
     exprs.analyzeExpr(state, cond)
     let condType String: exprs.inferType(state, cond)
-    if not condType.equals("") and not condType.equals("Bool") {
-        state.addError("if condition must be Bool, got ".append(condType), stmt.line, stmt.col)
+    if not condType.equals("") and not condType.equals("bool") {
+        state.addError("if condition must be bool, got ".append(condType), stmt.line, stmt.col)
     }
     let thenBlock BlockNode: stmt.thenBranch
     let thenStmts Array<AstNode>: thenBlock.stmts

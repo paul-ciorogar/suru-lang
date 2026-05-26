@@ -33,7 +33,7 @@ include "irExprHelpers.suru" as eh
 
 // ─── Static type methods ─────────────────────────────────────────────────────────
 
-// Int64.from(str) → call @suru_string_to_int64(ptr str) → i64
+// i64.from(str) → call @suru_string_to_int64(ptr str) → i64
 fn emitInt64Static(ctx IrCodegenContext, method String, args Array<AstNode>) CodegenResult {
     let arg0 AstNode: args.at(0)
     match arg0 {
@@ -47,7 +47,7 @@ fn emitInt64Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
             stArgs.add("i32 10")
             let stR IrResult: ir.emitCall(ctx.builder, "i64", "strtol", stArgs)
             ctx.builder: stR.builder
-            return { ctx: ctx, name: stR.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: stR.name, llvmType: "i64", suruType: "i64" }
         }
         _: {
             let ar CodegenResult: emitValue(ctx, arg0)
@@ -63,7 +63,7 @@ fn emitInt64Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
     }
 }
 
-// Float64.from(str) → call @suru_string_to_float64(ptr str) → double
+// f64.from(str) → call @suru_string_to_float64(ptr str) → double
 fn emitFloat64Static(ctx IrCodegenContext, method String, args Array<AstNode>) CodegenResult {
     let arg0 AstNode: args.at(0)
     match arg0 {
@@ -76,7 +76,7 @@ fn emitFloat64Static(ctx IrCodegenContext, method String, args Array<AstNode>) C
             sdArgs.add("ptr null")
             let sdR IrResult: ir.emitCall(ctx.builder, "double", "strtod", sdArgs)
             ctx.builder: sdR.builder
-            return { ctx: ctx, name: sdR.name, llvmType: "double", suruType: "Float64" }
+            return { ctx: ctx, name: sdR.name, llvmType: "double", suruType: "f64" }
         }
         _: {
             let ar CodegenResult: emitValue(ctx, arg0)
@@ -92,7 +92,7 @@ fn emitFloat64Static(ctx IrCodegenContext, method String, args Array<AstNode>) C
     }
 }
 
-// Int32.from(val) → trunc i64 val to i32 (or literal coerce)
+// i32.from(val) → trunc i64 val to i32 (or literal coerce)
 fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) CodegenResult {
     let ar CodegenResult: emitValue(ctx, args.at(0))
     ctx: ar.ctx
@@ -104,7 +104,7 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
     }
     let tr IrResult: ir.emitTrunc(ctx.builder, "i64", raw, "i32")
     ctx.builder: tr.builder
-    return { ctx: ctx, name: tr.name, llvmType: "i32", suruType: "Int32" }
+    return { ctx: ctx, name: tr.name, llvmType: "i32", suruType: "i32" }
 }
 
 // ─── Per-module symbol mangling ─────────────────────────────────────────────────
@@ -113,15 +113,15 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
 // be used as an LLVM symbol prefix.
 fn sanitizePath(p String) String {
     let out String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(p.len()) {
         let ch String: p.at(i)
-        let c Int64: ch.ord()
-        let isDig Bool: c.gte(48) and c.lt(58)
-        let isLow Bool: c.gte(97) and c.lt(123)
-        let isUp  Bool: c.gte(65) and c.lt(91)
-        let isUnd Bool: ch.equals("_")
-        let keep Bool: isDig or isLow or isUp or isUnd
+        let c i64: ch.ord()
+        let isDig bool: c.gte(48) and c.lt(58)
+        let isLow bool: c.gte(97) and c.lt(123)
+        let isUp  bool: c.gte(65) and c.lt(91)
+        let isUnd bool: ch.equals("_")
+        let keep bool: isDig or isLow or isUp or isUnd
         if keep { out: out.append(ch) } else { out: out.append("_") }
         i: i.add(1)
     }
@@ -141,11 +141,29 @@ fn mangleSym(srcPath String, name String) String {
     }
 }
 
+// Map a namespace-qualified symbol to its LLVM global name.
+// "MyApp.CoolService" + "doSomething" → "MyApp__CoolService__doSomething"
+// Each '.' in the namespace is replaced by '__'; then '__' + name is appended.
+fn mangleNsSym(ns String, name String) String {
+    let out String: ""
+    let i i64: 0
+    while i.lt(ns.len()) {
+        let ch String: ns.at(i)
+        if ch.equals(".") {
+            out: out.append("__")
+        } else {
+            out: out.append(ch)
+        }
+        i: i.add(1)
+    }
+    return out.append("__").append(name)
+}
+
 // name → owning source path (or "" when not a user function: runtime/builtin).
 fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
     let names Array<String>: ctx.fnSrcName
     let paths Array<String>: ctx.fnSrcPath
-    let i Int64: 0
+    let i i64: 0
     while i.lt(names.len()) {
         if names.at(i).equals(name) { return paths.at(i) }
         i: i.add(1)
@@ -157,7 +175,7 @@ fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
 fn lookupAliasSrc(ctx IrCodegenContext, ns String) String {
     let aliasNs  Array<String>: ctx.aliasNs
     let aliasSrc Array<String>: ctx.aliasSrc
-    let i Int64: 0
+    let i i64: 0
     while i.lt(aliasNs.len()) {
         if aliasNs.at(i).equals(ns) { return aliasSrc.at(i) }
         i: i.add(1)
@@ -173,7 +191,7 @@ fn lookupAliasSrc(ctx IrCodegenContext, ns String) String {
 fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, args Array<AstNode>) CodegenResult {
     let sig FnEntry: types.lookupFn(ctx, lookupName)
     let argParts Array<String>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         let ar CodegenResult: emitValue(ctx, args.at(i))
         ctx: ar.ctx
@@ -225,7 +243,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
     let hdrR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", hdrArgs)
     ctx.builder: hdrR.builder
     let hdrPtr String: hdrR.name
-    let count Int64: elems.len()
+    let count i64: elems.len()
     let dataPtr String: "null"
     let actualElemSuruType String: elemSuruType
     // Step 2: for non-empty arrays, emit elements into raw data buffer.
@@ -235,7 +253,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
         ctx: firstValR.ctx
         actualElemSuruType: firstValR.suruType
         let storeType String: irArr.elemStorageLlvmType(actualElemSuruType)
-        let elemBytes Int64: irArr.elemSizeBytes(actualElemSuruType)
+        let elemBytes i64: irArr.elemSizeBytes(actualElemSuruType)
         // malloc raw data buffer: count * elemBytes.
         let rawArgs Array<String>: []
         rawArgs.add("i64 ".append(count.multiply(elemBytes).toString()))
@@ -249,7 +267,7 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
         ctx: enc0.ctx
         ctx.builder: ir.emitStore(ctx.builder, storeType, enc0.name, slot0R.name)
         // Slots 1..count-1: eval elem, GEP slot, encode, store.
-        let i Int64: 1
+        let i i64: 1
         while i.lt(count) {
             let elemValR CodegenResult: emitValue(ctx, elems.at(i))
             ctx: elemValR.ctx
@@ -320,15 +338,15 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
     // evaluate the field value, then encode as i64 and store.
     // Absent fields (not in the literal) are zero-initialized.
     let decl TypeDecl: types.lookupType(ctx, typeName)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(decl.fields.len()) {
         let tdFieldName String: decl.fields.at(i).name
-        let offset Int64: irStruct.fieldOffset(i)
+        let offset i64: irStruct.fieldOffset(i)
         let fGr IrResult: ir.emitGEP(ctx.builder, "i8", mem, "i64 ".append(offset.toString()))
         ctx.builder: fGr.builder
         // Linear scan: find this TypeDecl field in the literal's provided fields.
-        let foundIdx Int64: -1
-        let k Int64: 0
+        let foundIdx i64: -1
+        let k i64: 0
         while k.lt(fields.len()) {
             if fields.at(k).name.equals(tdFieldName) { foundIdx: k }
             k: k.add(1)
@@ -353,7 +371,7 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
 // variable owns — i.e. the caller is responsible for dropping it after use.
 // VarRefNode and FieldAccessNode merely load a pointer owned elsewhere; every
 // other node kind (StrLitNode, MethodCallNode, CallNode, …) allocates on the heap.
-fn isExprTemp(node AstNode) Bool {
+fn isExprTemp(node AstNode) bool {
     match node {
         VarRefNode:      { return false }
         FieldAccessNode: { return false }
@@ -367,7 +385,7 @@ fn isExprTemp(node AstNode) Bool {
 // CallNode is excluded: user functions may return borrowed references (e.g.
 // lookupSymbol returns a ptr into the symbol table — dropping it corrupts the table).
 // "at" is excluded because Array<String>.at() returns a borrowed element pointer.
-fn isPrintTempString(node AstNode) Bool {
+fn isPrintTempString(node AstNode) bool {
     match node {
         MethodCallNode: {
             if node.methodName.equals("toString") { return true }
@@ -384,7 +402,7 @@ fn isPrintTempString(node AstNode) Bool {
 // a borrowed pointer — and must be dropped after use.
 // Checks the variable's type via lookupVar to distinguish String.at() from
 // Array.at() when both appear as .at() method calls.
-fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) Bool {
+fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) bool {
     if isPrintTempString(node) { return true }
     match node {
         MethodCallNode: {
@@ -434,18 +452,18 @@ fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
 fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
     match expr {
         IntLitNode: {
-            return { ctx: ctx, name: expr.text, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: expr.text, llvmType: "i64", suruType: "i64" }
         }
         BoolLitNode: {
             let bv String: match expr.boolVal { true: "1", _: "0" }
-            return { ctx: ctx, name: bv, llvmType: "i1", suruType: "Bool" }
+            return { ctx: ctx, name: bv, llvmType: "i1", suruType: "bool" }
         }
         FloatLitNode: {
             // LLVM requires float literals in IEEE-754 hex form (e.g. 0x3FF3333333333333).
             // fval.llvmHex() calls @suru_float64_to_llvm_hex at the codegen binary's runtime.
-            let fval Float64: Float64.from(expr.text)
+            let fval f64: f64.from(expr.text)
             let hexLit String: fval.llvmHex()
-            return { ctx: ctx, name: hexLit, llvmType: "double", suruType: "Float64" }
+            return { ctx: ctx, name: hexLit, llvmType: "double", suruType: "f64" }
         }
         StrLitNode: {
             return irStr.emitStringLiteralValue(ctx, expr.text)
@@ -453,8 +471,8 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         CharLitNode: {
             // expr.text is the one decoded character; fold its byte value to an
             // i8 immediate at codegen time — no runtime call, no allocation.
-            let code Int64: expr.text.ord()
-            return { ctx: ctx, name: code.toString(), llvmType: "i8", suruType: "Char" }
+            let code i64: expr.text.ord()
+            return { ctx: ctx, name: code.toString(), llvmType: "i8", suruType: "char" }
         }
         VarRefNode: {
             return eh.emitVarLoad(ctx, expr.name)
@@ -467,7 +485,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         ArrayLitNode: {
             // Element type derived from the resolvedType annotation written by
             // semantic analysis (`Array:Foo` → `Foo`). Empty literals without a
-            // surrounding expectation still resolve to `Array:Int64` per the
+            // surrounding expectation still resolve to `Array:i64` per the
             // semantic pass fallback.
             let elemSuruType String: tyh.elemSuruType(expr.resolvedType)
             return emitArrayLit(ctx, expr.elems, elemSuruType)
@@ -484,9 +502,9 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
             // ptrtoint it into the object's `__vtable` slot.
             let vr VtableRefNode: expr
             let ents Array<String>: vr.entries
-            let n Int64: ents.len()
+            let n i64: ents.len()
             let body String: ""
-            let ei Int64: 0
+            let ei i64: 0
             while ei.lt(n) {
                 let sep String: match ei.gt(0) { true: ", ", _: "" }
                 body: body.append(sep).append("ptr @").append(ents.at(ei))
@@ -556,7 +574,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                             ctx.builder: cr.builder
                             let sr IrResult: ir.emitSext(ctx.builder, "i32", cr.name, "i64")
                             ctx.builder: sr.builder
-                            return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "Int64" }
+                            return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "i64" }
                         }
                         _: {
                             let ar CodegenResult: emitValue(ctx, cmdArg)
@@ -573,7 +591,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                                 let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
                                 ctx: dr.ctx
                             }
-                            return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "Int64" }
+                            return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "i64" }
                         }
                     }
                 }
@@ -630,7 +648,7 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
         MatchExprNode:   { st: expr.resolvedType }
         UnaryNode:       { st: expr.resolvedType }
         BinaryNode:      { st: expr.resolvedType }
-        _: { st: "Int64" }
+        _: { st: "i64" }
     }
     return { ctx: ctx, name: "", llvmType: box.llvmTypeOf(st), suruType: st }
 }
@@ -642,10 +660,10 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // method's slot, and indirect-call it with `this` (the receiver ptr) as the
 // implicit first argument. `decl` is the receiver's object TypeDecl, `mIdx`
 // the method's vtable index (== declared-method order).
-fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal String, decl TypeDecl, method String, mIdx Int64) CodegenResult {
+fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal String, decl TypeDecl, method String, mIdx i64) CodegenResult {
     let me TypeMethodEntry: types.methodEntry(decl, method)
     // __vtable is field slot 0: load the i64 slot and turn it into a ptr.
-    let vtOff Int64: irStruct.fieldOffset(0)
+    let vtOff i64: irStruct.fieldOffset(0)
     let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
     ctx.builder: slotR.builder
     let rawR IrResult: ir.emitLoad(ctx.builder, "i64", slotR.name)
@@ -662,7 +680,7 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
     argParts.add("ptr ".append(recvVal))
     let args Array<AstNode>: expr.args
     let pts Array<String>: me.paramTypes
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         let ar CodegenResult: emitValue(ctx, args.at(i))
         ctx: ar.ctx
@@ -680,7 +698,7 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
         argParts.add(pLlvm.append(" ").append(finalVal))
         i: i.add(1)
     }
-    let isVoid Bool: me.returnType.equals("void")
+    let isVoid bool: me.returnType.equals("void")
     let retSuru String: tyh.makeSuruType(me.returnType)
     let retLlvm String: match isVoid { true: "ptr", _: box.llvmTypeOf(retSuru) }
     let callR IrResult: ir.emitIndirectCall(ctx.builder, retLlvm, fpR.name, argParts)
@@ -700,7 +718,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             let lookupResult VarEntry: types.lookupVar(ctx, recvName)
             if lookupResult.name.equals("") {
                 // Not in local scope — check if static builtin type or namespace alias.
-                let isBuiltin Bool: tyh.isBuiltinSuruType(recvName)
+                let isBuiltin bool: tyh.isBuiltinSuruType(recvName)
                 if not isBuiltin {
                     // Not in scope, not a builtin type name → namespace call.
                     // Resolve the alias to the callee file and mangle to
@@ -712,9 +730,9 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 }
             }
             // Static type methods.
-            if recvName.equals("Int64")   { return emitInt64Static(ctx, method, expr.args)   }
-            if recvName.equals("Float64") { return emitFloat64Static(ctx, method, expr.args) }
-            if recvName.equals("Int32")   { return emitInt32Static(ctx, method, expr.args)   }
+            if recvName.equals("i64")  { return emitInt64Static(ctx, method, expr.args)   }
+            if recvName.equals("f64")  { return emitFloat64Static(ctx, method, expr.args) }
+            if recvName.equals("i32")  { return emitInt32Static(ctx, method, expr.args)   }
         }
         _: {}
     }
@@ -728,7 +746,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     // User-defined object method: receiver type declares this method → dispatch
     // through the per-instance vtable pointer in the object's `__vtable` slot.
     let objDecl TypeDecl: types.lookupType(ctx, recvSuruType)
-    let omi Int64: types.methodIndex(objDecl, method)
+    let omi i64: types.methodIndex(objDecl, method)
     if not omi.lt(0) { return emitObjectMethodCall(ctx, expr, recvVal, objDecl, method, omi) }
 
     // Array instance methods.
@@ -755,7 +773,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             let vr CodegenResult: emitValue(ctx, expr.args.at(0))
             ctx: vr.ctx
             ctx: irArr.emitArrayAdd(ctx, recvVal, vr.name, elemST)
-            return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
+            return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
         }
         if method.equals("set") {
             let vr CodegenResult: emitValue(ctx, expr.args.at(0))
@@ -769,7 +787,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 idxRaw: ur.name
             }
             ctx: irArr.emitArraySet(ctx, recvVal, vr.name, elemST, idxRaw)
-            return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
+            return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
         }
         // .slice(from, to) → sub-array via suru_array_slice.
         if method.equals("slice") {
@@ -823,7 +841,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 StrLitNode: {
                     ctx: strIntern.internString(ctx, argNode.text)
                     let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
-                    let charLen Int64: argNode.text.len()
+                    let charLen i64: argNode.text.len()
                     let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
                     ctx: result.ctx
                     if isOwnedStringTemp(ctx, recv) {
@@ -835,7 +853,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 _: {
                     let ar CodegenResult: emitValue(ctx, argNode)
                     ctx: ar.ctx
-                    if ar.suruType.equals("Char") {
+                    if ar.suruType.equals("char") {
                         let cresult CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, ar.name)
                         ctx: cresult.ctx
                         if isOwnedStringTemp(ctx, recv) {
@@ -868,13 +886,13 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 StrLitNode: {
                     ctx: strIntern.internString(ctx, argNode.text)
                     let gname String: strIntern.lookupStrGlobal(ctx, argNode.text)
-                    let charLen Int64: argNode.text.len()
+                    let charLen i64: argNode.text.len()
                     let result CodegenResult: irStr.emitStringAppendLit(ctx, recvVal, gname, charLen)
                     ctx: result.ctx
                     newPtr: result.name
                 }
                 CharLitNode: {
-                    let code Int64: argNode.text.ord()
+                    let code i64: argNode.text.ord()
                     let result CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, code.toString())
                     ctx: result.ctx
                     newPtr: result.name
@@ -882,7 +900,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 _: {
                     let ar CodegenResult: emitValue(ctx, argNode)
                     ctx: ar.ctx
-                    if ar.suruType.equals("Char") {
+                    if ar.suruType.equals("char") {
                         let result CodegenResult: irStr.emitStringAppendChar(ctx, recvVal, ar.name)
                         ctx: result.ctx
                         newPtr: result.name
@@ -967,7 +985,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                 ctx: dr.ctx
             }
-            return { ctx: ctx, name: result.name, llvmType: "i8", suruType: "Char" }
+            return { ctx: ctx, name: result.name, llvmType: "i8", suruType: "char" }
         }
         if method.equals("slice") {
             let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
@@ -1011,30 +1029,30 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
         }
     }
 
-    // Char receiver: scalar i8 value. Must precede the Float64/struct/generic
+    // char receiver: scalar i8 value. Must precede the f64/struct/generic
     // tail so .ord/.toString/.equals aren't mis-routed (e.g. generic toString
-    // would unboxInt64 a Char). No drops — Char is never heap-allocated.
-    if recvSuruType.equals("Char") {
+    // would unboxInt64 a char). No drops — char is never heap-allocated.
+    if recvSuruType.equals("char") {
         if method.equals("ord") {
             let zr IrResult: ir.emitZext(ctx.builder, "i8", recvVal, "i64")
             ctx.builder: zr.builder
-            return { ctx: ctx, name: zr.name, llvmType: "i64", suruType: "Int64" }
+            return { ctx: ctx, name: zr.name, llvmType: "i64", suruType: "i64" }
         }
         if method.equals("toString") { return irStr.emitStringFromChar(ctx, recvVal) }
         if method.equals("equals") {
             let ar CodegenResult: emitValue(ctx, expr.args.at(0))
             ctx: ar.ctx
-            return eh.emitCmpOp(ctx, "eq", "oeq", recvVal, "Char", ar.name, ar.suruType)
+            return eh.emitCmpOp(ctx, "eq", "oeq", recvVal, "char", ar.name, ar.suruType)
         }
     }
 
-    // llvmHex on Float64 receiver — converts a double to LLVM IEEE-754 hex string.
-    // Must be dispatched for Float64 receivers; llvmHex is never called on String.
-    if recvSuruType.equals("Float64") {
+    // llvmHex on f64 receiver — converts a double to LLVM IEEE-754 hex string.
+    // Must be dispatched for f64 receivers; llvmHex is never called on String.
+    if recvSuruType.equals("f64") {
         if method.equals("llvmHex") { return irStr.emitFloat64LlvmHex(ctx, recvVal) }
     }
 
-    // toString on Int64/NamedType (struct field returned as i64).
+    // toString on i64/NamedType (struct field returned as i64).
     if method.equals("toString") {
         let rawI String: recvVal
         if not box.isScalarType(recvSuruType) {
@@ -1101,7 +1119,7 @@ fn restoreCondVar(ctx IrCodegenContext, condVarName String, original VarEntry) I
 // Returns an array of AstNode patterns (one per non-wildcard arm, in order).
 fn collectPatterns(arms Array<MatchArm>) Array<AstNode> {
     let pats Array<AstNode>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
         if not arm.isWildcard { pats.add(arm.pattern) }
@@ -1113,7 +1131,7 @@ fn collectPatterns(arms Array<MatchArm>) Array<AstNode> {
 // Collect the non-wildcard patterns from a MatchStmtArm array.
 fn collectStmtPatterns(arms Array<MatchStmtArm>) Array<AstNode> {
     let pats Array<AstNode>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchStmtArm: arms.at(i)
         if not arm.isWildcard { pats.add(arm.pattern) }
@@ -1126,13 +1144,13 @@ fn collectStmtPatterns(arms Array<MatchStmtArm>) Array<AstNode> {
 // Each pattern gets an icmp/fcmp/strcmp/variant-tag comparison; branches to
 // match_arm_{n}_{i} on success or the next test / missLabel on miss.
 // For sum-type conditions, @suru_variant_tag is called ONCE before the loop.
-fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType String, patterns Array<AstNode>, hasWildcard Bool, matchN String) IrCodegenContext {
+fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType String, patterns Array<AstNode>, hasWildcard bool, matchN String) IrCodegenContext {
     let missLabel String: match hasWildcard {
         true: "match_wildcard_".append(matchN)
         _:    "match_merge_".append(matchN)
     }
     // Detect sum type / variant condition.
-    let isSum Bool: types.isVariant(ctx, condSuruType)
+    let isSum bool: types.isVariant(ctx, condSuruType)
     if not isSum and types.isSumTypeName(ctx, condSuruType) { isSum: true }
     // rawCond: the value used in comparisons (tag i64 for sum types, condVal otherwise).
     let rawCond String: condVal
@@ -1152,7 +1170,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
         }
     }
 
-    let i Int64: 0
+    let i i64: 0
     while i.lt(patterns.len()) {
         let pat AstNode: patterns.at(i)
         let iStr String: i.toString()
@@ -1170,7 +1188,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
             // Pattern is a VarRefNode naming a variant — never call emitValue.
             match pat { VarRefNode: {
                 let parent SumTypeDecl: types.findParentSumType(ctx, pat.name)
-                let idx Int64: types.variantIdx(parent, pat.name)
+                let idx i64: types.variantIdx(parent, pat.name)
                 ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq i64 ").append(rawCond).append(", ").append(idx.toString()).append("\n"))
                 cmpVal: cmpTmp
             } _: {} }
@@ -1201,7 +1219,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
                     ctx: ur.ctx
                     patRaw: ur.name
                 }
-                if eff.equals("Float64") {
+                if eff.equals("f64") {
                     ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = fcmp oeq double ").append(rawCond).append(", ").append(patRaw).append("\n"))
                 } else {
                     ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq ").append(rawT).append(" ").append(rawCond).append(", ").append(patRaw).append("\n"))
@@ -1223,8 +1241,8 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
 // chain (LLVM dominance invariant).
 fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     // Peek result type from first non-wildcard arm.
-    let resultSuruType String: "Int64"
-    let i Int64: 0
+    let resultSuruType String: "i64"
+    let i i64: 0
     while i.lt(node.arms.len()) {
         let arm MatchArm: node.arms.at(i)
         if not arm.isWildcard {
@@ -1247,8 +1265,8 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
     let patterns Array<AstNode>: collectPatterns(node.arms)
-    let hasWild Bool: false
-    let j Int64: 0
+    let hasWild bool: false
+    let j i64: 0
     while j.lt(node.arms.len()) { if node.arms.at(j).isWildcard { hasWild: true } j: j.add(1) }
     ctx: emitPatternComparisons(ctx, condR.name, condR.suruType, patterns, hasWild, matchN)
 
@@ -1256,8 +1274,8 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     let condVarName String: ""
     let condExpr AstNode: node.condition
     match condExpr { VarRefNode: { condVarName: condExpr.name } _: {} }
-    let patIdx Int64: 0
-    let k Int64: 0
+    let patIdx i64: 0
+    let k i64: 0
     while k.lt(node.arms.len()) {
         let arm MatchArm: node.arms.at(k)
         if arm.isWildcard {
@@ -1295,8 +1313,8 @@ fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContex
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
     let patterns Array<AstNode>: collectPatterns(node.arms)
-    let hasWild Bool: false
-    let j Int64: 0
+    let hasWild bool: false
+    let j i64: 0
     while j.lt(node.arms.len()) { if node.arms.at(j).isWildcard { hasWild: true } j: j.add(1) }
     let mnR IrResult: ir.nextLabelNum(ctx.builder)
     ctx.builder: mnR.builder
@@ -1305,8 +1323,8 @@ fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContex
     let condVarName String: ""
     let condExpr AstNode: node.condition
     match condExpr { VarRefNode: { condVarName: condExpr.name } _: {} }
-    let patIdx Int64: 0
-    let k Int64: 0
+    let patIdx i64: 0
+    let k i64: 0
     while k.lt(node.arms.len()) {
         let arm MatchArm: node.arms.at(k)
         if arm.isWildcard {
@@ -1340,8 +1358,8 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
     let patterns Array<AstNode>: collectStmtPatterns(node.arms)
-    let hasWild Bool: false
-    let j Int64: 0
+    let hasWild bool: false
+    let j i64: 0
     while j.lt(node.arms.len()) { if node.arms.at(j).isWildcard { hasWild: true } j: j.add(1) }
     let mnR IrResult: ir.nextLabelNum(ctx.builder)
     ctx.builder: mnR.builder
@@ -1351,8 +1369,8 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     let condExpr AstNode: node.condition
     match condExpr { VarRefNode: { condVarName: condExpr.name } _: {} }
     // Emit pattern arms.
-    let patIdx Int64: 0
-    let k Int64: 0
+    let patIdx i64: 0
+    let k i64: 0
     while k.lt(node.arms.len()) {
         let arm MatchStmtArm: node.arms.at(k)
         if not arm.isWildcard {
@@ -1374,7 +1392,7 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
     ctx.builder: ir.emitLabel(ctx.builder, "match_wildcard_".append(matchN))
     ctx.blockOpen: true
     if hasWild {
-        let wi Int64: 0
+        let wi i64: 0
         while wi.lt(node.arms.len()) {
             let wArm MatchStmtArm: node.arms.at(wi)
             if wArm.isWildcard { ctx: emitStmts(ctx, wArm.stmts) }
@@ -1413,9 +1431,9 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
     ctx.loopCondLabels.add(condLabel)
     ctx.loopAfterLabels.add(afterLabel)
     ctx: emitStmts(ctx, body)
-    let newCondLen Int64: ctx.loopCondLabels.len().take(1)
+    let newCondLen i64: ctx.loopCondLabels.len().take(1)
     ctx.loopCondLabels: ctx.loopCondLabels.slice(0, newCondLen)
-    let newAfterLen Int64: ctx.loopAfterLabels.len().take(1)
+    let newAfterLen i64: ctx.loopAfterLabels.len().take(1)
     ctx.loopAfterLabels: ctx.loopAfterLabels.slice(0, newAfterLen)
     if ctx.blockOpen { ctx.builder: ir.emitBr(ctx.builder, condLabel) }
     ctx.builder: ir.emitLabel(ctx.builder, afterLabel)
@@ -1425,7 +1443,7 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
 
 // Emit a `break` — unconditional branch to the enclosing while loop's after-label.
 fn emitBreak(ctx IrCodegenContext) IrCodegenContext {
-    let topIdx Int64: ctx.loopAfterLabels.len().take(1)
+    let topIdx i64: ctx.loopAfterLabels.len().take(1)
     let afterLabel String: ctx.loopAfterLabels.at(topIdx)
     ctx.builder: ir.emitBr(ctx.builder, afterLabel)
     ctx.blockOpen: false
@@ -1434,7 +1452,7 @@ fn emitBreak(ctx IrCodegenContext) IrCodegenContext {
 
 // Emit a `continue` — unconditional branch back to the enclosing while loop's cond-label.
 fn emitContinue(ctx IrCodegenContext) IrCodegenContext {
-    let topIdx Int64: ctx.loopCondLabels.len().take(1)
+    let topIdx i64: ctx.loopCondLabels.len().take(1)
     let condLabel String: ctx.loopCondLabels.at(topIdx)
     ctx.builder: ir.emitBr(ctx.builder, condLabel)
     ctx.blockOpen: false
@@ -1591,7 +1609,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                 }
                 StructLitNode: {
                     // Use annSuruType (mangled) so user-defined generic annotations like
-                    // "Box<Int64>" are resolved to "Box__Int64" before the type-registry
+                    // "Box<i64>" are resolved to "Box__Int64" before the type-registry
                     // lookup inside emitStructLit and before the variable is registered.
                     let sr CodegenResult: emitStructLit(ctx, letValueNode.fields, annSuruType)
                     ctx: sr.ctx
@@ -1599,7 +1617,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     // Tag variant in-place (type_tag=7, variant_idx) when annotation names a variant.
                     if types.isVariant(ctx, annSuruType) {
                         let parent SumTypeDecl: types.findParentSumType(ctx, annSuruType)
-                        let idx Int64: types.variantIdx(parent, annSuruType)
+                        let idx i64: types.variantIdx(parent, annSuruType)
                         // Variant tagging: "{tagGep}  = getelementptr" (double space) for i64 0 GEP,
                         // "{vidxGep} = getelementptr" (single space) for i64 8 GEP.
                         let tgNameR IrResult: ir.nextTmp(ctx.builder)
@@ -1624,7 +1642,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             ctx: vr.ctx
             let letVal String: vr.name
             let letType String: vr.suruType
-            // Annotation-guided unbox: `let x Int64: arr.at(0)` returns (ptr, NamedType).
+            // Annotation-guided unbox: `let x i64: arr.at(0)` returns (ptr, NamedType).
             if box.isScalarType(annSuruType) and not box.isScalarType(vr.suruType) {
                 let ur CodegenResult: box.unboxScalar(ctx, vr.name, annSuruType)
                 ctx: ur.ctx
@@ -1696,22 +1714,22 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             ctx: ar.ctx
                             let args Array<String>: []
                             match ar.suruType {
-                                "Bool": {
+                                "bool": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_println_bool(i1)\n")
                                     args.add("i1 ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_bool", args)
                                 }
-                                "Int32": {
+                                "i32": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_println_i32(i32)\n")
                                     args.add("i32 ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_i32", args)
                                 }
-                                "Int64": {
+                                "i64": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_println_i64(i64)\n")
                                     args.add("i64 ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_i64", args)
                                 }
-                                "Float64": {
+                                "f64": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_println_f64(double)\n")
                                     args.add("double ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_f64", args)
@@ -1725,7 +1743,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                                     // "at" is excluded because Array<String>.at() returns a
                                     // borrowed element pointer — dropping it would cause double-free.
                                     if ar.suruType.equals("String") {
-                                        let shouldDrop Bool: false
+                                        let shouldDrop bool: false
                                         match printArg {
                                             CallNode:    { shouldDrop: true }
                                             MethodCallNode: {
@@ -1766,22 +1784,22 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             ctx: ar.ctx
                             let args Array<String>: []
                             match ar.suruType {
-                                "Bool": {
+                                "bool": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_bool(i1)\n")
                                     args.add("i1 ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_bool", args)
                                 }
-                                "Int32": {
+                                "i32": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_i32(i32)\n")
                                     args.add("i32 ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_i32", args)
                                 }
-                                "Int64": {
+                                "i64": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_i64(i64)\n")
                                     args.add("i64 ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_i64", args)
                                 }
-                                "Float64": {
+                                "f64": {
                                     ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_f64(double)\n")
                                     args.add("double ".append(ar.name))
                                     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_f64", args)
@@ -1803,7 +1821,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             let ar CodegenResult: emitValue(ctx, expr.args.at(0))
                             ctx: ar.ctx
                             let codeI32 String: ar.name
-                            if not ar.suruType.equals("Int32") {
+                            if not ar.suruType.equals("i32") {
                                 if box.isScalarType(ar.suruType) {
                                     let tr IrResult: ir.emitTrunc(ctx.builder, "i64", ar.name, "i32")
                                     ctx.builder: tr.builder
@@ -1916,7 +1934,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
 
 // Emit a sequence of statements, threading context through.
 fn emitStmts(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         ctx: emitStmt(ctx, stmts.at(i))
         i: i.add(1)
@@ -1933,13 +1951,13 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // generic template from an included file (e.g. opt.some<T>) produces a
     // concrete copy (some__Int64) whose srcPath still points to the included
     // file, but the instantiation belongs to the root's compilation unit.
-    let isOwn Bool: fnDecl.srcPath.equals(ctx.rootPath)
+    let isOwn bool: fnDecl.srcPath.equals(ctx.rootPath)
     if not isOwn { isOwn: types.isMonoFn(ctx, fnDecl.name) }
     if not isOwn {
         let retSuru String: tyh.makeSuruType(fnDecl.returnType)
         let retLlvm String: match fnDecl.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
         let paramParts Array<String>: []
-        let i Int64: 0
+        let i i64: 0
         while i.lt(fnDecl.params.len()) {
             paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
             i: i.add(1)
@@ -1960,7 +1978,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     if fnDecl.name.equals("main") {
         ctx.isMain: true
         ctx.currentReturnLlvmType: "i64"
-        ctx.currentReturnSuruType: "Int64"
+        ctx.currentReturnSuruType: "i64"
         ctx.builder: ir.emitFnStart(ctx.builder, "internal i64", "suru_main", "ptr %args")
         ctx.builder: ir.emitFixedAlloca(ctx.builder, "args.addr", "ptr")
         ctx.builder: ir.emitStore(ctx.builder, "ptr", "%args", "%args.addr")
@@ -1972,14 +1990,14 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
         ctx.currentReturnLlvmType: retLlvm
         ctx.currentReturnSuruType: retSuru
         let paramParts Array<String>: []
-        let i Int64: 0
+        let i i64: 0
         while i.lt(fnDecl.params.len()) {
             let p Param: fnDecl.params.at(i)
             paramParts.add(box.llvmTypeOf(tyh.makeSuruType(p.typeName)).append(" %p.").append(p.name))
             i: i.add(1)
         }
         ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, mangleSym(fnDecl.srcPath, fnDecl.name), ir.joinArgs(paramParts))
-        let j Int64: 0
+        let j i64: 0
         while j.lt(fnDecl.params.len()) {
             let p Param: fnDecl.params.at(j)
             let pSuru String: tyh.makeSuruType(p.typeName)
@@ -2081,7 +2099,7 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     ctx: passes.registerConstants(ctx, stmts)
     ctx: passes.registerFunctions(ctx, stmts)
     ctx: irCD.emitAllTypeCloneDrop(ctx)
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
@@ -2093,7 +2111,7 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                 let retSuru String: tyh.makeSuruType(s.returnType)
                 let retLlvm String: match s.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
                 let paramParts Array<String>: []
-                let j Int64: 0
+                let j i64: 0
                 while j.lt(s.params.len()) {
                     paramParts.add(box.llvmTypeOf(tyh.makeSuruType(s.params.at(j).typeName)))
                     j: j.add(1)
@@ -2105,8 +2123,8 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
         i: i.add(1)
     }
     // Emit @main wrapper when module has a `main` function.
-    let hasMain Bool: false
-    let j Int64: 0
+    let hasMain bool: false
+    let j i64: 0
     while j.lt(stmts.len()) {
         let s AstNode: stmts.at(j)
         match s { FnDeclNode: { if s.name.equals("main") { hasMain: true } } _: {} }
@@ -2120,17 +2138,17 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 // Used to emit external clone/drop declares in deterministic order.
 fn sortStrings(arr Array<String>) Array<String> {
     let result Array<String>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arr.len()) {
         result.add(arr.at(i))
         i: i.add(1)
     }
-    let n Int64: result.len()
-    let outer Int64: 1
+    let n i64: result.len()
+    let outer i64: 1
     while outer.lt(n) {
         let key String: result.at(outer)
-        let j Int64: outer.take(1)
-        let go Bool: j.gte(0)
+        let j i64: outer.take(1)
+        let go bool: j.gte(0)
         while go {
             if result.at(j).compare(key).gt(0) {
                 result.set(result.at(j), j.add(1))
@@ -2164,7 +2182,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     // (definition, declare stub, and unqualified call site) per source file.
     let fnSrcName Array<String>: []
     let fnSrcPath Array<String>: []
-    let fi Int64: 0
+    let fi i64: 0
     while fi.lt(stmts.len()) {
         let fs AstNode: stmts.at(fi)
         match fs {
@@ -2187,7 +2205,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     // alias → resolved source path, for `ns.fn()` calls in this file's bodies.
     let aliasNs  Array<String>: []
     let aliasSrc Array<String>: []
-    let ai Int64: 0
+    let ai i64: 0
     while ai.lt(aliases.len()) {
         let al IncludeAlias: aliases.at(ai)
         aliasNs.add(al.ns)
@@ -2198,7 +2216,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     ctx.aliasSrc: aliasSrc
 
     // Register external function signatures for namespace calls.
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
@@ -2207,7 +2225,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                     let retSuru String: tyh.makeSuruType(s.returnType)
                     let retLlvm String: match s.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
                     let paramTypes Array<String>: []
-                    let j Int64: 0
+                    let j i64: 0
                     while j.lt(s.params.len()) {
                         paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
                         j: j.add(1)
@@ -2221,7 +2239,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                 let retSuru String: tyh.makeSuruType(s.returnType)
                 let retLlvm String: match s.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
                 let paramTypes Array<String>: []
-                let j Int64: 0
+                let j i64: 0
                 while j.lt(s.params.len()) {
                     paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
                     j: j.add(1)
@@ -2261,7 +2279,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     // Build extCloneDropDecls from sorted type names (alphabetical for deterministic output).
     let sortedNames Array<String>: sortStrings(ctx.extCloneDropTypeNames)
     let extCloneDropDecls String: ""
-    let ei Int64: 0
+    let ei i64: 0
     while ei.lt(sortedNames.len()) {
         let tn String: sortedNames.at(ei)
         extCloneDropDecls: extCloneDropDecls

@@ -3,7 +3,7 @@
 type Pair<T, U>: { first T, second U }
 
 fn main(args Array<String>) {
-    let p Pair<Int64, String>: { first: 42, second: "hello" }
+    let p Pair<i64, String>: { first: 42, second: "hello" }
     printLn(p.first)
     printLn(p.second)
     drop(p)

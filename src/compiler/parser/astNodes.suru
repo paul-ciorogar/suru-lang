@@ -21,7 +21,7 @@ fn newMethodSig(name String, params Array<Param>, returnType String) MethodSig {
     return { name: name, params: params, returnType: returnType }
 }
 
-fn newStructFieldNode(name String, value AstNode, isMethod Bool, isPrivate Bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) StructFieldNode {
+fn newStructFieldNode(name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) StructFieldNode {
     return {
         name:               name
         value:              value
@@ -34,11 +34,11 @@ fn newStructFieldNode(name String, value AstNode, isMethod Bool, isPrivate Bool,
     }
 }
 
-fn newMatchArm(isWildcard Bool, pattern AstNode, body AstNode) MatchArm {
+fn newMatchArm(isWildcard bool, pattern AstNode, body AstNode) MatchArm {
     return { isWildcard: isWildcard, pattern: pattern, body: body }
 }
 
-fn newMatchStmtArm(isWildcard Bool, pattern AstNode, stmts Array<AstNode>) MatchStmtArm {
+fn newMatchStmtArm(isWildcard bool, pattern AstNode, stmts Array<AstNode>) MatchStmtArm {
     return { isWildcard: isWildcard, pattern: pattern, stmts: stmts }
 }
 

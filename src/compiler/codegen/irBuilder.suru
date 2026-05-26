@@ -17,9 +17,9 @@
 
 type IrBuilder: {
     output     String
-    tmpCount   Int64
-    labelCount Int64
-    whileCount Int64
+    tmpCount   i64
+    labelCount i64
+    whileCount i64
 }
 
 // Returned by instruction emitters that produce an SSA value.
@@ -102,7 +102,7 @@ fn emitFixedAlloca(b IrBuilder, name String, ty String) IrBuilder {
 // Comma-join pre-formatted LLVM argument strings, e.g. ["i64 %t0", "ptr %t1"].
 fn joinArgs(args Array<String>) String {
     let result String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         if i.gt(0) { result: result.append(", ") }
         result: result.append(args.at(i))
@@ -134,7 +134,7 @@ fn emitModuleHeader(b IrBuilder, sourceName String) IrBuilder {
 //   name           — LLVM global name including @, e.g. "@str0"
 //   escapedContent — content already in LLVM c-string escape format, e.g. "hello\\0A\\00"
 //   byteLen        — number of bytes LLVM allocates (= char count including null terminator)
-fn emitGlobalStrConst(b IrBuilder, name String, escapedContent String, byteLen Int64) IrBuilder {
+fn emitGlobalStrConst(b IrBuilder, name String, escapedContent String, byteLen i64) IrBuilder {
     let line String: name
         .append(" = private unnamed_addr constant [")
         .append(byteLen.toString())

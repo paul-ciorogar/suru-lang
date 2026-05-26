@@ -1,6 +1,6 @@
 include "../../../src/stdlib/result.suru" as res
 
-fn describeResult(x Result<Int64, String>) {
+fn describeResult(x Result<i64, String>) {
     match x {
         Ok: { printLn(x.value) }
         Err: { printLn(x.error) }
@@ -8,8 +8,8 @@ fn describeResult(x Result<Int64, String>) {
 }
 
 fn main(args Array<String>) {
-    let ok Result<Int64, String>: res.ok(99)
-    let err Result<Int64, String>: res.err("oops")
+    let ok Result<i64, String>: res.ok(99)
+    let err Result<i64, String>: res.err("oops")
     describeResult(ok)
     describeResult(err)
     drop(ok)

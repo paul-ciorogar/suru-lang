@@ -1,0 +1,15 @@
+// tests/fixtures/struct-undeclared-method-error/main.suru
+//
+// Validates that a struct literal providing a method not declared on the
+// type is rejected with a compile-time error.
+
+type Greeter: { name String, fn greet() String }
+
+fn main() {
+    let g Greeter: {
+        name: "world",
+        fn greet() String { return "hello ".append(this.name) }
+        fn unknown() String { return "whoops" }
+    }
+    drop(g)
+}

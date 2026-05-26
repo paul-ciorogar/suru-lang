@@ -4,5 +4,5 @@
 // file path, line, and column in the diagnostic.
 
 fn main() {
-    let c Char: 'ab
+    let c char: 'ab
 }

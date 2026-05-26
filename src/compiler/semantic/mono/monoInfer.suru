@@ -17,7 +17,7 @@ include "monoCollect.suru"     as collect
 // ─── Type-name string helpers ─────────────────────────────────────────────────
 
 // extractBaseTypeName — return the portion of typeName before the first '<'.
-// "Pair<Int64, String>" → "Pair";  "Int64" → "Int64".
+// "Pair<i64, String>" → "Pair";  "i64" → "i64".
 fn extractBaseTypeName(typeName String) String {
     return typeName.slice(0, subst.indexOfLT(typeName))
 }
@@ -25,7 +25,7 @@ fn extractBaseTypeName(typeName String) String {
 // collectTrimmedArgs — trim leading spaces from each element of args and return a new array.
 fn collectTrimmedArgs(args Array<String>) Array<String> {
     let out Array<String>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         out.add(subst.trimLeft(args.at(i)))
         i: i.add(1)
@@ -35,11 +35,11 @@ fn collectTrimmedArgs(args Array<String>) Array<String> {
 
 // extractTypeArgs — parse the concrete type argument list from a generic
 // type-name annotation string.
-//   "Pair<Int64, String>" → ["Int64", "String"]
-//   "Array<Int64>"        → ["Int64"]
-//   "Int64"               → []
+//   "Pair<i64, String>" → ["i64", "String"]
+//   "Array<i64>"        → ["i64"]
+//   "i64"               → []
 fn extractTypeArgs(typeName String) Array<String> {
-    let ltIdx Int64: subst.indexOfLT(typeName)
+    let ltIdx i64: subst.indexOfLT(typeName)
     let empty Array<String>: []
     if ltIdx.equals(typeName.len()) { return empty }
     drop(empty)
@@ -61,7 +61,7 @@ fn extractTypeArgs(typeName String) Array<String> {
 fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
     // Quick exit: no '<' means not a generic annotation.
-    let ltIdx Int64: subst.indexOfLT(typeName)
+    let ltIdx i64: subst.indexOfLT(typeName)
     if ltIdx.equals(typeName.len()) { return empty }
     let base String: extractBaseTypeName(typeName)
     // Return empty unless the base name is a generic struct type or sum type.
@@ -109,7 +109,7 @@ fn resolvedTypeOf(node AstNode) String {
 // Non-array types pass through unchanged (they're already in annotation form
 // or are plain mangled names like "Option__Int64").
 fn suruCanonToAnnotation(t String) String {
-    let len Int64: t.len()
+    let len i64: t.len()
     if len.gt(5) {
         if t.slice(0, 6).equals("Array:") {
             return "Array<".append(t.slice(6, len)).append(">")
@@ -119,12 +119,12 @@ fn suruCanonToAnnotation(t String) String {
 }
 
 // collectArgTypes — return the type of each arg, normalised to annotation form.
-// resolvedTypeOf returns the suru canonical form (e.g. "Array:Int64"); we
-// convert that to annotation form ("Array<Int64>") so the resulting
+// resolvedTypeOf returns the suru canonical form (e.g. "Array:i64"); we
+// convert that to annotation form ("Array<i64>") so the resulting
 // InstantiationRequest matches requests inferred from explicit annotations.
 fn collectArgTypes(args Array<AstNode>) Array<String> {
     let out Array<String>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         let raw String: clone(resolvedTypeOf(args.at(i)))
         let normalized String: suruCanonToAnnotation(raw)
@@ -139,7 +139,7 @@ fn collectArgTypes(args Array<AstNode>) Array<String> {
 // typeVar (bare type-variable match).  Return the corresponding argTypes element,
 // or "" if not found.
 fn findBindingForVar(typeVar String, params Array<Param>, argTypes Array<String>) String {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(params.len()) {
         if params.at(i).typeName.equals(typeVar) { return argTypes.at(i) }
         i: i.add(1)
@@ -149,7 +149,7 @@ fn findBindingForVar(typeVar String, params Array<Param>, argTypes Array<String>
 
 // buildConcreteTypes — for each typeParam, find its binding and append to out.
 fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Array<String>, out Array<String>) Array<String> {
-    let j Int64: 0
+    let j i64: 0
     while j.lt(typeParams.len()) {
         let binding String: findBindingForVar(typeParams.at(j), params, argTypes)
         out.add(clone(binding))
@@ -159,8 +159,8 @@ fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Ar
 }
 
 // allBound — true if every element of concretes is non-empty.
-fn allBound(concretes Array<String>) Bool {
-    let i Int64: 0
+fn allBound(concretes Array<String>) bool {
+    let i i64: 0
     while i.lt(concretes.len()) {
         if concretes.at(i).equals("") { return false }
         i: i.add(1)
@@ -176,7 +176,7 @@ fn allBound(concretes Array<String>) Bool {
 // unresolved.
 fn inferFromGenericFnCall(fnName String, args Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
-    let fnIdx Int64: registry.findFn(fnName)
+    let fnIdx i64: registry.findFn(fnName)
     if fnIdx.equals(registry.fns.len()) { return empty }
     let def GenericFnDef: registry.fns.at(fnIdx)
     let argTypes Array<String>: collectArgTypes(args)
@@ -210,7 +210,7 @@ fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<Instanti
 // appendAll — append cloned copies of src to dst.
 // Clones each element so src can be dropped by the caller without aliasing dst.
 fn appendAll(src Array<InstantiationRequest>, dst Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(src.len()) {
         let req InstantiationRequest: src.at(i)
         let clonedReq InstantiationRequest: { genericName: clone(req.genericName), concreteTypes: clone(req.concreteTypes) }
@@ -222,7 +222,7 @@ fn appendAll(src Array<InstantiationRequest>, dst Array<InstantiationRequest>) A
 
 // inferFromStmts — walk stmts, collecting instantiation requests into out.
 fn inferFromStmts(stmts Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         out: inferFromStmt(stmts.at(i), registry, out)
         i: i.add(1)
@@ -232,7 +232,7 @@ fn inferFromStmts(stmts Array<AstNode>, registry GenericRegistry, out Array<Inst
 
 // inferFromExprs — walk exprs, collecting instantiation requests into out.
 fn inferFromExprs(exprs Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(exprs.len()) {
         out: inferFromExpr(exprs.at(i), registry, out)
         i: i.add(1)
@@ -242,7 +242,7 @@ fn inferFromExprs(exprs Array<AstNode>, registry GenericRegistry, out Array<Inst
 
 // inferFromParams — run inferFromAnnotation on each Param.typeName.
 fn inferFromParams(params Array<Param>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(params.len()) {
         let fromAnnot Array<InstantiationRequest>: inferFromAnnotation(params.at(i).typeName, registry)
         out: appendAll(fromAnnot, out)
@@ -263,7 +263,7 @@ fn inferFromStructFieldAt(field StructFieldNode, registry GenericRegistry, out A
 // inferFromStructFields — recurse into each StructFieldNode in fields,
 // including method bodies (which are statement lists, not just expressions).
 fn inferFromStructFields(fields Array<StructFieldNode>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         out: inferFromStructFieldAt(fields.at(i), registry, out)
         i: i.add(1)
@@ -273,7 +273,7 @@ fn inferFromStructFields(fields Array<StructFieldNode>, registry GenericRegistry
 
 // inferFromMatchArms — recurse into expression MatchArm bodies.
 fn inferFromMatchArms(arms Array<MatchArm>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
         out: inferFromExpr(arm.body, registry, out)
@@ -284,7 +284,7 @@ fn inferFromMatchArms(arms Array<MatchArm>, registry GenericRegistry, out Array<
 
 // inferFromMatchStmtArms — recurse into statement MatchStmtArm bodies.
 fn inferFromMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchStmtArm: arms.at(i)
         out: inferFromStmts(arm.stmts, registry, out)
@@ -386,7 +386,7 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
             // that instantiate dead "Some__T" / "Option__T" types.  Concrete
             // requests are generated from the call sites and annotations in
             // user code instead.
-            let isGeneric Bool: fd.typeParams.len().gt(0)
+            let isGeneric bool: fd.typeParams.len().gt(0)
             if not isGeneric {
                 let fromFd Array<InstantiationRequest>: inferFromAnnotation(fd.returnType, registry)
                 out: appendAll(fromFd, out)
@@ -444,8 +444,8 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
 // ─── Deduplication ────────────────────────────────────────────────────────────
 
 // keyAlreadySeen — true if seen contains key.
-fn keyAlreadySeen(seen Array<String>, key String) Bool {
-    let i Int64: 0
+fn keyAlreadySeen(seen Array<String>, key String) bool {
+    let i i64: 0
     while i.lt(seen.len()) {
         if seen.at(i).equals(key) { return true }
         i: i.add(1)
@@ -458,7 +458,7 @@ fn keyAlreadySeen(seen Array<String>, key String) Bool {
 fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationRequest> {
     let seen Array<String>: []
     let out Array<InstantiationRequest>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(raw.len()) {
         let req InstantiationRequest: raw.at(i)
         let key String: inst.mangleGenericName(req.genericName, req.concreteTypes)

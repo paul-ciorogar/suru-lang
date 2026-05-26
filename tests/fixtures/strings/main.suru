@@ -10,7 +10,7 @@ fn main(args Array<String>) {
     let s3 String: s.slice(1, 3)
     printLn(s3)
 
-    let n Int64: Int64.from("42")
+    let n i64: i64.from("42")
     printLn(n)
 
     let str String: n.toString()

@@ -1,6 +1,6 @@
 include "../../../src/stdlib/option.suru" as opt
 
-fn describeOpt(x Option<Int64>) {
+fn describeOpt(x Option<i64>) {
     match x {
         Some: { printLn(x.value) }
         None: { printLn("none") }
@@ -8,7 +8,7 @@ fn describeOpt(x Option<Int64>) {
 }
 
 fn main(args Array<String>) {
-    let s Option<Int64>: opt.some(42)
+    let s Option<i64>: opt.some(42)
     let n None: {}
     describeOpt(s)
     describeOpt(n)

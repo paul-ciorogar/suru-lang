@@ -1,5 +1,5 @@
 fn main(args Array<String>) {
-    let nums Array<Int64>: [10, 20, 30]
+    let nums Array<i64>: [10, 20, 30]
     printLn(nums.len()) // 3
     printLn(nums.at(0)) // 10
     printLn(nums.at(2)) // 30
@@ -11,13 +11,13 @@ fn main(args Array<String>) {
     printLn(nums.len()) // 4
     printLn(nums.at(3)) // 40
 
-    let nums2 Array<Int64>: nums.slice(1, 3)
+    let nums2 Array<i64>: nums.slice(1, 3)
     printLn(nums2.len()) // 2
     printLn(nums2.at(0)) // 99
     drop(nums2)
 
     // clone: independent copy — mutating the clone does not affect the original
-    let nums3 Array<Int64>: clone(nums)
+    let nums3 Array<i64>: clone(nums)
     printLn(nums3.len()) // 4
     printLn(nums3.at(0)) // 10
 
@@ -37,7 +37,7 @@ fn main(args Array<String>) {
     drop(words)
 
     // array returned from function
-    let fromInt Array<Int64>: generateArrayInt()
+    let fromInt Array<i64>: generateArrayInt()
     printLn(fromInt.len()) // 4
     printLn(fromInt.at(0)) // 1
     drop(fromInt)
@@ -51,12 +51,12 @@ fn main(args Array<String>) {
     drop(fromStr)
 
     // array passed to function
-    let testArr Array<Int64>: [5, 6, 7]
+    let testArr Array<i64>: [5, 6, 7]
     printLn(firstElement(testArr))
     drop(testArr)
 }
 
-fn generateArrayInt() Array<Int64> {
+fn generateArrayInt() Array<i64> {
     return [1,2,3,4]
 }
 
@@ -64,6 +64,6 @@ fn generateArrayString() Array<String> {
     return ["1 one","2 two","3 three","4 four"]
 }
 
-fn firstElement(arr Array<Int64>) Int64 {
+fn firstElement(arr Array<i64>) i64 {
     return arr.at(0)
 }

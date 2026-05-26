@@ -16,8 +16,8 @@ include "../../parser/astNodes.suru" as nodes
 // ─── String helpers ───────────────────────────────────────────────────────────
 
 // indexOfLT — index of first '<' in s, or s.len() when absent.
-fn indexOfLT(s String) Int64 {
-    let i Int64: 0
+fn indexOfLT(s String) i64 {
+    let i i64: 0
     while i.lt(s.len()) {
         if s.at(i).equals("<") { return i }
         i: i.add(1)
@@ -27,7 +27,7 @@ fn indexOfLT(s String) Int64 {
 
 // trimLeft — strip leading ASCII spaces from s.
 fn trimLeft(s String) String {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(s.len()) {
         if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
         i: i.add(1)
@@ -38,8 +38,8 @@ fn trimLeft(s String) String {
 // splitByComma — split s by ',' into an Array<String>.
 fn splitByComma(s String) Array<String> {
     let results Array<String>: []
-    let start Int64: 0
-    let i Int64: 0
+    let start i64: 0
+    let i i64: 0
     while i.lt(s.len()) {
         if s.at(i).equals(",") {
             results.add(s.slice(start, i))
@@ -54,7 +54,7 @@ fn splitByComma(s String) Array<String> {
 // joinSubstituted — substitute each element of args and join with ','.
 fn joinSubstituted(args Array<String>, paramNames Array<String>, concreteTypes Array<String>) String {
     let result String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(args.len()) {
         let arg String: trimLeft(args.at(i))
         let sub String: substituteType(arg, paramNames, concreteTypes)
@@ -71,18 +71,18 @@ fn joinSubstituted(args Array<String>, paramNames Array<String>, concreteTypes A
 }
 
 // substituteType — replace type-variable names with concrete types.
-// Handles bare type vars ("T" → "Int64"), single-arg generics
-// ("Array<T>" → "Array<Int64>"), and multi-arg forms
-// ("Pair<T, U>" → "Pair<Int64,String>").
+// Handles bare type vars ("T" → "i64"), single-arg generics
+// ("Array<T>" → "Array<i64>"), and multi-arg forms
+// ("Pair<T, U>" → "Pair<i64,String>").
 fn substituteType(typeName String, paramNames Array<String>, concreteTypes Array<String>) String {
     // Exact match: bare type variable.
-    let i Int64: 0
+    let i i64: 0
     while i.lt(paramNames.len()) {
         if paramNames.at(i).equals(typeName) { return concreteTypes.at(i) }
         i: i.add(1)
     }
     // No '<': plain non-generic type — return unchanged.
-    let ltIdx Int64: indexOfLT(typeName)
+    let ltIdx i64: indexOfLT(typeName)
     if ltIdx.equals(typeName.len()) { return typeName }
     // Generic application: substitute all type args and rebuild.
     let base String: typeName.slice(0, ltIdx)
@@ -102,7 +102,7 @@ fn substParam(p Param, paramNames Array<String>, concreteTypes Array<String>) Pa
 // substParams — return a new Array<Param> with all typeName fields substituted.
 fn substParams(params Array<Param>, paramNames Array<String>, concreteTypes Array<String>) Array<Param> {
     let out Array<Param>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(params.len()) {
         out.add(substParam(params.at(i), paramNames, concreteTypes))
         i: i.add(1)
@@ -120,7 +120,7 @@ fn substMethodSig(ms MethodSig, paramNames Array<String>, concreteTypes Array<St
 // substMethodSigs — return a new Array<MethodSig> with all type annotations substituted.
 fn substMethodSigs(methods Array<MethodSig>, paramNames Array<String>, concreteTypes Array<String>) Array<MethodSig> {
     let out Array<MethodSig>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(methods.len()) {
         out.add(substMethodSig(methods.at(i), paramNames, concreteTypes))
         i: i.add(1)
@@ -136,7 +136,7 @@ fn substMethodSigs(methods Array<MethodSig>, paramNames Array<String>, concreteT
 // substStmts — return a new statement array with all type annotations substituted.
 fn substStmts(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>) Array<AstNode> {
     let out Array<AstNode>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         out.add(substStmt(stmts.at(i), paramNames, concreteTypes))
         i: i.add(1)
@@ -147,7 +147,7 @@ fn substStmts(stmts Array<AstNode>, paramNames Array<String>, concreteTypes Arra
 // substExprs — return a new expression array with all type annotations substituted.
 fn substExprs(exprs Array<AstNode>, paramNames Array<String>, concreteTypes Array<String>) Array<AstNode> {
     let out Array<AstNode>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(exprs.len()) {
         out.add(substExpr(exprs.at(i), paramNames, concreteTypes))
         i: i.add(1)
@@ -179,7 +179,7 @@ fn substStructField(sf StructFieldNode, paramNames Array<String>, concreteTypes 
 // substStructFields — return a new StructFieldNode array with all type annotations substituted.
 fn substStructFields(fields Array<StructFieldNode>, paramNames Array<String>, concreteTypes Array<String>) Array<StructFieldNode> {
     let out Array<StructFieldNode>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(fields.len()) {
         out.add(substStructField(fields.at(i), paramNames, concreteTypes))
         i: i.add(1)
@@ -200,7 +200,7 @@ fn substMatchArm(arm MatchArm, paramNames Array<String>, concreteTypes Array<Str
 // substMatchArms — return a new MatchArm array with all type annotations substituted.
 fn substMatchArms(arms Array<MatchArm>, paramNames Array<String>, concreteTypes Array<String>) Array<MatchArm> {
     let out Array<MatchArm>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         out.add(substMatchArm(arms.at(i), paramNames, concreteTypes))
         i: i.add(1)
@@ -219,7 +219,7 @@ fn substMatchStmtArm(arm MatchStmtArm, paramNames Array<String>, concreteTypes A
 // substMatchStmtArms — return a new MatchStmtArm array with all type annotations substituted.
 fn substMatchStmtArms(arms Array<MatchStmtArm>, paramNames Array<String>, concreteTypes Array<String>) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
-    let i Int64: 0
+    let i i64: 0
     while i.lt(arms.len()) {
         out.add(substMatchStmtArm(arms.at(i), paramNames, concreteTypes))
         i: i.add(1)

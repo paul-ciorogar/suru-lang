@@ -4,13 +4,13 @@
 // is rejected with a compile-time error.
 
 type Counter: {
-    fn get() Int64
+    fn get() i64
 }
 
-fn main() Int64 {
+fn main() i64 {
     let c Counter: {
-        _ count Int64: 0,
-        fn get() Int64 { return this.count }
+        _ count i64: 0,
+        fn get() i64 { return this.count }
     }
     printLn(c.count.toString())
     return 0

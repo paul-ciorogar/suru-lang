@@ -7,7 +7,7 @@
 // runs `suru compile` capturing stdout+stderr and compares it to `expected`
 // (the exact diagnostic the compiler must emit); clang/run/valgrind are
 // skipped. Used to pin specific semantic-analysis errors.
-type TestCase: { name String, source String, args String, expected String, xfail Bool, compileError Bool }
+type TestCase: { name String, source String, args String, expected String, xfail bool, compileError bool }
 
 fn main(args Array<String>) {
     let runtime String: "/usr/local/lib/suru/runtime"
@@ -71,14 +71,16 @@ fn main(args Array<String>) {
         { name: "parse-error",    source: "tests/fixtures/parse-error",    args: "", expected: readFile("/work/tests/fixtures/parse-error/expected.txt"),    xfail: false, compileError: true },
         { name: "dup-type-error",              source: "tests/fixtures/dup-type-error",              args: "", expected: readFile("/work/tests/fixtures/dup-type-error/expected.txt"),              xfail: false, compileError: true },
         { name: "struct-missing-field-error", source: "tests/fixtures/struct-missing-field-error", args: "", expected: readFile("/work/tests/fixtures/struct-missing-field-error/expected.txt"), xfail: false, compileError: true },
+        { name: "struct-undeclared-method-error", source: "tests/fixtures/struct-undeclared-method-error", args: "", expected: readFile("/work/tests/fixtures/struct-undeclared-method-error/expected.txt"), xfail: false, compileError: true },
+        { name: "namespace-export", source: "tests/fixtures/namespace-export", args: "", expected: readFile("/work/tests/fixtures/namespace-export/expected.txt"), xfail: false, compileError: false },
     ]
 
-    let passed Int64: 0
-    let failed Int64: 0
-    let memFailed Int64: 0
-    let xfailed Int64: 0
-    let xpassed Int64: 0
-    let i Int64: 0
+    let passed i64: 0
+    let failed i64: 0
+    let memFailed i64: 0
+    let xfailed i64: 0
+    let xpassed i64: 0
+    let i i64: 0
 
     while i.lt(cases.len()) {
         let tc TestCase: cases.at(i)
@@ -89,7 +91,7 @@ fn main(args Array<String>) {
 
         exec("mkdir -p ".append(dir))
         let actual String: ""
-        let memCheck Int64: 0
+        let memCheck i64: 0
         if tc.compileError {
             // Assert the compiler's own diagnostic: capture stdout+stderr of
             // `suru compile`; skip clang/run/valgrind.
@@ -103,7 +105,7 @@ fn main(args Array<String>) {
             memCheck: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))
         }
 
-        let ok Bool: actual.equals(tc.expected)
+        let ok bool: actual.equals(tc.expected)
         match tc.xfail {
             true: {
                 // Known-broken test: a failure is expected (XFAIL, not counted);

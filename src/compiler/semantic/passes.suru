@@ -28,10 +28,10 @@ include "../parser/parser.suru" as parser
 
 // ─── Type resolution ──────────────────────────────────────────────────────────
 
-// isArrayGeneric — true when name is a generic Array type like "Array<Int64>".
+// isArrayGeneric — true when name is a generic Array type like "Array<i64>".
 // The Suru parser stores generic type annotations as flat strings ("Array<T>"),
 // so we check the first 5 characters for "Array" when the name is long enough.
-fn isArrayGeneric(name String) Bool {
+fn isArrayGeneric(name String) bool {
     return match name.len().gt(5) {
         true: name.slice(0, 5).equals("Array")
         _: false
@@ -39,20 +39,20 @@ fn isArrayGeneric(name String) Bool {
 }
 
 // isBuiltinType — true for the six primitive type names and generic Array forms.
-fn isBuiltinType(name String) Bool {
-    return name.equals("Bool") 
-        or name.equals("Int32") 
-        or name.equals("Int64") 
-        or name.equals("Float64") 
-        or name.equals("Char") 
-        or name.equals("String") 
-        or name.equals("Array") 
+fn isBuiltinType(name String) bool {
+    return name.equals("bool")
+        or name.equals("i32")
+        or name.equals("i64")
+        or name.equals("f64")
+        or name.equals("char")
+        or name.equals("String")
+        or name.equals("Array")
         or isArrayGeneric(name)
 }
 
 // typeNameExistsAt — linear search; true if name is in typeNames.
-fn typeNameExistsAt(typeNames Array<String>, name String) Bool {
-    let i Int64: 0
+fn typeNameExistsAt(typeNames Array<String>, name String) bool {
+    let i i64: 0
     while i.lt(typeNames.len()) {
         if typeNames.at(i).equals(name) { return true }
         i: i.add(1)
@@ -62,11 +62,11 @@ fn typeNameExistsAt(typeNames Array<String>, name String) Bool {
 
 // ─── Generic type-annotation mangling ────────────────────────────────────────
 // These helpers let resolveTypeName recognise user-defined generic annotations
-// like "Box<Int64>" by looking up their mangled form "Box__Int64" in typeNames.
+// like "Box<i64>" by looking up their mangled form "Box__Int64" in typeNames.
 
 // indexOfAngle — index of the first '<' in s, or s.len() when absent.
-fn indexOfAngle(s String) Int64 {
-    let i Int64: 0
+fn indexOfAngle(s String) i64 {
+    let i i64: 0
     while i.lt(s.len()) {
         if s.at(i).equals("<") { return i }
         i: i.add(1)
@@ -76,7 +76,7 @@ fn indexOfAngle(s String) Int64 {
 
 // ltrimStr — strip leading ASCII space characters from s.
 fn ltrimStr(s String) String {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(s.len()) {
         if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
         i: i.add(1)
@@ -87,19 +87,19 @@ fn ltrimStr(s String) String {
 // flattenPassTypeArg — recursively flatten a type-name string to an
 // identifier-safe form (duplicated from monoInstantiate because passes.suru
 // is a separate include chain).
-//   "Array<Int64>"          → "Array__Int64"
-//   "Option<Int64>"         → "Option__Int64"
-//   "Option<Array<Int64>>"  → "Option__Array__Int64"
+//   "Array<i64>"          → "Array__Int64"
+//   "Option<i64>"         → "Option__Int64"
+//   "Option<Array<i64>>"  → "Option__Array__Int64"
 //   plain names             → trimmed clone
 fn flattenPassTypeArg(typeName String) String {
     let trimmed String: ltrimStr(typeName)
-    let ltIdx Int64: indexOfAngle(trimmed)
+    let ltIdx i64: indexOfAngle(trimmed)
     if ltIdx.equals(trimmed.len()) { return trimmed }
     let base String: trimmed.slice(0, ltIdx)
     let inner String: trimmed.slice(ltIdx.add(1), trimmed.len().take(1))
     let acc String: base
-    let start Int64: 0
-    let i Int64: 0
+    let start i64: 0
+    let i i64: 0
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenPassTypeArg(inner.slice(start, i))
@@ -122,10 +122,10 @@ fn flattenPassTypeArg(typeName String) String {
 
 // appendMangledArgsAt — scan inner for comma-separated type arguments and
 // append "__<flattenPassTypeArg(arg)>" for each to acc.  Used by mangleAnnotation.
-// Calls flattenPassTypeArg so nested generics like "Array<Int64>" become
+// Calls flattenPassTypeArg so nested generics like "Array<i64>" become
 // "Array__Int64" in the resulting identifier rather than the raw annotation string.
-fn appendMangledArgsAt(inner String, start Int64, acc String) String {
-    let i Int64: start
+fn appendMangledArgsAt(inner String, start i64, acc String) String {
+    let i i64: start
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenPassTypeArg(inner.slice(start, i))
@@ -147,9 +147,9 @@ fn appendMangledArgsAt(inner String, start Int64, acc String) String {
 }
 
 // mangleAnnotation — convert a generic type annotation string to its mangled
-// form.  "Box<Int64>" → "Box__Int64", "Pair<Int64, String>" → "Pair__Int64__String".
+// form.  "Box<i64>" → "Box__Int64", "Pair<i64, String>" → "Pair__Int64__String".
 fn mangleAnnotation(name String) String {
-    let ltIdx Int64: indexOfAngle(name)
+    let ltIdx i64: indexOfAngle(name)
     let base String: name.slice(0, ltIdx)
     let inner String: name.slice(ltIdx.add(1), name.len().take(1))
     return appendMangledArgsAt(inner, 0, base)
@@ -157,8 +157,8 @@ fn mangleAnnotation(name String) String {
 
 // isUserGenericAnnotation — true when name is a generic type annotation for a
 // user-defined type (i.e. contains '<' but is not the builtin Array<T> form).
-fn isUserGenericAnnotation(name String) Bool {
-    let ltIdx Int64: indexOfAngle(name)
+fn isUserGenericAnnotation(name String) bool {
+    let ltIdx i64: indexOfAngle(name)
     if ltIdx.equals(name.len()) { return false }
     if isArrayGeneric(name)     { return false }
     return true
@@ -167,11 +167,11 @@ fn isUserGenericAnnotation(name String) Bool {
 // resolveTypeName — true when name is a built-in or a user-declared type.
 // Passes state.typeNames as a typed argument; the callee's Array<String> annotation
 // ensures correct dispatch inside typeNameExistsAt.
-// Also accepts user-defined generic annotations like "Box<Int64>" by looking up
+// Also accepts user-defined generic annotations like "Box<i64>" by looking up
 // the mangled form "Box__Int64" in typeNames (injected by the mono pass).
 // Note: uses explicit match rather than `and` to guard the mangleAnnotation call
 // because Suru's boolean `and` is not short-circuit (both sides are always evaluated).
-fn resolveTypeName(state AnalyzerState, name String) Bool {
+fn resolveTypeName(state AnalyzerState, name String) bool {
     let typeNames Array<String>: state.typeNames
     if isBuiltinType(name) or typeNameExistsAt(typeNames, name) { return true }
     if isUserGenericAnnotation(name) { return typeNameExistsAt(typeNames, mangleAnnotation(name)) }
@@ -180,8 +180,8 @@ fn resolveTypeName(state AnalyzerState, name String) Bool {
 
 // isTypeParam — true when name matches one of the type-param names in typeParams.
 // Used by registerFnDecl to skip validation for generic parameter/return types.
-fn isTypeParam(name String, typeParams Array<String>) Bool {
-    let i Int64: 0
+fn isTypeParam(name String, typeParams Array<String>) bool {
+    let i i64: 0
     while i.lt(typeParams.len()) {
         if typeParams.at(i).equals(name) { return true }
         i: i.add(1)
@@ -198,7 +198,7 @@ fn isTypeParam(name String, typeParams Array<String>) Bool {
 fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
     let semFields Array<SemFieldEntry>: []
     let params Array<Param>: typed.fields
-    let fi Int64: 0
+    let fi i64: 0
     while fi.lt(params.len()) {
         let p Param: params.at(fi)
         let entry SemFieldEntry: { name: p.name, typeName: p.typeName }
@@ -207,12 +207,12 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
     }
     let semMethods Array<SemMethodEntry>: []
     let methodSigs Array<MethodSig>: typed.methods
-    let mi Int64: 0
+    let mi i64: 0
     while mi.lt(methodSigs.len()) {
         let ms MethodSig: methodSigs.at(mi)
         let ptypes Array<String>: []
         let mps Array<Param>: ms.params
-        let pj Int64: 0
+        let pj i64: 0
         while pj.lt(mps.len()) {
             ptypes.add(mps.at(pj).typeName)
             pj: pj.add(1)
@@ -235,7 +235,7 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
 // recurse into nested struct literals with the right field-type expectations.
 fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let typeNames Array<String>: state.typeNames
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let stmt AstNode: stmts.at(i)
         match stmt {
@@ -274,7 +274,7 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
     state.currentSrcPath: stmt.srcPath
     let paramTypes Array<String>: []
     let params Array<Param>: stmt.params
-    let pi Int64: 0
+    let pi i64: 0
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
@@ -286,7 +286,7 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
-    let validReturn Bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
+    let validReturn bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
     if not validReturn {
         state.addError("unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"), stmt.line, stmt.col)
     }
@@ -301,7 +301,7 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
 fn registerExternFnDecl(state AnalyzerState, stmt ExternFnNode) AnalyzerState {
     let paramTypes Array<String>: []
     let params Array<Param>: stmt.params
-    let pi Int64: 0
+    let pi i64: 0
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
@@ -313,7 +313,7 @@ fn registerExternFnDecl(state AnalyzerState, stmt ExternFnNode) AnalyzerState {
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
-    let validReturn Bool: returnType.equals("void") or resolveTypeName(state, returnType)
+    let validReturn bool: returnType.equals("void") or resolveTypeName(state, returnType)
     if not validReturn {
         state.addError("unknown return type '".append(returnType).append("' for extern fn '").append(stmt.name).append("'"), 0, 0)
     }
@@ -325,7 +325,7 @@ fn registerExternFnDecl(state AnalyzerState, stmt ExternFnNode) AnalyzerState {
 // collectFunctionDeclarations — walk stmts; for each FnDeclNode or ExternFnNode
 // either report a duplicate-function error or register the signature.
 fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let stmt AstNode: stmts.at(i)
         match stmt {

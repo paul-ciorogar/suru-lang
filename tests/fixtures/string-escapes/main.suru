@@ -18,12 +18,12 @@ fn main(args Array<String>) {
     drop(dq)
     drop(sq)
 
-    // Char escape sequences — compare using .equals() on Char literals.
-    let cnl  Char: '\n'
-    let ctab Char: '\t'
-    let cbs  Char: '\\'
-    let csq  Char: '\''
-    let cnul Char: '\0'
+    // char escape sequences — compare using .equals() on char literals.
+    let cnl  char: '\n'
+    let ctab char: '\t'
+    let cbs  char: '\\'
+    let csq  char: '\''
+    let cnul char: '\0'
 
     printLn(cnl.equals('\n'))        // true  — newline   (10)
     printLn(ctab.equals('\t'))       // true  — tab       (9)

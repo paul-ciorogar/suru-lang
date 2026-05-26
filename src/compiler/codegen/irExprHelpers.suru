@@ -29,12 +29,12 @@ fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
     return { ctx: ctx, name: lr.name, llvmType: lt, suruType: v.suruType }
 }
 
-// For arithmetic/comparison, NamedType (struct field) is treated as Int64 at runtime.
+// For arithmetic/comparison, NamedType (struct field) is treated as i64 at runtime.
 fn effectiveSuruType(suruType String) String {
     if box.isScalarType(suruType)      { return suruType }
     if suruType.equals("String")       { return "String" }
     if tyh.isArraySuruType(suruType)   { return suruType }
-    return "Int64"
+    return "i64"
 }
 
 // Unbox val to raw scalar if it is heap-boxed for the given suruType.
@@ -43,7 +43,7 @@ fn rawVal(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: val, llvmType: box.llvmTypeOf(suruType), suruType: suruType }
     }
-    return box.unboxScalar(ctx, val, "Int64")
+    return box.unboxScalar(ctx, val, "i64")
 }
 
 // Emit binary arithmetic operation.
@@ -53,14 +53,14 @@ fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, lt
     ctx: rr1.ctx
     let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
     ctx: rr2.ctx
-    let op String: match eff.equals("Float64") { true: floatOp, _: intOp }
+    let op String: match eff.equals("f64") { true: floatOp, _: intOp }
     let rawT String: box.rawLlvmTypeOf(eff)
     let br IrResult: ir.emitBinop(ctx.builder, op, rawT, rr1.name, rr2.name)
     ctx.builder: br.builder
     return { ctx: ctx, name: br.name, llvmType: rawT, suruType: eff }
 }
 
-// Emit comparison. Returns i1 result with suruType="Bool".
+// Emit comparison. Returns i1 result with suruType="bool".
 fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
@@ -68,12 +68,12 @@ fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String
     let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
     ctx: rr2.ctx
     let rawT String: box.rawLlvmTypeOf(eff)
-    let cr IrResult: match eff.equals("Float64") {
+    let cr IrResult: match eff.equals("f64") {
         true: ir.emitFCmp(ctx.builder, floatPred, rr1.name, rr2.name)
         _:    ir.emitICmp(ctx.builder, intPred, rawT, rr1.name, rr2.name)
     }
     ctx.builder: cr.builder
-    return { ctx: ctx, name: cr.name, llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: cr.name, llvmType: "i1", suruType: "bool" }
 }
 
 // Emit compare() → i64 -1/0/1.
@@ -84,12 +84,12 @@ fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rty
     ctx: rr1.ctx
     let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
     ctx: rr2.ctx
-    let gtR IrResult: match eff.equals("Float64") {
+    let gtR IrResult: match eff.equals("f64") {
         true: ir.emitFCmp(ctx.builder, "ogt", rr1.name, rr2.name)
         _:    ir.emitICmp(ctx.builder, "sgt", rawT, rr1.name, rr2.name)
     }
     ctx.builder: gtR.builder
-    let ltR IrResult: match eff.equals("Float64") {
+    let ltR IrResult: match eff.equals("f64") {
         true: ir.emitFCmp(ctx.builder, "olt", rr1.name, rr2.name)
         _:    ir.emitICmp(ctx.builder, "slt", rawT, rr1.name, rr2.name)
     }
@@ -100,15 +100,15 @@ fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rty
     ctx.builder: leR.builder
     let subR IrResult: ir.emitBinop(ctx.builder, "sub", "i64", geR.name, leR.name)
     ctx.builder: subR.builder
-    return { ctx: ctx, name: subR.name, llvmType: "i64", suruType: "Int64" }
+    return { ctx: ctx, name: subR.name, llvmType: "i64", suruType: "i64" }
 }
 
-// Emit invert() — numeric negation. Bool invert is also numeric (xor not needed).
+// Emit invert() — numeric negation. bool invert is also numeric (xor not needed).
 fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     let eff String: effectiveSuruType(suruType)
     let rr CodegenResult: rawVal(ctx, val, suruType)
     ctx: rr.ctx
-    let res IrResult: match eff.equals("Float64") {
+    let res IrResult: match eff.equals("f64") {
         true: ir.emitBinop(ctx.builder, "fneg", "double", "", rr.name)
         _:    ir.emitBinop(ctx.builder, "sub", box.rawLlvmTypeOf(eff), "0", rr.name)
     }
@@ -130,13 +130,13 @@ fn emitCloneDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult
 
 fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
-        return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
+        return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
     }
     ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(val))
     ctx.builder: ir.emitVoidCall(ctx.builder, "suru_drop_dyn", args)
-    return { ctx: ctx, name: "0", llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
 }
 
 fn emitBoolNot(ctx IrCodegenContext, val String, suruType String) CodegenResult {
@@ -148,10 +148,10 @@ fn emitBoolNot(ctx IrCodegenContext, val String, suruType String) CodegenResult 
     }
     let xr IrResult: ir.emitXor(ctx.builder, "i1", rawB, "true")
     ctx.builder: xr.builder
-    return { ctx: ctx, name: xr.name, llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: xr.name, llvmType: "i1", suruType: "bool" }
 }
 
-fn emitBinaryExpr(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String, op Int64) CodegenResult {
+fn emitBinaryExpr(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String, op i64) CodegenResult {
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
     ctx: rr1.ctx
     let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)
@@ -159,5 +159,5 @@ fn emitBinaryExpr(ctx IrCodegenContext, lval String, ltype String, rval String, 
     let opStr String: match op.equals(2) { true: "and", _: "or" }
     let br IrResult: ir.emitBinop(ctx.builder, opStr, "i1", rr1.name, rr2.name)
     ctx.builder: br.builder
-    return { ctx: ctx, name: br.name, llvmType: "i1", suruType: "Bool" }
+    return { ctx: ctx, name: br.name, llvmType: "i1", suruType: "bool" }
 }

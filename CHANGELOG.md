@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Renamed primitive types to lowercase
+
+The five primitive type names have been renamed to their lowercase, Rust-style equivalents:
+
+| Before | After |
+|--------|-------|
+| `Bool` | `bool` |
+| `Int32` | `i32` |
+| `Int64` | `i64` |
+| `Float64` | `f64` |
+| `Char` | `char` |
+
+`String` and `void` are unchanged.
+
+```suru
+let x i64: 42
+let ratio f64: 1.5
+let flag bool: true
+let c char: 'a'
+let p i32: 7
+```
+
+All compiler source files, test fixtures, stdlib, README, and CLAUDE.md have been updated. The rename was carried out in two bootstrap phases: phase 1 updated the string tables (what the compiler recognises internally) while keeping the compiler's own source annotations unchanged so the old bootstrap binary could still compile it; phase 2 updated the compiler source annotations using the new binary.
+
+---
+
 ### Object types supported as sum type variants
 
 Sum type variants can now be object types (types with method signatures). Previously only plain structs could appear as variants. This enables patterns like calling methods on a narrowed match arm value:
@@ -73,7 +99,7 @@ let t String: parser.parseTypeAnnotation()
 
 Changes:
 - **`parser/parserAst.suru`**: `type Parser` is now an object interface declaring 9 method signatures; `pos`/`tokens` removed from public interface.
-- **`parser/parserUtil.suru`**: `newParser()` returns an object literal with `_ pos Int64: 0` and `_ tokens Array<Token>: tokens` as private fields, plus all method bodies (`advance`, `currentToken`, `currentTokenIs`, `peekToken`, `peekIs`, `consume`, `consumeIf`, `error`, `parseTypeAnnotation`). Old free functions removed.
+- **`parser/parserUtil.suru`**: `newParser()` returns an object literal with `_ pos i64: 0` and `_ tokens Array<Token>: tokens` as private fields, plus all method bodies (`advance`, `currentToken`, `currentTokenIs`, `peekToken`, `peekIs`, `consume`, `consumeIf`, `error`, `parseTypeAnnotation`). Old free functions removed.
 - **`parser/parser.suru`**: ~215 `util.fn(parser, ...)` call sites converted to `parser.fn(...)`. Dead cleanup boilerplate (`r.parser: {}`, `drop(r)`) removed throughout — safe because field assignment is not RAII and intermediate result Parser copies share the same underlying tokens.
 - **Known limitation** (`tests/fixtures/private-fields-constructor`, xfail): `augPrivInBody` in `pipeline.suru` only registers private fields from `LetNode → StructLitNode`, not from `ReturnNode → StructLitNode`. Constructor functions using `return { _ field ... }` must use an intermediate `let` binding as a workaround.
 
@@ -96,9 +122,9 @@ Compiler errors now include file path, line number, column, and a source code sn
 All semantic errors carry position. Errors that lack position (e.g. duplicate type declarations in pre-passes) fall back to `path: error: message`.
 
 Implementation:
-- **`parser/parserAst.suru`**: Added `line Int64, col Int64` to 13 node types: `FnDeclNode`, `LetNode`, `AssignNode`, `FieldAssignNode`, `ReturnNode`, `WhileNode`, `IfNode`, `BreakNode`, `ContinueNode`, `VarRefNode`, `CallNode`, `MethodCallNode`, `FieldAccessNode`.
+- **`parser/parserAst.suru`**: Added `line i64, col i64` to 13 node types: `FnDeclNode`, `LetNode`, `AssignNode`, `FieldAssignNode`, `ReturnNode`, `WhileNode`, `IfNode`, `BreakNode`, `ContinueNode`, `VarRefNode`, `CallNode`, `MethodCallNode`, `FieldAccessNode`.
 - **`parser/parser.suru`**: All node creation sites now capture the relevant token's `line`/`col` and store it in the node.
-- **`semantic/semantic.suru`**: `AnalysisError` extended with `line Int64, col Int64, srcPath String`; `AnalyzerState` gains `currentSrcPath String`; `addError` takes `line Int64, col Int64`.
+- **`semantic/semantic.suru`**: `AnalysisError` extended with `line i64, col i64, srcPath String`; `AnalyzerState` gains `currentSrcPath String`; `addError` takes `line i64, col i64`.
 - **`semantic/passes.suru`**: `appendError` updated; `registerFnDecl` sets `currentSrcPath` from `FnDeclNode.srcPath`; all call sites pass position.
 - **`semantic/stmts.suru`**, **`semantic/exprs.suru`**, **`semantic/fns.suru`**, **`semantic/resolveTypes.suru`**: All ~25 error call sites updated to pass `node.line, node.col`.
 - **`semantic/fns.suru`**: `analyzeFunctionDeclaration` sets/restores `state.currentSrcPath` on function entry/exit so errors inside functions point to the correct included file.
@@ -114,7 +140,7 @@ Implementation:
 
 ```suru
 // break: exit early
-let i Int64: 0
+let i i64: 0
 while i.lt(10) {
     if i.equals(3) { break }
     printLn(i)
@@ -123,7 +149,7 @@ while i.lt(10) {
 // prints 0, 1, 2
 
 // continue: skip an iteration
-let j Int64: 0
+let j i64: 0
 while j.lt(5) {
     j: j.add(1)
     if j.equals(3) { continue }
@@ -139,7 +165,7 @@ Implementation:
 - **`parser/parserAst.suru`**: `BreakNode {}` and `ContinueNode {}` appended to `AstNode` (indices 30, 31 — appended last to keep prior indices stable).
 - **`parser/parser.suru`**: `parseBreakStmt` / `parseContinueStmt` consume the keyword and return the empty node; dispatched from `parseStatement`.
 - **`parser/parserPrint.suru`**: pretty-printer cases for both nodes.
-- **`semantic/semantic.suru`**: `AnalyzerState` gains `insideLoop Int64` (incremented/decremented around `while` body analysis).
+- **`semantic/semantic.suru`**: `AnalyzerState` gains `insideLoop i64` (incremented/decremented around `while` body analysis).
 - **`semantic/stmts.suru`**: `analyzeWhileStatement` tracks loop depth; `analyzeBreakStatement` / `analyzeContinueStatement` emit a compile error when `insideLoop == 0`.
 - **`codegen/irCodegenTypes.suru`**: `IrCodegenContext` gains `loopCondLabels Array<String>` and `loopAfterLabels Array<String>` — a stack of label names for the current loop nest.
 - **`codegen/irCodegen.suru`**: `emitWhile` pushes/pops the cond/after labels around body emission; `emitBreak` branches to `while_after_N`; `emitContinue` branches to `while_cond_N`; both set `blockOpen: false`.
@@ -155,7 +181,7 @@ fn consume(s String) void {
     drop(s)
 }
 
-fn main() Int64 {
+fn main() i64 {
     let s String: "hello".append(" world")
     consume(move(s))        // s is moved; consume owns it and drops it
 
@@ -169,7 +195,7 @@ fn main() Int64 {
 Compile-time enforcement:
 
 ```suru
-fn main() Int64 {
+fn main() i64 {
     let s String: "hello".append(" world")
     let t String: move(s)
     printLn(s)    // compile error: variable 's' has been moved
@@ -201,14 +227,14 @@ modifier token. Private members are invisible from outside the object; only
 ```suru
 type Counter: {
     fn increment()
-    fn get() Int64
+    fn get() i64
 }
 
-fn main() Int64 {
+fn main() i64 {
     let c Counter: {
-        _ count Int64: 0,
+        _ count i64: 0,
         fn increment() { this.count: this.count.add(1) }
-        fn get() Int64 { return this.count }
+        fn get() i64 { return this.count }
     }
     c.increment()
     c.increment()
@@ -233,7 +259,7 @@ Implementation:
 - **Parser** (`parser.suru`): `parseStructLitMemberInto` dispatches on `TOK_WILDCARD`
   to two new parsers — `parseStructLitPrivateFieldInto` (requires an explicit type
   annotation) and `parseStructLitPrivateMethodInto`. `StructFieldNode` gained
-  `isPrivate Bool` and `privateTypeName String`.
+  `isPrivate bool` and `privateTypeName String`.
 - **Semantic layer** (`semantic/semantic.suru`, `semantic/resolveTypes.suru`):
   `SemTypeEntry` gained `privateFieldNames Array<String>` and
   `privateMethodNames Array<String>`. During `StructLitNode` resolution
@@ -252,7 +278,7 @@ Implementation:
 
 Suru now supports generic type and function definitions. The compiler
 monomorphizes all generic usage sites at compile time, producing concrete
-copies with mangled names (e.g. `Box<Int64>` → `Box__Int64`).
+copies with mangled names (e.g. `Box<i64>` → `Box__i64`).
 
 ```suru
 type Box<T>: { value T }
@@ -260,10 +286,10 @@ type Box<T>: { value T }
 fn identity<T>(x T) T { return x }
 
 fn main(args Array<String>) {
-    let b Box<Int64>: { value: 42 }
+    let b Box<i64>: { value: 42 }
     printLn(b.value)    // 42
     drop(b)
-    let r Int64: identity(42)
+    let r i64: identity(42)
     printLn(r)          // 42
 }
 ```
@@ -273,7 +299,7 @@ Added:
   from `<T, U, ...>` after the definition name.
 - **Multi-arg generic type annotations**: `parseGenericTypeAnnotation` in
   `parserUtil.suru` now collects comma-separated type arguments with a while
-  loop, enabling `Pair<Int64, String>`, `Map<K, V>`, etc. Previously only
+  loop, enabling `Pair<i64, String>`, `Map<K, V>`, etc. Previously only
   single-arg forms (`Box<T>`) were parsed correctly.
 - **Mono pass** (`src/compiler/semantic/monoPass.suru`) — orchestrates four sub-modules:
   - `monoCollect.suru` — collects generic definitions into a `GenericRegistry`
@@ -286,8 +312,8 @@ Added:
   - `monoSubst.suru` — recursive type-name and expression/statement rewriters
     that replace type-parameter names with concrete counterparts throughout an
     AST subtree.
-- **Name mangling**: `Box<Int64>` → `Box__Int64`, `Pair<Int64, String>` →
-  `Pair__Int64__String`. Mangling is applied consistently in:
+- **Name mangling**: `Box<i64>` → `Box__i64`, `Pair<i64, String>` →
+  `Pair__i64__String`. Mangling is applied consistently in:
   - `passes.suru` `resolveTypeName` (semantic validation accepts both raw and
     mangled forms)
   - `irCodegenTypeHelpers.suru` `makeSuruType` (maps annotations to mangled
@@ -308,22 +334,22 @@ Added:
 ### Added generic sum types and `src/stdlib/option.suru` / `src/stdlib/result.suru`
 
 Generic sum types are now fully supported. The compiler monomorphizes generic
-sum type definitions (e.g. `Option<T>`) into concrete instances (`Option__Int64`)
+sum type definitions (e.g. `Option<T>`) into concrete instances (`Option__i64`)
 and rewrites unmangled match-arm patterns (`Some:`, `None:`) to the mangled
 variant names expected by the codegen.
 
 ```suru
 include "../../src/stdlib/option.suru" as opt
 
-fn describeOpt(x Option<Int64>) {
+fn describeOpt(x Option<i64>) {
     match x {
-        Some: { printLn(x.value) }    // arm pattern rewritten to Some__Int64
+        Some: { printLn(x.value) }    // arm pattern rewritten to Some__i64
         None: { printLn("none") }
     }
 }
 
 fn main(args Array<String>) {
-    let s Option<Int64>: opt.some(42)  // namespace-qualified generic fn call
+    let s Option<i64>: opt.some(42)  // namespace-qualified generic fn call
     describeOpt(s)                     // 42
     drop(s)
 }
@@ -336,7 +362,7 @@ Added:
 - `GenericSumTypeDef` / `sumTypes Array<GenericSumTypeDef>` in `GenericRegistry`
   (`monoCollect.suru`) — collects generic sum type definitions alongside structs.
 - `registryHasSumTypeAt` in `monoInfer.suru` — `inferFromAnnotation` now checks
-  both the struct and sum type registries so `Option<Int64>` annotations trigger
+  both the struct and sum type registries so `Option<i64>` annotations trigger
   instantiation.
 - Namespace-qualified generic function call inference: `opt.some(42)` (a
   `MethodCallNode` whose receiver has no `resolvedType`) is now detected and
@@ -345,7 +371,7 @@ Added:
 - `instantiateSumType` / `wrapSumTypeDeclNode` / `findInstSumTypeAt` /
   `instantiateVariantTypeAt` in `monoInstantiate.suru` — produce concrete
   `SumTypeDeclNode` and variant struct `TypeDeclNode` copies (e.g. `Some<T>` →
-  `Some__Int64`) with `seen`-based deduplication.
+  `Some__i64`) with `seen`-based deduplication.
 - `rewriteVariantArms` pass in `monoPass.suru` — called from `pipeline.suru`
   after `rewriteCallSites`; maps unmangled arm names (`Some`, `None`) to the
   concrete mangled variant names the codegen expects, using `resolvedType` of the
@@ -408,27 +434,27 @@ expressions; Suru's acyclic per-file include model requires mutually recursive
 functions to share one file. Behaviour is unchanged and the 3-stage bootstrap
 fixed point (C2 == C3) holds.
 
-### Added `Char` value type
+### Added `char` value type
 
-Introduces a `Char` value type (an `i8`, scalar, never heap-allocated, never
+Introduces a `char` value type (an `i8`, scalar, never heap-allocated, never
 dropped) to give the language an allocation-free way to read a character.
 `String.at(i)` allocates a fresh one-character heap `String` on every call.
 
 
 Added:
-- `Char` scalar type — `i8` LLVM type, type_tag `9`, box/unbox, array
+- `char` scalar type — `i8` LLVM type, type_tag `9`, box/unbox, array
   (`i8` storage) and struct (`zext`/`trunc`) encoding, recognised as a
   builtin type name by the parser and semantic passes.
 - Single-quote char literals: `'x'`, `'\n'`, `'\t'`, `'\\'`, `'\''`. A new
   `CharLitNode` is **appended last** in the `AstNode` sum type — variant tags
   are derived from declaration order, so appending keeps every existing
   variant index stable and the bootstrap fixed point intact.
-- `String.__at(i) -> Char` — the interim, allocation-free character accessor
+- `String.__at(i) -> char` — the interim, allocation-free character accessor
   (mirrors the existing `__append` interim-name convention). `String.at(i)
   -> String` is **unchanged**.
-- `Char.equals(Char) -> Bool` (`icmp eq i8`), `Char.ord() -> Int64`
-  (`zext i8` to `i64`), `Char.toString() -> String`, and a
-  `String.append(Char) -> String` overload.
+- `char.equals(char) -> bool` (`icmp eq i8`), `char.ord() -> i64`
+  (`zext i8` to `i64`), `char.toString() -> String`, and a
+  `String.append(char) -> String` overload.
 - Runtime (`runtime/string.ll`): `suru_string_char_at` (no allocation),
   `suru_string_append_char`, `suru_string_from_char`.
 
@@ -471,7 +497,7 @@ on.
   and stale `build/` directories first. Stale binaries there previously
   produced false-PASS results because the runner masks `suru compile`
   errors with `2>/dev/null`.
-- `tests/runner/main.suru` gains an `xfail Bool` escape hatch on `TestCase`
+- `tests/runner/main.suru` gains an `xfail bool` escape hatch on `TestCase`
   (XFAIL = expected failure, not counted; XPASS = remove the marker). No
   test is currently `xfail`.
 
@@ -532,7 +558,7 @@ String literals (`"hello"`) are now zero-allocation static globals instead of he
 ### Typed Element Sizes in Arrays
 
 Arrays now store elements at their native size — no heap boxing for scalars:
-- `Bool` elements use 1-byte `i8[]` buffers; `Int32` uses 4-byte `i32[]`; `Int64`, `Float64`,
+- `bool` elements use 1-byte `i8[]` buffers; `i32` uses 4-byte `i32[]`; `i64`, `f64`,
   and heap types (String, Array, Struct) use 8-byte `i64[]` buffers.
 - `at()` and `set()` are inlined as typed GEP+load/store — no runtime call.
 - `add()` dispatches to a typed runtime variant (`suru_array_add_i8/i32/i64`).
@@ -559,10 +585,10 @@ Arrays now store elements at their native size — no heap boxing for scalars:
   ([v0.1.0-bootstrap](https://github.com/paul-ciorogar/suru-lang-bootstrap/releases/tag/v0.1.0)).
 - Docker-based build environment (`Dockerfile`, `scripts/build.sh`, `scripts/bootstrap.sh`).
   All build and bootstrap operations run inside the container — no host toolchain required.
-- Language features: `Bool`, `Int32`, `Int64`, `Float64`, `String`, `Array<T>`, named struct types,
+- Language features: `bool`, `i32`, `i64`, `f64`, `String`, `Array<T>`, named struct types,
   sum types, `match` (statement and expression), `while`, `include`, `clone`/`drop`,
   `readFile`/`writeFile`/`appendToFile`, `exit`, `printLn`, `printError`, `exec`.
-- `exec(cmd String) Int64` — runs a shell command via `system()` and returns its exit code.
+- `exec(cmd String) i64` — runs a shell command via `system()` and returns its exit code.
   First language feature added purely in Suru, with no C# changes.
 - Fixed `scripts/bootstrap.sh`: the C# bootstrap binary emits one `.ll` per module; the
   script now links all generated modules rather than only the entry-point file.

@@ -4,7 +4,7 @@
 // Counts 1..5 but skips printing when i equals 3, so 1, 2, 4, 5 are printed.
 
 fn main() {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(5) {
         i: i.add(1)
         if i.equals(3) { continue }

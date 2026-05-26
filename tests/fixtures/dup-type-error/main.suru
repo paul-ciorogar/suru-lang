@@ -3,7 +3,7 @@
 // Validates that a duplicate type declaration is a semantic error with
 // file path, line, and column in the diagnostic.
 
-type Foo: { x Int64 }
+type Foo: { x i64 }
 type Foo: { y String }
 
 fn main() {

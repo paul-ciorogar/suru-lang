@@ -1,17 +1,17 @@
 // stdlib-option-all-types — exercises Option<T> with every major type category:
-//   primitives (Int64, String, Bool), user-defined structs, Array<Int64>,
-//   and Option<Option<Int64>> (nested generic).
+//   primitives (i64, String, bool), user-defined structs, Array<i64>,
+//   and Option<Option<i64>> (nested generic).
 
-type Point: { x Int64, y Int64 }
+type Point: { x i64, y i64 }
 
 // Color is a plain struct so opt.some(col) correctly infers T=Color from the
 // argument's resolvedType.  Using a sum-type variant like Red would cause
 // monoInfer to bind T=Red (bottom-up from the arg) instead of T=Color.
-type Color: { r Int64, g Int64, b Int64 }
+type Color: { r i64, g i64, b i64 }
 
 include "../../../src/stdlib/option.suru" as opt
 
-fn checkInt64(x Option<Int64>) {
+fn checkInt64(x Option<i64>) {
     match x {
         Some: { printLn(x.value) }
         None: { printLn("none") }
@@ -25,7 +25,7 @@ fn checkString(x Option<String>) {
     }
 }
 
-fn checkBool(x Option<Bool>) {
+fn checkBool(x Option<bool>) {
     match x {
         Some: { printLn(x.value) }
         None: { printLn("none") }
@@ -49,14 +49,14 @@ fn checkColor(x Option<Color>) {
     }
 }
 
-fn checkArray(x Option<Array<Int64>>) {
+fn checkArray(x Option<Array<i64>>) {
     match x {
         Some: { printLn(x.value.len()) }
         None: { printLn("none") }
     }
 }
 
-fn checkNested(x Option<Option<Int64>>) {
+fn checkNested(x Option<Option<i64>>) {
     match x {
         Some: { printLn("has option") }
         None: { printLn("outer none") }
@@ -64,8 +64,8 @@ fn checkNested(x Option<Option<Int64>>) {
 }
 
 fn main(args Array<String>) {
-    // ── Int64 ────────────────────────────────────────────────────────────────────
-    let i Option<Int64>: opt.some(42)
+    // ── i64 ────────────────────────────────────────────────────────────────────
+    let i Option<i64>: opt.some(42)
     let in None: {}
     checkInt64(i)
     checkInt64(in)
@@ -80,8 +80,8 @@ fn main(args Array<String>) {
     drop(s)
     drop(sn)
 
-    // ── Bool ─────────────────────────────────────────────────────────────────────
-    let b Option<Bool>: opt.some(true)
+    // ── bool ─────────────────────────────────────────────────────────────────────
+    let b Option<bool>: opt.some(true)
     let bn None: {}
     checkBool(b)
     checkBool(bn)
@@ -108,18 +108,18 @@ fn main(args Array<String>) {
     drop(c)
     drop(cn)
 
-    // ── Array<Int64> ──────────────────────────────────────────────────────────────
-    let arr Array<Int64>: [1, 2, 3]
-    let a Option<Array<Int64>>: opt.some(arr)
+    // ── Array<i64> ──────────────────────────────────────────────────────────────
+    let arr Array<i64>: [1, 2, 3]
+    let a Option<Array<i64>>: opt.some(arr)
     let an None: {}
     checkArray(a)
     checkArray(an)
     drop(a)
     drop(an)
 
-    // ── Option<Option<Int64>> (nested generic) ─────────────────────────────────────
-    let inner Option<Int64>: opt.some(99)
-    let o Option<Option<Int64>>: opt.some(inner)
+    // ── Option<Option<i64>> (nested generic) ─────────────────────────────────────
+    let inner Option<i64>: opt.some(99)
+    let o Option<Option<i64>>: opt.some(inner)
     let on None: {}
     checkNested(o)
     checkNested(on)

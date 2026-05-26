@@ -15,7 +15,7 @@ include "irBoxCodegen.suru" as box
 
 // Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
 fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
@@ -26,7 +26,7 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                 // method lambda-lift rewrites literals to match this layout.
                 let ms Array<MethodSig>: s.methods
                 if ms.len().gt(0) { fields.add({ name: "__vtable", typeName: "__vtable" }) }
-                let j Int64: 0
+                let j i64: 0
                 while j.lt(s.fields.len()) {
                     let p Param: s.fields.at(j)
                     let fe TypeFieldEntry: { name: p.name, typeName: p.typeName }
@@ -34,12 +34,12 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                     j: j.add(1)
                 }
                 let tmethods Array<TypeMethodEntry>: []
-                let mj Int64: 0
+                let mj i64: 0
                 while mj.lt(ms.len()) {
                     let msig MethodSig: ms.at(mj)
                     let ptys Array<String>: []
                     let mps Array<Param>: msig.params
-                    let pk Int64: 0
+                    let pk i64: 0
                     while pk.lt(mps.len()) {
                         ptys.add(mps.at(pk).typeName)
                         pk: pk.add(1)
@@ -65,7 +65,7 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 // Only functions whose names are in ctx.ownFnNames get registered — external
 // (included) functions are excluded here; they may be added by the caller.
 fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
@@ -77,7 +77,7 @@ fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
                         _:    box.llvmTypeOf(retSuru)
                     }
                     let paramTypes Array<String>: []
-                    let j Int64: 0
+                    let j i64: 0
                     while j.lt(s.params.len()) {
                         paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
                         j: j.add(1)
@@ -95,7 +95,7 @@ fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
 
 // Pre-pass 2: register module-level scalar constant names in ctx.globalVars.
 fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
@@ -103,9 +103,9 @@ fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
                 let val AstNode: s.value
                 let suruTy String: ""
                 match val {
-                    BoolLitNode:  { suruTy: "Bool" }
-                    IntLitNode:   { suruTy: "Int64" }
-                    FloatLitNode: { suruTy: "Float64" }
+                    BoolLitNode:  { suruTy: "bool" }
+                    IntLitNode:   { suruTy: "i64" }
+                    FloatLitNode: { suruTy: "f64" }
                     _: {}
                 }
                 if not suruTy.equals("") {
@@ -125,7 +125,7 @@ fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
 // to get the literal text.
 fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
     let out String: ""
-    let i Int64: 0
+    let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {

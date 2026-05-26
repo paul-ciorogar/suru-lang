@@ -1,12 +1,12 @@
-type Point: { x Int64, y Int64 }
+type Point: { x i64, y i64 }
 
 fn main(args Array<String>) {
     // TODO: Array.equals() hits a codegen bug — element comparison emits
     // `icmp eq ptr` even for scalar element types (i64 mismatch). Uncomment
     // when the Array.equals codegen is fixed.
-    // let a Array<Int64>: [1, 2, 3]
-    // let b Array<Int64>: [1, 2, 3]
-    // let c Array<Int64>: [1, 2, 4]
+    // let a Array<i64>: [1, 2, 3]
+    // let b Array<i64>: [1, 2, 3]
+    // let c Array<i64>: [1, 2, 4]
     // printLn(a.equals(b))  // true
     // printLn(a.equals(c))  // false
     // drop(a) drop(b) drop(c)

@@ -2,10 +2,10 @@
 //
 // Constructs a minimal GenericRegistry containing Pair<T, U> and a statement
 // list containing:
-//   let x Pair<Int64, String>: <dummy-expr>
+//   let x Pair<i64, String>: <dummy-expr>
 //
 // Verifies that collectInstantiations produces exactly one InstantiationRequest
-// for "Pair" with concrete types ["Int64", "String"].
+// for "Pair" with concrete types ["i64", "String"].
 //
 // Also verifies that a duplicate annotation produces only one request
 // (deduplication), and that inferFromAnnotation alone works correctly.
@@ -37,11 +37,11 @@ fn main() {
     let regSumTypes Array<GenericSumTypeDef>: []
     let registry GenericRegistry: collect.newGenericRegistry(regFns, regTypes, regSumTypes)
 
-    // ── Build stmts: one LetNode with typeName "Pair<Int64, String>" ─────────
+    // ── Build stmts: one LetNode with typeName "Pair<i64, String>" ─────────
     // The value is a bare IntLitNode (contents don't matter for annotation inference).
 
-    let litVal IntLitNode: { text: "0", resolvedType: "Int64" }
-    let letStmt LetNode: { name: "x", typeName: "Pair<Int64, String>", value: litVal, line: 0, col: 0 }
+    let litVal IntLitNode: { text: "0", resolvedType: "i64" }
+    let letStmt LetNode: { name: "x", typeName: "Pair<i64, String>", value: litVal, line: 0, col: 0 }
 
     let stmts Array<AstNode>: []
     stmts.add(letStmt)
@@ -59,8 +59,8 @@ fn main() {
     // ── Deduplication: two identical LetNodes → still one request ─────────────
 
     // Use a fresh litVal so letStmt2.value doesn't alias letStmt.value (would double-free on drop(stmts)).
-    let litVal2 IntLitNode: { text: "0", resolvedType: "Int64" }
-    let letStmt2 LetNode: { name: "y", typeName: "Pair<Int64, String>", value: litVal2, line: 0, col: 0 }
+    let litVal2 IntLitNode: { text: "0", resolvedType: "i64" }
+    let letStmt2 LetNode: { name: "y", typeName: "Pair<i64, String>", value: litVal2, line: 0, col: 0 }
     stmts.add(letStmt2)
 
     let reqs2 Array<InstantiationRequest>: mono.collectInstantiations(stmts, registry)

@@ -5,7 +5,7 @@ include "greeter.suru" as gmod
 // (@vtable.<sanitised-main>.Greeter.0 vs @vtable.<sanitised-greeter>.Greeter.0)
 // and the linker resolves both without collision. Without the fix both files
 // would mint `@vtable.Greeter.0` and clang would reject the duplicate.
-fn main() Int64 {
+fn main() i64 {
     let local Greeter: {
         name: "Local",
         fn greet(p String) String { return p.append("?").append(this.name) }
