@@ -4,8 +4,14 @@
 // AnalyzerState (functions, types, sum types, scopes, errors) after any
 // named pipeline pass.  Used by the `suru debug <pass> <file>` CLI command.
 
-include "../parser/parserPrint.suru" as pprint
-include "../semantic/semantic.suru"  as sem
+namespace Suru.Compiler.Debug.Print
+
+export {
+    printDebugOutput
+}
+
+import { pprint: Suru.Compiler.Parser.Print }
+import { Suru.Compiler.Semantic }
 
 // ─── Function registry ────────────────────────────────────────────────────────
 
@@ -147,7 +153,7 @@ fn printDebugOutput(stmts Array<AstNode>, state AnalyzerState, passName String) 
     pprint.printModule(mod, passName)
     printLn("")
     printLn("=== Symbol Table after ".append(passName).append(" ==="))
-    printFunctions(state.functions.sigs)
+    printFunctions(state.functions.signatures)
     printTypeDecls(state.typeDecls)
     printSumTypes(state.sumTypes)
     printScopes(state.scopes)

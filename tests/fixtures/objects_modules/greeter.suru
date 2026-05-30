@@ -1,3 +1,7 @@
+namespace Test.ObjectsModules.Greeter
+
+export { makeGreeter }
+
 type Greeter: { name String, fn greet(p String) String }
 
 // A literal of `Greeter` lives HERE — its vtable global is emitted in

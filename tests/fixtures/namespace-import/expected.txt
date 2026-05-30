@@ -1,0 +1,12 @@
+/work/tests/fixtures/namespace-import/main.suru:4:1: error: import: unknown namespace 'MyApp.Lib'
+  4 | import {
+      ^
+/work/tests/fixtures/namespace-import/main.suru:4:1: error: import: unknown namespace 'MyApp.Other'
+  4 | import {
+      ^
+/work/tests/fixtures/namespace-import/main.suru:4:1: error: import: unknown namespace 'MyApp.Lib'
+  4 | import {
+      ^
+/work/tests/fixtures/namespace-import/main.suru:4:1: error: import: unknown namespace 'MyApp.Lib'
+  4 | import {
+      ^

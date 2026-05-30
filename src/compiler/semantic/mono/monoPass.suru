@@ -14,10 +14,42 @@
 // typeParams list from a statement array — used on both the resolved stmts
 // and on ownStmts before analyzeModuleStatements to prevent spurious errors.
 
-include "monoCollect.suru"     as collect
-include "monoInfer.suru"       as infer
-include "monoInstantiate.suru" as inst
-include "../../parser/astNodes.suru" as nodes
+namespace Suru.Compiler.Semantic.Mono
+
+export {
+    MonoResult
+    extractFnNames
+    extractTypeNames
+    runMonoPass
+    isGenericStmt
+    filterGenericDefs
+    rewriteCallName
+    rewriteCallsInExprs
+    rewriteCallsInStmts
+    rewriteMatchArm
+    rewriteMatchArms
+    rewriteMatchStmtArm
+    rewriteMatchStmtArms
+    rewriteStructField
+    rewriteStructFields
+    rewriteBlock
+    rewriteCallsInExpr
+    rewriteCallsInStmt
+    rewriteCallSites
+    collectConcreteSumTypesAt
+    getVariantsForAt
+    resolveVariantNameAt
+    rewriteArmPat
+    rewriteStmtArmsAt
+    rewriteVariantArmsInStmt
+    rewriteVariantArmsInStmtsAt
+    rewriteVariantArms
+}
+
+import { collect: Suru.Compiler.Semantic.Mono.Collect }
+import { infer: Suru.Compiler.Semantic.Mono.Infer }
+import { inst: Suru.Compiler.Semantic.Mono.Instantiate }
+import { nodes: Suru.Compiler.Parser.Nodes }
 
 // ─── Result type ─────────────────────────────────────────────────────────────
 
@@ -27,32 +59,36 @@ type MonoResult: { newNodes Array<AstNode>, newFnNames Array<String>, newTypeNam
 
 // ─── Name extraction ─────────────────────────────────────────────────────────
 
-// extractFnNamesAt — collect the name of every FnDeclNode in nodes[i..].
-fn extractFnNamesAt(nodes Array<AstNode>, out Array<String>, i i64) {
-    if not i.lt(nodes.len()) { return }
-    let node AstNode: nodes.at(i)
-    match node {
-        FnDeclNode: {
-            let fd FnDeclNode: node
-            out.add(fd.name)
+// extractFnNames — collect the name of every FnDeclNode in nodes.
+fn extractFnNames(nodes Array<AstNode>, out Array<String>) {
+    let i i64: 0
+    while i.lt(nodes.len()) {
+        let node AstNode: nodes.at(i)
+        match node {
+            FnDeclNode: {
+                let fd FnDeclNode: node
+                out.add(fd.name)
+            }
+            _: {}
         }
-        _: {}
+        i: i.add(1)
     }
-    extractFnNamesAt(nodes, out, i.add(1))
 }
 
-// extractTypeNamesAt — collect the name of every TypeDeclNode in nodes[i..].
-fn extractTypeNamesAt(nodes Array<AstNode>, out Array<String>, i i64) {
-    if not i.lt(nodes.len()) { return }
-    let node AstNode: nodes.at(i)
-    match node {
-        TypeDeclNode: {
-            let td TypeDeclNode: node
-            out.add(td.name)
+// extractTypeNames — collect the name of every TypeDeclNode in nodes.
+fn extractTypeNames(nodes Array<AstNode>, out Array<String>) {
+    let i i64: 0
+    while i.lt(nodes.len()) {
+        let node AstNode: nodes.at(i)
+        match node {
+            TypeDeclNode: {
+                let td TypeDeclNode: node
+                out.add(td.name)
+            }
+            _: {}
         }
-        _: {}
+        i: i.add(1)
     }
-    extractTypeNamesAt(nodes, out, i.add(1))
 }
 
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
@@ -64,9 +100,9 @@ fn runMonoPass(stmts Array<AstNode>, registry GenericRegistry) MonoResult {
     let requests Array<InstantiationRequest>: infer.collectInstantiations(stmts, registry)
     let newNodes Array<AstNode>: inst.instantiateAll(registry, requests)
     let newFnNames Array<String>: []
-    extractFnNamesAt(newNodes, newFnNames, 0)
+    extractFnNames(newNodes, newFnNames)
     let newTypeNames Array<String>: []
-    extractTypeNamesAt(newNodes, newTypeNames, 0)
+    extractTypeNames(newNodes, newTypeNames)
     return { newNodes: newNodes, newFnNames: newFnNames, newTypeNames: newTypeNames }
 }
 
@@ -95,21 +131,18 @@ fn isGenericStmt(stmt AstNode) bool {
     }
 }
 
-// filterGenericDefsAt — append non-generic stmts[i..] to out.
-fn filterGenericDefsAt(stmts Array<AstNode>, out Array<AstNode>, i i64) {
-    if not i.lt(stmts.len()) { return }
-    let stmt AstNode: stmts.at(i)
-    if not isGenericStmt(stmt) { out.add(stmt) }
-    filterGenericDefsAt(stmts, out, i.add(1))
-}
-
 // filterGenericDefs — return a new array containing only the non-generic
 // statements from stmts.  Called on both the resolved stmts (to remove
 // template definitions before pass 2) and on ownStmts (to stop
 // analyzeModuleStatements from emitting false errors on typeParam bodies).
 fn filterGenericDefs(stmts Array<AstNode>) Array<AstNode> {
     let out Array<AstNode>: []
-    filterGenericDefsAt(stmts, out, 0)
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        if not isGenericStmt(stmt) { out.add(stmt) }
+        i: i.add(1)
+    }
     return out
 }
 
@@ -132,30 +165,26 @@ fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
     return inst.mangleGenericName(cn.name, concretes)
 }
 
-// rewriteCallsInExprsAt — append rewritten copies of exprs[i..] to out.
-fn rewriteCallsInExprsAt(exprs Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i i64) Array<AstNode> {
-    if not i.lt(exprs.len()) { return out }
-    out.add(rewriteCallsInExpr(exprs.at(i), registry))
-    return rewriteCallsInExprsAt(exprs, registry, out, i.add(1))
-}
-
 // rewriteCallsInExprs — return a new expression array with all generic call names mangled.
 fn rewriteCallsInExprs(exprs Array<AstNode>, registry GenericRegistry) Array<AstNode> {
     let out Array<AstNode>: []
-    return rewriteCallsInExprsAt(exprs, registry, out, 0)
-}
-
-// rewriteCallsInStmtsAt — append rewritten copies of stmts[i..] to out.
-fn rewriteCallsInStmtsAt(stmts Array<AstNode>, registry GenericRegistry, out Array<AstNode>, i i64) Array<AstNode> {
-    if not i.lt(stmts.len()) { return out }
-    out.add(rewriteCallsInStmt(stmts.at(i), registry))
-    return rewriteCallsInStmtsAt(stmts, registry, out, i.add(1))
+    let i i64: 0
+    while i.lt(exprs.len()) {
+        out.add(rewriteCallsInExpr(exprs.at(i), registry))
+        i: i.add(1)
+    }
+    return out
 }
 
 // rewriteCallsInStmts — return a new statement array with all generic call names mangled.
 fn rewriteCallsInStmts(stmts Array<AstNode>, registry GenericRegistry) Array<AstNode> {
     let out Array<AstNode>: []
-    return rewriteCallsInStmtsAt(stmts, registry, out, 0)
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        out.add(rewriteCallsInStmt(stmts.at(i), registry))
+        i: i.add(1)
+    }
+    return out
 }
 
 // rewriteMatchArm — rewrite generic calls in a match-expression arm's
@@ -166,17 +195,15 @@ fn rewriteMatchArm(arm MatchArm, registry GenericRegistry) MatchArm {
     return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
 }
 
-// rewriteMatchArmsAt — append rewritten copies of arms[i..] to out.
-fn rewriteMatchArmsAt(arms Array<MatchArm>, registry GenericRegistry, out Array<MatchArm>, i i64) Array<MatchArm> {
-    if not i.lt(arms.len()) { return out }
-    out.add(rewriteMatchArm(arms.at(i), registry))
-    return rewriteMatchArmsAt(arms, registry, out, i.add(1))
-}
-
 // rewriteMatchArms — return a new MatchArm array with all generic call names mangled.
 fn rewriteMatchArms(arms Array<MatchArm>, registry GenericRegistry) Array<MatchArm> {
     let out Array<MatchArm>: []
-    return rewriteMatchArmsAt(arms, registry, out, 0)
+    let i i64: 0
+    while i.lt(arms.len()) {
+        out.add(rewriteMatchArm(arms.at(i), registry))
+        i: i.add(1)
+    }
+    return out
 }
 
 // rewriteMatchStmtArm — rewrite generic calls in a match-statement arm's
@@ -187,17 +214,15 @@ fn rewriteMatchStmtArm(arm MatchStmtArm, registry GenericRegistry) MatchStmtArm 
     return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
 }
 
-// rewriteMatchStmtArmsAt — append rewritten copies of arms[i..] to out.
-fn rewriteMatchStmtArmsAt(arms Array<MatchStmtArm>, registry GenericRegistry, out Array<MatchStmtArm>, i i64) Array<MatchStmtArm> {
-    if not i.lt(arms.len()) { return out }
-    out.add(rewriteMatchStmtArm(arms.at(i), registry))
-    return rewriteMatchStmtArmsAt(arms, registry, out, i.add(1))
-}
-
 // rewriteMatchStmtArms — return a new MatchStmtArm array with all generic call names mangled.
 fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
-    return rewriteMatchStmtArmsAt(arms, registry, out, 0)
+    let i i64: 0
+    while i.lt(arms.len()) {
+        out.add(rewriteMatchStmtArm(arms.at(i), registry))
+        i: i.add(1)
+    }
+    return out
 }
 
 // rewriteStructField — rewrite generic calls in a StructFieldNode's value expression
@@ -208,17 +233,15 @@ fn rewriteStructField(sf StructFieldNode, registry GenericRegistry) StructFieldN
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newMbody }
 }
 
-// rewriteStructFieldsAt — append rewritten copies of fields[i..] to out.
-fn rewriteStructFieldsAt(fields Array<StructFieldNode>, registry GenericRegistry, out Array<StructFieldNode>, i i64) Array<StructFieldNode> {
-    if not i.lt(fields.len()) { return out }
-    out.add(rewriteStructField(fields.at(i), registry))
-    return rewriteStructFieldsAt(fields, registry, out, i.add(1))
-}
-
 // rewriteStructFields — return a new StructFieldNode array with all generic call names mangled.
 fn rewriteStructFields(fields Array<StructFieldNode>, registry GenericRegistry) Array<StructFieldNode> {
     let out Array<StructFieldNode>: []
-    return rewriteStructFieldsAt(fields, registry, out, 0)
+    let i i64: 0
+    while i.lt(fields.len()) {
+        out.add(rewriteStructField(fields.at(i), registry))
+        i: i.add(1)
+    }
+    return out
 }
 
 // rewriteBlock — rewrite generic calls in all statements of a BlockNode.
@@ -319,7 +342,7 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
         LetNode: {
             let ln LetNode: node
             let newVal AstNode: rewriteCallsInExpr(ln.value, registry)
-            let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col }
+            let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col, srcPath: ln.srcPath }
             return result
         }
         AssignNode: {

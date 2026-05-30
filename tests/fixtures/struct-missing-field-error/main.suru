@@ -1,3 +1,5 @@
+namespace Test.StructMissingFieldError
+
 // tests/fixtures/struct-missing-field-error/main.suru
 //
 // Validates that a struct literal missing a declared field is rejected

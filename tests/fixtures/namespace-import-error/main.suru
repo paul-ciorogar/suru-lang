@@ -1,0 +1,7 @@
+namespace Test.Main
+
+import {
+    [missing]: Test.Other
+}
+
+fn main() {}

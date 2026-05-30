@@ -1,3 +1,7 @@
+namespace Test.XmodError.Lib
+
+export { needInt }
+
 fn needInt(n i64) bool {
     return n.gt(0)
 }

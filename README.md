@@ -27,7 +27,7 @@ A minimalist, library-driven, general-purpose programming language — staticall
   - [Exit](#exit)
   - [printError](#printerror)
   - [Built-in functions](#built-in-functions)
-  - [Include directive](#include-directive)
+  - [Namespaces and imports](#namespaces-and-imports)
   - [Main function and CLI arguments](#main-function-and-cli-arguments)
 - [Getting started](#getting-started)
 - [CLI](#cli)
@@ -53,7 +53,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - Types: `bool`, `i32`, `i64`, `f64`, `char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
 - Control flow: `while` (with `break` and `continue`), `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
-- Cross-file includes: `include "path/file.suru" as ns`
+- Namespace + import system: every `.suru` file declares `namespace A.B.C`; cross-file dependencies use `import { ... }`
 - Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `move`, `exit`, `exec`
 - Type expectations flow inward: struct and array literals take their type
   from the surrounding context (the `let` annotation, the enclosing function's
@@ -502,16 +502,17 @@ fn describeOpt(x Option<i64>) {
 The stdlib provides `Option<T>` and `Result<T, E>` in `src/stdlib/`:
 
 ```suru
-include "../../src/stdlib/option.suru" as opt
-include "../../src/stdlib/result.suru" as res
+namespace My.App
+import { [some, none]: Suru.Stdlib.Option }
+import { [ok, err]:    Suru.Stdlib.Result }
 
 fn main(args Array<String>) {
-    let s Option<i64>: opt.some(42)
-    let ok Result<i64, String>: res.ok(99)
-    let err Result<i64, String>: res.err("oops")
+    let s Option<i64>: some(42)
+    let okVal Result<i64, String>: ok(99)
+    let errVal Result<i64, String>: err("oops")
     drop(s)
-    drop(ok)
-    drop(err)
+    drop(okVal)
+    drop(errVal)
 }
 ```
 
@@ -715,31 +716,51 @@ let code i64: exec("ls -la")
 exit(code)
 ```
 
-### Include directive
+### Namespaces and imports
 
-Split a program across multiple `.suru` files using `include`. Functions from the included file are accessible under a namespace alias:
+Every `.suru` file must declare a namespace as its first statement. This declaration is required — omitting it is a compile error:
 
 ```suru
-include "lib.suru" as lib
-
-fn main(args Array<String>) {
-    let result i64: lib.double(21)
-    printLn(result)   // 42
-}
+namespace My.App.Util
 ```
+
+Split a program across multiple `.suru` files by writing the full qualified name inline — no import statement required. The compiler auto-discovers source files by scanning the project for matching namespace declarations (configured via `.suruproject`):
 
 `lib.suru`:
 ```suru
+namespace My.Lib
+
+export {
+    double
+}
+
 fn double(n i64) i64 {
     return n.multiply(2)
 }
 ```
 
-- The path is relative to the file that contains the `include`.
-- All functions from the included file become available as `ns.fn(args)`.
-- Named types from the included file are available by name in the importing module — no need to re-declare them. Re-declaring an imported type is a compile error.
-- Scalar constants (`let NAME Type: literal`) from the included file are also available in the importing module.
-- Include chains are transitive: if `main.suru` includes `a.suru` which includes `b.suru`, all three are compiled to separate objects and linked together. Diamond includes are deduplicated.
+`main.suru`:
+```suru
+namespace My.App
+
+fn main(args Array<String>) {
+    let result i64: My.Lib.double(21)
+    printLn(result)   // 42
+}
+```
+
+`import` is a convenience that lets you use a shorter local name instead of the full qualified path. Four import forms are supported:
+
+```suru
+import { My.Lib }                              // FullNs — injects all exports: double() works directly
+import { lib: My.Lib }                         // AliasNs — qualify calls as lib.double()
+import { [double, triple]: My.Lib }            // SelectiveNames — call double() unqualified
+import { [dbl]: double }: My.Lib }             // SelectiveAliased — call as dbl()
+```
+
+Exported names are declared with `export { name1, name2 }`. Only exported names are visible to importers; unexported names are private to their module.
+
+A `.suruproject` file at the project root lists source root directories (one per line, relative paths, `#` comments allowed). The compiler scans those directories to build the namespace registry so imports resolve without explicit file paths.
 
 ### Main function and CLI arguments
 
@@ -804,7 +825,7 @@ Compile a `.suru` source file to LLVM IR files. This is the low-level interface 
 
 ```sh
 build/cli/main compile src/myprogram/main.suru /tmp/out/main.ll
-# writes main.ll and one .ll per included file into /tmp/out/
+# writes main.ll and one .ll per imported file into /tmp/out/
 clang-18 /tmp/out/*.ll /usr/local/lib/suru/runtime/*.ll -o myprogram
 ```
 
@@ -828,17 +849,17 @@ build/cli/main lex src/myprogram/main.suru
 # ...
 ```
 
-`include` directives are **not** expanded — only the tokens of the given file are printed.
+Only the tokens of the given file are printed; imported files are not expanded.
 
 ### parse
 
-Parse the source file (expanding all `include` directives transitively) and print the AST as an indented tree:
+Parse the source file (resolving all `import` dependencies transitively) and print the AST as an indented tree:
 
 ```sh
 build/cli/main parse src/myprogram/main.suru
 ```
 
-Useful for verifying that the parser sees the structure you expect and for inspecting how includes are resolved.
+Useful for verifying that the parser sees the structure you expect and for inspecting how imports are resolved.
 
 ### ir
 

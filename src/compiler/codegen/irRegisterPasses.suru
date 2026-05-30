@@ -8,10 +8,19 @@
 // Include DAG: depends on parserAst.suru, irCodegenTypes.suru,
 // irCodegenTypeHelpers.suru, and irBoxCodegen.suru. Imported by irCodegen.suru.
 
-include "../parser/parserAst.suru" as ast
-include "irCodegenTypes.suru" as types
-include "irCodegenTypeHelpers.suru" as tyh
-include "irBoxCodegen.suru" as box
+namespace Suru.Compiler.Codegen.RegisterPasses
+
+export {
+    registerTypes
+    registerFunctions
+    registerConstants
+    emitGlobalConstants
+}
+
+import { ast: Suru.Compiler.Parser.Ast }
+import { types: Suru.Compiler.Codegen.Types }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { box: Suru.Compiler.Codegen.Box }
 
 // Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
 fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
@@ -109,7 +118,14 @@ fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
                     _: {}
                 }
                 if not suruTy.equals("") {
-                    let gv GlobalVar: { suruName: s.name, globalName: "@".append(s.name), suruType: suruTy }
+                    // Use namespace-based mangling when the constant's source file
+                    // has a namespace declaration; fall back to the raw name otherwise.
+                    let srcNs String: types.lookupSrcNs(ctx, s.srcPath)
+                    let globalSym String: match srcNs.equals("") {
+                        true: "@".append(s.name)
+                        _:    "@".append(types.mangleNsSym(srcNs, s.name))
+                    }
+                    let gv GlobalVar: { suruName: s.name, globalName: globalSym, suruType: suruTy }
                     ctx.globalVars.add(gv)
                 }
             }

@@ -11,106 +11,166 @@
 // Utilities re-used by the CLI for lex/parse commands:
 //   dirName, baseName, normalizePath, fileNameStem
 
-include "lexer/lexer.suru"           as lex
-include "parser/parser.suru"         as parser
-include "parser/astNodes.suru"       as nodes
-include "codegen/irCodegen.suru"     as irCodegen
-include "semantic/semantic.suru"     as semantic
-include "semantic/passes.suru"       as passes
-include "semantic/stmts.suru"        as semstmts
-include "semantic/fns.suru"          as fns
-include "semantic/resolveTypes.suru" as semresolve
-include "semantic/mono/monoPass.suru" as monoPass
+namespace Suru.Compiler.Pipeline
 
-// ─── Path utilities ────────────────────────────────────────────────────────────
-
-// Return the directory prefix of an absolute path (everything up to and
-// including the last '/').  Used to resolve relative include paths.
-fn dirName(path String) String {
-    let i i64: path.len().take(1)
-    while i.gte(0) {
-        if path.at(i).equals("/") { return path.slice(0, i.add(1)) }
-        i: i.take(1)
-    }
-    return "./"
+export {
+    ResolveState
+    ResolveResult
+    PipelineResult
+    DebugResult
+    pathResolved
+    resolveIncludesRec
+    resolveIncludes
+    collectNonInclude
+    findProjectFile
+    readProjectSourceDirs
+    registryRootsFor
+    srcPathForLowering
+    loTypeMethods
+    loHasMethodMembers
+    loFindMethodMember
+    lookupSrcPathNs
+    nsToPrefix
+    sanitizePathLocal
+    vtablePrefix
+    lowerObjectsBody
+    lowerObjectsStmt
+    lowerObjectsExprList
+    lowerObjectsExpr
+    lowerObjectsStructLit
+    augPrivAddField
+    augPrivFromLitFields
+    augPrivInBody
+    augmentPrivateFields
+    lowerObjects
+    analyzeModuleStatement
+    analyzeModuleStatements
+    printErrorsFrom
+    collectFnNames
+    collectTypeNames
+    injectMonoConcretes
+    compileOneFile
+    runPipelineFull
+    runPipelineDebug
+    generateIRText
+    runBuildDriver
+    compilePipeline
 }
 
-// Return the filename component of a path (everything after the last '/').
-fn baseName(path String) String {
-    let i i64: path.len().take(1)
-    while i.gte(0) {
-        if path.at(i).equals("/") { return path.slice(i.add(1), path.len()) }
-        i: i.take(1)
+import { lex: Suru.Compiler.Lexer }
+import { parser: Suru.Compiler.Parser }
+import { nodes: Suru.Compiler.Parser.Nodes }
+import { irCodegen: Suru.Compiler.Codegen }
+import { semantic: Suru.Compiler.Semantic }
+import { passes: Suru.Compiler.Semantic.Passes }
+import { semstmts: Suru.Compiler.Semantic.Stmts }
+import { fns: Suru.Compiler.Semantic.Fns }
+import { semresolve: Suru.Compiler.Semantic.ResolveTypes }
+import { monoPass: Suru.Compiler.Semantic.Mono }
+import { nsPass: Suru.Compiler.Semantic.NamespacePass }
+import { exportPass: Suru.Compiler.Semantic.ExportPass }
+import { importPass: Suru.Compiler.Semantic.ImportPass }
+import { qualNamePass: Suru.Compiler.Semantic.QualNamePass }
+import { nsReg: Suru.Compiler.Semantic.NsRegistry }
+import { Suru.Compiler.PathUtils }
+
+
+// ─── Project file discovery ────────────────────────────────────────────────────
+
+// findProjectFile — walk upward from startDir looking for a `.suruproject`
+// file. Returns the absolute path to the first one found, or "" if none exists
+// within 20 directory levels.
+//
+// A `.suruproject` file at the repo root lets the compiler scan source
+// directories outside the entry-file's own directory (e.g. `src/compiler/`
+// when the entry file lives in `src/cli/`).
+fn findProjectFile(startDir String) String {
+    let tmpFile String: "/tmp/__suru_projfile.txt"
+    let d String: startDir
+    let maxLevels i64: 20
+    let level i64: 0
+    while level.lt(maxLevels) {
+        let dir String: d
+        if dir.len().gt(0) and not dir.at(dir.len().take(1)).equals("/") {
+            dir: dir.append("/")
+        }
+        if dir.len().equals(0) { return "" }
+        let candidate String: dir.append(".suruproject")
+        exec("test -f '".append(candidate).append("' && echo '").append(candidate).append("' > ").append(tmpFile).append(" || echo '' > ").append(tmpFile))
+        let content String: readFile(tmpFile)
+        let lines Array<String>: nsReg.splitLines(content)
+        if lines.len().gt(0) {
+            let first String: lines.at(0)
+            if not first.equals("") { return first }
+        }
+        // Strip trailing slash then take parent with dirName.
+        let noSlash String: dir.slice(0, dir.len().take(1))
+        if noSlash.len().equals(0) { return "" }
+        let parent String: dirName(noSlash)
+        if parent.equals(dir) { return "" }
+        d: parent
+        level: level.add(1)
     }
-    return path
+    return ""
 }
 
-// Normalize an absolute path by resolving all "/../" segments.
-// Splits on "/" into a segment stack: pushes normal segments, pops on "..".
-fn normalizePath(path String) String {
-    let parts Array<String>: []
+// readProjectSourceDirs — parse a `.suruproject` file and return a list of
+// source-root directories. Each non-empty, non-comment line is one entry;
+// relative paths are resolved against the directory that contains the project
+// file; absolute paths are used as-is.
+fn readProjectSourceDirs(projectFile String) Array<String> {
+    let projectDir String: dirName(projectFile)
+    let content String: readFile(projectFile)
+    let rawLines Array<String>: nsReg.splitLines(content)
+    let dirs Array<String>: []
     let i i64: 0
-    let segStart i64: 0
-    while i.lte(path.len()) {
-        let done bool: i.equals(path.len())
-        if done {
-            parts.add(path.slice(segStart, i))
-            i: i.add(1)
-        } else {
-            if path.at(i).equals("/") {
-                parts.add(path.slice(segStart, i))
-                segStart: i.add(1)
-                i: i.add(1)
-            } else { i: i.add(1) }
+    while i.lt(rawLines.len()) {
+        let line String: rawLines.at(i)
+        if line.len().gt(0) and not line.at(0).equals("#") {
+            if line.at(0).equals("/") {
+                dirs.add(line)
+            } else {
+                dirs.add(projectDir.append(line))
+            }
         }
+        i: i.add(1)
     }
-    let stack Array<String>: []
-    let stackLen i64: 0
-    let j i64: 0
-    while j.lt(parts.len()) {
-        let seg String: parts.at(j)
-        if seg.equals("..") {
-            if stackLen.gt(0) { stackLen: stackLen.take(1) }
-        } else {
-            if stackLen.lt(stack.len()) { stack.set(seg, stackLen) } else { stack.add(seg) }
-            stackLen: stackLen.add(1)
-        }
-        j: j.add(1)
-    }
-    let result String: ""
-    let k i64: 0
-    while k.lt(stackLen) {
-        if k.equals(0) { result: stack.at(k) } else { result: result.append("/").append(stack.at(k)) }
-        k: k.add(1)
-    }
-    return result
+    return dirs
 }
 
-// Strip the extension from a filename component (e.g. "lexer.suru" → "lexer").
-// Scans backwards for the last '.'; if none found, returns the name unchanged.
-fn fileNameStem(path String) String {
-    let name String: baseName(path)
-    let i i64: name.len().take(1)
-    while i.gte(0) {
-        if name.at(i).equals(".") { return name.slice(0, i) }
-        i: i.take(1)
+// registryRootsFor — compute the full list of directories to scan when building
+// the namespace registry for sourcePath. Always includes the entry file's own
+// directory; if a `.suruproject` file is found by walking upward, its listed
+// source roots are appended.
+fn registryRootsFor(sourcePath String) Array<String> {
+    let roots Array<String>: []
+    roots.add(dirName(sourcePath))
+    let projectFile String: findProjectFile(dirName(sourcePath))
+    if not projectFile.equals("") {
+        let extraDirs Array<String>: readProjectSourceDirs(projectFile)
+        let i i64: 0
+        while i.lt(extraDirs.len()) {
+            roots.add(extraDirs.at(i))
+            i: i.add(1)
+        }
     }
-    return name
+    return roots
 }
 
 // ─── Include resolution ────────────────────────────────────────────────────────
 
 // Carries accumulated declarations and the set of already-resolved absolute
 // paths so transitive and diamond includes are handled without re-processing.
-type ResolveState: { decls Array<AstNode>, resolved Array<String> }
-
-// IncludeAlias (one `include "path" as ns` mapping) is defined in parserAst.suru
-// so both this file and irCodegen.suru (an includee here) can name the type.
+// nsExports accumulates namespace→exported-names pairs from resolved files;
+// populated by resolveIncludesRec so the import desugaring pass can validate
+// selective imports without re-parsing resolved sources.
+// srcNsEntries maps each resolved file's absolute path to its namespace declaration,
+// so codegen can namespace-mangle symbols without re-parsing.
+type ResolveState: { decls Array<AstNode>, resolved Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry> }
 
 // Return value of resolveIncludes: merged statement list + ordered deduplicated
-// list of included absolute source paths (in depth-first resolution order) +
-// the root file's direct include-alias map.
-type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String>, aliases Array<IncludeAlias> }
+// list of resolved absolute source paths (in depth-first resolution order).
+type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry> }
 
 // Linear scan: true if path already appears in the resolved list.
 fn pathResolved(resolved Array<String>, path String) bool {
@@ -122,12 +182,51 @@ fn pathResolved(resolved Array<String>, path String) bool {
     return false
 }
 
-// Depth-first recursive resolver.  For each IncludeNode in stmts:
-//   - skip if the absolute path is already in state.resolved (diamond dedup)
-//   - otherwise mark as resolved, recurse into that file's own includes first,
+// Depth-first recursive resolver.  For each ImportNode entry in stmts:
+//   - look up the namespace in the registry to find the file path
+//   - skip if already in state.resolved (diamond dedup)
+//   - otherwise mark as resolved, recurse into that file's own imports first,
 //     then add its FnDeclNode / TypeDeclNode / SumTypeDeclNode / scalar LetNode
 //     to state.decls.
-fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state ResolveState) ResolveState {
+fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state ResolveState, reg NamespaceRegistry) ResolveState {
+    // Pre-scan: extract this file's namespace and exported names so the import
+    // desugaring pass can validate selective imports against this file's exports.
+    let fileNs String: ""
+    let pi i64: 0
+    while pi.lt(stmts.len()) {
+        match stmts.at(pi) {
+            NamespaceDeclNode: {
+                let ns NamespaceDeclNode: stmts.at(pi)
+                fileNs: ns.name
+            }
+            _: {}
+        }
+        pi: pi.add(1)
+    }
+    if not fileNs.equals("") {
+        let exported Array<String>: []
+        let ei i64: 0
+        while ei.lt(stmts.len()) {
+            match stmts.at(ei) {
+                ExportNode: {
+                    let en ExportNode: stmts.at(ei)
+                    let enEntries Array<ExportEntry>: en.entries
+                    let ej i64: 0
+                    while ej.lt(enEntries.len()) {
+                        exported.add(enEntries.at(ej).exportedAs)
+                        ej: ej.add(1)
+                    }
+                }
+                _: {}
+            }
+            ei: ei.add(1)
+        }
+        let nse NsExportEntry: { ns: fileNs, exported: exported }
+        state.nsExports.add(nse)
+        // Also record the srcPath→namespace mapping so codegen can namespace-mangle symbols.
+        let nsentry SrcNsEntry: { srcPath: filePath, ns: fileNs }
+        state.srcNsEntries.add(nsentry)
+    }
     // Pass 1: add this file's own declarations first (pre-order DFS).
     let i i64: 0
     while i.lt(stmts.len()) {
@@ -141,10 +240,21 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state R
             TypeDeclNode:    { state.decls.add(s) }
             SumTypeDeclNode: { state.decls.add(s) }
             LetNode: {
-                match s.value {
-                    IntLitNode:   { state.decls.add(s) }
-                    BoolLitNode:  { state.decls.add(s) }
-                    FloatLitNode: { state.decls.add(s) }
+                // Stamp srcPath so codegen can namespace-mangle global constant names.
+                let ld LetNode: s
+                match ld.value {
+                    IntLitNode: {
+                        ld.srcPath: filePath
+                        state.decls.add(ld)
+                    }
+                    BoolLitNode: {
+                        ld.srcPath: filePath
+                        state.decls.add(ld)
+                    }
+                    FloatLitNode: {
+                        ld.srcPath: filePath
+                        state.decls.add(ld)
+                    }
                     _: {}
                 }
             }
@@ -152,69 +262,140 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state R
         }
         i: i.add(1)
     }
-    // Pass 2: recurse into sub-includes.
-    let j i64: 0
-    while j.lt(stmts.len()) {
-        let s AstNode: stmts.at(j)
-        match s {
-            IncludeNode: {
-                let fullPath String: normalizePath(dir.append(s.path))
-                if not pathResolved(state.resolved, fullPath) {
-                    state.resolved.add(fullPath)
-                    let src String: readFile(fullPath)
-                    let toks Array<Token>: lex.tokenize(src, fullPath)
-                    let mod AstModule: parser.parse(toks, fullPath)
-                    state: resolveIncludesRec(mod.stmts, dirName(fullPath), fullPath, state)
+    // Pass 2: auto-discover files referenced by ImportNode entries.
+    // For each import entry, look up the namespace in the registry; if a file
+    // is found and has not already been merged, load it exactly like an include.
+    let impi i64: 0
+    while impi.lt(stmts.len()) {
+        match stmts.at(impi) {
+            ImportNode: {
+                let imp ImportNode: stmts.at(impi)
+                let ei i64: 0
+                while ei.lt(imp.entries.len()) {
+                    let entry ImportEntry: imp.entries.at(ei)
+                    let nsPath String: nsReg.nsRegistryLookup(reg, entry.ns)
+                    if not nsPath.equals("") {
+                        if not pathResolved(state.resolved, nsPath) {
+                            state.resolved.add(nsPath)
+                            let nsSrc String: readFile(nsPath)
+                            let nsToks Array<Token>: lex.tokenize(nsSrc, nsPath)
+                            let nsMod AstModule: parser.parse(nsToks, nsPath)
+                            state: resolveIncludesRec(nsMod.stmts, dirName(nsPath), nsPath, state, reg)
+                        }
+                    }
+                    ei: ei.add(1)
                 }
             }
             _: {}
         }
-        j: j.add(1)
+        impi: impi.add(1)
+    }
+    // Pass 3: discover files referenced by unimported fully-qualified name calls
+    // (e.g. My.Lib.fn() with no import statement).  collectQualNsPrefixes extracts
+    // candidate namespace strings from the AST; any that match a registry entry are
+    // loaded exactly like an ImportNode-driven dependency.
+    let qualPrefixes Array<String>: qualNamePass.collectQualNsPrefixes(stmts)
+    let qi i64: 0
+    while qi.lt(qualPrefixes.len()) {
+        let qns String: qualPrefixes.at(qi)
+        let qnsPath String: nsReg.nsRegistryLookup(reg, qns)
+        if not qnsPath.equals("") {
+            if not pathResolved(state.resolved, qnsPath) {
+                state.resolved.add(qnsPath)
+                let qnsSrc String: readFile(qnsPath)
+                let qnsToks Array<Token>: lex.tokenize(qnsSrc, qnsPath)
+                let qnsMod AstModule: parser.parse(qnsToks, qnsPath)
+                state: resolveIncludesRec(qnsMod.stmts, dirName(qnsPath), qnsPath, state, reg)
+            }
+        }
+        qi: qi.add(1)
     }
     return state
 }
 
-// Resolve all transitive includes from mainStmts.  Returns the merged statement
-// list (main file's own nodes FIRST, then transitive declarations) and the
-// ordered deduplicated list of included absolute source paths.
-fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String) ResolveResult {
-    let state ResolveState: { decls: [], resolved: [] }
-    let aliases Array<IncludeAlias>: []
-    let i i64: 0
-    while i.lt(mainStmts.len()) {
-        let s AstNode: mainStmts.at(i)
-        match s {
-            IncludeNode: {
-                let fullPath String: normalizePath(dir.append(s.path))
-                // Record the alias for the root file regardless of diamond
-                // dedup: codegen needs `ns` → path even when the file's decls
-                // were already merged via another include path.
-                aliases.add({ ns: s.ns, srcPath: fullPath })
-                if not pathResolved(state.resolved, fullPath) {
-                    state.resolved.add(fullPath)
-                    let src String: readFile(fullPath)
-                    let toks Array<Token>: lex.tokenize(src, fullPath)
-                    let mod AstModule: parser.parse(toks, fullPath)
-                    state: resolveIncludesRec(mod.stmts, dirName(fullPath), fullPath, state)
+// Resolve all transitive dependencies from mainStmts via the namespace registry.
+// Returns the merged statement list (main file's own nodes FIRST, then transitive
+// declarations) and the ordered deduplicated list of resolved absolute source paths.
+fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String, reg NamespaceRegistry) ResolveResult {
+    let initSrcNsEntries Array<SrcNsEntry>: []
+    let state ResolveState: { decls: [], resolved: [], nsExports: [], srcNsEntries: initSrcNsEntries }
+    // Auto-discover files for the root file's ImportNode entries.
+    // For each import entry namespace, look up the registry and load the file
+    // if it hasn't already been merged.
+    let ri i64: 0
+    while ri.lt(mainStmts.len()) {
+        match mainStmts.at(ri) {
+            ImportNode: {
+                let imp ImportNode: mainStmts.at(ri)
+                let ei i64: 0
+                while ei.lt(imp.entries.len()) {
+                    let entry ImportEntry: imp.entries.at(ei)
+                    let nsPath String: nsReg.nsRegistryLookup(reg, entry.ns)
+                    if not nsPath.equals("") {
+                        if not pathResolved(state.resolved, nsPath) {
+                            state.resolved.add(nsPath)
+                            let nsSrc String: readFile(nsPath)
+                            let nsToks Array<Token>: lex.tokenize(nsSrc, nsPath)
+                            let nsMod AstModule: parser.parse(nsToks, nsPath)
+                            state: resolveIncludesRec(nsMod.stmts, dirName(nsPath), nsPath, state, reg)
+                        }
+                    }
+                    ei: ei.add(1)
                 }
             }
             _: {}
         }
-        i: i.add(1)
+        ri: ri.add(1)
+    }
+    // Extract the root file's namespace declaration (if any) and register it in
+    // srcNsEntries so codegen can namespace-mangle the root file's own symbols.
+    let rootNs String: ""
+    let ni i64: 0
+    while ni.lt(mainStmts.len()) {
+        match mainStmts.at(ni) {
+            NamespaceDeclNode: {
+                let nd NamespaceDeclNode: mainStmts.at(ni)
+                rootNs: nd.name
+            }
+            _: {}
+        }
+        ni: ni.add(1)
+    }
+    if not rootNs.equals("") {
+        let rootNsEntry SrcNsEntry: { srcPath: rootPath, ns: rootNs }
+        state.srcNsEntries.add(rootNsEntry)
     }
     // Main file's own nodes FIRST, then transitive declarations.
     // Stamp the root file's own functions with rootPath so their symbols are
     // mangled consistently with the declares emitted in files that include it.
+    // Also stamp scalar LetNodes so registerConstants can namespace-mangle them.
     let all Array<AstNode>: []
     let j i64: 0
     while j.lt(mainStmts.len()) {
         let s AstNode: mainStmts.at(j)
         match s {
-            IncludeNode: {}
             FnDeclNode: {
                 let fd FnDeclNode: s
                 fd.srcPath: rootPath
                 all.add(fd)
+            }
+            LetNode: {
+                let ld LetNode: s
+                match ld.value {
+                    IntLitNode: {
+                        ld.srcPath: rootPath
+                        all.add(ld)
+                    }
+                    BoolLitNode: {
+                        ld.srcPath: rootPath
+                        all.add(ld)
+                    }
+                    FloatLitNode: {
+                        ld.srcPath: rootPath
+                        all.add(ld)
+                    }
+                    _: { all.add(s) }
+                }
             }
             _: { all.add(s) }
         }
@@ -225,22 +406,20 @@ fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String) Resolv
         all.add(state.decls.at(k))
         k: k.add(1)
     }
-    return { stmts: all, includedPaths: state.resolved, aliases: aliases }
+    return { stmts: all, includedPaths: state.resolved, nsExports: state.nsExports, srcNsEntries: state.srcNsEntries }
 }
 
 // ─── Semantic analysis helpers ─────────────────────────────────────────────────
 
-// Returns only the non-IncludeNode statements from stmts.
-// Used to separate the main file's own declarations from resolved-include
-// declarations so statement analysis does not re-analyze library code.
+// Returns a copy of stmts containing the main file's own statements only
+// (transitive dependency declarations are appended by resolveIncludes after
+// the root file's own nodes, so callers can pass mod.stmts directly to get
+// just the root file's own declarations).
 fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
     let result Array<AstNode>: []
     let i i64: 0
     while i.lt(stmts.len()) {
-        match stmts.at(i) {
-            IncludeNode: {}
-            _: { result.add(stmts.at(i)) }
-        }
+        result.add(stmts.at(i))
         i: i.add(1)
     }
     return result
@@ -260,7 +439,7 @@ fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
 // Synthetic FnDeclNodes are appended to the module statement list so the normal
 // codegen function loop emits them.
 
-fn loSrcPathOr(fnSrc String, root String) String {
+fn srcPathForLowering(fnSrc String, root String) String {
     if fnSrc.equals("") { return root }
     return fnSrc
 }
@@ -304,128 +483,181 @@ fn loFindMethodMember(fields Array<StructFieldNode>, name String) StructFieldNod
     return none
 }
 
-fn lowerObjectsBody(state AnalyzerState, stmts Array<AstNode>, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String) {
+// lookupSrcPathNs — return the namespace string for srcPath from nsEntries, or "" if not found.
+// Used by lowerObjectsStructLit to mangle vtable entry names consistently with function definitions.
+fn lookupSrcPathNs(nsEntries Array<SrcNsEntry>, srcPath String) String {
+    let i i64: 0
+    while i.lt(nsEntries.len()) {
+        if nsEntries.at(i).srcPath.equals(srcPath) { return nsEntries.at(i).ns }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// nsToPrefix — converts a namespace string to a flat symbol prefix by replacing
+// dots with double-underscores (e.g. "Suru.Cli" → "Suru__Cli").
+// Used for vtable global symbol names.
+fn nsToPrefix(ns String) String {
+    let out String: ""
+    let i i64: 0
+    while i.lt(ns.len()) {
+        let ch String: ns.at(i)
+        if ch.equals(".") { out: out.append("__") } else { out: out.append(ch) }
+        i: i.add(1)
+    }
+    return out
+}
+
+// sanitizePathLocal — replaces every non-[A-Za-z0-9_] character in a path with
+// '_' so it can be used as an LLVM symbol prefix. Fallback for files that have
+// no namespace declaration (e.g. test fixtures that predate Task 13).
+fn sanitizePathLocal(p String) String {
+    let out String: ""
+    let i i64: 0
+    while i.lt(p.len()) {
+        let ch String: p.at(i)
+        let c i64: ch.ord()
+        let isDig bool: c.gte(48) and c.lt(58)
+        let isLow bool: c.gte(97) and c.lt(123)
+        let isUp  bool: c.gte(65) and c.lt(91)
+        let isUnd bool: ch.equals("_")
+        let keep bool: isDig or isLow or isUp or isUnd
+        if keep { out: out.append(ch) } else { out: out.append("_") }
+        i: i.add(1)
+    }
+    return out
+}
+
+// vtablePrefix — returns a unique per-file symbol prefix for vtable globals:
+// namespace-based when the source file has a namespace declaration, path-based
+// otherwise (for files that predate the namespace transition).
+fn vtablePrefix(ns String, srcPath String) String {
+    if not ns.equals("") { return nsToPrefix(ns) }
+    return sanitizePathLocal(srcPath)
+}
+
+fn lowerObjectsBody(state AnalyzerState, stmts Array<AstNode>, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     let i i64: 0
     while i.lt(stmts.len()) {
-        lowerObjectsStmt(state, stmts.at(i), newDecls, ctr, srcPath, root)
+        lowerObjectsStmt(state, stmts.at(i), newDecls, ctr, srcPath, root, nsEntries)
         i: i.add(1)
     }
 }
 
-fn lowerObjectsStmt(state AnalyzerState, stmt AstNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String) {
+fn lowerObjectsStmt(state AnalyzerState, stmt AstNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     match stmt {
         FnDeclNode: {
             let f FnDeclNode: stmt
-            let sp String: loSrcPathOr(f.srcPath, root)
-            lowerObjectsBody(state, f.body, newDecls, ctr, sp, root)
+            let sp String: srcPathForLowering(f.srcPath, root)
+            lowerObjectsBody(state, f.body, newDecls, ctr, sp, root, nsEntries)
         }
         LetNode: {
             let l LetNode: stmt
-            lowerObjectsExpr(state, l.value, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, l.value, newDecls, ctr, srcPath, root, nsEntries)
         }
         AssignNode: {
             let a AssignNode: stmt
-            lowerObjectsExpr(state, a.value, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, a.value, newDecls, ctr, srcPath, root, nsEntries)
         }
         FieldAssignNode: {
             let fa FieldAssignNode: stmt
-            lowerObjectsExpr(state, fa.receiver, newDecls, ctr, srcPath, root)
-            lowerObjectsExpr(state, fa.value, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, fa.receiver, newDecls, ctr, srcPath, root, nsEntries)
+            lowerObjectsExpr(state, fa.value, newDecls, ctr, srcPath, root, nsEntries)
         }
         ReturnNode: {
             let r ReturnNode: stmt
-            if r.hasValue { lowerObjectsExpr(state, r.value, newDecls, ctr, srcPath, root) }
+            if r.hasValue { lowerObjectsExpr(state, r.value, newDecls, ctr, srcPath, root, nsEntries) }
         }
         WhileNode: {
             let w WhileNode: stmt
-            lowerObjectsExpr(state, w.condition, newDecls, ctr, srcPath, root)
-            lowerObjectsBody(state, w.body, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, w.condition, newDecls, ctr, srcPath, root, nsEntries)
+            lowerObjectsBody(state, w.body, newDecls, ctr, srcPath, root, nsEntries)
         }
         IfNode: {
             let n IfNode: stmt
-            lowerObjectsExpr(state, n.condition, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, n.condition, newDecls, ctr, srcPath, root, nsEntries)
             let tb BlockNode: n.thenBranch
-            lowerObjectsBody(state, tb.stmts, newDecls, ctr, srcPath, root)
+            lowerObjectsBody(state, tb.stmts, newDecls, ctr, srcPath, root, nsEntries)
             let eb BlockNode: n.elseBranch
-            lowerObjectsBody(state, eb.stmts, newDecls, ctr, srcPath, root)
+            lowerObjectsBody(state, eb.stmts, newDecls, ctr, srcPath, root, nsEntries)
         }
         MatchStmtNode: {
             let ms MatchStmtNode: stmt
-            lowerObjectsExpr(state, ms.condition, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, ms.condition, newDecls, ctr, srcPath, root, nsEntries)
             let arms Array<MatchStmtArm>: ms.arms
             let ai i64: 0
             while ai.lt(arms.len()) {
-                lowerObjectsBody(state, arms.at(ai).stmts, newDecls, ctr, srcPath, root)
+                lowerObjectsBody(state, arms.at(ai).stmts, newDecls, ctr, srcPath, root, nsEntries)
                 ai: ai.add(1)
             }
         }
         BlockNode: {
             let b BlockNode: stmt
-            lowerObjectsBody(state, b.stmts, newDecls, ctr, srcPath, root)
+            lowerObjectsBody(state, b.stmts, newDecls, ctr, srcPath, root, nsEntries)
         }
         ExprStmtNode: {
             let e ExprStmtNode: stmt
-            lowerObjectsExpr(state, e.expr, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, e.expr, newDecls, ctr, srcPath, root, nsEntries)
         }
         _: {}
     }
 }
 
-fn lowerObjectsExprList(state AnalyzerState, xs Array<AstNode>, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String) {
+fn lowerObjectsExprList(state AnalyzerState, xs Array<AstNode>, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     let i i64: 0
     while i.lt(xs.len()) {
-        lowerObjectsExpr(state, xs.at(i), newDecls, ctr, srcPath, root)
+        lowerObjectsExpr(state, xs.at(i), newDecls, ctr, srcPath, root, nsEntries)
         i: i.add(1)
     }
 }
 
-fn lowerObjectsExpr(state AnalyzerState, expr AstNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String) {
+fn lowerObjectsExpr(state AnalyzerState, expr AstNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     match expr {
         StructLitNode: {
             let lit StructLitNode: expr
-            lowerObjectsStructLit(state, lit, newDecls, ctr, srcPath, root)
+            lowerObjectsStructLit(state, lit, newDecls, ctr, srcPath, root, nsEntries)
         }
         ArrayLitNode: {
             let a ArrayLitNode: expr
-            lowerObjectsExprList(state, a.elems, newDecls, ctr, srcPath, root)
+            lowerObjectsExprList(state, a.elems, newDecls, ctr, srcPath, root, nsEntries)
         }
         CallNode: {
             let c CallNode: expr
-            lowerObjectsExprList(state, c.args, newDecls, ctr, srcPath, root)
+            lowerObjectsExprList(state, c.args, newDecls, ctr, srcPath, root, nsEntries)
         }
         MethodCallNode: {
             let mc MethodCallNode: expr
-            lowerObjectsExpr(state, mc.receiver, newDecls, ctr, srcPath, root)
-            lowerObjectsExprList(state, mc.args, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, mc.receiver, newDecls, ctr, srcPath, root, nsEntries)
+            lowerObjectsExprList(state, mc.args, newDecls, ctr, srcPath, root, nsEntries)
         }
         FieldAccessNode: {
             let fa FieldAccessNode: expr
-            lowerObjectsExpr(state, fa.receiver, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, fa.receiver, newDecls, ctr, srcPath, root, nsEntries)
         }
         MatchExprNode: {
             let me MatchExprNode: expr
-            lowerObjectsExpr(state, me.condition, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, me.condition, newDecls, ctr, srcPath, root, nsEntries)
             let arms Array<MatchArm>: me.arms
             let ai i64: 0
             while ai.lt(arms.len()) {
-                lowerObjectsExpr(state, arms.at(ai).body, newDecls, ctr, srcPath, root)
+                lowerObjectsExpr(state, arms.at(ai).body, newDecls, ctr, srcPath, root, nsEntries)
                 ai: ai.add(1)
             }
         }
         UnaryNode: {
             let u UnaryNode: expr
-            lowerObjectsExpr(state, u.operand, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, u.operand, newDecls, ctr, srcPath, root, nsEntries)
         }
         BinaryNode: {
             let b BinaryNode: expr
-            lowerObjectsExpr(state, b.left, newDecls, ctr, srcPath, root)
-            lowerObjectsExpr(state, b.right, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, b.left, newDecls, ctr, srcPath, root, nsEntries)
+            lowerObjectsExpr(state, b.right, newDecls, ctr, srcPath, root, nsEntries)
         }
         _: {}
     }
 }
 
-fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String) {
+fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     let typeName String: lit.resolvedType
     let fields Array<StructFieldNode>: lit.fields
     let methods Array<SemMethodEntry>: loTypeMethods(state, typeName)
@@ -438,7 +670,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
         // Plain data struct — just recurse field values for nested objects.
         let d i64: 0
         while d.lt(fields.len()) {
-            lowerObjectsExpr(state, fields.at(d).value, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, fields.at(d).value, newDecls, ctr, srcPath, root, nsEntries)
             d: d.add(1)
         }
         return
@@ -468,10 +700,17 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
             }
             let body Array<AstNode>: member.methodBody
             // Lift nested object literals inside the method body too.
-            lowerObjectsBody(state, body, newDecls, ctr, srcPath, root)
+            lowerObjectsBody(state, body, newDecls, ctr, srcPath, root, nsEntries)
             let fnDecl FnDeclNode: { name: synth, params: params, returnType: member.methodRet, body: body, srcPath: srcPath, typeParams: [], line: 0, col: 0 }
             newDecls.add(fnDecl)
-            entrySyms.add(irCodegen.mangleSym(srcPath, synth))
+            // Use namespace-based mangling when the source file has a namespace, so
+            // vtable entry names match the function definitions emitted by fnMangleSym.
+            let entryNs String: lookupSrcPathNs(nsEntries, srcPath)
+            let entrySym String: match entryNs.equals("") {
+                true: synth
+                _:    mangleNsSym(entryNs, synth)
+            }
+            entrySyms.add(entrySym)
             j: j.add(1)
         }
     }
@@ -481,7 +720,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
     // mint colliding `@vtable.<Type>.<n>` definitions. Each .ll only emits its
     // own vtable globals (codegen of an included file's literal is skipped in
     // the root compilation), so this naming guarantees link-time uniqueness.
-    let vtsym String: "@vtable.".append(irCodegen.sanitizePath(srcPath)).append(".").append(typeName).append(".").append(siteStr)
+    let vtsym String: "@vtable.".append(vtablePrefix(entryNs, srcPath)).append(".").append(typeName).append(".").append(siteStr)
     let newFields Array<StructFieldNode>: []
     let vr VtableRefNode: { sym: vtsym, entries: entrySyms, resolvedType: typeName }
     let noP Array<Param>: []
@@ -492,7 +731,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
         let f StructFieldNode: fields.at(d)
         if not f.isMethod {
             newFields.add(f)
-            lowerObjectsExpr(state, f.value, newDecls, ctr, srcPath, root)
+            lowerObjectsExpr(state, f.value, newDecls, ctr, srcPath, root, nsEntries)
         }
         d: d.add(1)
     }
@@ -597,7 +836,7 @@ fn augmentPrivateFields(stmts Array<AstNode>) {
 
 // lowerObjects — module driver. Walks `stmts`, lifts object methods, and
 // appends every synthesised FnDeclNode to `stmts`.
-fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String) {
+fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String, nsEntries Array<SrcNsEntry>) {
     // Pre-pass: inject private data fields from object literals into TypeDeclNodes
     // so the codegen's registerTypes creates the correct struct layout (size + GEP offsets).
     augmentPrivateFields(stmts)
@@ -606,7 +845,7 @@ fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String) {
     let n i64: stmts.len()
     let i i64: 0
     while i.lt(n) {
-        lowerObjectsStmt(state, stmts.at(i), newDecls, ctr, root, root)
+        lowerObjectsStmt(state, stmts.at(i), newDecls, ctr, root, root, nsEntries)
         i: i.add(1)
     }
     let a i64: 0
@@ -706,16 +945,19 @@ fn collectTypeNames(stmts Array<AstNode>) Array<String> {
 // expression node carries its `resolvedType` for codegen to read. Without
 // this, struct/array literals in included files would emit with an empty
 // type name and crash the compiler.
-fn compileOneFile(sourcePath String, outDir String) {
+fn compileOneFile(sourcePath String, outDir String, reg NamespaceRegistry) {
     let src String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(src, sourcePath)
     let mod AstModule: parser.parse(tokens, sourcePath)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
+    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
+    // Back-fill the registry with namespaces found via include directives so
+    // that qualified-name codegen can mangle their symbols correctly.
+    reg: nsReg.augmentRegistry(reg, resolved.srcNsEntries)
     let state AnalyzerState: semantic.makeAnalyzerState()
     state.currentSrcPath: sourcePath
     passes.runPrePasses(state, resolved.stmts)
     semresolve.resolveModuleTypes(state, resolved.stmts)
-    lowerObjects(state, resolved.stmts, sourcePath)
+    lowerObjects(state, resolved.stmts, sourcePath, resolved.srcNsEntries)
     // Filter generic templates (typeParams non-empty) from both the codegen
     // stmts and the own-name lists.  emitFunction decides to emit a full
     // definition based on fnDecl.srcPath == rootPath, so passing concreteStmts
@@ -723,23 +965,51 @@ fn compileOneFile(sourcePath String, outDir String) {
     // included file's IR.  Concrete instantiations are produced by the root
     // file's mono pass and emitted in the root file's IR only.
     let concreteStmts Array<AstNode>: monoPass.filterGenericDefs(resolved.stmts)
+    let rewrittenStmts Array<AstNode>: qualNamePass.rewriteQualifiedCalls(concreteStmts, resolved.nsExports)
     let concreteOwnStmts Array<AstNode>: monoPass.filterGenericDefs(mod.stmts)
     let ownFnNames Array<String>: collectFnNames(concreteOwnStmts)
     let ownTypeNames Array<String>: collectTypeNames(concreteOwnStmts)
     let noMonoFns Array<String>: []
-    let irText String: irCodegen.generate(concreteStmts, baseName(sourcePath), ownFnNames, ownTypeNames, noMonoFns, resolved.aliases, sourcePath)
+    let irText String: irCodegen.generate(rewrittenStmts, baseName(sourcePath), ownFnNames, ownTypeNames, noMonoFns, sourcePath, resolved.srcNsEntries)
     writeFile(outDir.append(fileNameStem(sourcePath)).append(".ll"), irText)
 }
 
 // ─── Public pipeline entry points ──────────────────────────────────────────────
 
-// Carries the IR text for the main file and the list of resolved include paths.
-type PipelineResult: { irText String, includedPaths Array<String> }
+// Carries the IR text for the main file, the list of resolved include paths,
+// and the NamespaceRegistry built during the run (reused by runBuildDriver when
+// compiling each included file, so the registry is only built once).
+type PipelineResult: { irText String, includedPaths Array<String>, builtReg NamespaceRegistry }
 
 // Carries intermediate pipeline state for per-pass debugging.
 // stmts is the statement list as it exists at the named stop point;
 // state is the AnalyzerState populated up to that point.
 type DebugResult: { stmts Array<AstNode>, state AnalyzerState }
+
+// injectMonoConcretes — common monomorphization fan-in.  Appends the new
+// concrete nodes produced by monoPass.runMonoPass into stmts, strips the
+// original generic templates via filterGenericDefs, and grows ownFnNames /
+// ownTypeNames with the freshly-instantiated names so codegen will emit them
+// as part of this file's IR.  Returns the filtered statement array.
+fn injectMonoConcretes(stmts Array<AstNode>, ownFnNames Array<String>, ownTypeNames Array<String>, monoResult MonoResult) Array<AstNode> {
+    let ni i64: 0
+    while ni.lt(monoResult.newNodes.len()) {
+        stmts.add(monoResult.newNodes.at(ni))
+        ni: ni.add(1)
+    }
+    let filtered Array<AstNode>: monoPass.filterGenericDefs(stmts)
+    let fi i64: 0
+    while fi.lt(monoResult.newFnNames.len()) {
+        ownFnNames.add(monoResult.newFnNames.at(fi))
+        fi: fi.add(1)
+    }
+    let ti i64: 0
+    while ti.lt(monoResult.newTypeNames.len()) {
+        ownTypeNames.add(monoResult.newTypeNames.at(ti))
+        ti: ti.add(1)
+    }
+    return filtered
+}
 
 // runPipelineFull — lex→parse→semantic→codegen for sourcePath.
 // Exits with code 1 if semantic analysis produces errors.
@@ -749,7 +1019,11 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     let mod AstModule: parser.parse(tokens, sourcePath)
     let ownFnNames Array<String>: collectFnNames(mod.stmts)
     let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
+    let reg NamespaceRegistry: nsReg.buildNamespaceRegistryMulti(registryRootsFor(sourcePath))
+    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
+    // Back-fill the registry with namespaces found via include directives so
+    // that qualified-name lookups work for files outside the initial scan dir.
+    reg: nsReg.augmentRegistry(reg, resolved.srcNsEntries)
     let stmts Array<AstNode>: resolved.stmts
     let state AnalyzerState: semantic.makeAnalyzerState()
     state.currentSrcPath: sourcePath
@@ -765,22 +1039,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     // the concrete nodes as part of this file's IR.
     let registry GenericRegistry: collect.collectGenericDefs(stmts)
     let monoResult MonoResult: monoPass.runMonoPass(stmts, registry)
-    let ni i64: 0
-    while ni.lt(monoResult.newNodes.len()) {
-        stmts.add(monoResult.newNodes.at(ni))
-        ni: ni.add(1)
-    }
-    stmts: monoPass.filterGenericDefs(stmts)
-    let fi i64: 0
-    while fi.lt(monoResult.newFnNames.len()) {
-        ownFnNames.add(monoResult.newFnNames.at(fi))
-        fi: fi.add(1)
-    }
-    let ti i64: 0
-    while ti.lt(monoResult.newTypeNames.len()) {
-        ownTypeNames.add(monoResult.newTypeNames.at(ti))
-        ti: ti.add(1)
-    }
+    stmts: injectMonoConcretes(stmts, ownFnNames, ownTypeNames, monoResult)
     // Pass 2: fresh state sees only concrete types (no generic templates).
     state: semantic.makeAnalyzerState()
     state.currentSrcPath: sourcePath
@@ -795,17 +1054,26 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     stmts: monoPass.rewriteVariantArms(stmts)
     // ─────────────────────────────────────────────────────────────────────────
 
-    lowerObjects(state, stmts, sourcePath)
+    lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
     // Filter generic defs from ownStmts too: analyzeFunctionDeclaration would
     // emit false "unknown type" errors on typeParam-annotated bodies.
     let rawOwnStmts Array<AstNode>: collectNonInclude(mod.stmts)
     let ownStmts Array<AstNode>: monoPass.filterGenericDefs(rawOwnStmts)
+    // Reset currentSrcPath: type resolution may update it to an included file's
+    // path when processing that file's function bodies.  The own-file passes
+    // (namespace, export, import, semantic) must attribute errors to the root.
+    state.currentSrcPath: sourcePath
+    nsPass.validateNamespaceDecl(state, ownStmts)
+    exportPass.validateExports(state, ownStmts)
+    ownStmts: importPass.desugarImports(state, ownStmts, resolved.nsExports)
+    ownStmts: qualNamePass.rewriteQualifiedCalls(ownStmts, resolved.nsExports)
+    stmts: importPass.rewriteCodegenStmts(ownStmts, stmts, sourcePath, resolved.nsExports)
     analyzeModuleStatements(state, ownStmts)
     printErrorsFrom(state, sourcePath)
     let errors Array<AnalysisError>: state.errors
     if errors.len().gt(0) { exit(1) }
-    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, monoResult.newFnNames, resolved.aliases, sourcePath)
-    return { irText: irText, includedPaths: resolved.includedPaths }
+    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, monoResult.newFnNames, sourcePath, resolved.srcNsEntries)
+    return { irText: irText, includedPaths: resolved.includedPaths, builtReg: reg }
 }
 
 // runPipelineDebug — run the pipeline for sourcePath and stop after the named
@@ -824,7 +1092,9 @@ fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     let mod AstModule: parser.parse(tokens, sourcePath)
     let ownFnNames Array<String>: collectFnNames(mod.stmts)
     let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath)
+    let reg NamespaceRegistry: nsReg.buildNamespaceRegistryMulti(registryRootsFor(sourcePath))
+    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
+    reg: nsReg.augmentRegistry(reg, resolved.srcNsEntries)
     let stmts Array<AstNode>: resolved.stmts
     let state AnalyzerState: semantic.makeAnalyzerState()
     state.currentSrcPath: sourcePath
@@ -836,22 +1106,7 @@ fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     // ─── Monomorphization ─────────────────────────────────────────────────────
     let registry GenericRegistry: collect.collectGenericDefs(stmts)
     let monoResult MonoResult: monoPass.runMonoPass(stmts, registry)
-    let ni i64: 0
-    while ni.lt(monoResult.newNodes.len()) {
-        stmts.add(monoResult.newNodes.at(ni))
-        ni: ni.add(1)
-    }
-    stmts: monoPass.filterGenericDefs(stmts)
-    let fi i64: 0
-    while fi.lt(monoResult.newFnNames.len()) {
-        ownFnNames.add(monoResult.newFnNames.at(fi))
-        fi: fi.add(1)
-    }
-    let ti i64: 0
-    while ti.lt(monoResult.newTypeNames.len()) {
-        ownTypeNames.add(monoResult.newTypeNames.at(ti))
-        ti: ti.add(1)
-    }
+    stmts: injectMonoConcretes(stmts, ownFnNames, ownTypeNames, monoResult)
     state: semantic.makeAnalyzerState()
     state.currentSrcPath: sourcePath
     passes.runPrePasses(state, stmts)
@@ -862,12 +1117,17 @@ fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
 
     if stopPass.equals("mono") { return { stmts: stmts, state: state } }
 
-    lowerObjects(state, stmts, sourcePath)
+    lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
 
     if stopPass.equals("resolve2") { return { stmts: stmts, state: state } }
 
     let rawOwnStmts Array<AstNode>: collectNonInclude(mod.stmts)
     let ownStmts Array<AstNode>: monoPass.filterGenericDefs(rawOwnStmts)
+    state.currentSrcPath: sourcePath
+    nsPass.validateNamespaceDecl(state, ownStmts)
+    exportPass.validateExports(state, ownStmts)
+    ownStmts: importPass.desugarImports(state, ownStmts, resolved.nsExports)
+    ownStmts: qualNamePass.rewriteQualifiedCalls(ownStmts, resolved.nsExports)
     analyzeModuleStatements(state, ownStmts)
 
     if stopPass.equals("semantic") { return { stmts: stmts, state: state } }
@@ -894,7 +1154,7 @@ fn runBuildDriver(sourcePath String, outputPath String) {
     let outDir String: dirName(outputPath)
     let pi i64: 0
     while pi.lt(result.includedPaths.len()) {
-        compileOneFile(result.includedPaths.at(pi), outDir)
+        compileOneFile(result.includedPaths.at(pi), outDir, result.builtReg)
         pi: pi.add(1)
     }
 }

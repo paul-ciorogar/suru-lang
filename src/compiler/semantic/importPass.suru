@@ -1,0 +1,665 @@
+// importPass.suru — Import desugaring pass.
+//
+// Validates selective import entries against the export registry collected from
+// all transitively-included files, then rewrites matching names in the own-file
+// AST from unqualified form to QualifiedNameNode (or qualified MethodCallNode).
+//
+// What each import form does:
+//   FullNs:          MyApp.Lib          — injects all exports; fn() works directly
+//   AliasNs:         lib: MyApp.Lib     — lib.fn(args) → MethodCallNode{QualNS,fn,args}
+//   SelectiveNames:  [fn]: MyApp.Lib   — fn(args) → MethodCallNode{QualNS,fn,args}
+//                                        fn ref  → QualifiedNameNode
+//   SelectiveAliased:{alias: fn}:MyApp  — alias(args) → MethodCallNode{QualNS,fn,args}
+//
+// Errors emitted:
+//   "import: unknown namespace 'Ns'"       — Ns not in the export registry
+//   "import: 'name' is not exported by 'Ns'" — Ns known but name absent
+//   "import: 'name' conflicts with a local declaration" — selective import name
+//                                            clashes with a top-level fn in file
+//
+// NsExportEntry is defined here; pipeline.suru includes this file and uses the
+// type in ResolveState and ResolveResult.
+
+namespace Suru.Compiler.Semantic.ImportPass
+
+export {
+    NsExportEntry
+    SubstEntry
+    AliasEntry
+    SubstTable
+    nsSegsFromString
+    findNs
+    isExportedAt
+    lookupSubst
+    lookupAlias
+    containsName
+    collectLocalFnNames
+    buildSubstTable
+    makeQualNode
+    qualNsSegs
+    rewriteExprs
+    rewriteStmts
+    rewriteBlock
+    rewriteStructField
+    rewriteStructFields
+    rewriteMatchArm
+    rewriteMatchArms
+    rewriteMatchStmtArm
+    rewriteMatchStmtArms
+    rewriteStmt
+    rewriteExpr
+    desugarImports
+    rewriteCodegenStmts
+}
+
+import { semantic: Suru.Compiler.Semantic }
+import { ast: Suru.Compiler.Parser.Ast }
+
+// ─── Registry types ───────────────────────────────────────────────────────────
+
+// NsExportEntry — one row in the export registry built from included files.
+// ns is the full namespace string (e.g. "MyApp.Lib").
+// exported is the list of names that namespace exports.
+type NsExportEntry: { ns String, exported Array<String> }
+
+// ─── Substitution types ────────────────────────────────────────────────────────
+
+// SubstEntry — maps a local unqualified name to the qualified parts list.
+// e.g. "greet" → ["MyApp","Lib","greet"]
+type SubstEntry: { localName String, qualParts Array<String> }
+
+// AliasEntry — maps an AliasNs alias to the namespace segments.
+// e.g. alias "lib" → ["MyApp","Lib"]
+type AliasEntry: { alias String, nsSegs Array<String> }
+
+// SubstTable — the full substitution context for one import block.
+type SubstTable: { entries Array<SubstEntry>, aliases Array<AliasEntry> }
+
+// ─── String / registry helpers ────────────────────────────────────────────────
+
+// nsSegsFromString — split "MyApp.Lib" on '.' into ["MyApp","Lib"].
+// Uses slice indices to avoid per-character string allocation.
+fn nsSegsFromString(ns String) Array<String> {
+    let result Array<String>: []
+    let start i64: 0
+    let i i64: 0
+    while i.lt(ns.len()) {
+        if ns.at(i).equals(".") {
+            result.add(ns.slice(start, i))
+            start: i.add(1)
+        }
+        i: i.add(1)
+    }
+    result.add(ns.slice(start, ns.len()))
+    return result
+}
+
+// findNs — linear search for ns in the registry; returns index or -1.
+fn findNs(nsExports Array<NsExportEntry>, ns String) i64 {
+    let i i64: 0
+    while i.lt(nsExports.len()) {
+        if nsExports.at(i).ns.equals(ns) { return i }
+        i: i.add(1)
+    }
+    return -1
+}
+
+// isExportedAt — true if name appears in nsExports[idx].exported.
+fn isExportedAt(nsExports Array<NsExportEntry>, idx i64, name String) bool {
+    let exported Array<String>: nsExports.at(idx).exported
+    let i i64: 0
+    while i.lt(exported.len()) {
+        if exported.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// lookupSubst — return qualParts for localName, or empty array if not found.
+// Caller checks result.len() > 0 to test "found".
+fn lookupSubst(subst SubstTable, name String) Array<String> {
+    let i i64: 0
+    while i.lt(subst.entries.len()) {
+        let e SubstEntry: subst.entries.at(i)
+        if e.localName.equals(name) { return e.qualParts }
+        i: i.add(1)
+    }
+    let empty Array<String>: []
+    return empty
+}
+
+// lookupAlias — return nsSegs for alias, or empty array if not found.
+fn lookupAlias(subst SubstTable, alias String) Array<String> {
+    let i i64: 0
+    while i.lt(subst.aliases.len()) {
+        let a AliasEntry: subst.aliases.at(i)
+        if a.alias.equals(alias) { return a.nsSegs }
+        i: i.add(1)
+    }
+    let empty Array<String>: []
+    return empty
+}
+
+// ─── Local name helpers ────────────────────────────────────────────────────────
+
+// containsName — true if name appears in the names array.
+fn containsName(names Array<String>, name String) bool {
+    let i i64: 0
+    while i.lt(names.len()) {
+        if names.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// collectLocalFnNames — collect the names of all top-level FnDeclNodes in stmts.
+fn collectLocalFnNames(stmts Array<AstNode>) Array<String> {
+    let names Array<String>: []
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        match stmts.at(i) {
+            FnDeclNode: {
+                let fd FnDeclNode: stmts.at(i)
+                names.add(fd.name)
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return names
+}
+
+// ─── Substitution table builder ────────────────────────────────────────────────
+
+// ─── Import diagnostic helpers ─────────────────────────────────────────────────
+
+fn importConflictError(state AnalyzerState, importNode ImportNode, name String) {
+    state.addError(
+        "import: '".append(name).append("' conflicts with a local declaration"),
+        importNode.line, importNode.col
+    )
+}
+
+fn importNotExportedError(state AnalyzerState, importNode ImportNode, name String, ns String) {
+    state.addError(
+        "import: '".append(name).append("' is not exported by '").append(ns).append("'"),
+        importNode.line, importNode.col
+    )
+}
+
+// addSubstEntry — push a (localName → ns + name) qualParts entry.
+fn addSubstEntry(entries Array<SubstEntry>, localName String, ns String, exportedName String) {
+    let qp Array<String>: nsSegsFromString(ns)
+    qp.add(exportedName)
+    entries.add({ localName: localName, qualParts: qp })
+}
+
+// ─── Per-kind substitution builders ────────────────────────────────────────────
+
+// FullNs: import everything exported from `entry.ns`.
+fn buildSubstForFullNs(entry ImportEntry, importNode ImportNode, nsExports Array<NsExportEntry>, nsIdx i64, ownFnNames Array<String>, state AnalyzerState, entries Array<SubstEntry>) {
+    let exported Array<String>: nsExports.at(nsIdx).exported
+    let j i64: 0
+    while j.lt(exported.len()) {
+        let name String: exported.at(j)
+        if containsName(ownFnNames, name) {
+            importConflictError(state, importNode, name)
+        } else {
+            addSubstEntry(entries, name, entry.ns, name)
+        }
+        j: j.add(1)
+    }
+}
+
+// AliasNs: register `alias → ns segments` so later phases can rewrite
+// `alias.fn()` into a QualifiedNameNode call.
+fn buildSubstForAliasNs(entry ImportEntry, aliases Array<AliasEntry>) {
+    let segs Array<String>: nsSegsFromString(entry.ns)
+    aliases.add({ alias: entry.alias, nsSegs: segs })
+}
+
+// SelectiveNames: validate each name is exported and not shadowing a local fn.
+fn buildSubstForSelectiveNames(entry ImportEntry, importNode ImportNode, nsExports Array<NsExportEntry>, nsIdx i64, ownFnNames Array<String>, state AnalyzerState, entries Array<SubstEntry>) {
+    let j i64: 0
+    while j.lt(entry.names.len()) {
+        let name String: entry.names.at(j)
+        if not isExportedAt(nsExports, nsIdx, name) {
+            importNotExportedError(state, importNode, name, entry.ns)
+        } else if containsName(ownFnNames, name) {
+            importConflictError(state, importNode, name)
+        } else {
+            addSubstEntry(entries, name, entry.ns, name)
+        }
+        j: j.add(1)
+    }
+}
+
+// SelectiveAliased: each ExportEntry has .exportedAs (lib name) and
+// .localName (local alias).  Validate the lib name is exported and the local
+// alias does not collide with a local fn.
+fn buildSubstForSelectiveAliased(entry ImportEntry, importNode ImportNode, nsExports Array<NsExportEntry>, nsIdx i64, ownFnNames Array<String>, state AnalyzerState, entries Array<SubstEntry>) {
+    let j i64: 0
+    while j.lt(entry.nameAliases.len()) {
+        let nameAlias ExportEntry: entry.nameAliases.at(j)
+        if not isExportedAt(nsExports, nsIdx, nameAlias.exportedAs) {
+            importNotExportedError(state, importNode, nameAlias.exportedAs, entry.ns)
+        } else if containsName(ownFnNames, nameAlias.localName) {
+            importConflictError(state, importNode, nameAlias.localName)
+        } else {
+            addSubstEntry(entries, nameAlias.localName, entry.ns, nameAlias.exportedAs)
+        }
+        j: j.add(1)
+    }
+}
+
+// buildSubstTable — for each ImportEntry in importNode, validate against the
+// export registry and populate the substitution table.
+//
+// Rules:
+//   FullNs:          validate namespace known; import all exported names
+//   AliasNs:         validate namespace known; register alias → nsSegs mapping
+//   SelectiveNames:  validate namespace known and each name exported; add subst;
+//                    error if localName conflicts with a local fn declaration
+//   SelectiveAliased:validate namespace known and exportedAs exported; add subst;
+//                    error if localName (local alias) conflicts with a local fn
+//
+// Unknown namespaces produce a single "unknown namespace" error per entry.
+fn buildSubstTable(importNode ImportNode, nsExports Array<NsExportEntry>, state AnalyzerState, ownFnNames Array<String>) SubstTable {
+    let entries Array<SubstEntry>: []
+    let aliases Array<AliasEntry>: []
+    let i i64: 0
+    while i.lt(importNode.entries.len()) {
+        let entry ImportEntry: importNode.entries.at(i)
+        let nsIdx i64: findNs(nsExports, entry.ns)
+        if nsIdx.equals(-1) {
+            state.addError(
+                "import: unknown namespace '".append(entry.ns).append("'"),
+                importNode.line, importNode.col
+            )
+        } else {
+            match entry.kind {
+                FullNs:           { buildSubstForFullNs(entry, importNode, nsExports, nsIdx, ownFnNames, state, entries) }
+                AliasNs:          { buildSubstForAliasNs(entry, aliases) }
+                SelectiveNames:   { buildSubstForSelectiveNames(entry, importNode, nsExports, nsIdx, ownFnNames, state, entries) }
+                SelectiveAliased: { buildSubstForSelectiveAliased(entry, importNode, nsExports, nsIdx, ownFnNames, state, entries) }
+            }
+        }
+        i: i.add(1)
+    }
+    return { entries: entries, aliases: aliases }
+}
+
+// ─── QualifiedNameNode constructor helpers ─────────────────────────────────────
+
+// makeQualNode — build a QualifiedNameNode from a parts array and source position.
+fn makeQualNode(parts Array<String>, line i64, col i64) QualifiedNameNode {
+    return { parts: parts, line: line, col: col, resolvedType: "" }
+}
+
+// qualNsSegs — split qualParts[0..len-2] into the namespace segments
+// (everything except the last element, which is the symbol name).
+fn qualNsSegs(qualParts Array<String>) Array<String> {
+    let segs Array<String>: []
+    let i i64: 0
+    while i.lt(qualParts.len().take(1)) {
+        segs.add(qualParts.at(i))
+        i: i.add(1)
+    }
+    return segs
+}
+
+// ─── Array walk helpers ────────────────────────────────────────────────────────
+
+// rewriteExprs — return a new expression array with names rewritten.
+fn rewriteExprs(exprs Array<AstNode>, subst SubstTable) Array<AstNode> {
+    let out Array<AstNode>: []
+    let i i64: 0
+    while i.lt(exprs.len()) {
+        out.add(rewriteExpr(exprs.at(i), subst))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteStmts — return a new statement array with names rewritten.
+fn rewriteStmts(stmts Array<AstNode>, subst SubstTable) Array<AstNode> {
+    let out Array<AstNode>: []
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        out.add(rewriteStmt(stmts.at(i), subst))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteBlock — rewrite a BlockNode's statement list.
+fn rewriteBlock(block BlockNode, subst SubstTable) BlockNode {
+    let newStmts Array<AstNode>: rewriteStmts(block.stmts, subst)
+    return { stmts: newStmts }
+}
+
+// rewriteStructField — rewrite a StructFieldNode's value and method body.
+fn rewriteStructField(sf StructFieldNode, subst SubstTable) StructFieldNode {
+    let newVal AstNode: rewriteExpr(sf.value, subst)
+    let newBody Array<AstNode>: rewriteStmts(sf.methodBody, subst)
+    return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newBody }
+}
+
+// rewriteStructFields — rewrite an array of StructFieldNodes.
+fn rewriteStructFields(fields Array<StructFieldNode>, subst SubstTable) Array<StructFieldNode> {
+    let out Array<StructFieldNode>: []
+    let i i64: 0
+    while i.lt(fields.len()) {
+        out.add(rewriteStructField(fields.at(i), subst))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteMatchArm — rewrite both pattern and body of a match-expression arm.
+fn rewriteMatchArm(arm MatchArm, subst SubstTable) MatchArm {
+    let newPat AstNode: rewriteExpr(arm.pattern, subst)
+    let newBody AstNode: rewriteExpr(arm.body, subst)
+    return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
+}
+
+// rewriteMatchArms — rewrite a match-expression arm array.
+fn rewriteMatchArms(arms Array<MatchArm>, subst SubstTable) Array<MatchArm> {
+    let out Array<MatchArm>: []
+    let i i64: 0
+    while i.lt(arms.len()) {
+        out.add(rewriteMatchArm(arms.at(i), subst))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteMatchStmtArm — rewrite pattern and body stmts of a match-statement arm.
+fn rewriteMatchStmtArm(arm MatchStmtArm, subst SubstTable) MatchStmtArm {
+    let newPat AstNode: rewriteExpr(arm.pattern, subst)
+    let newStmts Array<AstNode>: rewriteStmts(arm.stmts, subst)
+    return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
+}
+
+// rewriteMatchStmtArms — rewrite a match-statement arm array.
+fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, subst SubstTable) Array<MatchStmtArm> {
+    let out Array<MatchStmtArm>: []
+    let i i64: 0
+    while i.lt(arms.len()) {
+        out.add(rewriteMatchStmtArm(arms.at(i), subst))
+        i: i.add(1)
+    }
+    return out
+}
+
+// ─── Statement rewriter ────────────────────────────────────────────────────────
+
+// rewriteStmt — deep-clone a statement AstNode, rewriting any imported names
+// found in expression positions.  Non-statement variants fall through unchanged.
+fn rewriteStmt(node AstNode, subst SubstTable) AstNode {
+    match node {
+        FnDeclNode: {
+            let fd FnDeclNode: node
+            let newBody Array<AstNode>: rewriteStmts(fd.body, subst)
+            let result FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: newBody, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
+            return result
+        }
+        LetNode: {
+            let ln LetNode: node
+            let newVal AstNode: rewriteExpr(ln.value, subst)
+            let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col, srcPath: ln.srcPath }
+            return result
+        }
+        AssignNode: {
+            let an AssignNode: node
+            let newVal AstNode: rewriteExpr(an.value, subst)
+            let result AssignNode: { name: an.name, value: newVal, line: an.line, col: an.col }
+            return result
+        }
+        FieldAssignNode: {
+            let fan FieldAssignNode: node
+            let newRec AstNode: rewriteExpr(fan.receiver, subst)
+            let newVal AstNode: rewriteExpr(fan.value, subst)
+            let result FieldAssignNode: { receiver: newRec, fieldName: fan.fieldName, value: newVal, line: fan.line, col: fan.col }
+            return result
+        }
+        ReturnNode: {
+            let rn ReturnNode: node
+            let newVal AstNode: rewriteExpr(rn.value, subst)
+            let result ReturnNode: { hasValue: rn.hasValue, value: newVal, line: rn.line, col: rn.col }
+            return result
+        }
+        WhileNode: {
+            let wn WhileNode: node
+            let newCond AstNode: rewriteExpr(wn.condition, subst)
+            let newBody Array<AstNode>: rewriteStmts(wn.body, subst)
+            let result WhileNode: { condition: newCond, body: newBody, line: wn.line, col: wn.col }
+            return result
+        }
+        ExprStmtNode: {
+            let en ExprStmtNode: node
+            let newExpr AstNode: rewriteExpr(en.expr, subst)
+            let result ExprStmtNode: { expr: newExpr }
+            return result
+        }
+        IfNode: {
+            let ifn IfNode: node
+            let newCond AstNode: rewriteExpr(ifn.condition, subst)
+            let newThen BlockNode: rewriteBlock(ifn.thenBranch, subst)
+            let newElse BlockNode: rewriteBlock(ifn.elseBranch, subst)
+            let result IfNode: { condition: newCond, thenBranch: newThen, elseBranch: newElse, line: ifn.line, col: ifn.col }
+            return result
+        }
+        MatchStmtNode: {
+            let mn MatchStmtNode: node
+            let newCond AstNode: rewriteExpr(mn.condition, subst)
+            let newArms Array<MatchStmtArm>: rewriteMatchStmtArms(mn.arms, subst)
+            let result MatchStmtNode: { condition: newCond, arms: newArms }
+            return result
+        }
+        BlockNode: {
+            let bn BlockNode: node
+            let result BlockNode: rewriteBlock(bn, subst)
+            return result
+        }
+        _: { return node }
+    }
+    return node
+}
+
+// ─── Expression rewriter ───────────────────────────────────────────────────────
+
+// rewriteExpr — deep-clone an expression AstNode, rewriting imported names:
+//
+//   VarRefNode { name: N }
+//     → QualifiedNameNode if N is a selective import
+//
+//   CallNode { name: N, args }
+//     → MethodCallNode { receiver: QualifiedNameNode(nsSegs), methodName: symbol, args }
+//        if N is a selective import  (CallNode.name is String, not AstNode, so we
+//        represent qualified calls as MethodCallNode with QualifiedNameNode receiver;
+//        Task 7 adds codegen support for this form)
+//
+//   MethodCallNode { receiver: VarRefNode(A), methodName: M, args }
+//     → MethodCallNode { receiver: QualifiedNameNode(nsSegs), methodName: M, args }
+//        if A is an AliasNs alias
+//
+// All other nodes: recursively rewrite children, return the same node type.
+fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
+    match node {
+        VarRefNode: {
+            let vr VarRefNode: node
+            let qp Array<String>: lookupSubst(subst, vr.name)
+            if qp.len().gt(0) {
+                // Preserve resolvedType from the original VarRefNode: it was set by
+                // resolveModuleTypes (pass 2) before importPass runs, and codegen needs
+                // it to know the LLVM type when loading the qualified global.
+                let qn QualifiedNameNode: { parts: qp, line: vr.line, col: vr.col, resolvedType: vr.resolvedType }
+                return qn
+            }
+            return node
+        }
+        CallNode: {
+            let cn CallNode: node
+            let qp Array<String>: lookupSubst(subst, cn.name)
+            if qp.len().gt(0) {
+                // Represent as MethodCallNode { receiver: QualifiedNameNode(nsSegs), methodName: symbol, args }.
+                // Task 7 adds codegen support for MethodCallNode with QualifiedNameNode receiver.
+                let nsSegs Array<String>: qualNsSegs(qp)
+                let sym String: qp.at(qp.len().take(1))
+                let newArgs Array<AstNode>: rewriteExprs(cn.args, subst)
+                let receiver QualifiedNameNode: makeQualNode(nsSegs, cn.line, cn.col)
+                let result MethodCallNode: { receiver: receiver, methodName: sym, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+                return result
+            }
+            let newArgs Array<AstNode>: rewriteExprs(cn.args, subst)
+            let result CallNode: { name: cn.name, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            return result
+        }
+        MethodCallNode: {
+            let mcn MethodCallNode: node
+            // Check if the receiver is an AliasNs alias.
+            match mcn.receiver {
+                VarRefNode: {
+                    let vr VarRefNode: mcn.receiver
+                    let nsSegs Array<String>: lookupAlias(subst, vr.name)
+                    if nsSegs.len().gt(0) {
+                        let newArgs Array<AstNode>: rewriteExprs(mcn.args, subst)
+                        let receiver QualifiedNameNode: makeQualNode(nsSegs, vr.line, vr.col)
+                        let result MethodCallNode: { receiver: receiver, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+                        return result
+                    }
+                }
+                _: {}
+            }
+            // Receiver is not an alias — still rewrite receiver and args recursively.
+            let newRec AstNode: rewriteExpr(mcn.receiver, subst)
+            let newArgs Array<AstNode>: rewriteExprs(mcn.args, subst)
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+            return result
+        }
+        FieldAccessNode: {
+            let fan FieldAccessNode: node
+            let newRec AstNode: rewriteExpr(fan.receiver, subst)
+            let result FieldAccessNode: { receiver: newRec, fieldName: fan.fieldName, line: fan.line, col: fan.col, resolvedType: fan.resolvedType }
+            return result
+        }
+        BinaryNode: {
+            let bn BinaryNode: node
+            let newLeft AstNode: rewriteExpr(bn.left, subst)
+            let newRight AstNode: rewriteExpr(bn.right, subst)
+            let result BinaryNode: { op: bn.op, left: newLeft, right: newRight, resolvedType: bn.resolvedType }
+            return result
+        }
+        UnaryNode: {
+            let un UnaryNode: node
+            let newOperand AstNode: rewriteExpr(un.operand, subst)
+            let result UnaryNode: { op: un.op, operand: newOperand, resolvedType: un.resolvedType }
+            return result
+        }
+        ArrayLitNode: {
+            let aln ArrayLitNode: node
+            let newElems Array<AstNode>: rewriteExprs(aln.elems, subst)
+            let result ArrayLitNode: { elems: newElems, resolvedType: aln.resolvedType }
+            return result
+        }
+        StructLitNode: {
+            let sln StructLitNode: node
+            let newFields Array<StructFieldNode>: rewriteStructFields(sln.fields, subst)
+            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+            return result
+        }
+        MatchExprNode: {
+            let men MatchExprNode: node
+            let newCond AstNode: rewriteExpr(men.condition, subst)
+            let newArms Array<MatchArm>: rewriteMatchArms(men.arms, subst)
+            let result MatchExprNode: { condition: newCond, arms: newArms, line: men.line, col: men.col, resolvedType: men.resolvedType }
+            return result
+        }
+        _: { return node }
+    }
+    return node
+}
+
+// ─── Main entry point ──────────────────────────────────────────────────────────
+
+// desugarImports — find the ImportNode (if any) in ownStmts, validate and build
+// the substitution table from nsExports, then rewrite the own-file AST.
+//
+// Parameters:
+//   state     — AnalyzerState for the current module (errors appended in-place)
+//   ownStmts  — own-file statements from collectNonInclude(mod.stmts),
+//               with generic templates already filtered out
+//   nsExports — namespace→exportedNames registry built from all included files
+//               by the extended resolveIncludesRec in pipeline.suru
+//
+// Returns a new ownStmts array with imported names rewritten, or the original
+// array unchanged if no ImportNode is present or no substitutions are needed.
+fn desugarImports(state AnalyzerState, ownStmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
+    let i i64: 0
+    while i.lt(ownStmts.len()) {
+        let stmt AstNode: ownStmts.at(i)
+        match stmt {
+            ImportNode: {
+                let importNode ImportNode: stmt
+                let localFnNames Array<String>: collectLocalFnNames(ownStmts)
+                let subst SubstTable: buildSubstTable(importNode, nsExports, state, localFnNames)
+                if subst.entries.len().equals(0) and subst.aliases.len().equals(0) {
+                    return ownStmts
+                }
+                return rewriteStmts(ownStmts, subst)
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ownStmts
+}
+
+// hasRenamingEntries — returns true when any SubstEntry renames the imported
+// symbol (localName differs from the tail of qualParts, which is the exported
+// library name). This is true for SelectiveAliased, e.g. "dbl" → ["My","Lib",
+// "double"]. FullNs and SelectiveNames always have localName == qualParts.last,
+// so they return false and do not need codegen-stmts rewriting.
+fn hasRenamingEntries(subst SubstTable) bool {
+    let i i64: 0
+    while i.lt(subst.entries.len()) {
+        let entry SubstEntry: subst.entries.at(i)
+        let qp Array<String>: entry.qualParts
+        let exportedName String: qp.at(qp.len().take(1))
+        if not entry.localName.equals(exportedName) {
+            return true
+        }
+        i: i.add(1)
+    }
+    return false
+}
+
+// rewriteCodegenStmts — extract the import substitution from ownStmts (already
+// desugared, errors already reported) and apply it to the FnDeclNodes in stmts
+// that belong to the root file (srcPath == rootPath). Only own-file function
+// bodies are rewritten; imported file declarations are unaffected because their
+// bodies do not use the root file's import aliases.
+//
+// Only rewrites when strictly needed:
+//   AliasNs:        lib.double() MethodCallNode needs lib → QualifiedNameNode
+//   SelectiveAliased: dbl() CallNode has no matching fn; needs → My.Lib.double()
+//
+// FullNs and SelectiveNames are skipped — the codegen fallback (lookupFnSrcPath)
+// resolves bare short names correctly since collisions are rejected at parse time.
+//
+// IMPORTANT: own-file FnDeclNodes are rewritten via rewriteStmt (return type
+// AstNode) rather than by constructing a FnDeclNode literal directly.  The
+// bootstrap binary only emits the AstNode sum-type header when a struct literal
+// is returned from a function whose declared return type is AstNode; constructing
+// a FnDeclNode and adding it directly to Array<AstNode> bypasses that path and
+// produces a broken AstNode without the correct variant index.
+// rewriteCodegenStmts — previously rewrote own-file FnDeclNodes in stmts for
+// import alias forms.  Now a no-op: SelectiveAliased aliases are resolved by
+// the codegen alias table built in emitModule (emitUserFnCall checks
+// ctx.fnAliasLocal/fnAliasReal), and AliasNs calls are resolved by
+// lookupExternalFnSrcPath in emitMethodCall.  Rewriting produced broken nodes
+// under the bootstrap binary's sum-type encoding, so this approach is retired.
+fn rewriteCodegenStmts(ownStmts Array<AstNode>, stmts Array<AstNode>, rootPath String, nsExports Array<NsExportEntry>) Array<AstNode> {
+    return stmts
+}

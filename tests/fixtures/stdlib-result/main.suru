@@ -1,4 +1,8 @@
-include "../../../src/stdlib/result.suru" as res
+namespace Test.StdlibResult
+
+export { main }
+
+import { res: Suru.Stdlib.Result }
 
 fn describeResult(x Result<i64, String>) {
     match x {

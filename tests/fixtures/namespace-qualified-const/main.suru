@@ -1,0 +1,9 @@
+namespace Test.Main
+
+import {
+    [limit]: Test.Lib
+}
+
+fn main() {
+    printLn(limit)
+}

@@ -11,8 +11,31 @@
 // Used by monoPass.suru after monoInfer.suru has collected all instantiation
 // sites from the first resolveModuleTypes pass.
 
-include "monoCollect.suru" as collect
-include "monoSubst.suru"   as subst
+namespace Suru.Compiler.Semantic.Mono.Instantiate
+
+export {
+    InstantiationRequest
+    flattenTypeArg
+    appendMangledTypes
+    mangleGenericName
+    instantiateType
+    instantiateFn
+    wrapTypeDeclNode
+    wrapFnDeclNode
+    mangleTypeExpr
+    substAndMangleVariants
+    instantiateSumType
+    wrapSumTypeDeclNode
+    alreadySeen
+    findInstType
+    findInstFn
+    instantiateVariantTypes
+    findInstSumType
+    instantiateAll
+}
+
+import { collect: Suru.Compiler.Semantic.Mono.Collect }
+import { subst: Suru.Compiler.Semantic.Mono.Subst }
 
 // ─── InstantiationRequest ─────────────────────────────────────────────────────
 
@@ -114,7 +137,7 @@ fn instantiateFn(def GenericFnDef, concreteTypes Array<String>) FnDeclNode {
 // struct LITERAL is returned from a function whose return type is AstNode.
 // Merely returning an existing TypeDeclNode/FnDeclNode pointer does NOT add
 // the header, leaving offset 8 as 0 (refCount), which match dispatch reads as
-// IncludeNode (variant 0) instead of TypeDeclNode (8) or FnDeclNode (1).
+// FnDeclNode (variant 0) instead of TypeDeclNode (7).
 // The workaround: create a fresh struct literal with all fields copied so
 // the codegen emits the correct variant index at offset 8.
 fn wrapTypeDeclNode(td TypeDeclNode) AstNode {
@@ -312,11 +335,133 @@ fn findInstSumType(registry GenericRegistry, genericName String, concreteTypes A
     }
 }
 
+// ─── Transitive (follow-up) instantiation ─────────────────────────────────────
+//
+// When a generic function is instantiated, its substituted type annotations may
+// themselves name generic applications that need their own instantiation.  For
+// example `some<T>` returns `Option<T>`; instantiating `some__Sig` substitutes
+// the return type to `Option<Sig>`, which must in turn be instantiated to
+// `Option__Sig` (and its variant structs).  The original inference pass never
+// sees these because it skips generic templates (monoInfer.suru ~419) and the
+// substituted type only exists after instantiation.  The helpers below re-scan
+// each freshly produced concrete FnDeclNode and feed any generic applications
+// back into the instantiateAll worklist.
+
+// collectGenericAppFromType — if typeName is a generic application whose base
+// name is a registry struct or sum type, append an InstantiationRequest for it
+// to out.  Recurses into the type arguments first so nested applications
+// (e.g. Option<Option<i64>>) enqueue the inner request too.
+fn collectGenericAppFromType(typeName String, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    let ltIdx i64: subst.indexOfLT(typeName)
+    if ltIdx.equals(typeName.len()) { return out }
+    let base String: typeName.slice(0, ltIdx)
+    // Strip the enclosing '<' and trailing '>' and split args by comma.
+    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
+    let rawArgs Array<String>: subst.splitByComma(inner)
+    drop(inner)
+    let args Array<String>: []
+    let i i64: 0
+    while i.lt(rawArgs.len()) {
+        let a String: subst.trimLeft(rawArgs.at(i))
+        out: collectGenericAppFromType(a, registry, out)
+        args.add(a)
+        i: i.add(1)
+    }
+    drop(rawArgs)
+    if registry.hasType(base) or registry.hasSumType(base) {
+        let req InstantiationRequest: { genericName: base, concreteTypes: args }
+        out.add(req)
+    } else {
+        drop(base)
+        drop(args)
+    }
+    return out
+}
+
+// scanStmtsForGenericAnnotations / scanStmtForGenericAnnotations — walk a
+// concrete function body collecting generic applications from `let` type
+// annotations (recursing through if/while blocks).
+fn scanStmtsForGenericAnnotations(stmts Array<AstNode>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        out: scanStmtForGenericAnnotations(stmts.at(i), registry, out)
+        i: i.add(1)
+    }
+    return out
+}
+
+fn scanStmtForGenericAnnotations(stmt AstNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    match stmt {
+        LetNode: {
+            let ln LetNode: stmt
+            out: collectGenericAppFromType(ln.typeName, registry, out)
+            return out
+        }
+        IfNode: {
+            let ifn IfNode: stmt
+            out: scanStmtsForGenericAnnotations(ifn.thenBranch.stmts, registry, out)
+            out: scanStmtsForGenericAnnotations(ifn.elseBranch.stmts, registry, out)
+            return out
+        }
+        WhileNode: {
+            let wn WhileNode: stmt
+            out: scanStmtsForGenericAnnotations(wn.body, registry, out)
+            return out
+        }
+        _: { return out }
+    }
+}
+
+// collectFollowupRequests — scan a concrete FnDeclNode's return type, parameter
+// types, and body `let` annotations for generic applications, appending
+// follow-up InstantiationRequests to out.
+fn collectFollowupRequests(fnDecl FnDeclNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    out: collectGenericAppFromType(fnDecl.returnType, registry, out)
+    let params Array<Param>: fnDecl.params
+    let i i64: 0
+    while i.lt(params.len()) {
+        out: collectGenericAppFromType(params.at(i).typeName, registry, out)
+        i: i.add(1)
+    }
+    out: scanStmtsForGenericAnnotations(fnDecl.body, registry, out)
+    return out
+}
+
+// scanNewFnsForFollowups — for each AstNode in out[start..] that is a FnDeclNode
+// (i.e. produced by this iteration's findInstFn), enqueue its follow-up
+// instantiation requests into work.
+fn scanNewFnsForFollowups(out Array<AstNode>, start i64, registry GenericRegistry, work Array<InstantiationRequest>) Array<InstantiationRequest> {
+    let j i64: start
+    while j.lt(out.len()) {
+        work: scanOneNodeForFollowups(out.at(j), registry, work)
+        j: j.add(1)
+    }
+    return work
+}
+
+fn scanOneNodeForFollowups(node AstNode, registry GenericRegistry, work Array<InstantiationRequest>) Array<InstantiationRequest> {
+    match node {
+        FnDeclNode: {
+            let fd FnDeclNode: node
+            work: collectFollowupRequests(fd, registry, work)
+            return work
+        }
+        _: { return work }
+    }
+}
+
 // ─── Batch instantiation ──────────────────────────────────────────────────────
 
 // instantiateAll — process all requests, deduplicate by mangled name, and
 // return an array of new concrete AstNodes (TypeDeclNode or FnDeclNode variants).
 // Requests whose genericName does not appear in the registry are silently skipped.
+//
+// Fixed-point worklist: `requests` doubles as the worklist.  Instantiating a
+// concrete function may surface further generic applications in its substituted
+// type annotations (see collectFollowupRequests); those are appended to
+// `requests` and processed by later iterations.  The mangled-name `seen` set
+// guarantees termination — each distinct concrete instantiation is handled at
+// most once, and a finite program reaches a finite set of instantiations.
 fn instantiateAll(registry GenericRegistry, requests Array<InstantiationRequest>) Array<AstNode> {
     let seen Array<String>: []
     let out Array<AstNode>: []
@@ -326,9 +471,12 @@ fn instantiateAll(registry GenericRegistry, requests Array<InstantiationRequest>
         let mangledName String: mangleGenericName(req.genericName, req.concreteTypes)
         if not alreadySeen(seen, mangledName) {
             seen.add(mangledName)
+            let before i64: out.len()
             findInstType(registry, req.genericName, req.concreteTypes, out)
             findInstFn(registry, req.genericName, req.concreteTypes, out)
             findInstSumType(registry, req.genericName, req.concreteTypes, out, seen)
+            // Enqueue transitive instantiations from any fn produced above.
+            requests: scanNewFnsForFollowups(out, before, registry, requests)
         } else {
             drop(mangledName)
         }

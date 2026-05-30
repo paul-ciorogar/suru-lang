@@ -1,0 +1,100 @@
+// exportPass.suru — Semantic validation for export blocks.
+//
+// Validates that each name listed in an `export { ... }` block is actually
+// defined in the same file's own functions, types, or top-level constants.
+// On success, the resolved exported names are stored in state.exportedNames
+// for use by the import desugaring pass (Task 6).
+//
+// Rules enforced here:
+//   - Every entry's localName must resolve to a FnDeclNode, TypeDeclNode,
+//     SumTypeDeclNode, or top-level LetNode in the same file.
+//   - Error: "export: '<name>' is not defined in this module"
+//
+// The parser already enforces export block syntax (braces, colons, idents),
+// so only semantic correctness is checked here.
+
+namespace Suru.Compiler.Semantic.ExportPass
+
+export {
+    collectOwnDefinedNames
+    containsName
+    validateExports
+}
+
+import { semantic: Suru.Compiler.Semantic }
+import { ast: Suru.Compiler.Parser.Ast }
+
+// collectOwnDefinedNames — walk ownStmts and return the names of all
+// locally-defined functions, types, and top-level constants.
+//
+// Only the root file's own declarations are collected; ownStmts already
+// contains only own-file statements (from collectNonInclude).
+fn collectOwnDefinedNames(ownStmts Array<AstNode>) Array<String> {
+    let names Array<String>: []
+    let i i64: 0
+    while i.lt(ownStmts.len()) {
+        let stmt AstNode: ownStmts.at(i)
+        match stmt {
+            FnDeclNode:      { names.add(stmt.name) }
+            TypeDeclNode:    { names.add(stmt.name) }
+            SumTypeDeclNode: { names.add(stmt.name) }
+            // Top-level let declarations act as module constants.
+            LetNode:         { names.add(stmt.name) }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return names
+}
+
+// containsName — linear search for name in names array.
+fn containsName(names Array<String>, name String) bool {
+    let i i64: 0
+    while i.lt(names.len()) {
+        if names.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// validateExports — validate the export block (if any) in ownStmts.
+//
+// For each ExportEntry:
+//   - Checks that entry.localName is defined in the module's own declarations.
+//   - Errors via state.addError if not found.
+//   - On success, appends entry.exportedAs to state.exportedNames so that
+//     subsequent passes know what this namespace exports.
+//
+// Parameters:
+//   state    — the AnalyzerState for the current module (mutated in-place)
+//   ownStmts — own-file statements from collectNonInclude(mod.stmts),
+//              with generic templates already filtered out
+fn validateExports(state AnalyzerState, ownStmts Array<AstNode>) AnalyzerState {
+    let definedNames Array<String>: collectOwnDefinedNames(ownStmts)
+    let i i64: 0
+    while i.lt(ownStmts.len()) {
+        let stmt AstNode: ownStmts.at(i)
+        match stmt {
+            ExportNode: {
+                let exportNode ExportNode: stmt
+                let j i64: 0
+                while j.lt(exportNode.entries.len()) {
+                    let entry ExportEntry: exportNode.entries.at(j)
+                    if not containsName(definedNames, entry.localName) {
+                        state.addError(
+                            "export: '".append(entry.localName).append("' is not defined in this module"),
+                            exportNode.line,
+                            exportNode.col
+                        )
+                    } else {
+                        state.exportedNames.add(entry.exportedAs)
+                    }
+                    j: j.add(1)
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return state
+}

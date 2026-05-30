@@ -1,6 +1,13 @@
 // diagUtils.suru — shared diagnostic formatting helpers used by the lexer,
 // parser, and pipeline to emit rich error messages with source snippets.
 
+namespace Suru.Compiler.DiagUtils
+
+export {
+    extractSourceLine
+    buildSpaces
+}
+
 // extractSourceLine — return the 1-based targetLine from src (empty when not found).
 fn extractSourceLine(src String, targetLine i64) String {
     let currentLine i64: 1

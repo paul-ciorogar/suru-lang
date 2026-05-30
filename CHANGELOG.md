@@ -7,6 +7,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix — generics inside object-literal method bodies
+
+Generic types/functions (e.g. stdlib `Option<T>`, `some<T>()`) can now be used
+inside object-literal method bodies. Previously a call like
+`some(this.items.at(i))` in an object method emitted an unmangled `@some` (invalid
+IR / segfault), or failed with `unknown return type 'Option<Sig>'`. Two
+independent compiler gaps were fixed:
+
+- `src/compiler/semantic/resolveTypes.suru` (`rtResolveMethodCallNode`): pass-1
+  type resolution now annotates `arr.at(i)` with the array's element type and
+  `x.clone()` with the receiver's type. Without these, generic-call arguments
+  built from `.at()`/`.clone()` had an empty `resolvedType`, so monomorphization
+  could not infer the type argument and never created the instantiation. (This
+  was never object-method-specific — it reproduced at top level too; object
+  methods just made it the common case.)
+- `src/compiler/semantic/mono/monoInstantiate.suru` (`instantiateAll`): converted
+  from a single pass into a **fixed-point worklist**. When a concrete function is
+  produced (e.g. `some__Sig`), its substituted return/param/`let` type
+  annotations are re-scanned for generic applications (`Option<Sig>`), which are
+  enqueued and instantiated transitively (`Option__Sig` + its variant structs).
+  Termination is guaranteed by the existing mangled-name `seen` set.
+
+New regression fixture `tests/fixtures/objects-option-find/` (a registry object
+whose `find` method returns `Option<Sig>`, exercising both `Some` and `None`
+paths). 77 tests pass; bootstrap fixed-point holds.
+
+### Refactor — compiler internals cleanup
+
+Behaviour-preserving sweep across `irCodegen`, `monoPass`, and `importPass`.
+All 76 tests pass; bootstrap fixed-point still holds.
+
+- `src/compiler/codegen/irCodegen.suru`:
+  - Added three helpers (`emitRawIndex`, `emitFilePathArg`, `emitPrintByType`)
+    that collapse repeated unbox/dispatch patterns. Applied at five
+    Array/String index sites, both file I/O builtins (`writeFile`,
+    `appendToFile`), and both print builtins (`printLn`, `printError`).
+  - Converted `appendRootSlot` from tail recursion to a `while` loop.
+- `src/compiler/semantic/mono/monoPass.suru`:
+  - Inlined seven tail-recursive `*At` helpers
+    (`extractFnNamesAt`, `extractTypeNamesAt`, `filterGenericDefsAt`,
+    `rewriteCallsInExprsAt`, `rewriteCallsInStmtsAt`, `rewriteMatchArmsAt`,
+    `rewriteMatchStmtArmsAt`, `rewriteStructFieldsAt`) into their wrapper
+    functions as `while` loops; removed the now-redundant `*At` exports.
+- `src/compiler/semantic/importPass.suru`:
+  - Split the 109-line `buildSubstTable` into four per-kind helpers
+    (`buildSubstForFullNs`, `buildSubstForAliasNs`,
+    `buildSubstForSelectiveNames`, `buildSubstForSelectiveAliased`) and
+    three diagnostic helpers (`importConflictError`,
+    `importNotExportedError`, `addSubstEntry`). The dispatcher now hoists
+    the shared "unknown namespace" check above the per-kind match.
+
+### Namespace system — include removal + namespace enforcement (Task 13)
+
+Namespace declarations are now **required** in every `.suru` file. Missing a `namespace`
+declaration is a hard compile error:
+```
+/path/to/file.suru: error: namespace declaration required
+```
+
+The `include` directive has been **removed** from the language:
+- Lexer: `TOK_INCLUDE` token removed
+- AST: `IncludeNode` and `IncludeAlias` types removed
+- Parser: `parseIncludeDirective()` removed
+- Pipeline: `IncludeNode` resolution branch removed; `collectNonInclude` simplified
+- Codegen: dead `lookupAliasSrc` helper and `aliases` parameter removed from `generate()`
+
+All remaining `include` directives in the compiler source and test fixtures have been
+converted to `import` declarations.
+
+Remaining files that received namespace declarations: `src/compiler/diagUtils.suru`
+(`Suru.Compiler.DiagUtils`), `src/compiler/debug/debugPrint.suru` (`Suru.Compiler.Debug.Print`),
+`src/compiler/build.suru` (`Suru.Compiler.Build`), `src/cli/main.suru` (`Suru.Cli`),
+`tests/runner/main.suru` (`Suru.Tests.Runner`).
+
+New test fixture `namespace-error-missing` pins the compile-error diagnostic.
+Bootstrap fixed point confirmed twice (hash `d8e807f464918f81098ccadd9ccdc4d7`). All 71 tests pass.
+
+### Namespace system — compiler source (Task 12)
+
+All 29 compiler source files in `src/compiler/semantic/`, `src/compiler/codegen/`, and
+`src/compiler/pipeline.suru` now carry `namespace` declarations and `export` blocks.
+
+New project file support: a `.suruproject` file at the project root lists additional source
+root directories (one per line, relative to the file, `#`-comments ignored). The compiler
+walks upward from the entry file to find `.suruproject` and passes all listed directories
+to `buildNamespaceRegistryMulti` so imports across sibling directories (e.g. `src/cli/`
+importing `src/compiler/` namespaces) resolve correctly.
+
+New pipeline helpers exported from `pipeline.suru`:
+- `findProjectFile(startDir)` — locates `.suruproject` by walking up the directory tree
+- `readProjectSourceDirs(projectFile)` — parses the project file into a list of absolute paths
+- `registryRootsFor(sourcePath)` — combines the entry file's directory with project file dirs
+- `buildNamespaceRegistryMulti(dirs)` — scans multiple directories in a single `find` invocation
+
+All `include` directives in those files replaced with `import { alias: Namespace }` declarations,
+completing the include→import migration for all compiler source.
+
+Legacy `mangleSym` and `sanitizePath` functions removed from `irCodegen.suru`; the `fnMangleSym`
+fallback (for extern functions with no source namespace) now returns the name verbatim.
+
+Semantic analysis extended: `MethodCallNode` receivers that are not `VarRefNode` (e.g. desugared
+import-alias calls routed through `QualifiedNameNode`) now also trigger argument-type checking
+via `checkCallArgTypesAt`, catching cross-module type mismatches that previously went unreported.
+
+Bootstrap fixed point confirmed twice (hash `fbf0c62d8f00acfec2387b4679b47313`). All 70 tests pass.
+
 ### Renamed primitive types to lowercase
 
 The five primitive type names have been renamed to their lowercase, Rust-style equivalents:

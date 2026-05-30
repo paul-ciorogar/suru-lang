@@ -1,0 +1,9 @@
+namespace Test.Lib
+
+export {
+    greet
+}
+
+fn greet() {
+    printLn("hello from include-compat")
+}

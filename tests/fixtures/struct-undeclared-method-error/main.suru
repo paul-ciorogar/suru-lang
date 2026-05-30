@@ -1,3 +1,5 @@
+namespace Test.StructUndeclaredMethodError
+
 // tests/fixtures/struct-undeclared-method-error/main.suru
 //
 // Validates that a struct literal providing a method not declared on the

@@ -21,8 +21,22 @@
 //   - All function names are unique across the semantic analyzer files to
 //     avoid LLVM link-time symbol collisions (each .suru compiles to its own .o).
 
-include "semantic.suru" as semantic
-include "passes.suru" as passes
+namespace Suru.Compiler.Semantic.Exprs
+
+export {
+    inferTypeFromMethod
+    inferTypeFromFirstArm
+    inferType
+    analyzeExprAt
+    analyzeMatchArmsAt
+    analyzeStructFieldsAt
+    checkCallArgTypesAt
+    isBuiltinTypeName
+    analyzeExpr
+}
+
+import { semantic: Suru.Compiler.Semantic }
+import { passes: Suru.Compiler.Semantic.Passes }
 
 // ─── Type inference ───────────────────────────────────────────────────────────
 
@@ -235,9 +249,16 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                         analyzeExprAt(state, typed.args)
                     }
                 }
+                QualifiedNameNode: {
+                    // Desugared import alias: lib.fn(args) → MethodCallNode{QualNS,fn,args}.
+                    // Mirror the VarRefNode namespace-alias branch: analyze args and check types.
+                    analyzeExprAt(state, typed.args)
+                    checkCallArgTypesAt(state, typed.methodName, typed.args, typed.line, typed.col)
+                }
                 _: {
                     analyzeExpr(state, rcv)
                     analyzeExprAt(state, typed.args)
+                    checkCallArgTypesAt(state, typed.methodName, typed.args, typed.line, typed.col)
                 }
             }
         }

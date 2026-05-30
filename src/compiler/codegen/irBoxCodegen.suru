@@ -13,9 +13,31 @@
 // Imported by ir-string-codegen, ir-array-codegen, ir-struct-codegen,
 // ir-fileio-codegen, ir-type-clone-drop-codegen, and ir-codegen.
 
-include "irCodegenTypes.suru" as types
-include "irCodegenTypeHelpers.suru" as tyh
-include "irBuilder.suru" as ir
+namespace Suru.Compiler.Codegen.Box
+
+export {
+    llvmTypeOf
+    isScalarType
+    rawLlvmTypeOf
+    defaultReturnValue
+    ctxNextTmp
+    boxBool
+    boxInt32
+    boxChar
+    boxInt64
+    boxFloat64
+    boxValue
+    unboxBool
+    unboxInt32
+    unboxChar
+    unboxInt64
+    unboxFloat64
+    unboxScalar
+}
+
+import { types: Suru.Compiler.Codegen.Types }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { ir: Suru.Compiler.Codegen.Builder }
 
 // ─── Type utility functions ───────────────────────────────────────────────────
 // Thin wrappers over the equivalents in ir-codegen-types.suru, provided here so

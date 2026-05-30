@@ -1,4 +1,8 @@
-include "../../../src/stdlib/option.suru" as opt
+namespace Test.StdlibOption
+
+import {
+    [Option, some, none]: Suru.Stdlib.Option
+}
 
 fn describeOpt(x Option<i64>) {
     match x {
@@ -8,8 +12,8 @@ fn describeOpt(x Option<i64>) {
 }
 
 fn main(args Array<String>) {
-    let s Option<i64>: opt.some(42)
-    let n None: {}
+    let s Option<i64>: some(42)
+    let n Option<i64>: none()
     describeOpt(s)
     describeOpt(n)
     drop(s)

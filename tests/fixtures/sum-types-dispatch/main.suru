@@ -1,3 +1,7 @@
+namespace Test.SumTypesDispatch
+
+export { main }
+
 type Dog: { name String, age i64 }
 type Cat: { lives i64 }
 type Animal: Dog, Cat

@@ -1,3 +1,7 @@
+namespace Test.ExecTest
+
+export { main }
+
 fn main(args Array<String>) {
     let code i64: exec("echo hello")
     printLn(code)

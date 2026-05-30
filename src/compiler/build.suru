@@ -6,7 +6,9 @@
 // Usage:
 //   suru-build <source.suru> <output.ll>
 
-include "pipeline.suru" as pipeline
+namespace Suru.Compiler.Build
+
+import { pipeline: Suru.Compiler.Pipeline }
 
 fn main(args Array<String>) {
     pipeline.runBuildDriver(args.at(1), args.at(2))

@@ -12,6 +12,28 @@
 // because the compiler tracks Array<T> element types and annotates every
 // AST expression node with its resolved SuruType during semantic analysis.
 
+namespace Suru.Compiler.Semantic
+
+export {
+    SymbolEntry
+    Scope
+    FunctionSig
+    FunctionRegistry
+    AnalysisError
+    SemFieldEntry
+    SemMethodEntry
+    SemTypeEntry
+    AnalyzerState
+    newFunctionSig
+    newFunctionRegistry
+    makeAnalyzerState
+    newScope
+    sumHasVariantAt
+    isSumVariantAt
+    isMovedAt
+    clearMovedAt
+}
+
 // ─── Type declarations ────────────────────────────────────────────────────────
 
 type SymbolEntry: { name String, typeName String }
@@ -22,60 +44,84 @@ type Scope: {
     fn lookup(name String) String
 }
 
-type FunctionSig: { name String, paramTypes Array<String>, returnType String, srcPath String, fn paramCount() i64 }
-
-fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String) FunctionSig {
-    return { name: name, paramTypes: paramTypes, returnType: returnType, srcPath: srcPath, fn paramCount() i64 { return this.paramTypes.len() } }
+type FunctionSig: { 
+    name String
+    paramTypes Array<String>
+    returnType String
+    srcPath String
+    fn paramCount() i64 
 }
 
-type FunctionRegistry: { sigs Array<FunctionSig>, fn add(sig FunctionSig), fn hasSig(srcPath String, name String) bool, fn returnType(name String) String, fn paramCount(name String) i64, fn paramType(name String, idx i64) String }
+fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String) FunctionSig {
+    return { 
+        name: name
+        paramTypes: paramTypes
+        returnType: returnType
+        srcPath: srcPath
+
+        fn paramCount() i64 { 
+            return this.paramTypes.len() 
+        } 
+    }
+}
+
+type FunctionRegistry: { 
+    signatures Array<FunctionSig>
+
+    fn add(sig FunctionSig)
+    fn hasSig(srcPath String, name String) bool
+    fn findIndexByName(name String) i64
+    fn returnType(name String) String
+    fn paramCount(name String) i64
+    fn paramType(name String, idx i64) String 
+}
 
 fn newFunctionRegistry() FunctionRegistry {
     return {
-        sigs: [],
+        signatures: [],
 
         fn add(sig FunctionSig) {
-            this.sigs.add(sig)
+            this.signatures.add(sig)
         }
 
         fn hasSig(srcPath String, name String) bool {
             let i i64: 0
-            while i.lt(this.sigs.len()) {
-                let s FunctionSig: this.sigs.at(i)
+            while i.lt(this.signatures.len()) {
+                let s FunctionSig: this.signatures.at(i)
                 if s.name.equals(name) and s.srcPath.equals(srcPath) { return true }
                 i: i.add(1)
             }
             return false
         }
 
-        fn returnType(name String) String {
+        // Linear search for the first signature with the given name.
+        // Returns its index in `signatures`, or -1 if no signature matches.
+        fn findIndexByName(name String) i64 {
             let i i64: 0
-            while i.lt(this.sigs.len()) {
-                if this.sigs.at(i).name.equals(name) { return this.sigs.at(i).returnType }
-                i: i.add(1)
-            }
-            return ""
-        }
-
-        fn paramCount(name String) i64 {
-            let i i64: 0
-            while i.lt(this.sigs.len()) {
-                if this.sigs.at(i).name.equals(name) { return this.sigs.at(i).paramCount() }
+            while i.lt(this.signatures.len()) {
+                if this.signatures.at(i).name.equals(name) { return i }
                 i: i.add(1)
             }
             return -1
         }
 
+        fn returnType(name String) String {
+            let i i64: this.findIndexByName(name)
+            if i.lt(0) { return "" }
+            return this.signatures.at(i).returnType
+        }
+
+        fn paramCount(name String) i64 {
+            let i i64: this.findIndexByName(name)
+            if i.lt(0) { return -1 }
+            return this.signatures.at(i).paramCount()
+        }
+
         fn paramType(name String, idx i64) String {
-            let i i64: 0
-            while i.lt(this.sigs.len()) {
-                if this.sigs.at(i).name.equals(name) {
-                    let pts Array<String>: this.sigs.at(i).paramTypes
-                    if idx.lt(pts.len()) { return pts.at(idx) }
-                    return ""
-                }
-                i: i.add(1)
-            }
+            let i i64: this.findIndexByName(name)
+            if i.lt(0) { return "" }
+            let pts Array<String>: this.signatures.at(i).paramTypes
+            if idx.lt(pts.len()) { return pts.at(idx) }
             return ""
         }
     }
@@ -111,7 +157,9 @@ type AnalyzerState: {
     insideLoop      i64
     constants       Array<String>
     movedVars       Array<String>
-    currentSrcPath  String
+    currentSrcPath    String
+    moduleNamespace   String
+    exportedNames     Array<String>
     fn pushScope()
     fn popScope()
     fn declareSymbol(name String, typeName String)
@@ -143,6 +191,8 @@ fn makeAnalyzerState() AnalyzerState {
         constants: [],
         movedVars: [],
         currentSrcPath: "",
+        moduleNamespace: "",
+        exportedNames: [],
 
         // ─── Scope stack ─────────────────────────────────────────────────────
 

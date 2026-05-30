@@ -23,8 +23,30 @@
 // file that includes this one. Types (AstNode, Param, AnalysisError, FunctionSig)
 // are merged unqualified and are also safe.
 
-include "semantic.suru" as sem
-include "../parser/parser.suru" as parser
+namespace Suru.Compiler.Semantic.Passes
+
+export {
+    isArrayGeneric
+    isBuiltinType
+    typeNameExistsAt
+    indexOfAngle
+    ltrimStr
+    flattenPassTypeArg
+    appendMangledArgsAt
+    mangleAnnotation
+    isUserGenericAnnotation
+    resolveTypeName
+    isTypeParam
+    recordTypeDecl
+    collectTypeDeclarations
+    registerFnDecl
+    registerExternFnDecl
+    collectFunctionDeclarations
+    runPrePasses
+}
+
+import { sem: Suru.Compiler.Semantic }
+import { parser: Suru.Compiler.Parser }
 
 // ─── Type resolution ──────────────────────────────────────────────────────────
 

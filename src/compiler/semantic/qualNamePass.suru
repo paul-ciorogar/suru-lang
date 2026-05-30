@@ -1,0 +1,510 @@
+// qualNamePass.suru — Fully-qualified name resolution without explicit import.
+//
+// Enables calling functions by their full namespace path without an import:
+//   My.Lib.double(21)       — works without  import { My.Lib }
+//   My.Lib.CONST            — qualified global constant access
+//
+// Two phases, each called from pipeline.suru:
+//
+//   collectQualNsPrefixes(stmts) — scans the AST for candidate namespace
+//     prefixes; called inside resolveIncludesRec so that files referenced
+//     only by fully-qualified calls are auto-discovered and loaded.
+//
+//   rewriteQualifiedCalls(stmts, nsExports) — rewrites FieldAccessNode chains
+//     used as MethodCallNode receivers into QualifiedNameNode receivers,
+//     matching the form produced by import desugaring; called after
+//     desugarImports so the existing semantic/codegen handling applies.
+//
+// Disambiguation: a chain A.B is treated as a namespace prefix only when "A.B"
+// appears in the nsExports registry.  Local variables whose names happen to
+// match a namespace segment are never misidentified.
+
+namespace Suru.Compiler.Semantic.QualNamePass
+
+export {
+    collectQualNsPrefixes
+    rewriteQualifiedCalls
+}
+
+import { importPass: Suru.Compiler.Semantic.ImportPass }
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+// joinDots — join parts with "." separator: ["A","B","C"] → "A.B.C".
+fn joinDots(parts Array<String>) String {
+    let result String: ""
+    let i i64: 0
+    while i.lt(parts.len()) {
+        if i.gt(0) { result: result.append(".") }
+        result: result.append(parts.at(i))
+        i: i.add(1)
+    }
+    return result
+}
+
+// flattenFieldChain — recursively flatten a FieldAccessNode/VarRefNode chain
+// into an ordered list of name segments.
+//
+//   VarRefNode("A")                              → ["A"]
+//   FieldAccessNode { VarRef("A"), "B" }         → ["A", "B"]
+//   FieldAccessNode { FA{VarRef("A"),"B"}, "C" } → ["A", "B", "C"]
+//   Any other node type                          → [] (not a pure chain)
+fn flattenFieldChain(node AstNode) Array<String> {
+    match node {
+        VarRefNode: {
+            let vr VarRefNode: node
+            let parts Array<String>: []
+            parts.add(vr.name)
+            return parts
+        }
+        FieldAccessNode: {
+            let fan FieldAccessNode: node
+            let parts Array<String>: flattenFieldChain(fan.receiver)
+            if parts.len().equals(0) { return parts }
+            parts.add(fan.fieldName)
+            return parts
+        }
+        _: {
+            let empty Array<String>: []
+            return empty
+        }
+    }
+    let empty Array<String>: []
+    return empty
+}
+
+// nsInExports — true if ns is a key in the nsExports registry.
+fn nsInExports(ns String, nsExports Array<NsExportEntry>) bool {
+    let i i64: 0
+    while i.lt(nsExports.len()) {
+        if nsExports.at(i).ns.equals(ns) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// ─── Collector phase ───────────────────────────────────────────────────────────
+
+// collectQualNsRefsExpr — recursively scan an expression for namespace prefixes,
+// appending candidate strings to found.
+fn collectQualNsRefsExpr(node AstNode, found Array<String>) {
+    match node {
+        MethodCallNode: {
+            let mcn MethodCallNode: node
+            let parts Array<String>: flattenFieldChain(mcn.receiver)
+            if parts.len().gt(0) {
+                found.add(joinDots(parts))
+            } else {
+                collectQualNsRefsExpr(mcn.receiver, found)
+            }
+            let i i64: 0
+            while i.lt(mcn.args.len()) {
+                collectQualNsRefsExpr(mcn.args.at(i), found)
+                i: i.add(1)
+            }
+        }
+        FieldAccessNode: {
+            let fan FieldAccessNode: node
+            let parts Array<String>: flattenFieldChain(node)
+            if parts.len().gt(1) {
+                let nsParts Array<String>: []
+                let j i64: 0
+                while j.lt(parts.len().take(1)) {
+                    nsParts.add(parts.at(j))
+                    j: j.add(1)
+                }
+                found.add(joinDots(nsParts))
+            } else {
+                collectQualNsRefsExpr(fan.receiver, found)
+            }
+        }
+        CallNode: {
+            let cn CallNode: node
+            let i i64: 0
+            while i.lt(cn.args.len()) {
+                collectQualNsRefsExpr(cn.args.at(i), found)
+                i: i.add(1)
+            }
+        }
+        BinaryNode: {
+            let bn BinaryNode: node
+            collectQualNsRefsExpr(bn.left, found)
+            collectQualNsRefsExpr(bn.right, found)
+        }
+        UnaryNode: {
+            let un UnaryNode: node
+            collectQualNsRefsExpr(un.operand, found)
+        }
+        ArrayLitNode: {
+            let aln ArrayLitNode: node
+            let i i64: 0
+            while i.lt(aln.elems.len()) {
+                collectQualNsRefsExpr(aln.elems.at(i), found)
+                i: i.add(1)
+            }
+        }
+        StructLitNode: {
+            let sln StructLitNode: node
+            let i i64: 0
+            while i.lt(sln.fields.len()) {
+                let sf StructFieldNode: sln.fields.at(i)
+                collectQualNsRefsExpr(sf.value, found)
+                collectQualNsPrefixesFromStmts(sf.methodBody, found)
+                i: i.add(1)
+            }
+        }
+        MatchExprNode: {
+            let men MatchExprNode: node
+            collectQualNsRefsExpr(men.condition, found)
+            let i i64: 0
+            while i.lt(men.arms.len()) {
+                let arm MatchArm: men.arms.at(i)
+                collectQualNsRefsExpr(arm.body, found)
+                i: i.add(1)
+            }
+        }
+        _: {}
+    }
+}
+
+// collectQualNsPrefixesFromStmts — scan statements for qualified name prefixes,
+// appending candidates to found.
+fn collectQualNsPrefixesFromStmts(stmts Array<AstNode>, found Array<String>) {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        match stmts.at(i) {
+            FnDeclNode: {
+                let fd FnDeclNode: stmts.at(i)
+                collectQualNsPrefixesFromStmts(fd.body, found)
+            }
+            LetNode: {
+                let ln LetNode: stmts.at(i)
+                collectQualNsRefsExpr(ln.value, found)
+            }
+            AssignNode: {
+                let an AssignNode: stmts.at(i)
+                collectQualNsRefsExpr(an.value, found)
+            }
+            FieldAssignNode: {
+                let fan FieldAssignNode: stmts.at(i)
+                collectQualNsRefsExpr(fan.receiver, found)
+                collectQualNsRefsExpr(fan.value, found)
+            }
+            ReturnNode: {
+                let rn ReturnNode: stmts.at(i)
+                collectQualNsRefsExpr(rn.value, found)
+            }
+            WhileNode: {
+                let wn WhileNode: stmts.at(i)
+                collectQualNsRefsExpr(wn.condition, found)
+                collectQualNsPrefixesFromStmts(wn.body, found)
+            }
+            ExprStmtNode: {
+                let en ExprStmtNode: stmts.at(i)
+                collectQualNsRefsExpr(en.expr, found)
+            }
+            IfNode: {
+                let ifn IfNode: stmts.at(i)
+                collectQualNsRefsExpr(ifn.condition, found)
+                collectQualNsPrefixesFromStmts(ifn.thenBranch.stmts, found)
+                collectQualNsPrefixesFromStmts(ifn.elseBranch.stmts, found)
+            }
+            MatchStmtNode: {
+                let mn MatchStmtNode: stmts.at(i)
+                collectQualNsRefsExpr(mn.condition, found)
+                let j i64: 0
+                while j.lt(mn.arms.len()) {
+                    let arm MatchStmtArm: mn.arms.at(j)
+                    collectQualNsPrefixesFromStmts(arm.stmts, found)
+                    j: j.add(1)
+                }
+            }
+            BlockNode: {
+                let bn BlockNode: stmts.at(i)
+                collectQualNsPrefixesFromStmts(bn.stmts, found)
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+}
+
+// collectQualNsPrefixes — returns the deduplicated set of namespace prefix
+// candidates found in stmts.  Each candidate is a dotted string like "A.B".
+// The caller (pipeline.resolveIncludesRec) checks each against the namespace
+// registry to decide which files to load.
+fn collectQualNsPrefixes(stmts Array<AstNode>) Array<String> {
+    let found Array<String>: []
+    collectQualNsPrefixesFromStmts(stmts, found)
+    let unique Array<String>: []
+    let i i64: 0
+    while i.lt(found.len()) {
+        let ns String: found.at(i)
+        let exists bool: false
+        let j i64: 0
+        while j.lt(unique.len()) {
+            if unique.at(j).equals(ns) { exists: true }
+            j: j.add(1)
+        }
+        if not exists { unique.add(ns) }
+        i: i.add(1)
+    }
+    return unique
+}
+
+// ─── Rewriter phase ────────────────────────────────────────────────────────────
+
+// rewriteQualNameExprs — rewrite an array of expression nodes.
+fn rewriteQualNameExprs(nodes Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
+    let out Array<AstNode>: []
+    let i i64: 0
+    while i.lt(nodes.len()) {
+        out.add(rewriteQualNameExpr(nodes.at(i), nsExports))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteQualNameBlock — rewrite a BlockNode's statement list.
+fn rewriteQualNameBlock(block BlockNode, nsExports Array<NsExportEntry>) BlockNode {
+    let newStmts Array<AstNode>: rewriteQualNameStmts(block.stmts, nsExports)
+    return { stmts: newStmts }
+}
+
+// rewriteQualNameStructField — rewrite value and method body of a StructFieldNode.
+fn rewriteQualNameStructField(sf StructFieldNode, nsExports Array<NsExportEntry>) StructFieldNode {
+    let newVal AstNode: rewriteQualNameExpr(sf.value, nsExports)
+    let newBody Array<AstNode>: rewriteQualNameStmts(sf.methodBody, nsExports)
+    return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newBody }
+}
+
+// rewriteQualNameStructFields — rewrite an array of StructFieldNodes.
+fn rewriteQualNameStructFields(fields Array<StructFieldNode>, nsExports Array<NsExportEntry>) Array<StructFieldNode> {
+    let out Array<StructFieldNode>: []
+    let i i64: 0
+    while i.lt(fields.len()) {
+        out.add(rewriteQualNameStructField(fields.at(i), nsExports))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteQualNameMatchArm — rewrite pattern and body of a match-expression arm.
+fn rewriteQualNameMatchArm(arm MatchArm, nsExports Array<NsExportEntry>) MatchArm {
+    let newPat AstNode: rewriteQualNameExpr(arm.pattern, nsExports)
+    let newBody AstNode: rewriteQualNameExpr(arm.body, nsExports)
+    return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
+}
+
+// rewriteQualNameMatchArms — rewrite a match-expression arm array.
+fn rewriteQualNameMatchArms(arms Array<MatchArm>, nsExports Array<NsExportEntry>) Array<MatchArm> {
+    let out Array<MatchArm>: []
+    let i i64: 0
+    while i.lt(arms.len()) {
+        out.add(rewriteQualNameMatchArm(arms.at(i), nsExports))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteQualNameMatchStmtArm — rewrite pattern and body stmts of a match-statement arm.
+fn rewriteQualNameMatchStmtArm(arm MatchStmtArm, nsExports Array<NsExportEntry>) MatchStmtArm {
+    let newPat AstNode: rewriteQualNameExpr(arm.pattern, nsExports)
+    let newStmts Array<AstNode>: rewriteQualNameStmts(arm.stmts, nsExports)
+    return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
+}
+
+// rewriteQualNameMatchStmtArms — rewrite a match-statement arm array.
+fn rewriteQualNameMatchStmtArms(arms Array<MatchStmtArm>, nsExports Array<NsExportEntry>) Array<MatchStmtArm> {
+    let out Array<MatchStmtArm>: []
+    let i i64: 0
+    while i.lt(arms.len()) {
+        out.add(rewriteQualNameMatchStmtArm(arms.at(i), nsExports))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteQualNameExpr — rewrite qualified name calls in an expression.
+//
+// MethodCallNode with a FieldAccessNode receiver chain A.B.fn(args):
+//   if "A.B" is a known namespace → rewrite to MethodCallNode{QualifiedNameNode(["A","B"]), fn, args}
+// FieldAccessNode chain A.B.CONST (global constant access):
+//   if "A.B" is a known namespace → rewrite to QualifiedNameNode(["A","B","CONST"])
+// All other nodes: recurse into sub-expressions unchanged.
+fn rewriteQualNameExpr(node AstNode, nsExports Array<NsExportEntry>) AstNode {
+    match node {
+        MethodCallNode: {
+            let mcn MethodCallNode: node
+            let parts Array<String>: flattenFieldChain(mcn.receiver)
+            if parts.len().gt(0) {
+                let ns String: joinDots(parts)
+                if nsInExports(ns, nsExports) {
+                    let newArgs Array<AstNode>: rewriteQualNameExprs(mcn.args, nsExports)
+                    let qn QualifiedNameNode: { parts: parts, line: mcn.line, col: mcn.col, resolvedType: "" }
+                    let result MethodCallNode: { receiver: qn, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+                    return result
+                }
+            }
+            let newRec AstNode: rewriteQualNameExpr(mcn.receiver, nsExports)
+            let newArgs Array<AstNode>: rewriteQualNameExprs(mcn.args, nsExports)
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+            return result
+        }
+        FieldAccessNode: {
+            let fan FieldAccessNode: node
+            let parts Array<String>: flattenFieldChain(node)
+            if parts.len().gt(1) {
+                let nsParts Array<String>: []
+                let j i64: 0
+                while j.lt(parts.len().take(1)) {
+                    nsParts.add(parts.at(j))
+                    j: j.add(1)
+                }
+                let ns String: joinDots(nsParts)
+                if nsInExports(ns, nsExports) {
+                    let qn QualifiedNameNode: { parts: parts, line: fan.line, col: fan.col, resolvedType: fan.resolvedType }
+                    return qn
+                }
+            }
+            let newRec AstNode: rewriteQualNameExpr(fan.receiver, nsExports)
+            let result FieldAccessNode: { receiver: newRec, fieldName: fan.fieldName, line: fan.line, col: fan.col, resolvedType: fan.resolvedType }
+            return result
+        }
+        CallNode: {
+            let cn CallNode: node
+            let newArgs Array<AstNode>: rewriteQualNameExprs(cn.args, nsExports)
+            let result CallNode: { name: cn.name, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            return result
+        }
+        BinaryNode: {
+            let bn BinaryNode: node
+            let newLeft AstNode: rewriteQualNameExpr(bn.left, nsExports)
+            let newRight AstNode: rewriteQualNameExpr(bn.right, nsExports)
+            let result BinaryNode: { op: bn.op, left: newLeft, right: newRight, resolvedType: bn.resolvedType }
+            return result
+        }
+        UnaryNode: {
+            let un UnaryNode: node
+            let newOperand AstNode: rewriteQualNameExpr(un.operand, nsExports)
+            let result UnaryNode: { op: un.op, operand: newOperand, resolvedType: un.resolvedType }
+            return result
+        }
+        ArrayLitNode: {
+            let aln ArrayLitNode: node
+            let newElems Array<AstNode>: rewriteQualNameExprs(aln.elems, nsExports)
+            let result ArrayLitNode: { elems: newElems, resolvedType: aln.resolvedType }
+            return result
+        }
+        StructLitNode: {
+            let sln StructLitNode: node
+            let newFields Array<StructFieldNode>: rewriteQualNameStructFields(sln.fields, nsExports)
+            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+            return result
+        }
+        MatchExprNode: {
+            let men MatchExprNode: node
+            let newCond AstNode: rewriteQualNameExpr(men.condition, nsExports)
+            let newArms Array<MatchArm>: rewriteQualNameMatchArms(men.arms, nsExports)
+            let result MatchExprNode: { condition: newCond, arms: newArms, line: men.line, col: men.col, resolvedType: men.resolvedType }
+            return result
+        }
+        _: { return node }
+    }
+    return node
+}
+
+// rewriteQualNameStmt — rewrite qualified name calls in a statement.
+fn rewriteQualNameStmt(node AstNode, nsExports Array<NsExportEntry>) AstNode {
+    match node {
+        FnDeclNode: {
+            let fd FnDeclNode: node
+            let newBody Array<AstNode>: rewriteQualNameStmts(fd.body, nsExports)
+            let result FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: newBody, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
+            return result
+        }
+        LetNode: {
+            let ln LetNode: node
+            let newVal AstNode: rewriteQualNameExpr(ln.value, nsExports)
+            let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col, srcPath: ln.srcPath }
+            return result
+        }
+        AssignNode: {
+            let an AssignNode: node
+            let newVal AstNode: rewriteQualNameExpr(an.value, nsExports)
+            let result AssignNode: { name: an.name, value: newVal, line: an.line, col: an.col }
+            return result
+        }
+        FieldAssignNode: {
+            let fan FieldAssignNode: node
+            let newRec AstNode: rewriteQualNameExpr(fan.receiver, nsExports)
+            let newVal AstNode: rewriteQualNameExpr(fan.value, nsExports)
+            let result FieldAssignNode: { receiver: newRec, fieldName: fan.fieldName, value: newVal, line: fan.line, col: fan.col }
+            return result
+        }
+        ReturnNode: {
+            let rn ReturnNode: node
+            let newVal AstNode: rewriteQualNameExpr(rn.value, nsExports)
+            let result ReturnNode: { hasValue: rn.hasValue, value: newVal, line: rn.line, col: rn.col }
+            return result
+        }
+        WhileNode: {
+            let wn WhileNode: node
+            let newCond AstNode: rewriteQualNameExpr(wn.condition, nsExports)
+            let newBody Array<AstNode>: rewriteQualNameStmts(wn.body, nsExports)
+            let result WhileNode: { condition: newCond, body: newBody, line: wn.line, col: wn.col }
+            return result
+        }
+        ExprStmtNode: {
+            let en ExprStmtNode: node
+            let newExpr AstNode: rewriteQualNameExpr(en.expr, nsExports)
+            let result ExprStmtNode: { expr: newExpr }
+            return result
+        }
+        IfNode: {
+            let ifn IfNode: node
+            let newCond AstNode: rewriteQualNameExpr(ifn.condition, nsExports)
+            let newThen BlockNode: rewriteQualNameBlock(ifn.thenBranch, nsExports)
+            let newElse BlockNode: rewriteQualNameBlock(ifn.elseBranch, nsExports)
+            let result IfNode: { condition: newCond, thenBranch: newThen, elseBranch: newElse, line: ifn.line, col: ifn.col }
+            return result
+        }
+        MatchStmtNode: {
+            let mn MatchStmtNode: node
+            let newCond AstNode: rewriteQualNameExpr(mn.condition, nsExports)
+            let newArms Array<MatchStmtArm>: rewriteQualNameMatchStmtArms(mn.arms, nsExports)
+            let result MatchStmtNode: { condition: newCond, arms: newArms }
+            return result
+        }
+        BlockNode: {
+            let bn BlockNode: node
+            let result BlockNode: rewriteQualNameBlock(bn, nsExports)
+            return result
+        }
+        _: { return node }
+    }
+    return node
+}
+
+// rewriteQualNameStmts — rewrite an array of statements.
+fn rewriteQualNameStmts(stmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
+    let out Array<AstNode>: []
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        out.add(rewriteQualNameStmt(stmts.at(i), nsExports))
+        i: i.add(1)
+    }
+    return out
+}
+
+// rewriteQualifiedCalls — main entry point called from pipeline.suru after
+// desugarImports and before analyzeModuleStatements.
+//
+// Rewrites every FieldAccessNode chain used as a MethodCallNode receiver (or
+// as a stand-alone global reference) into a QualifiedNameNode when the chain
+// resolves to a namespace in nsExports.  The resulting form is identical to
+// what desugarImports produces for AliasNs imports, so the existing semantic
+// analysis and codegen paths handle it without further modification.
+fn rewriteQualifiedCalls(stmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
+    return rewriteQualNameStmts(stmts, nsExports)
+}

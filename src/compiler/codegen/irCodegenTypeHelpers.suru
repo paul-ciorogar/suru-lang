@@ -9,6 +9,27 @@
 //
 // Include DAG: leaf. Imported by irBoxCodegen.suru and everything above it.
 
+namespace Suru.Compiler.Codegen.TypeHelpers
+
+export {
+    isScalarSuruType
+    isArraySuruType
+    elemSuruType
+    isArrayTypeName
+    extractElemType
+    indexOfAngleCG
+    ltrimCG
+    flattenCGTypeArg
+    appendMangledCGAt
+    isUserGenericTypeName
+    mangleGenericAnnotation
+    normalizeTypeName
+    makeSuruType
+    irLlvmTypeOf
+    suruTypeTag
+    isBuiltinSuruType
+}
+
 // True for the four scalar types that use raw LLVM values (not ptr).
 fn isScalarSuruType(suruType String) bool {
     return match suruType {

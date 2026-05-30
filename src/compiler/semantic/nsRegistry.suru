@@ -1,0 +1,189 @@
+// nsRegistry.suru — Namespace registry for auto-discovery of source files by namespace.
+//
+// Builds a NamespaceRegistry by scanning *.suru files in a directory tree via
+// the shell `find` command, lexing and parsing each file to extract its
+// namespace declaration, then mapping namespace strings to absolute source paths.
+//
+// Used by the pipeline's resolveIncludes to automatically load files required
+// by ImportNode entries without requiring explicit `include` directives. When a
+// file imports `{ [add]: Test.Lib }`, the registry lookup finds the file that
+// declared `namespace Test.Lib` and loads it into the merge state.
+//
+// Public API:
+//   buildNamespaceRegistry(rootDir String) NamespaceRegistry
+//   nsRegistryLookup(reg NamespaceRegistry, ns String) String
+
+namespace Suru.Compiler.Semantic.NsRegistry
+
+export {
+    NamespaceRegistry
+    nsRegistryLookup
+    splitLines
+    extractFileNamespace
+    augmentRegistry
+    buildNamespaceRegistry
+    buildNamespaceRegistryMulti
+}
+
+import { lex: Suru.Compiler.Lexer }
+import { parser: Suru.Compiler.Parser }
+
+// ─── Registry type ─────────────────────────────────────────────────────────────
+
+// NamespaceRegistry maps namespace strings (e.g. "Test.Lib") to their absolute
+// source file paths. Built once per compilation by scanning *.suru files under
+// the project root directory.
+type NamespaceRegistry: { namespaces Array<String>, srcPaths Array<String> }
+
+// ─── Lookup ────────────────────────────────────────────────────────────────────
+
+// nsRegistryLookup — linear scan through the registry; returns the srcPath
+// registered for `ns`, or "" if no file with that namespace was found.
+fn nsRegistryLookup(reg NamespaceRegistry, ns String) String {
+    let i i64: 0
+    while i.lt(reg.namespaces.len()) {
+        if reg.namespaces.at(i).equals(ns) { return reg.srcPaths.at(i) }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// ─── Line splitting ────────────────────────────────────────────────────────────
+
+// splitLines — splits a newline-separated string into an array of non-empty
+// lines. Used to parse the newline-delimited output of the `find` shell command.
+fn splitLines(s String) Array<String> {
+    let lines Array<String>: []
+    let start i64: 0
+    let i i64: 0
+    while i.lt(s.len()) {
+        if s.at(i).equals("\n") {
+            if i.gt(start) {
+                lines.add(s.slice(start, i))
+            }
+            start: i.add(1)
+        }
+        i: i.add(1)
+    }
+    if start.lt(s.len()) {
+        lines.add(s.slice(start, s.len()))
+    }
+    return lines
+}
+
+// ─── Namespace extraction ──────────────────────────────────────────────────────
+
+// extractFileNamespace — reads, lexes, and parses `srcPath`; returns the
+// declared namespace name if a NamespaceDeclNode is present as any top-level
+// statement, or "" if the file has no namespace declaration.
+// Parse errors in the scanned file are silently ignored; only the namespace
+// declaration is needed for registry construction.
+fn extractFileNamespace(srcPath String) String {
+    let src String: readFile(srcPath)
+    let tokens Array<Token>: lex.tokenize(src, srcPath)
+    let mod AstModule: parser.parse(tokens, srcPath)
+    let i i64: 0
+    while i.lt(mod.stmts.len()) {
+        match mod.stmts.at(i) {
+            NamespaceDeclNode: {
+                let nd NamespaceDeclNode: mod.stmts.at(i)
+                return nd.name
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// ─── Registry building ─────────────────────────────────────────────────────────
+
+// augmentRegistry — back-fills reg with namespace→srcPath mappings from
+// srcNsEntries, skipping any namespace already present in the registry.
+//
+// Call this after resolveIncludes to register namespaces discovered via
+// `include` directives (e.g. files outside the initial filesystem-scan
+// directory). This lets qualified names (e.g. Foo.Bar.func()) resolve against
+// files that were loaded by include rather than by the upfront directory scan.
+fn augmentRegistry(reg NamespaceRegistry, entries Array<SrcNsEntry>) NamespaceRegistry {
+    let i i64: 0
+    while i.lt(entries.len()) {
+        let entry SrcNsEntry: entries.at(i)
+        let existing String: nsRegistryLookup(reg, entry.ns)
+        if existing.equals("") {
+            reg.namespaces.add(entry.ns)
+            reg.srcPaths.add(entry.srcPath)
+        }
+        i: i.add(1)
+    }
+    return reg
+}
+
+// buildNamespaceRegistry — enumerates all *.suru files under `rootDir`
+// (recursively) using the shell `find` command, extracts the namespace
+// declaration from each, and returns a registry mapping namespace strings to
+// absolute source paths.
+//
+// Implementation note: find output is redirected to a fixed temp file
+// (/tmp/__suru_ns_registry.txt) which is then read back with readFile. The
+// redirect always creates the temp file (even when find produces no output),
+// so readFile is always safe. Concurrent compilation sessions sharing the same
+// rootDir may race on this temp file; this is acceptable for the single-
+// threaded compiler and sequential test suite.
+fn buildNamespaceRegistry(rootDir String) NamespaceRegistry {
+    let reg NamespaceRegistry: { namespaces: [], srcPaths: [] }
+    let tmpFile String: "/tmp/__suru_ns_registry.txt"
+    exec("find ".append(rootDir).append(" -name '*.suru' 2>/dev/null | sort > ").append(tmpFile))
+    let content String: readFile(tmpFile)
+    let paths Array<String>: splitLines(content)
+    let i i64: 0
+    while i.lt(paths.len()) {
+        let path String: paths.at(i)
+        if not path.equals("") {
+            let ns String: extractFileNamespace(path)
+            if not ns.equals("") {
+                reg.namespaces.add(ns)
+                reg.srcPaths.add(path)
+            }
+        }
+        i: i.add(1)
+    }
+    return reg
+}
+
+// buildNamespaceRegistryMulti — like buildNamespaceRegistry but scans all
+// directories in `dirs` in a single find invocation. Duplicate paths (from
+// overlapping directories) are eliminated by `sort -u`. Use this when the
+// entry-point source file lives in a sub-directory but imports namespaces
+// defined in sibling directories (e.g. `src/cli/main.suru` importing
+// `src/compiler/` or `src/stdlib/` namespaces).
+//
+// An empty `dirs` array produces an empty registry.
+fn buildNamespaceRegistryMulti(dirs Array<String>) NamespaceRegistry {
+    let reg NamespaceRegistry: { namespaces: [], srcPaths: [] }
+    if dirs.len().equals(0) { return reg }
+    let tmpFile String: "/tmp/__suru_ns_registry.txt"
+    let findCmd String: "find"
+    let i i64: 0
+    while i.lt(dirs.len()) {
+        findCmd: findCmd.append(" '").append(dirs.at(i)).append("'")
+        i: i.add(1)
+    }
+    findCmd: findCmd.append(" -name '*.suru' 2>/dev/null | sort -u > ").append(tmpFile)
+    exec(findCmd)
+    let content String: readFile(tmpFile)
+    let paths Array<String>: splitLines(content)
+    let j i64: 0
+    while j.lt(paths.len()) {
+        let path String: paths.at(j)
+        if not path.equals("") {
+            let ns String: extractFileNamespace(path)
+            if not ns.equals("") {
+                reg.namespaces.add(ns)
+                reg.srcPaths.add(path)
+            }
+        }
+        j: j.add(1)
+    }
+    return reg
+}

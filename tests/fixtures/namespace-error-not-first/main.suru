@@ -1,0 +1,3 @@
+fn notFirst() {}
+namespace Late.Arrival
+fn main() {}

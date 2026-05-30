@@ -1,0 +1,5 @@
+# Suru compiler project
+# Source root directories scanned for namespace declarations (relative to this file).
+# Lets src/cli/main.suru import namespaces defined in src/compiler/ and src/stdlib/.
+src/compiler
+src/stdlib

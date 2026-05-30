@@ -10,9 +10,39 @@
 // The entry point is collectInstantiations; it returns a deduplicated
 // Array<InstantiationRequest>.  Used by monoPass.suru.
 
-include "monoInstantiate.suru" as inst
-include "monoSubst.suru"       as subst
-include "monoCollect.suru"     as collect
+namespace Suru.Compiler.Semantic.Mono.Infer
+
+export {
+    extractBaseTypeName
+    collectTrimmedArgs
+    extractTypeArgs
+    inferFromAnnotation
+    resolvedTypeOf
+    suruCanonToAnnotation
+    collectArgTypes
+    findBindingForVar
+    buildConcreteTypes
+    allBound
+    inferFromGenericFnCall
+    inferFromCallSite
+    appendAll
+    inferFromStmts
+    inferFromExprs
+    inferFromParams
+    inferFromStructFieldAt
+    inferFromStructFields
+    inferFromMatchArms
+    inferFromMatchStmtArms
+    inferFromExpr
+    inferFromStmt
+    keyAlreadySeen
+    deduplicateRequests
+    collectInstantiations
+}
+
+import { inst: Suru.Compiler.Semantic.Mono.Instantiate }
+import { subst: Suru.Compiler.Semantic.Mono.Subst }
+import { collect: Suru.Compiler.Semantic.Mono.Collect }
 
 // ─── Type-name string helpers ─────────────────────────────────────────────────
 

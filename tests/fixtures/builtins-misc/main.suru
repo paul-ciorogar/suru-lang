@@ -1,3 +1,7 @@
+namespace Test.BuiltinsMisc
+
+export { main }
+
 fn main(args Array<String>) {
     // printError writes to stderr; captured as 2>&1 by the test runner
     printError("error line 1")

@@ -96,5 +96,8 @@ capture_compile_error lex-error
 capture_compile_error parse-error
 capture_compile_error dup-type-error
 capture_compile_error struct-missing-field-error
+capture_compile_error namespace-export-error
+capture_compile_error namespace-import-error
+capture_compile_error namespace-error-missing
 _total
 DOCKER_EOF

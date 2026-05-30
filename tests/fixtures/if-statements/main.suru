@@ -1,3 +1,7 @@
+namespace Test.IfStatements
+
+export { main }
+
 // Fixture: if / else if / else statements.
 //
 // Exercises every codegen path of `emitIf`:

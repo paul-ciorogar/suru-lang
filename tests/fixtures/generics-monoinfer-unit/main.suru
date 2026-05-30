@@ -1,3 +1,7 @@
+namespace Test.GenericsMonoinferUnit
+
+export { main }
+
 // Unit test for monoInfer.suru.
 //
 // Constructs a minimal GenericRegistry containing Pair<T, U> and a statement
@@ -10,9 +14,9 @@
 // Also verifies that a duplicate annotation produces only one request
 // (deduplication), and that inferFromAnnotation alone works correctly.
 
-include "../../../src/compiler/semantic/mono/monoCollect.suru" as collect
-include "../../../src/compiler/semantic/mono/monoInfer.suru"  as mono
-include "../../../src/compiler/parser/astNodes.suru"          as nodes
+import { collect: Suru.Compiler.Semantic.Mono.Collect }
+import { mono: Suru.Compiler.Semantic.Mono.Infer }
+import { nodes: Suru.Compiler.Parser.Nodes }
 
 fn main() {
     // ── Build a GenericRegistry with Pair<T, U> ──────────────────────────────
@@ -41,7 +45,7 @@ fn main() {
     // The value is a bare IntLitNode (contents don't matter for annotation inference).
 
     let litVal IntLitNode: { text: "0", resolvedType: "i64" }
-    let letStmt LetNode: { name: "x", typeName: "Pair<i64, String>", value: litVal, line: 0, col: 0 }
+    let letStmt LetNode: { name: "x", typeName: "Pair<i64, String>", value: litVal, line: 0, col: 0, srcPath: "" }
 
     let stmts Array<AstNode>: []
     stmts.add(letStmt)
@@ -60,7 +64,7 @@ fn main() {
 
     // Use a fresh litVal so letStmt2.value doesn't alias letStmt.value (would double-free on drop(stmts)).
     let litVal2 IntLitNode: { text: "0", resolvedType: "i64" }
-    let letStmt2 LetNode: { name: "y", typeName: "Pair<i64, String>", value: litVal2, line: 0, col: 0 }
+    let letStmt2 LetNode: { name: "y", typeName: "Pair<i64, String>", value: litVal2, line: 0, col: 0, srcPath: "" }
     stmts.add(letStmt2)
 
     let reqs2 Array<InstantiationRequest>: mono.collectInstantiations(stmts, registry)

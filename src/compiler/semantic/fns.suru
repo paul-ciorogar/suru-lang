@@ -15,9 +15,20 @@
 // to avoid LLVM link-time symbol collisions — each included file compiles to
 // its own .o and names are not prefixed by their include alias.
 
-include "semantic.suru" as semantic
-include "passes.suru" as passes
-include "stmts.suru" as analysis
+namespace Suru.Compiler.Semantic.Fns
+
+export {
+    allMatchArmsHaveReturn
+    checkHasReturnInMatchStmt
+    isExitCall
+    checkHasReturnInIf
+    checkHasReturn
+    analyzeFunctionDeclaration
+}
+
+import { semantic: Suru.Compiler.Semantic }
+import { passes: Suru.Compiler.Semantic.Passes }
+import { analysis: Suru.Compiler.Semantic.Stmts }
 
 // ─── checkHasReturn ───────────────────────────────────────────────────────────
 

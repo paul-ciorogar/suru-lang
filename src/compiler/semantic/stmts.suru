@@ -19,9 +19,28 @@
 // analyzeStatement coerces the AstNode ptr to the variant ptr at the call site.
 // Field access on variant types calls @suru_variant_inner before @suru_find_field.
 
-include "semantic.suru" as semantic
-include "passes.suru" as passes
-include "exprs.suru" as exprs
+namespace Suru.Compiler.Semantic.Stmts
+
+export {
+    isConstant
+    addConstant
+    markConstantIfModuleScope
+    checkBareReturn
+    analyzeLetStatement
+    analyzeAssignmentStatement
+    analyzeFieldAssignmentStatement
+    analyzeReturnStatement
+    analyzeStatements
+    analyzeWhileStatement
+    analyzeBreakStatement
+    analyzeContinueStatement
+    analyzeIfStatement
+    analyzeStatement
+}
+
+import { semantic: Suru.Compiler.Semantic }
+import { passes: Suru.Compiler.Semantic.Passes }
+import { exprs: Suru.Compiler.Semantic.Exprs }
 
 // ─── Constants array helpers ──────────────────────────────────────────────────
 

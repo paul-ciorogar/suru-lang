@@ -6,27 +6,26 @@
 //
 // AstNode variant indices (0-based, in declaration order):
 //   Statements:
-//   0  IncludeNode     1  FnDeclNode      2  LetNode
-//   3  AssignNode      4  FieldAssignNode 5  ReturnNode
-//   6  WhileNode       7  ExprStmtNode    8  TypeDeclNode
-//   9  SumTypeDeclNode 10 MatchStmtNode   11 BlockNode
-//  12  IfNode
+//   0  FnDeclNode      1  LetNode         2  AssignNode
+//   3  FieldAssignNode 4  ReturnNode      5  WhileNode
+//   6  ExprStmtNode    7  TypeDeclNode    8  SumTypeDeclNode
+//   9  MatchStmtNode   10 BlockNode       11 IfNode
 //   Expressions:
-//  13  BoolLitNode     14 IntLitNode      15 FloatLitNode
-//  16  StrLitNode      17 WildcardNode    18 VarRefNode
-//  19  CallNode        20 MethodCallNode  21 FieldAccessNode
-//  22  ArrayLitNode    23 StructLitNode   24 MatchExprNode
-//  25  UnaryNode       26 BinaryNode      27 CharLitNode
-//  28  VtableRefNode   29 ExternFnNode    30 BreakNode
-//  31  ContinueNode
-//   Namespace/module (Task 1):
-//  32  NamespaceDeclNode  33 ExportNode   34 ImportNode
-//  35  QualifiedNameNode
+//  12  BoolLitNode     13 IntLitNode      14 FloatLitNode
+//  15  StrLitNode      16 WildcardNode    17 VarRefNode
+//  18  CallNode        19 MethodCallNode  20 FieldAccessNode
+//  21  ArrayLitNode    22 StructLitNode   23 MatchExprNode
+//  24  UnaryNode       25 BinaryNode      26 CharLitNode
+//  27  VtableRefNode   28 ExternFnNode    29 BreakNode
+//  30  ContinueNode
+//   Namespace/module:
+//  31  NamespaceDeclNode  32 ExportNode   33 ImportNode
+//  34  QualifiedNameNode
 //
-// CharLitNode (27), VtableRefNode (28), ExternFnNode (29), BreakNode (30),
-// ContinueNode (31), NamespaceDeclNode (32), ExportNode (33), ImportNode (34),
-// and QualifiedNameNode (35) are appended LAST: variant tags are derived from
-// declaration order, so appending keeps indices 0–31 stable and the bootstrap
+// CharLitNode (26), VtableRefNode (27), ExternFnNode (28), BreakNode (29),
+// ContinueNode (30), NamespaceDeclNode (31), ExportNode (32), ImportNode (33),
+// and QualifiedNameNode (34) are appended LAST: variant tags are derived from
+// declaration order, so appending keeps earlier indices stable and the bootstrap
 // fixed point intact. Never insert a variant mid-list.
 //
 // `this` is NOT a distinct variant — the parser emits VarRefNode{name:"this"};
@@ -42,8 +41,68 @@
 // context. WildcardNode is intentionally excluded — wildcards are only
 // valid as match patterns and never appear in value position.
 
-include "../lexer/lexer.suru" as lexer
-include "../diagUtils.suru" as diagUtils
+namespace Suru.Compiler.Parser.Ast
+
+export {
+    OP_NOT
+    OP_AND
+    OP_OR
+    Parser
+    Param
+    MethodSig
+    StructFieldNode
+    MatchArm
+    MatchStmtArm
+    ExportEntry
+    FullNs
+    AliasNs
+    SelectiveNames
+    SelectiveAliased
+    ImportKind
+    ImportEntry
+    SrcNsEntry
+    FnDeclNode
+    LetNode
+    AssignNode
+    FieldAssignNode
+    ReturnNode
+    WhileNode
+    ExprStmtNode
+    TypeDeclNode
+    SumTypeDeclNode
+    MatchStmtNode
+    BlockNode
+    IfNode
+    BoolLitNode
+    IntLitNode
+    FloatLitNode
+    StrLitNode
+    WildcardNode
+    VarRefNode
+    CallNode
+    MethodCallNode
+    FieldAccessNode
+    ArrayLitNode
+    StructLitNode
+    MatchExprNode
+    UnaryNode
+    BinaryNode
+    CharLitNode
+    VtableRefNode
+    ExternFnNode
+    BreakNode
+    ContinueNode
+    NamespaceDeclNode
+    ExportNode
+    ImportNode
+    QualifiedNameNode
+    AstNode
+    AstModule
+}
+
+import {
+    Suru.Compiler.Lexer
+}
 
 // Operator constants for UnaryNode.op and BinaryNode.op.
 let OP_NOT i64: 1
@@ -58,19 +117,23 @@ type Parser: {
     fn currentTokenIs(kind i64) bool
     fn peekToken() Token
     fn peekIs(kind i64) bool
+    fn peekToken2() Token
+    fn peekIs2(kind i64) bool
     fn consume(expectedKind i64)
     fn consumeIf(kind i64)
     fn error(msg String)
     fn parseTypeAnnotation() String
     fn parseStatement() AstNode
-    fn parseIncludeDirective() AstNode
     fn parseNamespaceDecl() AstNode
     fn parseExportBlock() AstNode
+    fn parseImportBlock() AstNode
+    fn parseImportEntry() ImportEntry
+    fn parseQualifiedNsPath() String
     fn parseTypeParamList() Array<String>
+    fn parseParenParamList() Array<Param>
     fn parseFnDecl() AstNode
     fn parseExternFnDecl() AstNode
     fn parseFnReturnType() String
-    fn parseFnReturnTypeAnnotation() String
     fn parseTypeDeclaration() AstNode
     fn parseStructTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode
     fn parseStructTypeMemberInto(fields Array<Param>, methods Array<MethodSig>)
@@ -115,6 +178,7 @@ type Parser: {
     fn parseStructLitPrivateFieldInto(fields Array<StructFieldNode>)
     fn parseStructLitMethodInto(fields Array<StructFieldNode>)
     fn parseStructLitPrivateMethodInto(fields Array<StructFieldNode>)
+    fn parseStructLitMethodBase(fields Array<StructFieldNode>, isPrivate bool)
     fn parsePrimaryMatch() AstNode
     fn parsePrimaryIdent(tok Token) AstNode
     fn parsePrimaryCall(name String, tok Token) AstNode
@@ -161,15 +225,16 @@ type ImportKind: FullNs, AliasNs, SelectiveNames, SelectiveAliased
 // ImportEntry: one namespace reference inside an `import { ... }` block.
 type ImportEntry: { kind ImportKind, ns String, alias String, names Array<String>, nameAliases Array<ExportEntry> }
 
-// ─── Statement node types (AstNode variants 0–10) ─────────────────────────────
+// ─── Statement node types (AstNode variants 0–9) ──────────────────────────────
 
-type IncludeNode:     { path String, ns String }
-// One `include "path" as ns` mapping resolved to an absolute path. Shared by
-// the include resolver (pipeline.suru) and codegen (irCodegen.suru) so `ns.fn()`
-// can be mangled to the callee file's symbol.
-type IncludeAlias:    { ns String, srcPath String }
+// SrcNsEntry: maps a source file path to its declared namespace.
+// Threaded through the pipeline so codegen can namespace-mangle symbols without
+// storing a srcPath on every AST node type.
+type SrcNsEntry:      { srcPath String, ns String }
 type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String, typeParams Array<String>, line i64, col i64 }
-type LetNode:         { name String, typeName String, value AstNode, line i64, col i64 }
+// srcPath is "" for local variables; set to the enclosing file path for module-level
+// scalar constants by resolveIncludesRec so codegen can namespace-mangle global names.
+type LetNode:         { name String, typeName String, value AstNode, line i64, col i64, srcPath String }
 type AssignNode:      { name String, value AstNode, line i64, col i64 }
 type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode, line i64, col i64 }
 type ReturnNode:      { hasValue bool, value AstNode, line i64, col i64 }
@@ -254,7 +319,7 @@ type QualifiedNameNode: { parts Array<String>, line i64, col i64, resolvedType S
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: IncludeNode, FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode
+type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode
 
 // ─── Module type ───────────────────────────────────────────────────────────────
 

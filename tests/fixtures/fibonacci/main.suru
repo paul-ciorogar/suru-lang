@@ -1,3 +1,7 @@
+namespace Test.Fibonacci
+
+export { main }
+
 fn fibonacci(n i64) i64 {
     return match n.lt(2) {
         true: n,

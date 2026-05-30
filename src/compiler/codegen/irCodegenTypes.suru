@@ -14,7 +14,48 @@
 //   void:       "void"
 //   unknown:    ""
 
-include "irBuilder.suru" as ir
+namespace Suru.Compiler.Codegen.Types
+
+export {
+    VarEntry
+    FnEntry
+    GlobalVar
+    StrIndexEntry
+    TypeFieldEntry
+    TypeMethodEntry
+    TypeDecl
+    SumTypeDecl
+    IrCodegenContext
+    CodegenResult
+    makeIrContext
+    addDecl
+    addSuruDecl
+    addExtCloneDropDecl
+    lookupVar
+    addVar
+    updateVar
+    lookupFn
+    addFn
+    lookupGlobal
+    lookupType
+    methodIndex
+    methodEntry
+    addType
+    lookupSumType
+    addSumType
+    variantIdx
+    isVariant
+    findParentSumType
+    isSumTypeName
+    fieldIndex
+    isMonoFn
+    isOwnFn
+    isOwnType
+    mangleNsSym
+    lookupSrcNs
+}
+
+import { ir: Suru.Compiler.Codegen.Builder }
 
 // ─── Per-variable entry ───────────────────────────────────────────────────────
 
@@ -122,8 +163,16 @@ type IrCodegenContext: {
     ownTypeNames      Array<String>
     fnSrcName         Array<String>
     fnSrcPath         Array<String>
-    aliasNs           Array<String>
-    aliasSrc          Array<String>
+    // SelectiveAliased import aliases: fnAliasLocal[i] is the local alias name
+    // (e.g. "dbl") and fnAliasReal[i] is the real exported function name
+    // (e.g. "double").  Populated by emitModule; used by emitUserFnCall to
+    // resolve alias calls to their correct mangled symbol.
+    fnAliasLocal      Array<String>
+    fnAliasReal       Array<String>
+    // srcPath → namespace mapping: files that declare a namespace have their path
+    // and namespace name stored here so symbols can be namespace-mangled.
+    srcNsPath         Array<String>
+    srcNsNs           Array<String>
     rootPath          String
     vars              Array<VarEntry>
     blockOpen         bool
@@ -159,8 +208,10 @@ fn makeIrContext() IrCodegenContext {
     let ownTypeNames Array<String>:       []
     let fnSrcName    Array<String>:       []
     let fnSrcPath    Array<String>:       []
-    let aliasNs      Array<String>:       []
-    let aliasSrc     Array<String>:       []
+    let fnAliasLocal Array<String>:       []
+    let fnAliasReal  Array<String>:       []
+    let srcNsPath    Array<String>:       []
+    let srcNsNs      Array<String>:       []
     let vars              Array<VarEntry>: []
     let declares              Array<String>: []
     let extCloneDropTypeNames Array<String>: []
@@ -185,8 +236,10 @@ fn makeIrContext() IrCodegenContext {
         ownTypeNames:      ownTypeNames
         fnSrcName:         fnSrcName
         fnSrcPath:         fnSrcPath
-        aliasNs:           aliasNs
-        aliasSrc:          aliasSrc
+        fnAliasLocal:      fnAliasLocal
+        fnAliasReal:       fnAliasReal
+        srcNsPath:         srcNsPath
+        srcNsNs:           srcNsNs
         rootPath:          ""
         vars:              vars
         blockOpen:         false
@@ -496,4 +549,37 @@ fn isOwnType(ctx IrCodegenContext, name String) bool {
 // Type-name classification helpers (isScalarSuruType, isArraySuruType,
 // elemSuruType, isArrayTypeName, extractElemType, makeSuruType, irLlvmTypeOf,
 // suruTypeTag, isBuiltinSuruType) moved to irCodegenTypeHelpers.suru.
+
+// ─── Namespace symbol mangling ────────────────────────────────────────────────
+
+// Map a namespace-qualified symbol to its LLVM global name.
+// "MyApp.CoolService" + "doSomething" → "MyApp__CoolService__doSomething"
+// Each '.' in the namespace is replaced by '__'; then '__' + name is appended.
+// Defined here (rather than irCodegen.suru) so irRegisterPasses.suru can use it
+// without creating a circular include dependency.
+fn mangleNsSym(ns String, name String) String {
+    let out String: ""
+    let i i64: 0
+    while i.lt(ns.len()) {
+        let ch String: ns.at(i)
+        if ch.equals(".") {
+            out: out.append("__")
+        } else {
+            out: out.append(ch)
+        }
+        i: i.add(1)
+    }
+    return out.append("__").append(name)
+}
+
+// srcPath → namespace string (or "" for files without a namespace declaration).
+// Defined alongside mangleNsSym so both are available to irRegisterPasses.suru.
+fn lookupSrcNs(ctx IrCodegenContext, srcPath String) String {
+    let i i64: 0
+    while i.lt(ctx.srcNsPath.len()) {
+        if ctx.srcNsPath.at(i).equals(srcPath) { return ctx.srcNsNs.at(i) }
+        i: i.add(1)
+    }
+    return ""
+}
 

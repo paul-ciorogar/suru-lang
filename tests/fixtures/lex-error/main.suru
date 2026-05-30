@@ -1,3 +1,5 @@
+namespace Test.LexError
+
 // tests/fixtures/lex-error/main.suru
 //
 // Validates that an unterminated char literal is a lex-time error with

@@ -26,8 +26,24 @@
 // Include DAG: depends on ir-codegen-types.suru.
 // Imported by ir-codegen.suru (the top-level codegen file).
 
-include "irCodegenTypes.suru" as types
-include "irCodegenTypeHelpers.suru" as tyh
+namespace Suru.Compiler.Codegen.CloneDrop
+
+export {
+    CgTextResult
+    CloneDropResult
+    cgName
+    copyI64Field
+    copyPtrField
+    cloneHeapField
+    dropHeapField
+    cdNonOwnedField
+    emitTypeCloneDrop
+    emitExternalCloneDropDeclare
+    emitAllTypeCloneDrop
+}
+
+import { types: Suru.Compiler.Codegen.Types }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 
 // ─── Helper types ─────────────────────────────────────────────────────────────
 

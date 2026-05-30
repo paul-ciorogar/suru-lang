@@ -1,3 +1,7 @@
+namespace Test.NestedStructReturn
+
+export { main }
+
 // Regression fixture for the nested-struct-literal-return segfault.
 //
 // Before the resolved-type AST migration, `emitValue` for a nested struct

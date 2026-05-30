@@ -15,6 +15,56 @@
 //   args to emitCall / emitVoidCall are pre-formatted strings like "i64 %t0"
 //   so the caller controls the exact LLVM type annotation on each argument.
 
+namespace Suru.Compiler.Codegen.Builder
+
+export {
+    IrBuilder
+    IrResult
+    makeBuilder
+    freshFnBuilder
+    emit
+    withOutput
+    nextTmp
+    nextLabel
+    nextLabelNum
+    nextWhileNum
+    emitNamedAlloca
+    emitFixedAlloca
+    joinArgs
+    emitModuleHeader
+    emitGlobalStrConst
+    emitDeclare
+    emitFnStart
+    emitFnEnd
+    emitLabel
+    emitAlloca
+    emitLoad
+    emitStore
+    emitGEP
+    emitGEP2
+    emitBinop
+    emitICmp
+    emitFCmp
+    emitCall
+    emitVoidCall
+    emitCallDiscard
+    emitIndirectCall
+    emitIndirectCallDiscard
+    emitRet
+    emitRetVoid
+    emitRetI32Zero
+    emitBr
+    emitCondBr
+    emitZext
+    emitSext
+    emitTrunc
+    emitPtrToInt
+    emitIntToPtr
+    emitBitcast
+    emitUnreachable
+    emitXor
+}
+
 type IrBuilder: {
     output     String
     tmpCount   i64

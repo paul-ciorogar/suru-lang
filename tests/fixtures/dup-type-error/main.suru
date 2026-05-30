@@ -1,3 +1,5 @@
+namespace Test.DupTypeError
+
 // tests/fixtures/dup-type-error/main.suru
 //
 // Validates that a duplicate type declaration is a semantic error with

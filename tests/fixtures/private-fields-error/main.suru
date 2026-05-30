@@ -1,3 +1,5 @@
+namespace Test.PrivateFieldsError
+
 // tests/fixtures/private-fields-error/main.suru
 //
 // Validates that accessing a private field from outside the object literal

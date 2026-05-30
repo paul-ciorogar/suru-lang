@@ -10,8 +10,33 @@
 //
 // Used by monoInstantiate.suru to produce concrete copies of generic defs.
 
-include "../../parser/parserAst.suru" as ast
-include "../../parser/astNodes.suru" as nodes
+namespace Suru.Compiler.Semantic.Mono.Subst
+
+export {
+    indexOfLT
+    trimLeft
+    splitByComma
+    joinSubstituted
+    substituteType
+    substParam
+    substParams
+    substMethodSig
+    substMethodSigs
+    substStmts
+    substExprs
+    substBlock
+    substStructField
+    substStructFields
+    substMatchArm
+    substMatchArms
+    substMatchStmtArm
+    substMatchStmtArms
+    substStmt
+    substExpr
+}
+
+import { ast: Suru.Compiler.Parser.Ast }
+import { nodes: Suru.Compiler.Parser.Nodes }
 
 // ─── String helpers ───────────────────────────────────────────────────────────
 
@@ -253,7 +278,7 @@ fn substStmt(node AstNode, paramNames Array<String>, concreteTypes Array<String>
             let ln LetNode: node
             let newType String: substituteType(ln.typeName, paramNames, concreteTypes)
             let newVal AstNode: substExpr(ln.value, paramNames, concreteTypes)
-            let result LetNode: { name: ln.name, typeName: newType, value: newVal, line: ln.line, col: ln.col }
+            let result LetNode: { name: ln.name, typeName: newType, value: newVal, line: ln.line, col: ln.col, srcPath: ln.srcPath }
             return result
         }
         AssignNode: {

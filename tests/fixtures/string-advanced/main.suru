@@ -1,3 +1,7 @@
+namespace Test.StringAdvanced
+
+export { main }
+
 fn main(args Array<String>) {
     // String.__at(i64) → char
     let s String: "Suru"

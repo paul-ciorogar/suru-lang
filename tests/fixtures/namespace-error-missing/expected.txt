@@ -1,0 +1,1 @@
+/work/tests/fixtures/namespace-error-missing/main.suru: error: namespace declaration required

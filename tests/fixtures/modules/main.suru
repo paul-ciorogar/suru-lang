@@ -1,4 +1,8 @@
-include "a.suru" as a
+namespace Test.Modules
+
+export { main }
+
+import { a: Test.Modules.A }
 
 fn main(args Array<String>) {
     

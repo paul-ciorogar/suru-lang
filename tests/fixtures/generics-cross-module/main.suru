@@ -1,8 +1,12 @@
+namespace Test.GenericsCrossModule
+
+export { main }
+
 // Verify that a generic type defined in an included file can be instantiated
 // in the root file.  The mono pass collects generic defs from the resolved
 // statement list (which includes included files), so Box<T> from boxlib.suru
 // is available for monomorphization in main.suru.
-include "boxlib.suru" as boxlib
+import { boxlib: Test.GenericsCrossModule.Boxlib }
 
 fn main(args Array<String>) {
     let b Box<i64>: { value: 42 }

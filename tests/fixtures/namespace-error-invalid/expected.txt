@@ -1,0 +1,3 @@
+/work/tests/fixtures/namespace-error-invalid/main.suru:2:1: error: invalid namespace: trailing dot
+  2 | fn main() {}
+      ^

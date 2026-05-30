@@ -33,10 +33,30 @@
 // Include DAG: depends on ir-box-codegen.suru → ir-codegen-types.suru → ir-builder.suru.
 // Imported by ir-codegen.suru (the mutual-recursion hub).
 
-include "irCodegenTypes.suru" as types
-include "irCodegenTypeHelpers.suru" as tyh
-include "irBuilder.suru" as ir
-include "irBoxCodegen.suru" as box
+namespace Suru.Compiler.Codegen.Array
+
+export {
+    elemStorageLlvmType
+    elemSizeBytes
+    emitElemEncode
+    emitElemDecode
+    emitExtractArrayLen
+    emitArrayLen
+    emitArrayAt
+    emitArraySlice
+    emitArrayAdd
+    emitArraySet
+    emitArrayClone
+    emitArrayDrop
+    emitArrayLiteralAlloc
+    emitArrayLiteralElements
+    emitArrayMethod
+}
+
+import { types: Suru.Compiler.Codegen.Types }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { ir: Suru.Compiler.Codegen.Builder }
+import { box: Suru.Compiler.Codegen.Box }
 
 // ─── Element storage type ─────────────────────────────────────────────────────
 

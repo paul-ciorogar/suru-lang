@@ -36,10 +36,26 @@
 // Include DAG: depends on ir-box-codegen.suru → ir-codegen-types.suru → ir-builder.suru.
 // Imported by ir-codegen.suru (the mutual-recursion hub).
 
-include "irCodegenTypes.suru" as types
-include "irCodegenTypeHelpers.suru" as tyh
-include "irBuilder.suru" as ir
-include "irBoxCodegen.suru" as box
+namespace Suru.Compiler.Codegen.Struct
+
+export {
+    structSize
+    fieldOffset
+    structFieldToI64
+    structFieldFromI64
+    emitStructLiteralAlloc
+    emitStructLiteralFields
+    emitFieldAccess
+    emitFieldAssignment
+    emitStructClone
+    emitStructDrop
+    emitStructMethod
+}
+
+import { types: Suru.Compiler.Codegen.Types }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { ir: Suru.Compiler.Codegen.Builder }
+import { box: Suru.Compiler.Codegen.Box }
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
 

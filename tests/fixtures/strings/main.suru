@@ -1,3 +1,7 @@
+namespace Test.Strings
+
+export { main }
+
 fn main(args Array<String>) {
     let s String: "hello"
     printLn(s.len())

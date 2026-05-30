@@ -1,4 +1,6 @@
-include "lib.suru" as lib
+namespace Test.XmodError
+
+import { lib: Test.XmodError.Lib }
 
 // Regression: cross-module qualified-call argument type checking.
 //

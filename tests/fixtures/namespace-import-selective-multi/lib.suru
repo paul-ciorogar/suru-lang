@@ -1,0 +1,19 @@
+namespace My.Lib
+
+export {
+    double
+    triple
+    noCollision
+}
+
+fn double(x i64) i64 {
+    return x.add(x)
+}
+
+fn triple(x i64) i64 {
+    return x.multiply(3)
+}
+
+fn noCollision() String {
+    return "lib"
+}

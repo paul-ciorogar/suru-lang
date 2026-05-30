@@ -4,14 +4,17 @@
 //   compile <file> <out.ll>   Compile to LLVM IR files (replaces bin/suru-build)
 //   build   <file>            Compile to a native executable (written to build/ next to the source)
 //   lex     <file>            Print all tokens produced by the lexer, one per line
-//   parse   <file>            Print the parsed AST as an indented tree (includes are expanded)
+//   parse   <file>            Print the parsed AST as an indented tree (imports are expanded)
 //   ir      <file>            Print the generated LLVM IR without invoking clang
 
-include "../compiler/pipeline.suru"          as pipeline
-include "../compiler/lexer/lexer.suru"       as lex
-include "../compiler/parser/parser.suru"      as parser
-include "../compiler/parser/parserPrint.suru" as pprint
-include "../compiler/debug/debugPrint.suru"  as debugPrint
+namespace Suru.Cli
+
+import { pipeline:   Suru.Compiler.Pipeline }
+import { pathUtils:  Suru.Compiler.PathUtils }
+import { lex:        Suru.Compiler.Lexer }
+import { parser:     Suru.Compiler.Parser }
+import { pprint:     Suru.Compiler.Parser.Print }
+import { debugPrint: Suru.Compiler.Debug.Print }
 
 // ─── Lex command ───────────────────────────────────────────────────────────────
 
@@ -31,6 +34,9 @@ fn runParse(sourcePath String) {
     let tokens Array<Token>: lex.tokenize(move(source), sourcePath)
     let mod AstModule: parser.parse(tokens)
     pprint.printModule(mod, sourcePath)
+    drop(tokens)
+    drop(mod)
+    
 }
 
 // ─── IR command ────────────────────────────────────────────────────────────────
@@ -44,7 +50,7 @@ fn runIR(sourcePath String) {
 
 // Compile sourcePath to a native binary in build/ next to the source file.
 fn runBuild(sourcePath String) {
-    let buildDir String: pipeline.dirName(sourcePath).append("build/")
+    let buildDir String: pathUtils.dirName(sourcePath).append("build/")
     pipeline.compilePipeline(sourcePath, buildDir)
     printLn("Built: ".append(buildDir).append("main"))
 }
@@ -64,6 +70,7 @@ fn runCompile(sourcePath String, outputPath String) {
 fn runDebug(pass String, sourcePath String) {
     let result DebugResult: pipeline.runPipelineDebug(sourcePath, pass)
     debugPrint.printDebugOutput(result.stmts, result.state, pass)
+    drop(result)
 }
 
 // ─── Usage ─────────────────────────────────────────────────────────────────────
@@ -84,7 +91,9 @@ fn printUsage() {
 // ─── Entry point ───────────────────────────────────────────────────────────────
 
 fn main(args Array<String>) {
-    // args.at(0) = argv[0] (binary name); args.at(1) = command; args.at(2) = file
+    // args.at(0) = argv[0] (binary name); 
+    // args.at(1) = command; 
+    // args.at(2) = file
     if args.len().lt(2) {
         printUsage()
         exit(1)

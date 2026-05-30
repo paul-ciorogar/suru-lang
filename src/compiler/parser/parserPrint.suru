@@ -4,7 +4,44 @@
 // (src/cli/main.suru). Independent of parsing logic: depends only on
 // parserAst.suru for the AST type definitions.
 
-include "parserAst.suru" as ast
+namespace Suru.Compiler.Parser.Print
+
+export {
+    printModule
+    printStmt
+    printExpr
+    makeIndent
+    printStmtFnDecl
+    printStmtLet
+    printStmtAssign
+    printStmtFieldAssign
+    printStmtReturn
+    printStmtWhile
+    printStmtExpr
+    printStmtTypeDecl
+    formatTypeParams
+    printStmtSumTypeDecl
+    printStmtMatchStatement
+    printStmtIf
+    printStmtExternFnDecl
+    buildParamStr
+    printExprBool
+    printExprString
+    printExprCall
+    printExprMethodCall
+    printExprFieldAccess
+    printExprArrayLit
+    printExprStructLit
+    printExprMatch
+    printExprUnary
+    printExprBinary
+    matchPatternLabel
+    matchPatternLabelInner
+}
+
+import {
+    Suru.Compiler.Parser.Ast
+}
 
 fn makeIndent(indent String) String {
     return indent.append("  ")
@@ -23,7 +60,6 @@ fn printModule(ast AstModule, path String) {
 
 fn printStmt(stmt AstNode, indent String) {
     match stmt {
-        IncludeNode:     { printLn(indent.append("IncludeDirective [\"").append(stmt.path).append("\"] as [").append(stmt.ns).append("]")) }
         FnDeclNode:      { printStmtFnDecl(stmt, indent) }
         LetNode:         { printStmtLet(stmt, indent) }
         AssignNode:      { printStmtAssign(stmt, indent) }
@@ -387,7 +423,26 @@ fn printStmtImport(stmt ImportNode, indent String) {
     let i i64: 0
     while i.lt(stmt.entries.len()) {
         let e ImportEntry: stmt.entries.at(i)
-        printLn(bodyIndent.append("ImportEntry [ns=").append(e.ns).append(", alias=").append(e.alias).append("]"))
+        let kindStr String: match e.kind {
+            FullNs:           "FullNs"
+            AliasNs:          "AliasNs"
+            SelectiveNames:   "SelectiveNames"
+            SelectiveAliased: "SelectiveAliased"
+        }
+        printLn(bodyIndent.append("ImportEntry [kind=").append(kindStr)
+            .append(", ns=").append(e.ns)
+            .append(", alias=").append(e.alias).append("]"))
+        let j i64: 0
+        while j.lt(e.names.len()) {
+            printLn(bodyIndent.append("  name: ").append(e.names.at(j)))
+            j: j.add(1)
+        }
+        let k i64: 0
+        while k.lt(e.nameAliases.len()) {
+            let a ExportEntry: e.nameAliases.at(k)
+            printLn(bodyIndent.append("  alias: ").append(a.localName).append(" -> ").append(a.exportedAs))
+            k: k.add(1)
+        }
         i: i.add(1)
     }
 }

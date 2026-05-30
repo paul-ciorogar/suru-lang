@@ -1,3 +1,7 @@
+namespace Test.BreakValid
+
+export { main }
+
 // tests/fixtures/break-valid/main.suru
 //
 // Validates that `break` exits a while loop early.

@@ -1,3 +1,7 @@
+namespace Test.GenericsBoxBasic
+
+export { main }
+
 type Box<T>: { value T }
 
 fn main(args Array<String>) {

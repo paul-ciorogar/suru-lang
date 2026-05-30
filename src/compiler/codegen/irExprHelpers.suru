@@ -8,10 +8,26 @@
 // Include DAG: depends on irBuilder.suru, irCodegenTypes.suru,
 // irCodegenTypeHelpers.suru, and irBoxCodegen.suru. Imported by irCodegen.suru.
 
-include "irBuilder.suru" as ir
-include "irCodegenTypes.suru" as types
-include "irCodegenTypeHelpers.suru" as tyh
-include "irBoxCodegen.suru" as box
+namespace Suru.Compiler.Codegen.ExprHelpers
+
+export {
+    emitVarLoad
+    effectiveSuruType
+    rawVal
+    emitArith
+    emitCmpOp
+    emitCompare
+    emitInvert
+    emitCloneDyn
+    emitDropDyn
+    emitBoolNot
+    emitBinaryExpr
+}
+
+import { ir: Suru.Compiler.Codegen.Builder }
+import { types: Suru.Compiler.Codegen.Types }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { box: Suru.Compiler.Codegen.Box }
 
 // Load from a local alloca or module-level constant global.
 fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {

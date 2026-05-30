@@ -2,10 +2,25 @@
 //
 // Result<T, E> represents either a successful value (Ok<T>) or an error (Err<E>).
 //
-// Usage:
+// Usage (include style):
 //   include "stdlib/result.suru" as res
 //   let r Result<i64, String>: res.ok(42)
 //   match r { Ok: { printLn(r.value) }  Err: { printLn(r.error) } }
+//
+// Usage (import style):
+//   import { [Result, Ok, Err, ok, err]: Suru.Stdlib.Result }
+//   let r Result<i64, String>: ok(42)
+//   match r { Ok: { printLn(r.value) }  Err: { printLn(r.error) } }
+
+namespace Suru.Stdlib.Result
+
+export {
+    Result
+    Ok
+    Err
+    ok
+    err
+}
 
 type Ok<T>:  { value T }
 type Err<E>: { error E }

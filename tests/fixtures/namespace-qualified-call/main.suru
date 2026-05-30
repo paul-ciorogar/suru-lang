@@ -1,0 +1,9 @@
+namespace Test.Main
+
+import {
+    [add]: Test.Lib
+}
+
+fn main() {
+    printLn(add(1, 2))
+}

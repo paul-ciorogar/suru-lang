@@ -33,10 +33,36 @@
 //     registry inside AnalyzerState avoids importing parser AST into the leaf
 //     semantic.suru.
 
-include "semantic.suru" as sem
-include "passes.suru" as passes
-include "exprs.suru" as exprs
-include "../codegen/irCodegenTypeHelpers.suru" as tyh
+namespace Suru.Compiler.Semantic.ResolveTypes
+
+export {
+    rtLookupTypeEntry
+    rtLookupFieldType
+    rtCheckMissingFields
+    rtCheckUndeclaredMethods
+    rtLookupMethodReturn
+    isPrivateName
+    rtHasField
+    rtAugmentPrivateFields
+    isThisReceiver
+    rtNodeResolvedType
+    rtResolveArrayElems
+    rtResolveStructFields
+    rtResolveStructMethods
+    rtResolveMatchArms
+    rtResolveCallArgs
+    resolveExpr
+    rtResolveBody
+    rtResolveStmt
+    rtResolveMatchStmtArms
+    rtResolveFnDecl
+    resolveModuleTypes
+}
+
+import { sem: Suru.Compiler.Semantic }
+import { passes: Suru.Compiler.Semantic.Passes }
+import { exprs: Suru.Compiler.Semantic.Exprs }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 
 // ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
 
@@ -216,7 +242,8 @@ fn rtNodeResolvedType(expr AstNode) String {
         StructLitNode:   { let t StructLitNode: expr   return t.resolvedType }
         MatchExprNode:   { let t MatchExprNode: expr   return t.resolvedType }
         UnaryNode:       { let t UnaryNode: expr       return t.resolvedType }
-        BinaryNode:      { let t BinaryNode: expr      return t.resolvedType }
+        BinaryNode:        { let t BinaryNode: expr        return t.resolvedType }
+        QualifiedNameNode: { let t QualifiedNameNode: expr return t.resolvedType }
         _: {}
     }
     return ""
@@ -308,6 +335,133 @@ fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String) An
     return state
 }
 
+// ─── Expression resolver sub-helpers ─────────────────────────────────────────
+//
+// Heavy match arms of resolveExpr — extracted so that resolveExpr itself reads
+// as a dispatch table. Each helper owns the per-node-type concerns:
+// argument resolution, privacy checks, surrounding-context plumbing.
+
+// rtResolveMethodCallNode — resolve the receiver and args of a method call,
+// enforce private-method privacy, and set the call's resolvedType from either
+// the user-declared method signature or the builtin method table.
+fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode) AnalyzerState {
+    let rcv AstNode: typed.receiver
+    resolveExpr(state, rcv, "")
+    // `arr.add(x)` on an Array<T> receiver: x is expected to be T.
+    // Without this, a struct-literal argument (e.g. params.add({...}))
+    // resolves with expected "" → resolvedType "" → codegen emits a
+    // bogus zero-field @suru_clone_ struct. (Pre-resolvedType codegen
+    // inferred this from context; the migration must do it explicitly.)
+    let rcvType String: rtNodeResolvedType(rcv)
+    let argExpected String: ""
+    if typed.methodName.equals("add") {
+        if tyh.isArraySuruType(rcvType) { argExpected: tyh.elemSuruType(rcvType) }
+    }
+    rtResolveArrayElems(state, typed.args, argExpected)
+    // User-defined object method: if the receiver's resolved type is a
+    // declared struct with a method of this name, the return type comes
+    // from the declared signature. Otherwise fall back to the builtin
+    // method-name → return-type table in exprs.suru.
+    let mdecl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+    // Privacy check: private methods (declared with `_ fn`) may only be
+    // called via `this` inside the owning object's method bodies.
+    let mPrivNames Array<String>: mdecl.privateMethodNames
+    if isPrivateName(mPrivNames, typed.methodName) and not isThisReceiver(rcv) {
+        state.addError("cannot call private method '".append(typed.methodName).append("' from outside its object"), typed.line, typed.col)
+    }
+    let userRet String: rtLookupMethodReturn(mdecl, typed.methodName)
+    if not userRet.equals("") {
+        typed.resolvedType: tyh.makeSuruType(userRet)
+    } else {
+        // Builtin element/identity methods whose return type depends on the
+        // receiver's concrete element type — the method-name table in
+        // exprs.suru cannot type these, so resolve them here from rcvType
+        // (already in canonical suru form, e.g. "Array:Sig").
+        //   arr.at(i) : Array<T> → T   (borrowed element)
+        //   x.clone() : T → T          (owned copy of the receiver)
+        // Without these, a generic call like some(arr.at(i)) leaves the
+        // argument's resolvedType empty, so monoInfer cannot bind T and the
+        // call site is never monomorphized.
+        let handled bool: false
+        if typed.methodName.equals("at") and tyh.isArraySuruType(rcvType) {
+            typed.resolvedType: tyh.elemSuruType(rcvType)
+            handled: true
+        }
+        if not handled and typed.methodName.equals("clone") and not rcvType.equals("") {
+            typed.resolvedType: rcvType
+            handled: true
+        }
+        if not handled {
+            typed.resolvedType: exprs.inferTypeFromMethod(state, typed)
+        }
+    }
+    return state
+}
+
+// rtResolveFieldAccessNode — resolve the receiver, enforce private-field
+// privacy, and look up the field's declared type on the receiver's struct.
+fn rtResolveFieldAccessNode(state AnalyzerState, typed FieldAccessNode) AnalyzerState {
+    let rcv AstNode: typed.receiver
+    resolveExpr(state, rcv, "")
+    let rcvType String: rtNodeResolvedType(rcv)
+    let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
+    // Privacy check: private data fields (declared with `_ name Type`) may
+    // only be accessed via `this` inside the owning object's method bodies.
+    let privNames Array<String>: decl.privateFieldNames
+    if isPrivateName(privNames, typed.fieldName) and not isThisReceiver(rcv) {
+        state.addError("cannot access private field '".append(typed.fieldName).append("' from outside its object"), typed.line, typed.col)
+    }
+    let annot String: rtLookupFieldType(decl, typed.fieldName)
+    typed.resolvedType: tyh.makeSuruType(annot)
+    return state
+}
+
+// rtResolveArrayLitNode — derive an element-type expectation, resolve each
+// element under it, and tag the literal with "Array:<elem>".
+fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected String) AnalyzerState {
+    let elems Array<AstNode>: typed.elems
+    // Element-type expectation: prefer the surrounding context's
+    // "Array:T" form; otherwise peek the first element (after first
+    // resolving it bottom-up) and use its inferred type.
+    let elemType String: ""
+    if tyh.isArraySuruType(expected) { elemType: tyh.elemSuruType(expected) }
+    if elemType.equals("") and elems.len().gt(0) {
+        resolveExpr(state, elems.at(0), "")
+        elemType: rtNodeResolvedType(elems.at(0))
+    }
+    // Empty arrays without context default to i64 — matches the
+    // codegen fallback at irCodegen.suru:395.
+    if elemType.equals("") { elemType: "i64" }
+    rtResolveArrayElems(state, elems, elemType)
+    typed.resolvedType: "Array:".append(elemType)
+    return state
+}
+
+// rtResolveStructLitNode — tag with the expected type, verify field/method
+// completeness against the declared SemTypeEntry, augment with private
+// members from this literal, then resolve fields and method bodies.
+fn rtResolveStructLitNode(state AnalyzerState, typed StructLitNode, expected String) AnalyzerState {
+    typed.resolvedType: expected
+    let fields Array<StructFieldNode>: typed.fields
+    let decl SemTypeEntry: rtLookupTypeEntry(state, expected)
+    // When `expected` is "" or names an unknown type, `decl.name` is
+    // "" and rtResolveStructFields will pass "" expectations down — no
+    // type information is invented, the AST simply stays under-typed.
+    if not decl.name.equals("") {
+        rtCheckMissingFields(state, fields, decl, typed.line, typed.col)
+        rtCheckUndeclaredMethods(state, fields, decl, typed.line, typed.col)
+    }
+    rtResolveStructFields(state, fields, decl)
+    // Augment the SemTypeEntry with private fields/methods from this literal
+    // before resolving method bodies, so `this.fieldname` lookups succeed.
+    rtAugmentPrivateFields(state, expected, fields)
+    // Method members (isMethod=true) carry a body that references
+    // `this` and the method params. Resolve them now so the lift can
+    // hoist already-typed bodies into top-level functions.
+    rtResolveStructMethods(state, fields, expected)
+    return state
+}
+
 // ─── Main expression resolver ────────────────────────────────────────────────
 
 // resolveExpr — recursive expression resolver. Reads the surrounding-context
@@ -373,93 +527,22 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 
         MethodCallNode: {
             let typed MethodCallNode: expr
-            let rcv AstNode: typed.receiver
-            resolveExpr(state, rcv, "")
-            // `arr.add(x)` on an Array<T> receiver: x is expected to be T.
-            // Without this, a struct-literal argument (e.g. params.add({...}))
-            // resolves with expected "" → resolvedType "" → codegen emits a
-            // bogus zero-field @suru_clone_ struct. (Pre-resolvedType codegen
-            // inferred this from context; the migration must do it explicitly.)
-            let rcvType String: rtNodeResolvedType(rcv)
-            let argExpected String: ""
-            if typed.methodName.equals("add") {
-                if tyh.isArraySuruType(rcvType) { argExpected: tyh.elemSuruType(rcvType) }
-            }
-            rtResolveArrayElems(state, typed.args, argExpected)
-            // User-defined object method: if the receiver's resolved type is a
-            // declared struct with a method of this name, the return type comes
-            // from the declared signature. Otherwise fall back to the builtin
-            // method-name → return-type table in exprs.suru.
-            let mdecl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
-            // Privacy check: private methods (declared with `_ fn`) may only be
-            // called via `this` inside the owning object's method bodies.
-            let mPrivNames Array<String>: mdecl.privateMethodNames
-            if isPrivateName(mPrivNames, typed.methodName) and not isThisReceiver(rcv) {
-                state.addError("cannot call private method '".append(typed.methodName).append("' from outside its object"), typed.line, typed.col)
-            }
-            let userRet String: rtLookupMethodReturn(mdecl, typed.methodName)
-            if userRet.equals("") {
-                typed.resolvedType: exprs.inferTypeFromMethod(state, typed)
-            } else {
-                typed.resolvedType: tyh.makeSuruType(userRet)
-            }
+            rtResolveMethodCallNode(state, typed)
         }
 
         FieldAccessNode: {
             let typed FieldAccessNode: expr
-            let rcv AstNode: typed.receiver
-            resolveExpr(state, rcv, "")
-            let rcvType String: rtNodeResolvedType(rcv)
-            let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
-            // Privacy check: private data fields (declared with `_ name Type`) may
-            // only be accessed via `this` inside the owning object's method bodies.
-            let privNames Array<String>: decl.privateFieldNames
-            if isPrivateName(privNames, typed.fieldName) and not isThisReceiver(rcv) {
-                state.addError("cannot access private field '".append(typed.fieldName).append("' from outside its object"), typed.line, typed.col)
-            }
-            let annot String: rtLookupFieldType(decl, typed.fieldName)
-            typed.resolvedType: tyh.makeSuruType(annot)
+            rtResolveFieldAccessNode(state, typed)
         }
 
         ArrayLitNode: {
             let typed ArrayLitNode: expr
-            let elems Array<AstNode>: typed.elems
-            // Element-type expectation: prefer the surrounding context's
-            // "Array:T" form; otherwise peek the first element (after first
-            // resolving it bottom-up) and use its inferred type.
-            let elemType String: ""
-            if tyh.isArraySuruType(expected) { elemType: tyh.elemSuruType(expected) }
-            if elemType.equals("") and elems.len().gt(0) {
-                resolveExpr(state, elems.at(0), "")
-                elemType: rtNodeResolvedType(elems.at(0))
-            }
-            // Empty arrays without context default to i64 — matches the
-            // codegen fallback at irCodegen.suru:395.
-            if elemType.equals("") { elemType: "i64" }
-            rtResolveArrayElems(state, elems, elemType)
-            typed.resolvedType: "Array:".append(elemType)
+            rtResolveArrayLitNode(state, typed, expected)
         }
 
         StructLitNode: {
             let typed StructLitNode: expr
-            typed.resolvedType: expected
-            let fields Array<StructFieldNode>: typed.fields
-            let decl SemTypeEntry: rtLookupTypeEntry(state, expected)
-            // When `expected` is "" or names an unknown type, `decl.name` is
-            // "" and rtResolveStructFields will pass "" expectations down — no
-            // type information is invented, the AST simply stays under-typed.
-            if not decl.name.equals("") {
-                rtCheckMissingFields(state, fields, decl, typed.line, typed.col)
-                rtCheckUndeclaredMethods(state, fields, decl, typed.line, typed.col)
-            }
-            rtResolveStructFields(state, fields, decl)
-            // Augment the SemTypeEntry with private fields/methods from this literal
-            // before resolving method bodies, so `this.fieldname` lookups succeed.
-            rtAugmentPrivateFields(state, expected, fields)
-            // Method members (isMethod=true) carry a body that references
-            // `this` and the method params. Resolve them now so the lift can
-            // hoist already-typed bodies into top-level functions.
-            rtResolveStructMethods(state, fields, expected)
+            rtResolveStructLitNode(state, typed, expected)
         }
 
         MatchExprNode: {

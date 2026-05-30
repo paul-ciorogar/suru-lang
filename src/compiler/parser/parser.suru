@@ -2,23 +2,27 @@
 // top-level parse() entry point. Also contains newParser(), the Parser
 // constructor.
 //
-// Include DAG:
-//   parserAst.suru       — AST type definitions (leaf)
-//   parserPrint.suru     — AST pretty-printer (depends on ast)
-//   parser.suru          — this file: newParser() with all parse methods + parse()
-//
 // Expression and statement parsing live in ONE file because they are mutually
 // recursive: statements contain expressions (let/return/conditions) AND
 // expressions contain statements (method bodies inside struct literals —
 // `{ field: v, fn m(p) R { stmts } }`). Suru's per-file compilation cannot
 // split mutually recursive functions across an acyclic include DAG.
 
-include "parserAst.suru" as ast
-include "parserPrint.suru" as pprint
-include "astNodes.suru" as nodes
+namespace Suru.Compiler.Parser
+
+export {
+    parse
+    newParser
+}
+
+import {
+    Suru.Compiler.Parser.Ast
+    Suru.Compiler.Parser.Print
+    Suru.Compiler.Parser.Nodes
+}
 
 fn parse(tokens Array<Token>, srcPath String) AstModule {
-    let p Parser: newParser(tokens, srcPath)
+    let p Parser: newParser(move(tokens), srcPath)
     let stmts Array<AstNode>: []
     // Module header: optional namespace declaration then zero or more export blocks.
     if p.currentTokenIs(TOK_NAMESPACE) {
@@ -26,6 +30,9 @@ fn parse(tokens Array<Token>, srcPath String) AstModule {
     }
     while p.currentTokenIs(TOK_EXPORT) {
         stmts.add(p.parseExportBlock())
+    }
+    while p.currentTokenIs(TOK_IMPORT) {
+        stmts.add(p.parseImportBlock())
     }
     while not p.currentTokenIs(TOK_EOF) {
         stmts.add(p.parseStatement())
@@ -36,7 +43,7 @@ fn parse(tokens Array<Token>, srcPath String) AstModule {
 fn newParser(tokens Array<Token>, srcPath String) Parser {
     let p Parser: {
         _ pos     i64:         0
-        _ tokens  Array<Token>: tokens
+        _ tokens  Array<Token>: move(tokens)
         _ srcPath String:       clone(srcPath)
 
         fn advance() { this.pos: this.pos.add(1) }
@@ -57,6 +64,18 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
 
         fn peekIs(kind i64) bool {
             return this.peekToken().kind.equals(kind)
+        }
+
+        fn peekToken2() Token {
+            let next i64: this.pos.add(2)
+            return match next.lt(this.tokens.len()) {
+                true: this.tokens.at(next)
+                _:    { kind: TOK_EOF, text: "", line: 0, col: 0 }
+            }
+        }
+
+        fn peekIs2(kind i64) bool {
+            return this.peekToken2().kind.equals(kind)
         }
 
         fn consume(expectedKind i64) {
@@ -99,6 +118,15 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let name String: tok.text
             this.advance()
 
+            // Support qualified type names: MyApp.Ns.Type
+            while this.currentTokenIs(TOK_DOT) {
+                this.advance()
+                if not this.currentTokenIs(TOK_IDENT) { this.error("expected type name after '.'") }
+                let seg Token: this.currentToken()
+                this.advance()
+                name: name.append(".").append(seg.text)
+            }
+
             if not this.currentTokenIs(TOK_LT) { return name }
 
             // Generic: consume '<', parse args, consume '>'
@@ -116,9 +144,9 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         fn parseStatement() AstNode {
             let k i64: this.currentToken().kind
             return match k {
-                TOK_INCLUDE:   this.parseIncludeDirective()
                 TOK_NAMESPACE: this.parseNamespaceDecl()
                 TOK_EXPORT:    this.parseExportBlock()
+                TOK_IMPORT:    this.parseImportBlock()
                 TOK_FN:        this.parseFnDecl()
                 TOK_EXTERN:    this.parseExternFnDecl()
                 TOK_WHILE:     this.parseWhileStmt()
@@ -133,17 +161,6 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 TOK_THIS:      this.parseIdentStmt()
                 _:             this.parseExprStmt()
             }
-        }
-
-        fn parseIncludeDirective() AstNode {
-            this.consume(TOK_INCLUDE)
-            let pathTok Token: this.currentToken()
-            this.consume(TOK_STRING)
-            this.consume(TOK_AS)
-            let nsTok Token: this.currentToken()
-            this.consume(TOK_IDENT)
-            let n IncludeNode: { path: clone(pathTok.text), ns: clone(nsTok.text) }
-            return n
         }
 
         fn parseNamespaceDecl() AstNode {
@@ -195,6 +212,112 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             return n
         }
 
+        // parseQualifiedNsPath — parse a dot-separated identifier chain and return
+        // it as a string, e.g. "MyApp.CoolService". Used inside import entries for
+        // the namespace portion of each import form.
+        fn parseQualifiedNsPath() String {
+            let tok Token: this.currentToken()
+            this.consume(TOK_IDENT)
+            let result String: tok.text
+            while this.currentTokenIs(TOK_DOT) {
+                this.advance()
+                if not this.currentTokenIs(TOK_IDENT) { this.error("expected identifier after '.'") }
+                let seg Token: this.currentToken()
+                this.advance()
+                result: result.append(".").append(seg.text)
+            }
+            return result
+        }
+
+        // parseImportEntry — parse one entry inside an `import { ... }` block.
+        //
+        // Four forms are supported:
+        //   FullNs:           MyApp.CoolService
+        //   AliasNs:          svc: MyApp.CoolService
+        //   SelectiveNames:   [greet, add]: MyApp.Lib
+        //   SelectiveAliased: {hello: greet, go: add}: MyApp.Lib
+        //
+        // The first token disambiguates: `[` → SelectiveNames, `{` → SelectiveAliased,
+        // ident followed by `:` → AliasNs, ident followed by `.` → FullNs.
+        fn parseImportEntry() ImportEntry {
+            // SelectiveNames: [name1, name2]: Ns.Path
+            if this.currentTokenIs(TOK_LBRACKET) {
+                this.advance()
+                let names Array<String>: []
+                while not this.currentTokenIs(TOK_RBRACKET) and not this.currentTokenIs(TOK_EOF) {
+                    let t Token: this.currentToken()
+                    this.consume(TOK_IDENT)
+                    names.add(t.text)
+                    this.consumeIf(TOK_COMMA)
+                }
+                this.consume(TOK_RBRACKET)
+                this.consume(TOK_COLON)
+                let ns String: this.parseQualifiedNsPath()
+                let k SelectiveNames: {}
+                return { kind: k, ns: ns, alias: "", names: names, nameAliases: [] }
+            }
+            // SelectiveAliased: {localName: exportedName, ...}: Ns.Path
+            // ExportEntry reused: exportedAs = name in the namespace, localName = local alias.
+            if this.currentTokenIs(TOK_LBRACE) {
+                this.advance()
+                let nameAliases Array<ExportEntry>: []
+                while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
+                    let localTok Token: this.currentToken()
+                    this.consume(TOK_IDENT)
+                    this.consume(TOK_COLON)
+                    let exportedTok Token: this.currentToken()
+                    this.consume(TOK_IDENT)
+                    nameAliases.add({ exportedAs: exportedTok.text, localName: localTok.text })
+                    this.consumeIf(TOK_COMMA)
+                }
+                this.consume(TOK_RBRACE)
+                this.consume(TOK_COLON)
+                let ns String: this.parseQualifiedNsPath()
+                let k SelectiveAliased: {}
+                return { kind: k, ns: ns, alias: "", names: [], nameAliases: nameAliases }
+            }
+            // AliasNs or FullNs — both start with an identifier.
+            let firstTok Token: this.currentToken()
+            this.consume(TOK_IDENT)
+            // AliasNs: first ident followed by ':' is the local alias.
+            if this.currentTokenIs(TOK_COLON) {
+                this.advance()
+                let ns String: this.parseQualifiedNsPath()
+                let k AliasNs: {}
+                return { kind: k, ns: ns, alias: firstTok.text, names: [], nameAliases: [] }
+            }
+            // FullNs: first ident is the start of a dot-separated namespace path.
+            let ns String: firstTok.text
+            while this.currentTokenIs(TOK_DOT) {
+                this.advance()
+                if not this.currentTokenIs(TOK_IDENT) { this.error("expected identifier after '.'") }
+                let seg Token: this.currentToken()
+                this.advance()
+                ns: ns.append(".").append(seg.text)
+            }
+            let k FullNs: {}
+            return { kind: k, ns: ns, alias: "", names: [], nameAliases: [] }
+        }
+
+        // parseImportBlock — `import { entry1, entry2, ... }`
+        //
+        // Entries are separated by optional commas (consumeIf). Each entry is
+        // dispatched to parseImportEntry(). The resulting ImportNode is semantically
+        // inert until the import-desugaring pass (Task 6).
+        fn parseImportBlock() AstNode {
+            let tok Token: this.currentToken()
+            this.consume(TOK_IMPORT)
+            this.consume(TOK_LBRACE)
+            let entries Array<ImportEntry>: []
+            while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
+                entries.add(this.parseImportEntry())
+                this.consumeIf(TOK_COMMA)
+            }
+            this.consume(TOK_RBRACE)
+            let n ImportNode: { entries: entries, line: tok.line, col: tok.col }
+            return n
+        }
+
         // parseTypeParamList peeks for `<T, U, ...>` after a fn/type name.
         // Returns an empty array if no `<` is present.
         fn parseTypeParamList() Array<String> {
@@ -215,12 +338,12 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             return typeParams
         }
 
-        fn parseFnDecl() AstNode {
-            this.consume(TOK_FN)
-            let nameTok Token: this.currentToken()
-            this.consume(TOK_IDENT)
-            let typeParams Array<String>: this.parseTypeParamList()
-            this.consume(TOK_LPAREN)
+        // parseParenParamList — consume tokens until TOK_RPAREN/EOF, parsing
+        // `name Type` pairs separated by optional commas. The caller is
+        // expected to have already consumed TOK_LPAREN; the closing TOK_RPAREN
+        // is left for the caller to consume so the cursor is positioned for
+        // a following return-type annotation.
+        fn parseParenParamList() Array<Param> {
             let params Array<Param>: []
             while not this.currentTokenIs(TOK_RPAREN) and not this.currentTokenIs(TOK_EOF) {
                 let pNameTok Token: this.currentToken()
@@ -229,6 +352,16 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 params.add({ name: pNameTok.text, typeName: pType })
                 this.consumeIf(TOK_COMMA)
             }
+            return params
+        }
+
+        fn parseFnDecl() AstNode {
+            this.consume(TOK_FN)
+            let nameTok Token: this.currentToken()
+            this.consume(TOK_IDENT)
+            let typeParams Array<String>: this.parseTypeParamList()
+            this.consume(TOK_LPAREN)
+            let params Array<Param>: this.parseParenParamList()
             this.consume(TOK_RPAREN)
             let returnType String: this.parseFnReturnType()
             this.consume(TOK_LBRACE)
@@ -249,14 +382,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let nameTok Token: this.currentToken()
             this.consume(TOK_IDENT)
             this.consume(TOK_LPAREN)
-            let params Array<Param>: []
-            while not this.currentTokenIs(TOK_RPAREN) and not this.currentTokenIs(TOK_EOF) {
-                let pNameTok Token: this.currentToken()
-                this.consume(TOK_IDENT)
-                let pType String: this.parseTypeAnnotation()
-                params.add({ name: pNameTok.text, typeName: pType })
-                this.consumeIf(TOK_COMMA)
-            }
+            let params Array<Param>: this.parseParenParamList()
             this.consume(TOK_RPAREN)
             let returnType String: this.parseFnReturnType()
             let n ExternFnNode: { name: nameTok.text, params: params, returnType: returnType }
@@ -266,10 +392,6 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         fn parseFnReturnType() String {
             if this.currentTokenIs(TOK_VOID) { this.advance() return "void" }
             if this.currentTokenIs(TOK_LBRACE) { return "void" }
-            return this.parseFnReturnTypeAnnotation()
-        }
-
-        fn parseFnReturnTypeAnnotation() String {
             return this.parseTypeAnnotation()
         }
 
@@ -315,14 +437,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let mNameTok Token: this.currentToken()
             this.consume(TOK_IDENT)
             this.consume(TOK_LPAREN)
-            let mparams Array<Param>: []
-            while not this.currentTokenIs(TOK_RPAREN) and not this.currentTokenIs(TOK_EOF) {
-                let pNameTok Token: this.currentToken()
-                this.consume(TOK_IDENT)
-                let pType String: this.parseTypeAnnotation()
-                mparams.add({ name: pNameTok.text, typeName: pType })
-                this.consumeIf(TOK_COMMA)
-            }
+            let mparams Array<Param>: this.parseParenParamList()
             this.consume(TOK_RPAREN)
             let mret String: this.parseMethodSigReturn()
             methods.add({ name: mNameTok.text, params: mparams, returnType: mret })
@@ -335,7 +450,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             if this.currentTokenIs(TOK_VOID) { this.advance() return "void" }
             let noRet bool: this.currentTokenIs(TOK_COMMA) or this.currentTokenIs(TOK_RBRACE) or this.currentTokenIs(TOK_FN) or this.currentTokenIs(TOK_EOF)
             if noRet { return "void" }
-            return this.parseFnReturnTypeAnnotation()
+            return this.parseTypeAnnotation()
         }
 
         // parseSumTypeBody — parse a comma-separated list of variant type expressions
@@ -501,7 +616,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let typeName String: this.parseTypeAnnotation()
             this.consume(TOK_COLON)
             let val AstNode: this.parseExpr()
-            let n LetNode: { name: nameTok.text, typeName: typeName, value: val, line: nameTok.line, col: nameTok.col }
+            let n LetNode: { name: nameTok.text, typeName: typeName, value: val, line: nameTok.line, col: nameTok.col, srcPath: "" }
             return n
         }
 
@@ -734,47 +849,30 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         }
 
         fn parseStructLitMethodInto(fields Array<StructFieldNode>) {
-            this.consume(TOK_FN)
-            let mNameTok Token: this.currentToken()
-            this.consume(TOK_IDENT)
-            this.consume(TOK_LPAREN)
-            let mparams Array<Param>: []
-            while not this.currentTokenIs(TOK_RPAREN) and not this.currentTokenIs(TOK_EOF) {
-                let pNameTok Token: this.currentToken()
-                this.consume(TOK_IDENT)
-                let pType String: this.parseTypeAnnotation()
-                mparams.add({ name: pNameTok.text, typeName: pType })
-                this.consumeIf(TOK_COMMA)
-            }
-            this.consume(TOK_RPAREN)
-            let mret String: this.parseFnReturnType()
-            let bodyBlock BlockNode: this.parseBlock()
-            let dummy WildcardNode: {}
-            let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: false, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
-            fields.add(m)
+            this.parseStructLitMethodBase(fields, false)
         }
 
         // parseStructLitPrivateMethodInto — parses `_ fn methodName(params) RetType { body }`.
         // The `_` marks the method as private; the stored name has no underscore.
         fn parseStructLitPrivateMethodInto(fields Array<StructFieldNode>) {
-            this.consume(TOK_WILDCARD)
+            this.parseStructLitMethodBase(fields, true)
+        }
+
+        // parseStructLitMethodBase — shared implementation for public and
+        // private struct-literal method members. When isPrivate is true the
+        // leading TOK_WILDCARD is consumed first.
+        fn parseStructLitMethodBase(fields Array<StructFieldNode>, isPrivate bool) {
+            if isPrivate { this.consume(TOK_WILDCARD) }
             this.consume(TOK_FN)
             let mNameTok Token: this.currentToken()
             this.consume(TOK_IDENT)
             this.consume(TOK_LPAREN)
-            let mparams Array<Param>: []
-            while not this.currentTokenIs(TOK_RPAREN) and not this.currentTokenIs(TOK_EOF) {
-                let pNameTok Token: this.currentToken()
-                this.consume(TOK_IDENT)
-                let pType String: this.parseTypeAnnotation()
-                mparams.add({ name: pNameTok.text, typeName: pType })
-                this.consumeIf(TOK_COMMA)
-            }
+            let mparams Array<Param>: this.parseParenParamList()
             this.consume(TOK_RPAREN)
             let mret String: this.parseFnReturnType()
             let bodyBlock BlockNode: this.parseBlock()
             let dummy WildcardNode: {}
-            let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: true, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
+            let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: isPrivate, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
             fields.add(m)
         }
 

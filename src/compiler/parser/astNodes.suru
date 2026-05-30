@@ -11,7 +11,20 @@
 // For transformation passes that must not mutate the original node (e.g.
 // monoSubst.suru), use clone(node) then call update methods on the fresh copy.
 
-include "parserAst.suru" as ast
+namespace Suru.Compiler.Parser.Nodes
+
+export {
+    newParam
+    newMethodSig
+    newStructFieldNode
+    newMatchArm
+    newMatchStmtArm
+    newBlockNode
+}
+
+import {
+    Suru.Compiler.Parser.Ast
+}
 
 fn newParam(name String, typeName String) Param {
     return { name: name, typeName: typeName }

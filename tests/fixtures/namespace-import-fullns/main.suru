@@ -1,0 +1,10 @@
+namespace My.App
+
+import {
+    My.Lib
+}
+
+fn main() {
+    let result i64: double(21)
+    printLn(result)
+}

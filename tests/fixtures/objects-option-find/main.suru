@@ -1,0 +1,63 @@
+namespace Test.ObjectsOptionFind
+
+export { main }
+
+// objects-option-find — a registry object whose method returns Option<Sig>,
+// exercising both the Some and None paths. Regression test for generics used
+// inside object-literal method bodies.
+//
+//   GAP 1: `some(this.items.at(i).clone())` — the some() argument is an
+//          untyped builtin method-call chain (.at() then .clone()). Before the
+//          fix, neither .at() nor .clone() received a resolvedType in pass 1,
+//          so monoInfer could not bind T and emitted an unmangled @some call.
+//   GAP 2: Option<Sig> appears only as the method's return type; the some__Sig
+//          instantiation's substituted return type Option<Sig> must be
+//          transitively instantiated to Option__Sig.
+//
+// Memory: .at() returns a BORROWED element pointer, so the found element is
+// cloned before being wrapped in Some; the returned Option therefore owns its
+// payload and can be dropped independently of the Registry's items array.
+
+import { [Option, Some, None, some, none]: Suru.Stdlib.Option }
+
+type Sig: { name String }
+
+type Registry: { items Array<Sig>, fn find(name String) Option<Sig> }
+
+fn main(args Array<String>) {
+    let xs Array<Sig>: []
+    xs.add({ name: "alpha" })
+    xs.add({ name: "beta" })
+
+    let reg Registry: {
+        items: xs,
+        fn find(name String) Option<Sig> {
+            let i i64: 0
+            while i.lt(this.items.len()) {
+                if this.items.at(i).name.equals(name) {
+                    return some(this.items.at(i).clone())
+                }
+                i: i.add(1)
+            }
+            return none()
+        }
+    }
+
+    // Some path.
+    let hit Option<Sig>: reg.find("beta")
+    match hit {
+        Some: { printLn(hit.value.name) }
+        None: { printLn("not found") }
+    }
+
+    // None path.
+    let miss Option<Sig>: reg.find("gamma")
+    match miss {
+        Some: { printLn(miss.value.name) }
+        None: { printLn("not found") }
+    }
+
+    drop(hit)
+    drop(miss)
+    drop(reg)
+}

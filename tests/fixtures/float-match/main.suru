@@ -1,3 +1,7 @@
+namespace Test.FloatMatch
+
+export { main }
+
 fn classify(f f64) String {
     match f {
         0.0:  { return "zero" }

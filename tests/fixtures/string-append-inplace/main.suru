@@ -1,3 +1,7 @@
+namespace Test.StringAppendInplace
+
+export { main }
+
 fn main(args Array<String>) {
     // Heap receiver: __append rebinds `a` to the concatenated result.
     let a String: "foo".append("bar")

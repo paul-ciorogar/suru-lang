@@ -1,3 +1,7 @@
+namespace Test.Types
+
+export { main }
+
 type DataStruct: { tall bool, height i64 }
 type Named: { name String, height i64 }
 type Lvl3: { someValue i64, name String }

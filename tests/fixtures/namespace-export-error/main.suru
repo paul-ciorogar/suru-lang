@@ -1,0 +1,7 @@
+namespace Test.Bad
+
+export {
+    doesNotExist
+}
+
+fn main() {}

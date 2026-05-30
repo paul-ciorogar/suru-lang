@@ -1,3 +1,7 @@
+namespace Test.SumTypes
+
+export { main }
+
 type Circle: { radius i64 }
 type Square: { side i64 }
 type Shape: Circle, Square

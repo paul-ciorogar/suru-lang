@@ -1,0 +1,12 @@
+namespace My.App
+
+import { {dbl: double}: My.Lib }
+
+fn double(x i64) i64 {
+    return x.multiply(3)
+}
+
+fn main(args Array<String>) {
+    printLn(dbl(7))
+    printLn(double(7))
+}

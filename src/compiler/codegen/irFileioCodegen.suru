@@ -21,8 +21,25 @@
 // Include DAG: depends on ir-box-codegen.suru → ir-codegen-types.suru → ir-builder.suru.
 // Imported by ir-codegen.suru (the mutual-recursion hub).
 
-include "irCodegenTypes.suru" as types
-include "irBuilder.suru" as ir
+namespace Suru.Compiler.Codegen.Fileio
+
+export {
+    addModeGlobal
+    addModeR
+    addModeW
+    addModeA
+    extractStringData
+    extractStringLen
+    emitReadFile
+    emitReadFileLit
+    emitWriteFile
+    emitWriteFileLit
+    emitAppendToFile
+    emitAppendToFileLit
+}
+
+import { types: Suru.Compiler.Codegen.Types }
+import { ir: Suru.Compiler.Codegen.Builder }
 
 // ─── Mode string global helpers ───────────────────────────────────────────────
 // fopen("r\00"), fopen("w\00"), fopen("a\00") — each is a private constant global.

@@ -1,3 +1,5 @@
+namespace Suru.Tests.Runner
+
 // xfail marks a known-broken test that must NOT block the build: an xfail that
 // fails prints XFAIL (not counted as a failure); an xfail that unexpectedly
 // passes prints XPASS so the marker can be removed. No test is currently xfail
@@ -56,6 +58,7 @@ fn main(args Array<String>) {
         { name: "builtins-misc",     source: "tests/fixtures/builtins-misc",     args: "", expected: readFile("/work/tests/fixtures/builtins-misc/expected.txt"), xfail: false, compileError: false },
         { name: "stdlib-option",          source: "tests/fixtures/stdlib-option",          args: "", expected: readFile("/work/tests/fixtures/stdlib-option/expected.txt"),          xfail: false, compileError: false },
         { name: "stdlib-option-all-types", source: "tests/fixtures/stdlib-option-all-types", args: "", expected: readFile("/work/tests/fixtures/stdlib-option-all-types/expected.txt"), xfail: false, compileError: false },
+        { name: "objects-option-find",    source: "tests/fixtures/objects-option-find",    args: "", expected: readFile("/work/tests/fixtures/objects-option-find/expected.txt"),    xfail: false, compileError: false },
         { name: "stdlib-result",          source: "tests/fixtures/stdlib-result",          args: "", expected: readFile("/work/tests/fixtures/stdlib-result/expected.txt"),          xfail: false, compileError: false },
         { name: "extern-fn-basic",        source: "tests/fixtures/extern-fn-basic",        args: "", expected: readFile("/work/tests/fixtures/extern-fn-basic/expected.txt"), xfail: false, compileError: false },
         { name: "private-fields",          source: "tests/fixtures/private-fields",          args: "", expected: readFile("/work/tests/fixtures/private-fields/expected.txt"), xfail: false, compileError: false },
@@ -73,6 +76,21 @@ fn main(args Array<String>) {
         { name: "struct-missing-field-error", source: "tests/fixtures/struct-missing-field-error", args: "", expected: readFile("/work/tests/fixtures/struct-missing-field-error/expected.txt"), xfail: false, compileError: true },
         { name: "struct-undeclared-method-error", source: "tests/fixtures/struct-undeclared-method-error", args: "", expected: readFile("/work/tests/fixtures/struct-undeclared-method-error/expected.txt"), xfail: false, compileError: true },
         { name: "namespace-export", source: "tests/fixtures/namespace-export", args: "", expected: readFile("/work/tests/fixtures/namespace-export/expected.txt"), xfail: false, compileError: false },
+        { name: "namespace-import",          source: "tests/fixtures/namespace-import",          args: "", expected: readFile("/work/tests/fixtures/namespace-import/expected.txt"),          xfail: false, compileError: true },
+        { name: "namespace-error-invalid",   source: "tests/fixtures/namespace-error-invalid",   args: "", expected: readFile("/work/tests/fixtures/namespace-error-invalid/expected.txt"),   xfail: false, compileError: true },
+        { name: "namespace-error-duplicate", source: "tests/fixtures/namespace-error-duplicate", args: "", expected: readFile("/work/tests/fixtures/namespace-error-duplicate/expected.txt"), xfail: false, compileError: true },
+        { name: "namespace-error-not-first", source: "tests/fixtures/namespace-error-not-first", args: "", expected: readFile("/work/tests/fixtures/namespace-error-not-first/expected.txt"), xfail: false, compileError: true },
+        { name: "namespace-export-error",    source: "tests/fixtures/namespace-export-error",    args: "", expected: readFile("/work/tests/fixtures/namespace-export-error/expected.txt"),    xfail: false, compileError: true },
+        { name: "namespace-import-error",    source: "tests/fixtures/namespace-import-error",    args: "", expected: readFile("/work/tests/fixtures/namespace-import-error/expected.txt"),    xfail: false, compileError: true },
+        { name: "namespace-import-conflict", source: "tests/fixtures/namespace-import-conflict", args: "", expected: readFile("/work/tests/fixtures/namespace-import-conflict/expected.txt"), xfail: false, compileError: true },
+        { name: "namespace-import-fullns",   source: "tests/fixtures/namespace-import-fullns",   args: "", expected: readFile("/work/tests/fixtures/namespace-import-fullns/expected.txt"),   xfail: false, compileError: false },
+        { name: "namespace-qualified-call",    source: "tests/fixtures/namespace-qualified-call",    args: "", expected: readFile("/work/tests/fixtures/namespace-qualified-call/expected.txt"),    xfail: false, compileError: false },
+        { name: "namespace-qualified-const",   source: "tests/fixtures/namespace-qualified-const",   args: "", expected: readFile("/work/tests/fixtures/namespace-qualified-const/expected.txt"),   xfail: false, compileError: false },
+        { name: "namespace-include-compat",    source: "tests/fixtures/namespace-include-compat",    args: "", expected: readFile("/work/tests/fixtures/namespace-include-compat/expected.txt"),    xfail: false, compileError: false },
+        { name: "namespace-error-missing",           source: "tests/fixtures/namespace-error-missing",           args: "", expected: readFile("/work/tests/fixtures/namespace-error-missing/expected.txt"),           xfail: false, compileError: true },
+        { name: "namespace-import-aliastns",          source: "tests/fixtures/namespace-import-aliastns",          args: "", expected: readFile("/work/tests/fixtures/namespace-import-aliastns/expected.txt"),          xfail: false, compileError: false },
+        { name: "namespace-import-selective-multi",   source: "tests/fixtures/namespace-import-selective-multi",   args: "", expected: readFile("/work/tests/fixtures/namespace-import-selective-multi/expected.txt"),   xfail: false, compileError: false },
+        { name: "namespace-import-selective-aliased", source: "tests/fixtures/namespace-import-selective-aliased", args: "", expected: readFile("/work/tests/fixtures/namespace-import-selective-aliased/expected.txt"), xfail: false, compileError: false },
     ]
 
     let passed i64: 0

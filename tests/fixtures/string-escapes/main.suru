@@ -1,3 +1,7 @@
+namespace Test.StringEscapes
+
+export { main }
+
 fn main(args Array<String>) {
     // String escape sequences — compare against known string values.
     let nl  String: "\n"

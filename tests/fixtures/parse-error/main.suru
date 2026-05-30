@@ -1,3 +1,5 @@
+namespace Test.ParseError
+
 // tests/fixtures/parse-error/main.suru
 //
 // Validates that a missing type annotation on `let` is a parse-time error

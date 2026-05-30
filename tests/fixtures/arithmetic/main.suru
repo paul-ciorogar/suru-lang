@@ -1,3 +1,7 @@
+namespace Test.Arithmetic
+
+export { main }
+
 fn main(args Array<String>) {
     let x i64: 2.add(3)
     printLn(x)

@@ -1,0 +1,3 @@
+/work/tests/fixtures/namespace-import-conflict/main.suru:3:1: error: import: 'greet' conflicts with a local declaration
+  3 | import {
+      ^

@@ -1,3 +1,7 @@
-include "b.suru" as b
+namespace Test.Modules.A
+
+export { theFunction }
+
+import { b: Test.Modules.B }
 
 fn theFunction() {}

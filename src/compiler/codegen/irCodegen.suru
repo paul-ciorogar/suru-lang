@@ -10,19 +10,62 @@
 // Include DAG: top of the codegen DAG — depends on all seven helper files.
 // Imported by suru-build/main.suru as the codegen entry point.
 
-include "../parser/parserAst.suru" as ast
-include "irBuilder.suru" as ir
-include "irCodegenTypes.suru" as types
-include "irCodegenStrIntern.suru" as strIntern
-include "irCodegenTypeHelpers.suru" as tyh
-include "irBoxCodegen.suru" as box
-include "irStringCodegen.suru" as irStr
-include "irArrayCodegen.suru" as irArr
-include "irStructCodegen.suru" as irStruct
-include "irFileioCodegen.suru" as irFile
-include "irTypeCloneDropCodegen.suru" as irCD
-include "irRegisterPasses.suru" as passes
-include "irExprHelpers.suru" as eh
+namespace Suru.Compiler.Codegen
+
+export {
+    emitInt64Static
+    emitFloat64Static
+    emitInt32Static
+    lookupFnSrcPath
+    lookupExternalFnSrcPath
+    joinDots
+    fnMangleSym
+    emitUserFnCallSym
+    emitUserFnCall
+    emitArrayLit
+    emitStructLit
+    isExprTemp
+    isPrintTempString
+    isOwnedStringTemp
+    appendRootSlot
+    emitValue
+    peekTypeNode
+    emitObjectMethodCall
+    emitMethodCall
+    narrowCondVar
+    restoreCondVar
+    collectPatterns
+    collectStmtPatterns
+    emitPatternComparisons
+    emitMatchExpr
+    emitMatchExprAsStmt
+    emitMatchStmt
+    emitWhile
+    emitBreak
+    emitContinue
+    emitIf
+    emitStmt
+    emitStmts
+    emitFunction
+    emitMainWrapper
+    emitModule
+    sortStrings
+    generate
+}
+
+import { ast: Suru.Compiler.Parser.Ast }
+import { ir: Suru.Compiler.Codegen.Builder }
+import { types: Suru.Compiler.Codegen.Types }
+import { strIntern: Suru.Compiler.Codegen.StrIntern }
+import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { box: Suru.Compiler.Codegen.Box }
+import { irStr: Suru.Compiler.Codegen.String }
+import { irArr: Suru.Compiler.Codegen.Array }
+import { irStruct: Suru.Compiler.Codegen.Struct }
+import { irFile: Suru.Compiler.Codegen.Fileio }
+import { irCD: Suru.Compiler.Codegen.CloneDrop }
+import { passes: Suru.Compiler.Codegen.RegisterPasses }
+import { eh: Suru.Compiler.Codegen.ExprHelpers }
 
 // Module-level pre-passes (registerTypes/registerFunctions/registerConstants/
 // emitGlobalConstants) live in irRegisterPasses.suru. Low-level expression
@@ -109,56 +152,6 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
 
 // ─── Per-module symbol mangling ─────────────────────────────────────────────────
 
-// Replace every non-[A-Za-z0-9_] char with '_' so an absolute source path can
-// be used as an LLVM symbol prefix.
-fn sanitizePath(p String) String {
-    let out String: ""
-    let i i64: 0
-    while i.lt(p.len()) {
-        let ch String: p.at(i)
-        let c i64: ch.ord()
-        let isDig bool: c.gte(48) and c.lt(58)
-        let isLow bool: c.gte(97) and c.lt(123)
-        let isUp  bool: c.gte(65) and c.lt(91)
-        let isUnd bool: ch.equals("_")
-        let keep bool: isDig or isLow or isUp or isUnd
-        if keep { out: out.append(ch) } else { out: out.append("_") }
-        i: i.add(1)
-    }
-    return out
-}
-
-// The LLVM symbol for a function: `main` and runtime/builtin names (empty
-// srcPath) are emitted verbatim; every other user function is prefixed with a
-// per-source-file tag so same-named functions in different files don't collide.
-fn mangleSym(srcPath String, name String) String {
-    return match name.equals("main") {
-        true: "main"
-        _: match srcPath.equals("") {
-            true: name
-            _: sanitizePath(srcPath).append("__").append(name)
-        }
-    }
-}
-
-// Map a namespace-qualified symbol to its LLVM global name.
-// "MyApp.CoolService" + "doSomething" → "MyApp__CoolService__doSomething"
-// Each '.' in the namespace is replaced by '__'; then '__' + name is appended.
-fn mangleNsSym(ns String, name String) String {
-    let out String: ""
-    let i i64: 0
-    while i.lt(ns.len()) {
-        let ch String: ns.at(i)
-        if ch.equals(".") {
-            out: out.append("__")
-        } else {
-            out: out.append(ch)
-        }
-        i: i.add(1)
-    }
-    return out.append("__").append(name)
-}
-
 // name → owning source path (or "" when not a user function: runtime/builtin).
 fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
     let names Array<String>: ctx.fnSrcName
@@ -171,16 +164,42 @@ fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
     return ""
 }
 
-// include alias → resolved source path (or "" when the name is not an alias).
-fn lookupAliasSrc(ctx IrCodegenContext, ns String) String {
-    let aliasNs  Array<String>: ctx.aliasNs
-    let aliasSrc Array<String>: ctx.aliasSrc
+// name → source path of an external (non-own-file) function, or "".
+// Used when emitting alias method calls (lib.fn()) to prefer the imported
+// function over a same-named local function.
+fn lookupExternalFnSrcPath(ctx IrCodegenContext, name String) String {
     let i i64: 0
-    while i.lt(aliasNs.len()) {
-        if aliasNs.at(i).equals(ns) { return aliasSrc.at(i) }
+    while i.lt(ctx.fnSrcName.len()) {
+        if ctx.fnSrcName.at(i).equals(name) {
+            let sp String: ctx.fnSrcPath.at(i)
+            if not sp.equals(ctx.rootPath) {
+                return sp
+            }
+        }
         i: i.add(1)
     }
     return ""
+}
+
+// Join an Array<String> with "." separator — reconstructs a namespace string from
+// the parts of a QualifiedNameNode.
+fn joinDots(parts Array<String>) String {
+    let out String: ""
+    let i i64: 0
+    while i.lt(parts.len()) {
+        if i.gt(0) { out: out.append(".") }
+        out: out.append(parts.at(i))
+        i: i.add(1)
+    }
+    return out
+}
+
+// Mangle a function symbol using its namespace. ExternFnNodes have an empty
+// srcPath (no namespace), so their name is returned verbatim.
+fn fnMangleSym(ctx IrCodegenContext, srcPath String, name String) String {
+    let ns String: types.lookupSrcNs(ctx, srcPath)
+    if not ns.equals("") { return types.mangleNsSym(ns, name) }
+    return name
 }
 
 // ─── User function call ─────────────────────────────────────────────────────────
@@ -217,8 +236,24 @@ fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, ar
 
 // Unqualified call `fn(...)`: mangle to the owning file's symbol (runtime and
 // builtin names have no srcPath entry and pass through unchanged).
+// Also handles SelectiveAliased import aliases: if fnName is a local alias
+// (e.g. "dbl" from `import { {dbl: double}: My.Lib }`), resolves it to the
+// real function name and calls the correctly mangled external symbol.
 fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) CodegenResult {
-    let sym String: mangleSym(lookupFnSrcPath(ctx, fnName), fnName)
+    let srcPath String: lookupFnSrcPath(ctx, fnName)
+    if srcPath.equals("") {
+        let ai i64: 0
+        while ai.lt(ctx.fnAliasLocal.len()) {
+            if ctx.fnAliasLocal.at(ai).equals(fnName) {
+                let realName String: ctx.fnAliasReal.at(ai)
+                let realSrcPath String: lookupExternalFnSrcPath(ctx, realName)
+                let sym String: fnMangleSym(ctx, realSrcPath, realName)
+                return emitUserFnCallSym(ctx, realName, sym, args)
+            }
+            ai: ai.add(1)
+        }
+    }
+    let sym String: fnMangleSym(ctx, srcPath, fnName)
     return emitUserFnCallSym(ctx, fnName, sym, args)
 }
 
@@ -430,18 +465,22 @@ fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) bool {
 // link of `s.__append(a).__append(b)` rebind the same variable slot, so the
 // final result lands in `s` and intermediates are freed exactly once.
 fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
-    match node {
-        MethodCallNode: {
-            if node.methodName.equals("__append") { return appendRootSlot(ctx, node.receiver) }
-            return ""
+    let cur AstNode: node
+    while true {
+        match cur {
+            MethodCallNode: {
+                if cur.methodName.equals("__append") { cur: cur.receiver }
+                else { return "" }
+            }
+            VarRefNode: {
+                let entry VarEntry: types.lookupVar(ctx, cur.name)
+                if entry.name.equals("") { return "" }
+                return entry.allocaName
+            }
+            _: { return "" }
         }
-        VarRefNode: {
-            let entry VarEntry: types.lookupVar(ctx, node.name)
-            if entry.name.equals("") { return "" }
-            return entry.allocaName
-        }
-        _: { return "" }
     }
+    return ""
 }
 
 // ─── Main value dispatch ────────────────────────────────────────────────────────
@@ -617,6 +656,21 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
             ctx: rr.ctx
             return eh.emitBinaryExpr(ctx, lr.name, lr.suruType, rr.name, rr.suruType, expr.op)
         }
+        QualifiedNameNode: {
+            // Standalone qualified name used as a value (e.g. a global constant reference).
+            // All but the last part form the namespace; the last part is the symbol.
+            let qn QualifiedNameNode: expr
+            let n i64: qn.parts.len()
+            let sym String: qn.parts.at(n.take(1))
+            let nsParts Array<String>: qn.parts.slice(0, n.take(1))
+            let ns String: joinDots(nsParts)
+            let mangled String: "@".append(types.mangleNsSym(ns, sym))
+            let suruType String: qn.resolvedType
+            let lt String: box.llvmTypeOf(suruType)
+            let lr IrResult: ir.emitLoad(ctx.builder, lt, mangled)
+            ctx.builder: lr.builder
+            return { ctx: ctx, name: lr.name, llvmType: lt, suruType: suruType }
+        }
         _: {
             return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "" }
         }
@@ -646,8 +700,9 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
         ArrayLitNode:    { st: expr.resolvedType }
         StructLitNode:   { st: expr.resolvedType }
         MatchExprNode:   { st: expr.resolvedType }
-        UnaryNode:       { st: expr.resolvedType }
-        BinaryNode:      { st: expr.resolvedType }
+        UnaryNode:         { st: expr.resolvedType }
+        BinaryNode:        { st: expr.resolvedType }
+        QualifiedNameNode: { st: expr.resolvedType }
         _: { st: "i64" }
     }
     return { ctx: ctx, name: "", llvmType: box.llvmTypeOf(st), suruType: st }
@@ -707,6 +762,68 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
     return { ctx: ctx, name: callR.name, llvmType: retLlvm, suruType: outSuru }
 }
 
+// Emit an integer index argument: evaluate it, then unbox to a raw i64 if the
+// value came back as a boxed dyn pointer. Used by Array/String at/set/slice.
+fn emitRawIndex(ctx IrCodegenContext, argNode AstNode) CodegenResult {
+    let r CodegenResult: emitValue(ctx, argNode)
+    ctx: r.ctx
+    if box.isScalarType(r.suruType) { return r }
+    return box.unboxInt64(ctx, r.name)
+}
+
+// Resolve a file-path argument to a raw `ptr` to its C string data. Literal
+// paths intern to a `@.str.N` global; dynamic paths emit the value and extract
+// the data pointer via irFile.extractStringData.
+fn emitFilePathArg(ctx IrCodegenContext, pathNode AstNode) CodegenResult {
+    match pathNode {
+        StrLitNode: {
+            ctx: strIntern.internString(ctx, pathNode.text)
+            let g String: strIntern.lookupStrGlobal(ctx, pathNode.text)
+            return { ctx: ctx, name: g, llvmType: "ptr", suruType: "String" }
+        }
+        _: {
+            let pr CodegenResult: emitValue(ctx, pathNode)
+            ctx: pr.ctx
+            return irFile.extractStringData(ctx, pr.name)
+        }
+    }
+}
+
+// Emit a typed println/printerror call for the scalar arms (bool/i32/i64/f64)
+// and the dynamic fallback (`ptr`). `suffix` is "println" or "printerror".
+// The String-temp drop policy for printLn is layered on by the caller.
+fn emitPrintByType(ctx IrCodegenContext, valueName String, suruType String, suffix String) IrCodegenContext {
+    let args Array<String>: []
+    match suruType {
+        "bool": {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("_bool(i1)\n"))
+            args.add("i1 ".append(valueName))
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix).append("_bool"), args)
+        }
+        "i32": {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("_i32(i32)\n"))
+            args.add("i32 ".append(valueName))
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix).append("_i32"), args)
+        }
+        "i64": {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("_i64(i64)\n"))
+            args.add("i64 ".append(valueName))
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix).append("_i64"), args)
+        }
+        "f64": {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("_f64(double)\n"))
+            args.add("double ".append(valueName))
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix).append("_f64"), args)
+        }
+        _: {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("(ptr)\n"))
+            args.add("ptr ".append(valueName))
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix), args)
+        }
+    }
+    return ctx
+}
+
 fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let method String: expr.methodName
     let recv AstNode: expr.receiver
@@ -720,19 +837,30 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
                 // Not in local scope — check if static builtin type or namespace alias.
                 let isBuiltin bool: tyh.isBuiltinSuruType(recvName)
                 if not isBuiltin {
-                    // Not in scope, not a builtin type name → namespace call.
-                    // Resolve the alias to the callee file and mangle to
-                    // that file's symbol; fall back to name-based mangling
-                    // when the receiver isn't a known alias.
-                    let nsSrc String: lookupAliasSrc(ctx, recvName)
-                    if nsSrc.equals("") { return emitUserFnCall(ctx, method, expr.args) }
-                    return emitUserFnCallSym(ctx, method, mangleSym(nsSrc, method), expr.args)
+                    // Not in scope and not a builtin type name: alias method call
+                    // (e.g. lib.double() where "lib" is an AliasNs alias).
+                    // Prefer the external (imported) function over a same-named local.
+                    let extPath String: lookupExternalFnSrcPath(ctx, method)
+                    if not extPath.equals("") {
+                        let sym String: fnMangleSym(ctx, extPath, method)
+                        return emitUserFnCallSym(ctx, method, sym, expr.args)
+                    }
+                    return emitUserFnCall(ctx, method, expr.args)
                 }
             }
             // Static type methods.
             if recvName.equals("i64")  { return emitInt64Static(ctx, method, expr.args)   }
             if recvName.equals("f64")  { return emitFloat64Static(ctx, method, expr.args) }
             if recvName.equals("i32")  { return emitInt32Static(ctx, method, expr.args)   }
+        }
+        QualifiedNameNode: {
+            // Receiver is a namespace prefix produced by import desugaring
+            // (e.g. QualifiedNameNode(["Test","Lib"]) for `add: Test.Lib` import).
+            // The method name is the function symbol; emit a namespace-mangled call.
+            let qn QualifiedNameNode: recv
+            let ns String: joinDots(qn.parts)
+            let mangled String: types.mangleNsSym(ns, method)
+            return emitUserFnCallSym(ctx, method, mangled, expr.args)
         }
         _: {}
     }
@@ -756,15 +884,9 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
         if method.equals("clone") { return irArr.emitArrayClone(ctx, recvVal, elemST) }
         if method.equals("drop")  { return irArr.emitArrayDrop(ctx, recvVal) }
         if method.equals("at") {
-            let idxR CodegenResult: emitValue(ctx, expr.args.at(0))
+            let idxR CodegenResult: emitRawIndex(ctx, expr.args.at(0))
             ctx: idxR.ctx
-            let idxRaw String: idxR.name
-            if not box.isScalarType(idxR.suruType) {
-                let ur CodegenResult: box.unboxInt64(ctx, idxR.name)
-                ctx: ur.ctx
-                idxRaw: ur.name
-            }
-            return irArr.emitArrayAt(ctx, recvVal, idxRaw, elemST)
+            return irArr.emitArrayAt(ctx, recvVal, idxR.name, elemST)
         }
         if method.equals("add") {
             // Struct-literal arguments carry their own resolvedType
@@ -778,36 +900,18 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
         if method.equals("set") {
             let vr CodegenResult: emitValue(ctx, expr.args.at(0))
             ctx: vr.ctx
-            let ir2 CodegenResult: emitValue(ctx, expr.args.at(1))
-            ctx: ir2.ctx
-            let idxRaw String: ir2.name
-            if not box.isScalarType(ir2.suruType) {
-                let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
-                ctx: ur.ctx
-                idxRaw: ur.name
-            }
-            ctx: irArr.emitArraySet(ctx, recvVal, vr.name, elemST, idxRaw)
+            let idxR CodegenResult: emitRawIndex(ctx, expr.args.at(1))
+            ctx: idxR.ctx
+            ctx: irArr.emitArraySet(ctx, recvVal, vr.name, elemST, idxR.name)
             return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
         }
         // .slice(from, to) → sub-array via suru_array_slice.
         if method.equals("slice") {
-            let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
+            let s1 CodegenResult: emitRawIndex(ctx, expr.args.at(0))
             ctx: s1.ctx
-            let s2 CodegenResult: emitValue(ctx, expr.args.at(1))
+            let s2 CodegenResult: emitRawIndex(ctx, expr.args.at(1))
             ctx: s2.ctx
-            let i1r String: s1.name
-            let i2r String: s2.name
-            if not box.isScalarType(s1.suruType) {
-                let u CodegenResult: box.unboxInt64(ctx, s1.name)
-                ctx: u.ctx
-                i1r: u.name
-            }
-            if not box.isScalarType(s2.suruType) {
-                let u2 CodegenResult: box.unboxInt64(ctx, s2.name)
-                ctx: u2.ctx
-                i2r: u2.name
-            }
-            return irArr.emitArraySlice(ctx, recvVal, i1r, i2r, elemST)
+            return irArr.emitArraySlice(ctx, recvVal, s1.name, s2.name, elemST)
         }
     }
 
@@ -954,15 +1058,9 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             }
         }
         if method.equals("at") {
-            let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
-            ctx: ir2.ctx
-            let idxRaw String: ir2.name
-            if not box.isScalarType(ir2.suruType) {
-                let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
-                ctx: ur.ctx
-                idxRaw: ur.name
-            }
-            let result CodegenResult: irStr.emitStringAt(ctx, recvVal, idxRaw)
+            let idxR CodegenResult: emitRawIndex(ctx, expr.args.at(0))
+            ctx: idxR.ctx
+            let result CodegenResult: irStr.emitStringAt(ctx, recvVal, idxR.name)
             ctx: result.ctx
             if isOwnedStringTemp(ctx, recv) {
                 let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
@@ -971,15 +1069,9 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
         }
         if method.equals("__at") {
-            let ir2 CodegenResult: emitValue(ctx, expr.args.at(0))
-            ctx: ir2.ctx
-            let idxRaw String: ir2.name
-            if not box.isScalarType(ir2.suruType) {
-                let ur CodegenResult: box.unboxInt64(ctx, ir2.name)
-                ctx: ur.ctx
-                idxRaw: ur.name
-            }
-            let result CodegenResult: irStr.emitStringCharAt(ctx, recvVal, idxRaw)
+            let idxR CodegenResult: emitRawIndex(ctx, expr.args.at(0))
+            ctx: idxR.ctx
+            let result CodegenResult: irStr.emitStringCharAt(ctx, recvVal, idxR.name)
             ctx: result.ctx
             if isOwnedStringTemp(ctx, recv) {
                 let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
@@ -988,23 +1080,11 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             return { ctx: ctx, name: result.name, llvmType: "i8", suruType: "char" }
         }
         if method.equals("slice") {
-            let s1 CodegenResult: emitValue(ctx, expr.args.at(0))
+            let s1 CodegenResult: emitRawIndex(ctx, expr.args.at(0))
             ctx: s1.ctx
-            let s2 CodegenResult: emitValue(ctx, expr.args.at(1))
+            let s2 CodegenResult: emitRawIndex(ctx, expr.args.at(1))
             ctx: s2.ctx
-            let i1r String: s1.name
-            let i2r String: s2.name
-            if not box.isScalarType(s1.suruType) {
-                let u CodegenResult: box.unboxInt64(ctx, s1.name)
-                ctx: u.ctx
-                i1r: u.name
-            }
-            if not box.isScalarType(s2.suruType) {
-                let u2 CodegenResult: box.unboxInt64(ctx, s2.name)
-                ctx: u2.ctx
-                i2r: u2.name
-            }
-            let result CodegenResult: irStr.emitStringSlice(ctx, recvVal, i1r, i2r)
+            let result CodegenResult: irStr.emitStringSlice(ctx, recvVal, s1.name, s2.name)
             ctx: result.ctx
             if isOwnedStringTemp(ctx, recv) {
                 let dr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
@@ -1712,52 +1792,26 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             }
                             let ar CodegenResult: emitValue(ctx, printArg)
                             ctx: ar.ctx
-                            let args Array<String>: []
-                            match ar.suruType {
-                                "bool": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_println_bool(i1)\n")
-                                    args.add("i1 ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_bool", args)
-                                }
-                                "i32": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_println_i32(i32)\n")
-                                    args.add("i32 ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_i32", args)
-                                }
-                                "i64": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_println_i64(i64)\n")
-                                    args.add("i64 ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_i64", args)
-                                }
-                                "f64": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_println_f64(double)\n")
-                                    args.add("double ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println_f64", args)
-                                }
-                                _: {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_println(ptr)\n")
-                                    args.add("ptr ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_println", args)
-                                    // Drop temp string after printing.
-                                    // Only drop when the arg definitely produces a new allocation.
-                                    // "at" is excluded because Array<String>.at() returns a
-                                    // borrowed element pointer — dropping it would cause double-free.
-                                    if ar.suruType.equals("String") {
-                                        let shouldDrop bool: false
-                                        match printArg {
-                                            CallNode:    { shouldDrop: true }
-                                            MethodCallNode: {
-                                                if printArg.methodName.equals("toString") { shouldDrop: true }
-                                                if printArg.methodName.equals("append")   { shouldDrop: true }
-                                                if printArg.methodName.equals("slice")    { shouldDrop: true }
-                                            }
-                                            _: {}
-                                        }
-                                        if shouldDrop {
-                                            let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
-                                            ctx: dr.ctx
-                                        }
+                            ctx: emitPrintByType(ctx, ar.name, ar.suruType, "println")
+                            // Drop temp string after printing.
+                            // Only drop when the arg definitely produces a new
+                            // allocation. "at" is excluded because
+                            // Array<String>.at() returns a borrowed element
+                            // pointer — dropping it would cause double-free.
+                            if ar.suruType.equals("String") {
+                                let shouldDrop bool: false
+                                match printArg {
+                                    CallNode:    { shouldDrop: true }
+                                    MethodCallNode: {
+                                        if printArg.methodName.equals("toString") { shouldDrop: true }
+                                        if printArg.methodName.equals("append")   { shouldDrop: true }
+                                        if printArg.methodName.equals("slice")    { shouldDrop: true }
                                     }
+                                    _: {}
+                                }
+                                if shouldDrop {
+                                    let dr CodegenResult: irStr.emitStringDrop(ctx, ar.name)
+                                    ctx: dr.ctx
                                 }
                             }
                             return ctx
@@ -1782,34 +1836,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             }
                             let ar CodegenResult: emitValue(ctx, peArg)
                             ctx: ar.ctx
-                            let args Array<String>: []
-                            match ar.suruType {
-                                "bool": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_bool(i1)\n")
-                                    args.add("i1 ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_bool", args)
-                                }
-                                "i32": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_i32(i32)\n")
-                                    args.add("i32 ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_i32", args)
-                                }
-                                "i64": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_i64(i64)\n")
-                                    args.add("i64 ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_i64", args)
-                                }
-                                "f64": {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_f64(double)\n")
-                                    args.add("double ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_f64", args)
-                                }
-                                _: {
-                                    ctx: types.addSuruDecl(ctx, "declare void @suru_printerror(ptr)\n")
-                                    args.add("ptr ".append(ar.name))
-                                    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror", args)
-                                }
-                            }
+                            ctx: emitPrintByType(ctx, ar.name, ar.suruType, "printerror")
                             return ctx
                         }
                         _: {}
@@ -1851,32 +1878,19 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     // writeFile — resolve path to raw char*, then resolve content.
                     match expr.name.equals("writeFile") {
                         true: {
-                            let wfPath AstNode: expr.args.at(0)
-                            let wfPathData String: ""
-                            match wfPath {
-                                StrLitNode: {
-                                    ctx: strIntern.internString(ctx, wfPath.text)
-                                    wfPathData: strIntern.lookupStrGlobal(ctx, wfPath.text)
-                                }
-                                _: {
-                                    let pr CodegenResult: emitValue(ctx, wfPath)
-                                    ctx: pr.ctx
-                                    let pathDataR CodegenResult: irFile.extractStringData(ctx, pr.name)
-                                    ctx: pathDataR.ctx
-                                    wfPathData: pathDataR.name
-                                }
-                            }
+                            let pathR CodegenResult: emitFilePathArg(ctx, expr.args.at(0))
+                            ctx: pathR.ctx
                             let wfContent AstNode: expr.args.at(1)
                             match wfContent {
                                 StrLitNode: {
                                     ctx: strIntern.internString(ctx, wfContent.text)
                                     let gname String: strIntern.lookupStrGlobal(ctx, wfContent.text)
-                                    ctx: irFile.emitWriteFileLit(ctx, wfPathData, gname, wfContent.text.len())
+                                    ctx: irFile.emitWriteFileLit(ctx, pathR.name, gname, wfContent.text.len())
                                 }
                                 _: {
                                     let cr CodegenResult: emitValue(ctx, wfContent)
                                     ctx: cr.ctx
-                                    ctx: irFile.emitWriteFile(ctx, wfPathData, cr.name)
+                                    ctx: irFile.emitWriteFile(ctx, pathR.name, cr.name)
                                 }
                             }
                             return ctx
@@ -1886,32 +1900,19 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     // appendToFile — same path-first ordering as writeFile.
                     match expr.name.equals("appendToFile") {
                         true: {
-                            let afPath AstNode: expr.args.at(0)
-                            let afPathData String: ""
-                            match afPath {
-                                StrLitNode: {
-                                    ctx: strIntern.internString(ctx, afPath.text)
-                                    afPathData: strIntern.lookupStrGlobal(ctx, afPath.text)
-                                }
-                                _: {
-                                    let pr CodegenResult: emitValue(ctx, afPath)
-                                    ctx: pr.ctx
-                                    let pathDataR CodegenResult: irFile.extractStringData(ctx, pr.name)
-                                    ctx: pathDataR.ctx
-                                    afPathData: pathDataR.name
-                                }
-                            }
+                            let pathR CodegenResult: emitFilePathArg(ctx, expr.args.at(0))
+                            ctx: pathR.ctx
                             let afContent AstNode: expr.args.at(1)
                             match afContent {
                                 StrLitNode: {
                                     ctx: strIntern.internString(ctx, afContent.text)
                                     let gname String: strIntern.lookupStrGlobal(ctx, afContent.text)
-                                    ctx: irFile.emitAppendToFileLit(ctx, afPathData, gname, afContent.text.len())
+                                    ctx: irFile.emitAppendToFileLit(ctx, pathR.name, gname, afContent.text.len())
                                 }
                                 _: {
                                     let cr CodegenResult: emitValue(ctx, afContent)
                                     ctx: cr.ctx
-                                    ctx: irFile.emitAppendToFile(ctx, afPathData, cr.name)
+                                    ctx: irFile.emitAppendToFile(ctx, pathR.name, cr.name)
                                 }
                             }
                             return ctx
@@ -1962,7 +1963,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
             paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
             i: i.add(1)
         }
-        ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(mangleSym(fnDecl.srcPath, fnDecl.name)).append("(").append(ir.joinArgs(paramParts)).append(")\n")
+        ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(fnMangleSym(ctx, fnDecl.srcPath, fnDecl.name)).append("(").append(ir.joinArgs(paramParts)).append(")\n")
         return ctx
     }
 
@@ -1996,7 +1997,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
             paramParts.add(box.llvmTypeOf(tyh.makeSuruType(p.typeName)).append(" %p.").append(p.name))
             i: i.add(1)
         }
-        ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, mangleSym(fnDecl.srcPath, fnDecl.name), ir.joinArgs(paramParts))
+        ctx.builder: ir.emitFnStart(ctx.builder, retLlvm, fnMangleSym(ctx, fnDecl.srcPath, fnDecl.name), ir.joinArgs(paramParts))
         let j i64: 0
         while j.lt(fnDecl.params.len()) {
             let p Param: fnDecl.params.at(j)
@@ -2171,12 +2172,22 @@ fn sortStrings(arr Array<String>) Array<String> {
 //              file (the generic template's origin), but should still get a full
 //              define in this file's IR.  Kept separate from ownFnNames to avoid
 //              false-positive "own" matches for same-named functions in includes.
-fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, monoFnNames Array<String>, aliases Array<IncludeAlias>, rootPath String) String {
+fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, monoFnNames Array<String>, rootPath String, srcNsEntries Array<SrcNsEntry>) String {
     let ctx IrCodegenContext: types.makeIrContext()
     ctx.ownFnNames: ownFnNames
     ctx.monoFnNames: monoFnNames
     ctx.ownTypeNames: ownTypeNames
     ctx.rootPath: rootPath
+
+    // Populate srcPath → namespace table so fnMangleSym and registerConstants
+    // can choose namespace-based vs path-based mangling.
+    let sni i64: 0
+    while sni.lt(srcNsEntries.len()) {
+        let e SrcNsEntry: srcNsEntries.at(sni)
+        ctx.srcNsPath.add(e.srcPath)
+        ctx.srcNsNs.add(e.ns)
+        sni: sni.add(1)
+    }
 
     // name → owning source path, for mangling every user function symbol
     // (definition, declare stub, and unqualified call site) per source file.
@@ -2191,7 +2202,7 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                 fnSrcPath.add(fs.srcPath)
             }
             ExternFnNode: {
-                // Empty srcPath → mangleSym returns the raw IR name unchanged.
+                // Empty srcPath → fnMangleSym returns the name verbatim.
                 fnSrcName.add(fs.name)
                 fnSrcPath.add("")
             }
@@ -2202,18 +2213,40 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
     ctx.fnSrcName: fnSrcName
     ctx.fnSrcPath: fnSrcPath
 
-    // alias → resolved source path, for `ns.fn()` calls in this file's bodies.
-    let aliasNs  Array<String>: []
-    let aliasSrc Array<String>: []
-    let ai i64: 0
-    while ai.lt(aliases.len()) {
-        let al IncludeAlias: aliases.at(ai)
-        aliasNs.add(al.ns)
-        aliasSrc.add(al.srcPath)
-        ai: ai.add(1)
+    // Populate SelectiveAliased alias table from ImportNode entries in stmts.
+    // For `import { {dbl: double}: My.Lib }`, registers fnAliasLocal="dbl",
+    // fnAliasReal="double" so emitUserFnCall can resolve alias calls.
+    let fnAliasLocal Array<String>: []
+    let fnAliasReal  Array<String>: []
+    let ali i64: 0
+    while ali.lt(stmts.len()) {
+        match stmts.at(ali) {
+            ImportNode: {
+                let imp ImportNode: stmts.at(ali)
+                let alei i64: 0
+                while alei.lt(imp.entries.len()) {
+                    let entry ImportEntry: imp.entries.at(alei)
+                    match entry.kind {
+                        SelectiveAliased: {
+                            let alj i64: 0
+                            while alj.lt(entry.nameAliases.len()) {
+                                let na ExportEntry: entry.nameAliases.at(alj)
+                                fnAliasLocal.add(na.localName)
+                                fnAliasReal.add(na.exportedAs)
+                                alj: alj.add(1)
+                            }
+                        }
+                        _: {}
+                    }
+                    alei: alei.add(1)
+                }
+            }
+            _: {}
+        }
+        ali: ali.add(1)
     }
-    ctx.aliasNs:  aliasNs
-    ctx.aliasSrc: aliasSrc
+    ctx.fnAliasLocal: fnAliasLocal
+    ctx.fnAliasReal: fnAliasReal
 
     // Register external function signatures for namespace calls.
     let i i64: 0

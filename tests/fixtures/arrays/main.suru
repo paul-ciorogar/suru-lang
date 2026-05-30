@@ -1,3 +1,7 @@
+namespace Test.Arrays
+
+export { main }
+
 fn main(args Array<String>) {
     let nums Array<i64>: [10, 20, 30]
     printLn(nums.len()) // 3

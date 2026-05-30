@@ -1,0 +1,17 @@
+namespace MyApp.App
+
+// Exercise all 4 import forms — parsed but semantically inert until Task 6.
+import {
+    MyApp.Lib
+    lib: MyApp.Other
+    [greet]: MyApp.Lib
+    {hello: greet}: MyApp.Lib
+}
+
+fn greet() {
+    printLn("hi")
+}
+
+fn main() {
+    greet()
+}

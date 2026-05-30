@@ -1,3 +1,7 @@
+namespace Test.GenericsMonoinstantiateUnit
+
+export { main }
+
 // Unit test for monoInstantiate.suru.
 //
 // Constructs a GenericTypeDef for Pair<T, U> by hand and verifies:
@@ -5,9 +9,9 @@
 //   - instantiateType clones fields with substituted type names and clears typeParams
 //   - instantiateAll deduplicates repeated requests for the same instantiation
 
-include "../../../src/compiler/semantic/mono/monoCollect.suru"    as collect
-include "../../../src/compiler/semantic/mono/monoInstantiate.suru" as mono
-include "../../../src/compiler/parser/astNodes.suru"              as nodes
+import { collect: Suru.Compiler.Semantic.Mono.Collect }
+import { mono: Suru.Compiler.Semantic.Mono.Instantiate }
+import { nodes: Suru.Compiler.Parser.Nodes }
 
 fn main() {
     // Build the fields: first T, second U

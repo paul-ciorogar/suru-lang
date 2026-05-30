@@ -1,0 +1,13 @@
+namespace MyApp.App
+
+import {
+    [greet]: MyApp.Lib
+}
+
+fn greet() {
+    printLn("local")
+}
+
+fn main() {
+    greet()
+}

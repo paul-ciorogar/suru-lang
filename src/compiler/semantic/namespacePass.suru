@@ -1,0 +1,69 @@
+// namespacePass.suru — Semantic validation for namespace declarations.
+//
+// Validates structural rules for NamespaceDeclNode that require seeing the
+// full module statement list:
+//   - At most one namespace declaration per file.
+//   - The namespace declaration must be the very first statement (index 0).
+//
+// The parser already rejects trailing dots and invalid ident segments (it
+// calls this.error() → exit(1)), so those checks are not repeated here.
+//
+// If the declaration is valid, the namespace string is stored in
+// state.namespace for use by later passes (export registry, import
+// desugaring, codegen).
+
+namespace Suru.Compiler.Semantic.NamespacePass
+
+export {
+    validateNamespaceDecl
+}
+
+import { semantic: Suru.Compiler.Semantic }
+import { ast: Suru.Compiler.Parser.Ast }
+
+// validateNamespaceDecl — walk ownStmts, apply namespace structural rules,
+// and store the resolved namespace string in state.namespace.
+//
+// Parameters:
+//   state  — the AnalyzerState for the current module (mutated in-place)
+//   stmts  — the own-module statements from collectNonInclude(mod.stmts),
+//             i.e. the original file's statements without transitive includes
+fn validateNamespaceDecl(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+    let foundNs bool: false
+    let firstNsPos i64: 0
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            NamespaceDeclNode: {
+                let ns NamespaceDeclNode: stmt
+                if not foundNs {
+                    foundNs: true
+                    firstNsPos: i
+                    state.moduleNamespace: ns.name
+                } else {
+                    state.addError("at most one namespace declaration allowed per file", ns.line, ns.col)
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    // Namespace declaration must be the first statement (index 0).
+    // If it appears after other declarations, report an error.
+    if foundNs and firstNsPos.gt(0) {
+        let nsStmt AstNode: stmts.at(firstNsPos)
+        match nsStmt {
+            NamespaceDeclNode: {
+                let ns NamespaceDeclNode: nsStmt
+                state.addError("namespace declaration must be the first statement in the file", ns.line, ns.col)
+            }
+            _: {}
+        }
+    }
+    // Every .suru file must declare a namespace.
+    if not foundNs {
+        state.addError("namespace declaration required", 0, 0)
+    }
+    return state
+}

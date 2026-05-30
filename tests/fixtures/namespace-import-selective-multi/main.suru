@@ -1,0 +1,13 @@
+namespace My.App
+
+import { [double, triple]: My.Lib }
+
+fn noCollision() String {
+    return "app"
+}
+
+fn main(args Array<String>) {
+    printLn(double(7))
+    printLn(triple(7))
+    printLn(noCollision())
+}

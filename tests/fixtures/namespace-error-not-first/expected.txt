@@ -1,0 +1,3 @@
+/work/tests/fixtures/namespace-error-not-first/main.suru:2:1: error: namespace declaration must be the first statement in the file
+  2 | namespace Late.Arrival
+      ^

@@ -6,7 +6,16 @@
 //
 // Depends on irCodegenTypes.suru for IrCodegenContext / StrIndexEntry.
 
-include "irCodegenTypes.suru" as types
+namespace Suru.Compiler.Codegen.StrIntern
+
+export {
+    irEscapeStr
+    internString
+    lookupStrGlobal
+    lookupStrHdrGlobal
+}
+
+import { types: Suru.Compiler.Codegen.Types }
 
 // Map a nibble (0–15) to its uppercase hex character.
 fn _hexDigit(n i64) String {

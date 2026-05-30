@@ -1,0 +1,9 @@
+namespace Test.Other
+
+export {
+    someFunc
+}
+
+fn someFunc() {
+    printLn("other")
+}

@@ -1,3 +1,7 @@
+namespace Test.ResolvedTypeSmoke
+
+export { main }
+
 // Smoke test for the resolved-type AST migration.
 //
 // Exercises the cases where `expr.resolvedType` must be populated by semantic

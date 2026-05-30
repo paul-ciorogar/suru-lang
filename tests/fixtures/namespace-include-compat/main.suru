@@ -1,0 +1,11 @@
+// Verify import-based dependency resolution: lib.suru is discovered via the
+// namespace registry when the import is resolved, with no explicit include needed.
+namespace Test.Main
+
+import {
+    [greet]: Test.Lib
+}
+
+fn main() {
+    greet()
+}

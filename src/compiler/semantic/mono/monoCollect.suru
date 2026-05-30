@@ -6,7 +6,21 @@
 // generic definition; the registry is used by monoInfer and monoInstantiate
 // to drive monomorphization.
 
-include "../../parser/parserAst.suru" as ast
+namespace Suru.Compiler.Semantic.Mono.Collect
+
+export {
+    GenericFnDef
+    GenericTypeDef
+    GenericSumTypeDef
+    GenericRegistry
+    newGenericFnDef
+    newGenericTypeDef
+    newGenericSumTypeDef
+    newGenericRegistry
+    collectGenericDefs
+}
+
+import { ast: Suru.Compiler.Parser.Ast }
 
 // ─── Registry types ───────────────────────────────────────────────────────────
 
