@@ -1,0 +1,63 @@
+// assert.suru — minimal assertion helpers for in-process unit tests.
+//
+// A unit test builds an Array<TestResult> (one entry per assertion) and returns
+// it; the test runner calls reportResults to print a line per assertion and to
+// obtain the failure count, which it folds into the overall suite tally.
+// TestResult.detail carries a human-readable "want X got Y" message on failure
+// (empty on pass).
+
+namespace Test.Unit.Assert
+
+export {
+    TestResult
+    assertEqI64
+    assertTrue
+    assertEqStr
+    reportResults
+}
+
+type TestResult: { name String, pass bool, detail String }
+
+// assertEqI64 — pass when got == want; on failure detail records both values.
+fn assertEqI64(name String, got i64, want i64) TestResult {
+    if got.equals(want) {
+        return { name: name, pass: true, detail: "" }
+    }
+    let detail String: "want ".append(want.toString()).append(" got ").append(got.toString())
+    return { name: name, pass: false, detail: detail }
+}
+
+// assertTrue — pass when cond is true.
+fn assertTrue(name String, cond bool) TestResult {
+    if cond {
+        return { name: name, pass: true, detail: "" }
+    }
+    return { name: name, pass: false, detail: "expected true" }
+}
+
+// assertEqStr — pass when got equals want (String comparison).
+fn assertEqStr(name String, got String, want String) TestResult {
+    if got.equals(want) {
+        return { name: name, pass: true, detail: "" }
+    }
+    let detail String: "want \"".append(want).append("\" got \"").append(got).append("\"")
+    return { name: name, pass: false, detail: detail }
+}
+
+// reportResults — print one line per result and return the number of failures.
+// Format: "  PASS <suite>/<name>" or "  FAIL <suite>/<name> — <detail>".
+fn reportResults(suite String, results Array<TestResult>) i64 {
+    let failures i64: 0
+    let i i64: 0
+    while i.lt(results.len()) {
+        let r TestResult: results.at(i)
+        if r.pass {
+            printLn("  PASS ".append(suite).append("/").append(r.name))
+        } else {
+            failures: failures.add(1)
+            printLn("  FAIL ".append(suite).append("/").append(r.name).append(" — ").append(r.detail))
+        }
+        i: i.add(1)
+    }
+    return failures
+}

@@ -1,0 +1,64 @@
+// lexerHex.suru — hexadecimal integer literal helpers.
+//
+// Pure (state-free) functions backing the lexer's `0x` / `0X` integer literal
+// syntax (see `readHexLiteral` in lexer.suru). They live in a separate namespace
+// so the conversion logic is independently unit-testable
+// (tests/unit/compiler/lexer_test.suru) and to keep lexer.suru under the
+// 500-line file guideline.
+//
+// A hex literal is lexed to an ordinary decimal TOK_INT token, so no other
+// compiler stage needs to know hex ever existed: `hexDigitsToI64` converts the
+// digit run to an i64 and the lexer emits `value.toString()` as the token text.
+// Type inference from context (char / i32 / i64) then works unchanged.
+
+namespace Suru.Compiler.Lexer.Hex
+
+export {
+    isHexDigit
+    hexCharToVal
+    hexDigitsToI64
+}
+
+// ASCII codepoint boundaries for the three hex-digit ranges.
+let HEX_DIGIT_0 i64: 48   // '0'
+let HEX_DIGIT_9 i64: 57   // '9'
+let HEX_LOWER_A i64: 97   // 'a'
+let HEX_LOWER_F i64: 102  // 'f'
+let HEX_UPPER_A i64: 65   // 'A'
+let HEX_UPPER_F i64: 70   // 'F'
+
+// isHexDigit — true when ch is one of [0-9a-fA-F].
+fn isHexDigit(ch char) bool {
+    let c i64: ch.ord()
+    let digit bool: c.gte(HEX_DIGIT_0) and c.lte(HEX_DIGIT_9)
+    let lower bool: c.gte(HEX_LOWER_A) and c.lte(HEX_LOWER_F)
+    let upper bool: c.gte(HEX_UPPER_A) and c.lte(HEX_UPPER_F)
+    return digit or lower or upper
+}
+
+// hexCharToVal — map a single hex-digit character to its 0–15 value.
+// Assumes isHexDigit(ch); the three ranges are tested in order. Subtraction in
+// Suru is the `.take()` method (e.g. c.take(48) == c - 48).
+fn hexCharToVal(ch char) i64 {
+    let c i64: ch.ord()
+    if c.gte(HEX_DIGIT_0) and c.lte(HEX_DIGIT_9) {
+        return c.take(HEX_DIGIT_0)
+    }
+    if c.gte(HEX_LOWER_A) and c.lte(HEX_LOWER_F) {
+        return c.take(HEX_LOWER_A).add(10)
+    }
+    return c.take(HEX_UPPER_A).add(10)
+}
+
+// hexDigitsToI64 — fold a run of hex-digit characters into an i64,
+// most-significant digit first: result = result * 16 + value(digit).
+// An empty string returns 0 (callers reject empty runs before calling).
+fn hexDigitsToI64(digits String) i64 {
+    let result i64: 0
+    let i i64: 0
+    while i.lt(digits.len()) {
+        result: result.multiply(16).add(hexCharToVal(digits.__at(i)))
+        i: i.add(1)
+    }
+    return result
+}

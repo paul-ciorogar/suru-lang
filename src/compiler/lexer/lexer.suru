@@ -59,6 +59,7 @@ export {
 }
 
 import { [extractSourceLine, buildSpaces]: Suru.Compiler.DiagUtils }
+import { [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex }
 
 // Token kind constants — values must be unique; after any addition or removal run bootstrap twice.
 let TOK_EOF      i64: 0
@@ -127,6 +128,7 @@ type Lexer: {
     fn processNonWhitespace() void
     fn readIdentOrKeyword() void
     fn readNumber() void
+    fn readHexLiteral(startCol i64) void
     fn checkFloat() bool
     fn makeFloatToken(intText String, startCol i64) void
     fn readIdent() String
@@ -400,6 +402,15 @@ fn newLexer(source String, srcPath String) Lexer {
 
         fn readNumber() {
             let startCol i64: this.col
+
+            // Hex literal: '0' followed by 'x' or 'X'. Handled separately because
+            // the digit set and base differ; the result is still a TOK_INT.
+            let isZero bool: this.current().equals('0')
+            let isXMark bool: this.peek().equals('x') or this.peek().equals('X')
+            if isZero and isXMark {
+                return this.readHexLiteral(startCol)
+            }
+
             let intText String: this.readDigits()
 
             if this.checkFloat() {
@@ -407,6 +418,38 @@ fn newLexer(source String, srcPath String) Lexer {
             }
 
             this.addToken(TOK_INT, intText, this.line, startCol)
+        }
+
+        // Read a hexadecimal integer literal: '0x' / '0X' followed by one or more
+        // [0-9a-fA-F] digits. The decoded value is emitted as a decimal TOK_INT so
+        // every downstream stage treats it identically to a decimal literal. A bare
+        // '0x' with no digits is a fatal lex error (caret diagnostic, mirroring
+        // readChar's unterminated-char-literal report).
+        fn readHexLiteral(startCol i64) {
+            this.advance()  // consume '0'
+            this.advance()  // consume 'x' / 'X'
+
+            let start i64: this.pos
+            while this.notEOF() and isHexDigit(this.current()) {
+                this.advance()
+            }
+            let digits String: this.source.slice(start, this.pos)
+
+            if digits.len().equals(0) {
+                let errHeader String: this.srcPath
+                    .append(":").append(this.line.toString())
+                    .append(":").append(startCol.toString())
+                    .append(": error: invalid hex literal — expected hex digits after '0x'")
+                printError(errHeader)
+                let srcLine String: extractSourceLine(this.source, this.line)
+                let lineLabel String: "  ".append(this.line.toString()).append(" | ")
+                printError(lineLabel.append(srcLine))
+                let prefixLen i64: lineLabel.len().add(startCol.take(1))
+                printError(buildSpaces(prefixLen).append("^"))
+                exit(1)
+            }
+
+            this.addToken(TOK_INT, hexDigitsToI64(digits).toString(), this.line, startCol)
         }
 
         fn checkFloat() bool {

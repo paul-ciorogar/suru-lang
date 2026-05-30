@@ -1,0 +1,12 @@
+# Suru project file for the tests tree.
+#
+# Project discovery picks the NEAREST ancestor .suruproject, so this file governs
+# both the test runner build (tests/runner/main.suru) and every fixture build
+# under tests/fixtures/. It must therefore expose the compiler and stdlib source
+# roots that fixtures import (Suru.Compiler.* / Suru.Stdlib.*), plus the unit-test
+# tree (tests/unit/) whose namespaces the runner imports.
+#
+# Source root directories scanned for namespace declarations (relative to this file).
+../src/compiler
+../src/stdlib
+unit

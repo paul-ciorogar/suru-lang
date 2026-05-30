@@ -78,10 +78,15 @@ Declare with `let`. The type annotation is **mandatory** and appears between the
 
 ```suru
 let x i64: 42
+let hex i64: 0xDEAD     // hexadecimal integer literal (0x / 0X), == 57005
 let ratio f64: 1.5
 let flag bool: true
 let name String: "suru"
 ```
+
+Integer literals may use a `0x` / `0X` hex prefix (`0xFF`, `0X10`, mixed case
+`0xAbCd`); they behave exactly like the equivalent decimal literal, including
+type inference into `char`, `i32`, or `i64` from context.
 
 Reassign with `name: value` (no `let`):
 

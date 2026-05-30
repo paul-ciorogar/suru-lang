@@ -1,0 +1,48 @@
+// lexer_test.suru — unit tests for the lexer's hexadecimal-literal support.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// lexerTests() and reports the returned results. Covers the pure hex helpers
+// (Suru.Compiler.Lexer.Hex) directly and the readNumber→readHexLiteral wiring
+// end-to-end via the lexer's toString().
+
+namespace Test.Unit.Compiler.Lexer
+
+export { lexerTests }
+
+import { [TestResult, assertEqI64, assertTrue, assertEqStr]: Test.Unit.Assert }
+import { [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex }
+import { [toString]: Suru.Compiler.Lexer }
+
+// lexerTests — one TestResult per assertion.
+fn lexerTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // isHexDigit — accepts [0-9a-fA-F], rejects everything else.
+    results.add(assertTrue("isHexDigit('0')", isHexDigit('0')))
+    results.add(assertTrue("isHexDigit('9')", isHexDigit('9')))
+    results.add(assertTrue("isHexDigit('a')", isHexDigit('a')))
+    results.add(assertTrue("isHexDigit('f')", isHexDigit('f')))
+    results.add(assertTrue("isHexDigit('F')", isHexDigit('F')))
+    results.add(assertTrue("not isHexDigit('g')", not isHexDigit('g')))
+    results.add(assertTrue("not isHexDigit(' ')", not isHexDigit(' ')))
+
+    // hexCharToVal — single-digit value across all three ranges.
+    results.add(assertEqI64("hexCharToVal('0')", hexCharToVal('0'), 0))
+    results.add(assertEqI64("hexCharToVal('9')", hexCharToVal('9'), 9))
+    results.add(assertEqI64("hexCharToVal('a')", hexCharToVal('a'), 10))
+    results.add(assertEqI64("hexCharToVal('F')", hexCharToVal('F'), 15))
+
+    // hexDigitsToI64 — multi-digit accumulation, incl. mixed case and zero.
+    results.add(assertEqI64("hexDigitsToI64(FF)", hexDigitsToI64("FF"), 255))
+    results.add(assertEqI64("hexDigitsToI64(0)", hexDigitsToI64("0"), 0))
+    results.add(assertEqI64("hexDigitsToI64(DEAD)", hexDigitsToI64("DEAD"), 57005))
+    results.add(assertEqI64("hexDigitsToI64(AbCd)", hexDigitsToI64("AbCd"), 43981))
+
+    // End-to-end: hex literals tokenize to plain decimal TOK_INT tokens.
+    // toString formats each token as "KIND text line:col\n".
+    let toks String: toString("0xFF\n0X10\n0xDEAD")
+    results.add(assertEqStr("tokenize hex", toks, "INT 255 1:1\nINT 16 2:1\nINT 57005 3:1\n"))
+    drop(toks)
+
+    return results
+}

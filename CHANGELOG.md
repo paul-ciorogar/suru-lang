@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Add — hexadecimal integer literals
+
+Integer literals can now be written in hex with a `0x` / `0X` prefix
+(`0xFF`, `0X10`, `0xDEAD`, mixed case `0xAbCd`). A hex literal lexes to an
+ordinary decimal `TOK_INT`, so it is usable anywhere an integer literal is and
+type inference into `char` / `i32` / `i64` works unchanged. A bare `0x` with no
+following hex digits is a fatal lex error with a caret diagnostic.
+
+- New `src/compiler/lexer/lexerHex.suru` (`Suru.Compiler.Lexer.Hex`): pure,
+  unit-testable helpers `isHexDigit`, `hexCharToVal`, `hexDigitsToI64`.
+- `src/compiler/lexer/lexer.suru`: `readNumber` branches to a new `readHexLiteral`
+  method on the `0x`/`0X` prefix; the decoded value is emitted via
+  `value.toString()` so no downstream stage changes.
+- New in-process unit-test harness: `tests/unit/assert.suru` (shared
+  `TestResult` + `assertEqI64`/`assertTrue`/`assertEqStr`/`reportResults`) and
+  `tests/unit/compiler/lexer_test.suru` (`lexerTests`), run by the test runner
+  before the fixtures. A dedicated `tests/.suruproject` exposes the source roots
+  to the tests tree.
+
 ### Fix — generics inside object-literal method bodies
 
 Generic types/functions (e.g. stdlib `Option<T>`, `some<T>()`) can now be used

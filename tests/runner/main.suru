@@ -1,5 +1,8 @@
 namespace Suru.Tests.Runner
 
+import { [lexerTests]: Test.Unit.Compiler.Lexer }
+import { [reportResults]: Test.Unit.Assert }
+
 // xfail marks a known-broken test that must NOT block the build: an xfail that
 // fails prints XFAIL (not counted as a failure); an xfail that unexpectedly
 // passes prints XPASS so the marker can be removed. No test is currently xfail
@@ -99,6 +102,14 @@ fn main(args Array<String>) {
     let xfailed i64: 0
     let xpassed i64: 0
     let i i64: 0
+
+    // In-process unit tests run first. reportResults prints a PASS/FAIL line per
+    // assertion and returns the failure count, folded into the suite tally so a
+    // failing unit test fails the build (via the exit(1) on failed > 0 below).
+    printLn("--- Unit tests ---")
+    let unitFailed i64: reportResults("lexer", lexerTests())
+    failed: failed.add(unitFailed)
+    printLn("")
 
     while i.lt(cases.len()) {
         let tc TestCase: cases.at(i)
