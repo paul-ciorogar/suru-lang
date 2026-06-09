@@ -13,12 +13,12 @@
 //   _ count i64   — number of bytes stored (excluding the NUL terminator)
 //   _ cap   i64   — total allocated buffer capacity in bytes (always > count)
 //
-// Construction model: `ptr` cannot be passed to a regular fn, so there is no
-// raw-buffer factory. Instead every constructor and every transforming method
-// fills a StringBuilder and converts it via suruStringFromBuilder — the single
-// site that holds the SuruString object literal. suruStringFromBuilder reads the
-// builder through its public len()/charAt() (a copy), so the builder is left
-// untouched and the produced SuruString owns an independent buffer.
+// Construction model: suruStringFromBuffer(buf, n, cap) is the single raw-buffer
+// factory and the only object-literal site for SuruString — it takes ownership of a
+// malloc'd, NUL-terminated buffer. Every other constructor produces such a buffer and
+// delegates to it: suruStringFromBuilder copies a StringBuilder's bytes; clone() does
+// a malloc + memcpy; concat/slice build via StringBuilder. The produced SuruString
+// owns an independent buffer in every case.
 //
 // Memory model:
 //   SuruString owns its data buffer exclusively.
@@ -38,7 +38,7 @@
 
 namespace Suru.Stdlib.String
 
-import { [ptrLoad, ptrStore]: stdlib.ffi }
+import { [ptrLoad, ptrStore, ptrAdd]: stdlib.ffi }
 import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
 
 export {
@@ -50,6 +50,7 @@ export {
 
 extern fn malloc(n i64) ptr
 extern fn free(p ptr) void
+extern fn memcpy(dst ptr, src ptr, n i64) void
 
 // SuruString: an immutable string with explicit clone/drop lifecycle.
 // Declaring fn clone() and fn drop() sets hasCustomLifecycle = true, so the
@@ -57,6 +58,8 @@ extern fn free(p ptr) void
 // wrappers instead of auto-walking fields — required because `data` is a raw ptr.
 type SuruString: {
     fn concat(other String) SuruString
+    fn concatStr(other SuruString) SuruString
+    fn dataBuffer() ptr
     fn len() i64
     fn charAt(idx i64) char
     fn equals(other String) bool
@@ -66,23 +69,15 @@ type SuruString: {
     fn drop() void
 }
 
-// suruStringFromBuilder — the single SuruString factory. Copies the builder's
-// bytes into a fresh malloc'd buffer and wraps them in an immutable SuruString.
-// The builder is read-only here (via its public len()/charAt()) and remains
-// owned by the caller. This is the only object-literal site for SuruString.
-fn suruStringFromBuilder(b StringBuilder) SuruString {
-    let n i64: b.len()
-    let buf ptr: malloc(n.add(1))
-    let i i64: 0
-    while i.lt(n) {
-        ptrStore(buf, i, b.charAt(i))
-        i: i.add(1)
-    }
-    ptrStore(buf, n, '\0')
+// suruStringFromBuffer — the single SuruString factory and the only object-literal
+// site for SuruString. Takes ownership of a malloc'd, NUL-terminated byte buffer
+// `buf` of `n` bytes (excluding the terminator) and `cap` total capacity, and wraps
+// it in an immutable SuruString. The returned value owns `buf`; its drop() frees it.
+fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
     return {
         _ data  ptr: buf
         _ count i64: n
-        _ cap   i64: n.add(1)
+        _ cap   i64: cap
 
         // concat — return a new SuruString equal to this + other. Does not
         // modify this. Accumulates both halves in a StringBuilder, then snapshots.
@@ -99,6 +94,29 @@ fn suruStringFromBuilder(b StringBuilder) SuruString {
             drop(sb)
             return r
         }
+
+        // concatStr — return a new SuruString equal to this + other. Like concat,
+        // but appends another immutable SuruString instead of a built-in String.
+        // Does not modify this or other. One malloc + two memcpy (this half, then
+        // other's bytes at offset this.count via its dataBuffer()), then NUL-terminate
+        // — no StringBuilder, no per-byte loop.
+        fn concatStr(other SuruString) SuruString {
+            let n1 i64: this.count
+            let n2 i64: other.len()
+            let total i64: n1.add(n2)
+            let buf ptr: malloc(total.add(1))
+            memcpy(buf, this.data, n1)
+            let dst ptr: ptrAdd(buf, n1)
+            memcpy(dst, other.dataBuffer(), n2)
+            ptrStore(buf, total, '\0')
+            return suruStringFromBuffer(buf, total, total.add(1))
+        }
+
+        // dataBuffer — return the internal NUL-terminated byte buffer (borrowed,
+        // read-only). Exposed so a sibling SuruString can memcpy this string's
+        // bytes (e.g. concatStr). The caller must not free or mutate it; the
+        // buffer remains owned by this SuruString.
+        fn dataBuffer() ptr { return this.data }
 
         // len — number of bytes in this string (not counting the NUL terminator).
         fn len() i64 { return this.count }
@@ -134,31 +152,25 @@ fn suruStringFromBuilder(b StringBuilder) SuruString {
         }
 
         // slice — return a new SuruString containing bytes [from, to).
+        // One malloc + one memcpy from an offset source pointer (this.data + from),
+        // then NUL-terminate — no StringBuilder, no per-byte loop.
         fn slice(from i64, to i64) SuruString {
-            let sb StringBuilder: newStringBuilder()
-            let i i64: from
-            while i.lt(to) {
-                let c char: ptrLoad(this.data, i)
-                sb.appendChar(c)
-                i: i.add(1)
-            }
-            let r SuruString: suruStringFromBuilder(sb)
-            drop(sb)
-            return r
+            let n i64: to.take(from)
+            let buf ptr: malloc(n.add(1))
+            let src ptr: ptrAdd(this.data, from)
+            memcpy(buf, src, n)
+            ptrStore(buf, n, '\0')
+            return suruStringFromBuffer(buf, n, n.add(1))
         }
 
         // clone — return a deep copy: fresh buffer, same bytes, same length.
+        // One malloc + one memcpy (copies the bytes AND the NUL terminator), then
+        // hands the buffer to suruStringFromBuffer — no StringBuilder allocation.
         fn clone() SuruString {
-            let sb StringBuilder: newStringBuilder()
-            let i i64: 0
-            while i.lt(this.count) {
-                let c char: ptrLoad(this.data, i)
-                sb.appendChar(c)
-                i: i.add(1)
-            }
-            let r SuruString: suruStringFromBuilder(sb)
-            drop(sb)
-            return r
+            let n i64: this.count
+            let buf ptr: malloc(n.add(1))
+            memcpy(buf, this.data, n.add(1))
+            return suruStringFromBuffer(buf, n, n.add(1))
         }
 
         // drop — free the data buffer.
@@ -167,6 +179,21 @@ fn suruStringFromBuilder(b StringBuilder) SuruString {
             free(this.data)
         }
     }
+}
+
+// suruStringFromBuilder — copy a StringBuilder's bytes into a fresh malloc'd buffer
+// and wrap them in an immutable SuruString via suruStringFromBuffer. The builder is
+// read-only here (via its public len()/charAt()) and remains owned by the caller.
+fn suruStringFromBuilder(b StringBuilder) SuruString {
+    let n i64: b.len()
+    let buf ptr: malloc(n.add(1))
+    let i i64: 0
+    while i.lt(n) {
+        ptrStore(buf, i, b.charAt(i))
+        i: i.add(1)
+    }
+    ptrStore(buf, n, '\0')
+    return suruStringFromBuffer(buf, n, n.add(1))
 }
 
 // newSuruString — create an empty immutable SuruString.

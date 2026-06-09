@@ -564,6 +564,11 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
                     state.addError("ptrStore is a compiler intrinsic; add: import { [ptrLoad, ptrStore]: stdlib.ffi }", typed.line, typed.col)
                 }
                 typed.resolvedType: "void"
+            } else if name.equals("ptrAdd") {
+                if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
+                    state.addError("ptrAdd is a compiler intrinsic; add: import { [ptrAdd]: stdlib.ffi }", typed.line, typed.col)
+                }
+                typed.resolvedType: "ptr"
             } else {
                 let raw String: state.functions.returnType(name)
                 typed.resolvedType: tyh.makeSuruType(raw)

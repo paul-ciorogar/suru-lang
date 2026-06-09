@@ -743,6 +743,18 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                 }
                 _: {}
             }
+            match expr.name.equals("ptrAdd") {
+                true: {
+                    let pArg CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: pArg.ctx
+                    let offArg CodegenResult: emitValue(ctx, expr.args.at(1))
+                    ctx: offArg.ctx
+                    let gepR IrResult: ir.emitGEP(ctx.builder, "i8", pArg.name, "i64 ".append(offArg.name))
+                    ctx.builder: gepR.builder
+                    return { ctx: ctx, name: gepR.name, llvmType: "ptr", suruType: "ptr" }
+                }
+                _: {}
+            }
             return emitUserFnCall(ctx, expr.name, expr.args)
         }
         MethodCallNode: {
@@ -962,6 +974,15 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             ctx.builder: ir.emitStore(ctx.builder, llvmT, valArg.name, gepR.name)
         }
         return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
+    }
+    if method.equals("ptrAdd") {
+        let pArg CodegenResult: emitValue(ctx, expr.args.at(0))
+        ctx: pArg.ctx
+        let offArg CodegenResult: emitValue(ctx, expr.args.at(1))
+        ctx: offArg.ctx
+        let gepR IrResult: ir.emitGEP(ctx.builder, "i8", pArg.name, "i64 ".append(offArg.name))
+        ctx.builder: gepR.builder
+        return { ctx: ctx, name: gepR.name, llvmType: "ptr", suruType: "ptr" }
     }
 
     // Namespace alias call: receiver VarRef not in local scope → direct fn call.

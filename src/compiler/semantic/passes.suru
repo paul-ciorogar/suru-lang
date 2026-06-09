@@ -426,9 +426,7 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
-        if pType.equals("ptr") {
-            state.addError("type 'ptr' is not allowed in regular function parameters; use extern fn for C interop", stmt.line, stmt.col)
-        } else if resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
+        if pType.equals("ptr") or resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
             paramTypes.add(pType)
         } else {
             state.addError("unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"), stmt.line, stmt.col)

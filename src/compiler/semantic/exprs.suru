@@ -184,6 +184,7 @@ fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) Ana
 fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
     if fnName.equals("ptrLoad") { return state }
     if fnName.equals("ptrStore") { return state }
+    if fnName.equals("ptrAdd") { return state }
     let i i64: 0
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)

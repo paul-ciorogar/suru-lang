@@ -23,6 +23,14 @@ fn main(args Array<String>) {
     let u SuruString: suruStringFrom("hello world")
     printLn(t.equalsStr(u))             // true
 
+    // --- concatStr: concat two SuruStrings ---
+    let sp SuruString: suruStringFrom(" world")
+    let cs SuruString: s.concatStr(sp)
+    printLn(cs.len().toString())        // 11
+    printLn(cs.equals("hello world"))   // true
+    drop(sp)
+    drop(cs)
+
     // --- slice: bytes [6,11) = "world" ---
     let sl SuruString: t.slice(6, 11)
     printLn(sl.len().toString())        // 5

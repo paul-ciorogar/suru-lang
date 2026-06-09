@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `SuruString.concatStr()` — concatenate two `SuruString`s
+
+- **Added `SuruString.concatStr(other SuruString) SuruString`.** Returns a fresh
+  `SuruString` equal to `this ++ other`; modifies neither operand. One `malloc` +
+  two `memcpy` (this half, then `other`'s bytes at offset `this.count`), then
+  NUL-terminate — no `StringBuilder`, no per-byte loop.
+- **Added `SuruString.dataBuffer() ptr`.** Returns the internal borrowed,
+  read-only byte buffer so a sibling `SuruString` can `memcpy` its bytes (used by
+  `concatStr`, since private fields are accessible only via `this`). Demonstrates
+  that an object-literal **method may return `ptr`** even though a regular `fn`
+  cannot. Fixture `surustring-basic` extended to cover `concatStr`.
+
+### `ptr` allowed as a regular function parameter; faster `SuruString.clone()`
+
+- **`ptr` is now accepted as a regular `fn` parameter** (previously rejected in
+  `semantic/passes.suru`'s `registerFnDecl`). This is safe: Suru never auto-drops
+  parameters, so a `ptr` param is just a borrowed raw pointer. `ptr` remains banned as a
+  regular-function *return type* and as a struct field (no `type_tag` for clone/drop).
+- **`SuruString.clone()` no longer allocates a `StringBuilder`.** It now does a single
+  `malloc` + `memcpy` (copying the bytes and the NUL terminator) and hands the buffer to a
+  new raw-buffer factory `suruStringFromBuffer(buf ptr, n i64, cap i64)`, which is now the
+  single object-literal site for `SuruString`. `suruStringFromBuilder` and the other
+  constructors delegate to it.
+- **New `ptrAdd(p ptr, n i64) ptr` FFI intrinsic** (`stdlib.ffi`, gated behind
+  `import { [ptrAdd]: stdlib.ffi }`): byte-addressed pointer arithmetic emitting a
+  `getelementptr i8`, mirroring `ptrLoad`/`ptrStore`. Produces an offset pointer for
+  `memcpy` and similar libc calls.
+- **`SuruString.slice()` now uses `malloc` + `memcpy`** from an offset source pointer
+  (`ptrAdd(this.data, from)`) instead of a per-byte `StringBuilder` loop.
+
 ### Refactor — `List`, immutable `SuruString`, and new `StringBuilder`
 
 Three stdlib refactors, plus a compiler fix that import cycles between stdlib modules

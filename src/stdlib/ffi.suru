@@ -25,13 +25,22 @@ namespace stdlib.ffi
 // T is inferred from context (the declared type of the let binding, return
 // type, etc.). If the type cannot be inferred a compile error is emitted.
 // p/offset use i64 placeholders in the phantom below because ptr is rejected
-// in regular fn signatures; the bodies are never called.
+// in regular fn return types; the bodies are never called.
 
-export { typeSize, ptrLoad, ptrStore }
+// ptrAdd(p ptr, n i64) ptr is a compiler intrinsic for byte-addressed pointer
+// arithmetic — it returns p advanced by n bytes (GEP i8). Use it to obtain an
+// offset source/destination pointer for memcpy and similar libc calls:
+//
+//   ptrAdd(p ptr, n i64) → ptr            // getelementptr i8
+//
+// Usage: import { [ptrAdd]: stdlib.ffi }
+
+export { typeSize, ptrLoad, ptrStore, ptrAdd }
 
 fn typeSize<T>() i64 { return 0 }
-// Non-generic phantoms: the compiler intercepts ptrLoad/ptrStore by name before
-// any call dispatch, so these bodies never execute. Non-generic so the mono pass
-// does not mangle call sites to ptrLoad__i64 etc. (which would break the intercept).
+// Non-generic phantoms: the compiler intercepts ptrLoad/ptrStore/ptrAdd by name
+// before any call dispatch, so these bodies never execute. Non-generic so the mono
+// pass does not mangle call sites to ptrLoad__i64 etc. (which would break the intercept).
 fn ptrLoad(p i64, offset i64) i64 { return 0 }
 fn ptrStore(p i64, offset i64, val i64) void { }
+fn ptrAdd(p i64, n i64) i64 { return 0 }
