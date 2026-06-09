@@ -1,0 +1,18 @@
+// custom-lifecycle-ptr-no-lifecycle: using a ptr private field in an object type
+// that does NOT declare clone() and drop() is a compile error.
+namespace Test.CustomLifecyclePtrNoLifecycle
+
+extern fn malloc(size i64) ptr
+extern fn free(p ptr) void
+
+type Bag: {
+    fn size() i64
+}
+
+fn main(args Array<String>) {
+    let b Bag: {
+        _ data ptr: malloc(8)
+        fn size() i64 { return 1 }
+    }
+    printLn(b.size().toString())
+}

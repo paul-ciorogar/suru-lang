@@ -1,0 +1,14 @@
+// extern-type-field-error: an extern type used as a field of a regular type
+// is rejected — the generated clone/drop would corrupt unmanaged memory.
+namespace Test.ExternTypeFieldError
+
+extern type Handle
+
+type Wrapper: {
+    h Handle
+    size i64
+}
+
+fn main(args Array<String>) {
+    printLn("x")
+}

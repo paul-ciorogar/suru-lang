@@ -148,7 +148,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 TOK_EXPORT:    this.parseExportBlock()
                 TOK_IMPORT:    this.parseImportBlock()
                 TOK_FN:        this.parseFnDecl()
-                TOK_EXTERN:    this.parseExternFnDecl()
+                TOK_EXTERN:    this.parseExternDecl()
                 TOK_WHILE:     this.parseWhileStmt()
                 TOK_IF:        this.parseIfStmt()
                 TOK_RETURN:    this.parseReturnStmt()
@@ -156,6 +156,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 TOK_CONTINUE:  this.parseContinueStmt()
                 TOK_LET:       this.parseLetStmt()
                 TOK_TYPE:      this.parseTypeDeclaration()
+                TOK_CTYPE:     this.parseCTypeDeclaration()
                 TOK_MATCH:     this.parseMatchStatement()
                 TOK_IDENT:     this.parseIdentStmt()
                 TOK_THIS:      this.parseIdentStmt()
@@ -374,6 +375,24 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             return n
         }
 
+        // parseExternDecl — dispatch `extern fn ...` vs `extern type ...` by peeking
+        // at the token after `extern`.
+        fn parseExternDecl() AstNode {
+            if this.peekIs(TOK_TYPE) { return this.parseExternTypeDecl() }
+            return this.parseExternFnDecl()
+        }
+
+        // parseExternTypeDecl — parse `extern type Name` (no body, no fields).
+        // Declares an opaque C handle type erased to `ptr` in codegen.
+        fn parseExternTypeDecl() AstNode {
+            this.consume(TOK_EXTERN)
+            this.consume(TOK_TYPE)
+            let nameTok Token: this.currentToken()
+            this.consume(TOK_IDENT)
+            let n ExternTypeNode: { name: nameTok.text, line: nameTok.line, col: nameTok.col }
+            return n
+        }
+
         // parseExternFnDecl — parse `extern fn name(params) ReturnType` with no body.
         // No typeParams: extern fns are always monomorphic IR declarations.
         fn parseExternFnDecl() AstNode {
@@ -414,7 +433,31 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 this.consumeIf(TOK_COMMA)
             }
             this.consume(TOK_RBRACE)
-            let n TypeDeclNode: { name: typeName, fields: fields, methods: methods, typeParams: typeParams, line: line, col: col }
+            let n TypeDeclNode: { name: typeName, fields: fields, methods: methods, typeParams: typeParams, isCType: false, line: line, col: col }
+            return n
+        }
+
+        // Parse a `cType Foo: { f1 T, f2 U }` declaration — a header-less, C-ABI
+        // struct for FFI. Only data fields are allowed (no methods, no generics);
+        // a method member is a parse error since a cType is data-only.
+        fn parseCTypeDeclaration() AstNode {
+            this.consume(TOK_CTYPE)
+            let nameTok Token: this.currentToken()
+            this.consume(TOK_IDENT)
+            this.consume(TOK_COLON)
+            this.consume(TOK_LBRACE)
+            let fields Array<Param>: []
+            while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
+                if this.currentTokenIs(TOK_FN) {
+                    this.error("cType '".append(nameTok.text).append("' cannot declare methods (it is data-only)"))
+                }
+                this.parseDataFieldInto(fields)
+                this.consumeIf(TOK_COMMA)
+            }
+            this.consume(TOK_RBRACE)
+            let methods Array<MethodSig>: []
+            let typeParams Array<String>: []
+            let n TypeDeclNode: { name: nameTok.text, fields: fields, methods: methods, typeParams: typeParams, isCType: true, line: nameTok.line, col: nameTok.col }
             return n
         }
 
@@ -739,7 +782,14 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 TOK_LBRACKET: { return this.parsePrimaryArray() }
                 TOK_LBRACE:   { return this.parsePrimaryStruct() }
                 TOK_MATCH:    { return this.parsePrimaryMatch() }
-                TOK_IDENT:    { return this.parsePrimaryIdent(tok) }
+                TOK_IDENT: {
+                    // `typeSize` is a contextual keyword: treat it as `typeSize(T)` only
+                    // when the very next token is `(`. Import from stdlib.ffi before use.
+                    if tok.text.equals("typeSize") and this.peekIs(TOK_LPAREN) {
+                        return this.parsePrimaryTypeSize(tok)
+                    }
+                    return this.parsePrimaryIdent(tok)
+                }
                 TOK_MINUS:    { return this.parsePrimaryMinus() }
                 TOK_THIS: {
                     let n VarRefNode: { name: "this", line: tok.line, col: tok.col, resolvedType: "" }
@@ -926,6 +976,19 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                     this.advance() return n
                 }
             }
+        }
+
+        // parsePrimaryTypeSize — parse a `typeSize(T)` compiler intrinsic.
+        // `typeSize` is a contextual keyword: only triggered when followed by `(`.
+        // The argument position is a type name, not a value expression.
+        // Import from stdlib.ffi before use.
+        fn parsePrimaryTypeSize(tok Token) AstNode {
+            this.advance()
+            this.consume(TOK_LPAREN)
+            let typeName String: this.parseTypeAnnotation()
+            this.consume(TOK_RPAREN)
+            let n SizeNode: { typeName: typeName, line: tok.line, col: tok.col, resolvedType: "" }
+            return n
         }
 
         fn parseMatchArm() MatchArm {

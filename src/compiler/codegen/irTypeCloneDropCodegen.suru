@@ -33,17 +33,20 @@ export {
     CloneDropResult
     cgName
     copyI64Field
+    copyScalarField
     copyPtrField
     cloneHeapField
     dropHeapField
     cdNonOwnedField
     emitTypeCloneDrop
+    emitCustomLifecycleCloneDrop
     emitExternalCloneDropDeclare
     emitAllTypeCloneDrop
 }
 
 import { types: Suru.Compiler.Codegen.Types }
 import { tyh: Suru.Compiler.Codegen.TypeHelpers }
+import { irStruct: Suru.Compiler.Codegen.Struct }
 
 // ─── Helper types ─────────────────────────────────────────────────────────────
 
@@ -81,6 +84,22 @@ fn copyI64Field(dst String, byteOffset i64, cgTmp i64) CgTextResult {
     r: r.append("  ").append(cv).append("    = load i64, ptr ").append(sgep).append("\n")
     r: r.append("  ").append(dgep).append(" = getelementptr i8, ptr ").append(dst).append(", i64 ").append(o).append("\n")
     r: r.append("  store i64 ").append(cv).append(", ptr ").append(dgep).append("\n")
+    return { text: r, cgTmp: cgTmp.add(3) }
+}
+
+// Emit a scalar field copy from %s to dst at byte byteOffset using the field's
+// natural LLVM type (i1/i8/i32/i64/double/ptr) — a narrow load/store so a 1- or
+// 4-byte field doesn't read/clobber its neighbours under the compact layout.
+// Uses names: cgep (src GEP), cv (load), dgep (dst GEP). Consumes 3 counter slots.
+fn copyScalarField(dst String, byteOffset i64, llvm String, cgTmp i64) CgTextResult {
+    let sgep String: cgName("cgep", cgTmp)
+    let cv   String: cgName("cv",   cgTmp.add(1))
+    let dgep String: cgName("dgep", cgTmp.add(2))
+    let o    String: byteOffset.toString()
+    let r String: "  ".append(sgep).append(" = getelementptr i8, ptr %s, i64 ").append(o).append("\n")
+    r: r.append("  ").append(cv).append("    = load ").append(llvm).append(", ptr ").append(sgep).append("\n")
+    r: r.append("  ").append(dgep).append(" = getelementptr i8, ptr ").append(dst).append(", i64 ").append(o).append("\n")
+    r: r.append("  store ").append(llvm).append(" ").append(cv).append(", ptr ").append(dgep).append("\n")
     return { text: r, cgTmp: cgTmp.add(3) }
 }
 
@@ -154,7 +173,7 @@ fn cdNonOwnedField(ann String, st String) bool {
 fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDropResult {
     let decl TypeDecl: types.lookupType(ctx, typeName)
     let fc   i64:    decl.fields.len()
-    let size String:   32.add(fc.multiply(8)).toString()
+    let size String:   irStruct.suruStructSize(decl).toString()
 
     // malloc + free are required for the clone allocation and drop deallocation.
     // addDecl is idempotent so calling it once per type is safe.
@@ -203,14 +222,18 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
     // recursive clone so the new struct doesn't alias the old allocation.
     let fi i64: 0
     while fi.lt(fc) {
-        let off  i64:  32.add(fi.multiply(8))
+        let off  i64:  irStruct.suruFieldOffset(decl, fi)
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
         if cdNonOwnedField(ann, st) {
-            let rx CgTextResult: copyI64Field(mallocName, off, cgTmp)
+            // Scalar / __vtable: copy at the field's natural width so a narrow
+            // field (i32/bool/char) doesn't over-read or clobber its neighbours.
+            let llvm String: tyh.irLlvmTypeOf(st)
+            let rx CgTextResult: copyScalarField(mallocName, off, llvm, cgTmp)
             h: h.append(rx.text)
             cgTmp: rx.cgTmp
         } else {
+            // Heap field (always an 8-byte ptr) — recursive deep clone.
             let rx CgTextResult: cloneHeapField(mallocName, off, cgTmp)
             h: h.append(rx.text)
             cgTmp: rx.cgTmp
@@ -224,7 +247,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
     h: h.append("define void @suru_drop_".append(typeName).append("(ptr %s) {\nentry:\n"))
     fi: 0
     while fi.lt(fc) {
-        let off  i64:  32.add(fi.multiply(8))
+        let off  i64:  irStruct.suruFieldOffset(decl, fi)
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
         if not cdNonOwnedField(ann, st) {
@@ -250,6 +273,44 @@ fn emitExternalCloneDropDeclare(ctx IrCodegenContext, typeName String) IrCodegen
     return types.addExtCloneDropDecl(ctx, typeName)
 }
 
+// ─── Custom-lifecycle vtable-dispatch wrappers ────────────────────────────────
+
+// Emit @suru_clone_T and @suru_drop_T as vtable-dispatch wrappers for types that
+// declare both clone() and drop() in their interface (hasCustomLifecycle = true).
+// Instead of the normal field-walking body, these functions load the vtable pointer
+// from offset 32 (__vtable field), index into it at the clone/drop method slots, and
+// call the user-supplied implementation. The cgTmp counter is not consumed because
+// the wrappers use fixed SSA names (each lives in its own function scope).
+fn emitCustomLifecycleCloneDrop(ctx IrCodegenContext, decl TypeDecl, cgTmp i64) CloneDropResult {
+    let cloneIdx i64: types.methodIndex(decl, "clone")
+    let dropIdx  i64: types.methodIndex(decl, "drop")
+    let typeName String: decl.name
+
+    // malloc and free are needed for clone allocation and drop deallocation.
+    ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
+    ctx: types.addDecl(ctx, "declare void @free(ptr)\n")
+
+    let h String: "define ptr @suru_clone_".append(typeName).append("(ptr %s) {\nentry:\n")
+    h: h.append("  %vt_gep = getelementptr i8, ptr %s, i64 32\n")
+    h: h.append("  %vt_ptr = load ptr, ptr %vt_gep\n")
+    h: h.append("  %fn_gep = getelementptr ptr, ptr %vt_ptr, i64 ").append(cloneIdx.toString()).append("\n")
+    h: h.append("  %fn_val = load ptr, ptr %fn_gep\n")
+    h: h.append("  %result = call ptr %fn_val(ptr %s)\n")
+    h: h.append("  ret ptr %result\n}\n\n")
+
+    h: h.append("define void @suru_drop_".append(typeName).append("(ptr %s) {\nentry:\n"))
+    h: h.append("  %vt_gep2 = getelementptr i8, ptr %s, i64 32\n")
+    h: h.append("  %vt_ptr2 = load ptr, ptr %vt_gep2\n")
+    h: h.append("  %fn_gep2 = getelementptr ptr, ptr %vt_ptr2, i64 ").append(dropIdx.toString()).append("\n")
+    h: h.append("  %fn_val2 = load ptr, ptr %fn_gep2\n")
+    h: h.append("  call void %fn_val2(ptr %s)\n")
+    h: h.append("  call void @free(ptr %s)\n")
+    h: h.append("  ret void\n}\n\n")
+
+    ctx.helpers: ctx.helpers.append(h)
+    return { ctx: ctx, cgTmp: cgTmp }
+}
+
 // ─── Module-level iteration ───────────────────────────────────────────────────
 
 // Emit @suru_clone_T / @suru_drop_T for every type registered in ctx.typeDecls.
@@ -264,10 +325,19 @@ fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
     let i i64: 0
     while i.lt(ctx.typeDecls.len()) {
         let decl TypeDecl: ctx.typeDecls.at(i)
-        if types.isOwnType(ctx, decl.name) {
-            let r CloneDropResult: emitTypeCloneDrop(ctx, decl.name, cgTmp)
-            ctx: r.ctx
-            cgTmp: r.cgTmp
+        // cTypes have no runtime header / type_tag, so no @suru_clone_T/@suru_drop_T
+        // helper is generated — their memory is managed manually via extern fn.
+        if types.isOwnType(ctx, decl.name) and not decl.isCType {
+            if decl.hasCustomLifecycle {
+                // User-declared clone()/drop() — emit vtable-dispatch wrappers.
+                let r CloneDropResult: emitCustomLifecycleCloneDrop(ctx, decl, cgTmp)
+                ctx: r.ctx
+                cgTmp: r.cgTmp
+            } else {
+                let r CloneDropResult: emitTypeCloneDrop(ctx, decl.name, cgTmp)
+                ctx: r.ctx
+                cgTmp: r.cgTmp
+            }
         }
         // External types: declare stubs are emitted on-demand by
         // emitStructLiteralAlloc when the type is actually instantiated.

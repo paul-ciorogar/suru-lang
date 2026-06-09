@@ -1,0 +1,3 @@
+/work/tests/fixtures/extern-type-field-error/main.suru:7:6: error: extern type 'Handle' cannot be a field of regular type 'Wrapper' (use it only at the extern fn boundary)
+  7 | type Wrapper: {
+           ^

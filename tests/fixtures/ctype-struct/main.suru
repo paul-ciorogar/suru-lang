@@ -1,0 +1,36 @@
+namespace Test.CTypeStruct
+
+export { main }
+
+// ctype-struct — test fixture for `cType` declarations (E2, FFI plan).
+//
+// A `cType` is a header-less, C-ABI-laid-out struct: field 0 starts at offset 0
+// (no 32-byte runtime header), each field at its natural C alignment. Here:
+//
+//   cType Pair: { a i64, b i32 }
+//     a  → offset 0  (8 bytes)
+//     b  → offset 8  (4 bytes; already 4-aligned)
+//     total size = 16 (padded to the max alignment, 8)
+//
+// The C data layout means the 12 meaningful bytes (a + b) can be copied with a
+// raw `memcpy` and the fields round-trip. cTypes have no type_tag, so they are
+// freed manually via `extern fn free` — clone()/drop() are rejected on them.
+cType Pair: { a i64, b i32 }
+
+// cType values erase to a raw C pointer at the extern fn boundary, so they can be
+// passed straight to libc functions. memcpy/free are linked from libc.
+extern fn memcpy(dst Pair, src Pair, n i64) Pair
+extern fn free(p Pair) void
+
+fn main(args Array<String>) {
+    let src Pair: { a: 7, b: 3 }
+    let dst Pair: { a: 0, b: 0 }
+    // Copy the 12 meaningful bytes (i64 a + i32 b) from src into dst.
+    memcpy(dst, src, 12)
+    printLn(dst.a.toString())   // 7
+    printLn(dst.b.toString())   // 3
+    // Manual cleanup — no auto-drop for cTypes.
+    free(src)
+    free(dst)
+    printLn("ok")
+}

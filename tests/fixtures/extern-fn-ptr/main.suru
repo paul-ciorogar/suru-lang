@@ -1,0 +1,13 @@
+// extern-fn-ptr — exercises the ptr primitive type in extern fn signatures.
+// Demonstrates: ptr as return type (malloc), ptr as parameter type (free),
+// and let-binding of a ptr value.
+namespace Test.ExternFnPtr
+
+extern fn malloc(size i64) ptr
+extern fn free(p ptr) void
+
+fn main(args Array<String>) {
+    let buf ptr: malloc(64)
+    free(buf)
+    printLn("ok")
+}

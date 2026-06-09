@@ -1,2 +1,3 @@
 build/
 suru-lang-bootstrap/
+runtime/*.o

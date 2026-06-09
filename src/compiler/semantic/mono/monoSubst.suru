@@ -271,7 +271,7 @@ fn substStmt(node AstNode, paramNames Array<String>, concreteTypes Array<String>
             let td TypeDeclNode: node
             let newFields Array<Param>: substParams(td.fields, paramNames, concreteTypes)
             let newMethods Array<MethodSig>: substMethodSigs(td.methods, paramNames, concreteTypes)
-            let result TypeDeclNode: { name: td.name, fields: newFields, methods: newMethods, typeParams: td.typeParams, line: td.line, col: td.col }
+            let result TypeDeclNode: { name: td.name, fields: newFields, methods: newMethods, typeParams: td.typeParams, isCType: td.isCType, line: td.line, col: td.col }
             return result
         }
         LetNode: {
@@ -431,6 +431,11 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         VtableRefNode: {
             let vr VtableRefNode: node
             let result VtableRefNode: { sym: vr.sym, entries: vr.entries, resolvedType: substituteType(vr.resolvedType, paramNames, concreteTypes) }
+            return result
+        }
+        SizeNode: {
+            let sn SizeNode: node
+            let result SizeNode: { typeName: substituteType(sn.typeName, paramNames, concreteTypes), line: sn.line, col: sn.col, resolvedType: substituteType(sn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         _: { return node }

@@ -1,0 +1,142 @@
+// stringBuilder.suru — StringBuilder: a mutable, in-place string accumulator.
+//
+// StringBuilder is the mutable counterpart to the immutable SuruString
+// (Suru.Stdlib.String). Bytes are appended in place into a resizable, NUL-
+// terminated malloc'd buffer; call toString() to produce an independent,
+// immutable SuruString snapshot of the accumulated bytes.
+//
+// Internal layout (same shape as the old mutable string):
+//   _ data  ptr   — malloc'd NUL-terminated byte buffer
+//   _ count i64   — number of bytes stored (excluding the NUL terminator)
+//   _ cap   i64   — total allocated buffer capacity in bytes (always > count)
+//
+// Growth policy: initial capacity 16; doubles when full.
+//
+// Memory model:
+//   StringBuilder owns its data buffer exclusively.
+//   drop() frees the buffer; the struct header is freed by the vtable wrapper.
+//   toString() COPIES the bytes into a fresh SuruString, so the builder may be
+//   mutated or dropped afterwards without affecting the produced string.
+//
+// Usage:
+//   import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+//   let b StringBuilder: newStringBuilder()
+//   b.append("hello")
+//   b.appendChar('!')
+//   let s SuruString: b.toString()   // "hello!"
+//   drop(s)
+//   drop(b)
+
+namespace Suru.Stdlib.StringBuilder
+
+import { [ptrLoad, ptrStore]: stdlib.ffi }
+import { [SuruString, suruStringFromBuilder]: Suru.Stdlib.String }
+
+export {
+    StringBuilder
+    newStringBuilder
+}
+
+extern fn malloc(n i64) ptr
+extern fn free(p ptr) void
+extern fn realloc(p ptr, n i64) ptr
+
+// StringBuilder: a resizable, mutable byte buffer with explicit clone/drop.
+// Declaring fn clone() and fn drop() sets hasCustomLifecycle = true, so the
+// compiler emits vtable-dispatch wrappers instead of auto-walking fields —
+// required because `data` is a raw ptr.
+type StringBuilder: {
+    fn append(other String) void
+    fn appendChar(c char) void
+    fn appendStr(other SuruString) void
+    fn len() i64
+    fn charAt(idx i64) char
+    fn toString() SuruString
+    fn clone() StringBuilder
+    fn drop() void
+}
+
+// newStringBuilderCap — create an empty StringBuilder pre-allocated for cap
+// bytes of content. The actual buffer is cap+1 bytes to always hold the NUL.
+fn newStringBuilderCap(cap i64) StringBuilder {
+    let actualCap i64: cap.add(1)
+    let initBuf ptr: malloc(actualCap)
+    ptrStore(initBuf, 0, '\0')
+    return {
+        _ data  ptr: initBuf
+        _ count i64: 0
+        _ cap   i64: actualCap
+
+        // append — append every byte of a built-in String in place.
+        fn append(other String) void {
+            let n i64: other.len()
+            let i i64: 0
+            while i.lt(n) {
+                this.appendChar(other.__at(i))
+                i: i.add(1)
+            }
+        }
+
+        // appendChar — append one byte in-place, growing the buffer if needed.
+        // Growth: when cap < count+2 (no room for char + NUL), double the capacity.
+        fn appendChar(c char) void {
+            if this.cap.lt(this.count.add(2)) {
+                let newCap i64: this.cap.multiply(2)
+                this.data: realloc(this.data, newCap)
+                this.cap: newCap
+            }
+            ptrStore(this.data, this.count, c)
+            this.count: this.count.add(1)
+            ptrStore(this.data, this.count, '\0')
+        }
+
+        // appendStr — append every byte of an immutable SuruString in place.
+        fn appendStr(other SuruString) void {
+            let n i64: other.len()
+            let i i64: 0
+            while i.lt(n) {
+                this.appendChar(other.charAt(i))
+                i: i.add(1)
+            }
+        }
+
+        // len — number of bytes accumulated so far (not counting the NUL).
+        fn len() i64 { return this.count }
+
+        // charAt — return the byte at position idx (0-based, no bounds check).
+        fn charAt(idx i64) char {
+            let b char: ptrLoad(this.data, idx)
+            return b
+        }
+
+        // toString — snapshot the accumulated bytes into a fresh, immutable
+        // SuruString. suruStringFromBuilder copies the bytes, so later mutation
+        // or drop of this builder does not affect the produced string.
+        fn toString() SuruString {
+            return suruStringFromBuilder(this)
+        }
+
+        // clone — return a deep copy: fresh buffer, same bytes, same length.
+        fn clone() StringBuilder {
+            let result StringBuilder: newStringBuilderCap(this.count)
+            let i i64: 0
+            while i.lt(this.count) {
+                let b char: ptrLoad(this.data, i)
+                result.appendChar(b)
+                i: i.add(1)
+            }
+            return result
+        }
+
+        // drop — free the data buffer.
+        // The struct header itself is freed by the vtable-dispatch wrapper after this returns.
+        fn drop() void {
+            free(this.data)
+        }
+    }
+}
+
+// newStringBuilder — create an empty StringBuilder with default capacity of 16.
+fn newStringBuilder() StringBuilder {
+    return newStringBuilderCap(16)
+}

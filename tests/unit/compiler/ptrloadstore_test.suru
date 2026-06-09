@@ -1,0 +1,51 @@
+// ptrloadstore_test.suru — unit tests for `ptrLoad` / `ptrStore` built-ins (Task D1b).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// ptrLoadStoreTests() and folds the failures into the suite tally. Covers
+// the irLlvmTypeOf() mappings that the ptrLoad/ptrStore codegen relies on to
+// select the correct LLVM load/store width for each Suru type.
+//
+// The bool special case (i1 in LLVM but stored as i8 in memory) is handled by
+// explicit zext/trunc in irCodegen.suru; the other types use irLlvmTypeOf directly.
+//
+// Full end-to-end coverage (malloc/store/load/free round-trip for i64, i32, bool)
+// is in the ptr-load-store fixture.
+
+namespace Test.Unit.Compiler.PtrLoadStore
+
+export { ptrLoadStoreTests }
+
+import { [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert }
+import { [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers }
+
+fn ptrLoadStoreTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ptrLoad/ptrStore use irLlvmTypeOf to select the LLVM memory type.
+    // Scalar types map to their natural widths.
+    results.add(assertEqStr("irLlvmTypeOf(i64) for ptrLoad",    irLlvmTypeOf("i64"),    "i64"))
+    results.add(assertEqStr("irLlvmTypeOf(i32) for ptrLoad",    irLlvmTypeOf("i32"),    "i32"))
+    results.add(assertEqStr("irLlvmTypeOf(f64) for ptrLoad",    irLlvmTypeOf("f64"),    "double"))
+    results.add(assertEqStr("irLlvmTypeOf(char) for ptrLoad",   irLlvmTypeOf("char"),   "i8"))
+
+    // bool maps to i1 — the codegen adds an explicit load i8 + trunc i8 to i1
+    // (ptrLoad) or zext i1 to i8 + store i8 (ptrStore) instead of using i1
+    // directly, matching the bool memory convention used by the array runtime.
+    results.add(assertEqStr("irLlvmTypeOf(bool)",               irLlvmTypeOf("bool"),   "i1"))
+
+    // Heap / pointer types all map to ptr (the raw pointer LLVM type).
+    results.add(assertEqStr("irLlvmTypeOf(ptr) for ptrLoad",    irLlvmTypeOf("ptr"),    "ptr"))
+    results.add(assertEqStr("irLlvmTypeOf(String) for ptrLoad", irLlvmTypeOf("String"), "ptr"))
+    // struct and Array element slots are also 8-byte pointer-sized.
+    results.add(assertEqStr("irLlvmTypeOf(MyStruct)",           irLlvmTypeOf("MyStruct"), "ptr"))
+
+    // Scalars are NOT heap-allocated; ptrStore for a scalar emits a direct store,
+    // not a clone — isScalarSuruType guards that path.
+    results.add(assertTrue("isScalarSuruType(i64)",  isScalarSuruType("i64")))
+    results.add(assertTrue("isScalarSuruType(i32)",  isScalarSuruType("i32")))
+    results.add(assertTrue("isScalarSuruType(bool)", isScalarSuruType("bool")))
+    results.add(assertTrue("isScalarSuruType(f64)",  isScalarSuruType("f64")))
+    results.add(assertTrue("isScalarSuruType(char)", isScalarSuruType("char")))
+
+    return results
+}

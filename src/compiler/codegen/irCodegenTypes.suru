@@ -106,8 +106,12 @@ type TypeMethodEntry: { name String, paramTypes Array<String>, returnType String
 // Compiled view of a TypeDeclaration / TypeDeclNode.
 // Populated from the pre-pass; provides field-index lookup for struct codegen.
 // `methods` is non-empty for object types (which also carry a leading
-// `__vtable` field slot).
-type TypeDecl: { name String, fields Array<TypeFieldEntry>, methods Array<TypeMethodEntry> }
+// `__vtable` field slot). `isCType` is true for `cType` declarations: a
+// header-less, C-ABI-laid-out struct (see computeCLayout in irStructCodegen).
+// `hasCustomLifecycle` mirrors the semantic flag: true when the interface declares
+// both clone() and drop(), causing vtable-dispatch wrappers to be emitted instead
+// of the auto-generated field-walking clone/drop bodies.
+type TypeDecl: { name String, fields Array<TypeFieldEntry>, methods Array<TypeMethodEntry>, isCType bool, hasCustomLifecycle bool }
 
 // Compiled view of a SumTypeDeclaration / SumTypeDeclNode.
 // Populated from the pre-pass; provides variant-index lookup for match dispatch.
@@ -390,7 +394,7 @@ fn lookupType(ctx IrCodegenContext, name String) TypeDecl {
     }
     let emptyFields Array<TypeFieldEntry>: []
     let emptyMethods Array<TypeMethodEntry>: []
-    return { name: "", fields: emptyFields, methods: emptyMethods }
+    return { name: "", fields: emptyFields, methods: emptyMethods, isCType: false, hasCustomLifecycle: false }
 }
 
 // methodIndex — 0-based position of `methodName` in a TypeDecl's declared

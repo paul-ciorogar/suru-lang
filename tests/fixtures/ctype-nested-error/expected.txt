@@ -1,0 +1,3 @@
+/work/tests/fixtures/ctype-nested-error/main.suru:6:6: error: cType 'Pair' cannot be a field of regular type 'Holder' (use it only at the extern fn boundary)
+  6 | type Holder: { p Pair }
+           ^

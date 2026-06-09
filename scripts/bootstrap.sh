@@ -43,6 +43,15 @@ _total()     { printf "=== total: %s ===\n" "$(_elapsed $_t0)"; }
 rm -rf /tmp/suru-test-* /tmp/candidate-* /tmp/cstage-* /work/src/cli/build \
        /work/tests/runner/build /work/tests/fixtures/*/build
 
+# Compile the C runtime (runtime/*.c) to objects — what every linked program now
+# links against. The link step (codegen) is unchanged, so emitted IR is identical
+# across all three stages and the C2 == C3 fixed point still holds.
+echo "--- Building C runtime objects ---"
+for f in /work/runtime/*.c; do
+    clang-18 -c -O2 -Wall -Wextra -o "${f%.c}.o" "$f"
+done
+_step_done
+
 build_self() {  # $1 = output path
     rm -rf /work/src/cli/build
     suru build /work/src/cli/main.suru

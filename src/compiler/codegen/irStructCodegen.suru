@@ -8,17 +8,14 @@
 //     offset 16: ptr clone_fn    (@suru_clone_T, sig: ptr(ptr))
 //     offset 24: ptr drop_fn     (@suru_drop_T, sig: void(ptr))
 //
-//   Fields (8 bytes each, starting at offset 32):
-//     offset 32 + i*8: i64 field[i]  (TypeDecl.fields order)
+//   Fields (compact, natural alignment, starting at offset 32):
+//     Each field is stored at its natural LLVM type and size (bool/char=1, i32=4,
+//     i64/f64/heap-ptr=8). Fields are reordered into three alignment buckets
+//     (8 ++ 4 ++ 1, stable within each) by reorderSuruFields at registration, so
+//     padding is minimised. suruFieldOffset(decl, i) gives a field's byte offset;
+//     suruStructSize(decl) the total size. (Contrast cType: header-less, no reorder.)
 //
-//   Field slot encoding:
-//     bool    → zext i1  to i64; restore with trunc i64 to i1
-//     i32   → sext i32 to i64; restore with trunc i64 to i32
-//     i64   → stored as-is (i64)
-//     f64 → bitcast double to i64; restore with bitcast i64 to double
-//     heap    → ptrtoint ptr to i64; restore with inttoptr i64 to ptr
-//
-//   Total size: (4 + field_count) * 8 bytes.  One malloc per struct literal.
+//   One malloc per struct literal; clone/drop walk the same reordered fields.
 //
 // ── Clone / Drop vtable ────────────────────────────────────────────────────────
 // Per-type @suru_clone_T / @suru_drop_T are emitted into ctx.helpers by
@@ -39,8 +36,14 @@
 namespace Suru.Compiler.Codegen.Struct
 
 export {
-    structSize
-    fieldOffset
+    reorderSuruFields
+    suruFieldOffset
+    suruStructSize
+    cFieldSize
+    cFieldAlign
+    cAlignUp
+    cFieldOffset
+    cStructSize
     structFieldToI64
     structFieldFromI64
     emitStructLiteralAlloc
@@ -57,17 +60,137 @@ import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 import { ir: Suru.Compiler.Codegen.Builder }
 import { box: Suru.Compiler.Codegen.Box }
 
-// ─── Geometry helpers ─────────────────────────────────────────────────────────
+// ─── C ABI layout (cType) ──────────────────────────────────────────────────────
+// A cType has NO 32-byte header: field 0 starts at offset 0, each field sits at
+// its natural C alignment (padding inserted where needed), and the total size is
+// padded up to the largest field alignment. Field order follows declaration order
+// (the C ABI is order-sensitive — no reordering, unlike the Suru-struct layout).
+// Only fixed-layout primitives are allowed as cType fields (enforced in semantic).
 
-// Total byte size of a flat struct with the given field count.
-// 32-byte header + 8 bytes per field.
-fn structSize(fieldCount i64) i64 {
-    return 32.add(fieldCount.multiply(8))
+// Natural byte size of a C-ABI primitive field.
+fn cFieldSize(suruType String) i64 {
+    if suruType.equals("bool") { return 1 }
+    if suruType.equals("char") { return 1 }
+    if suruType.equals("i32")  { return 4 }
+    return 8     // i64, f64, ptr (and any pointer-erased named type)
 }
 
-// Byte offset of field i in the flat struct layout (0-based).
-fn fieldOffset(fieldIdx i64) i64 {
-    return 32.add(fieldIdx.multiply(8))
+// Natural alignment of a C-ABI primitive field — equal to its size for scalars.
+fn cFieldAlign(suruType String) i64 {
+    return cFieldSize(suruType)
+}
+
+// Round `off` up to the next multiple of `align` (align is a power of two ≥ 1).
+// Suru i64 method names: .add=+, .take=−, .multiply=×, .split=÷ (sdiv).
+fn cAlignUp(off i64, align i64) i64 {
+    return off.add(align).take(1).split(align).multiply(align)
+}
+
+// Byte offset of field `idx` in a cType's C-ABI layout. Walks preceding fields,
+// accumulating size + per-field alignment padding, then aligns for `idx` itself.
+fn cFieldOffset(decl TypeDecl, idx i64) i64 {
+    let off i64: 0
+    let i i64: 0
+    while i.lt(idx) {
+        let st String: decl.fields.at(i).typeName
+        off: cAlignUp(off, cFieldAlign(st))
+        off: off.add(cFieldSize(st))
+        i: i.add(1)
+    }
+    let target String: decl.fields.at(idx).typeName
+    return cAlignUp(off, cFieldAlign(target))
+}
+
+// Total byte size of a cType value (padded up to its max field alignment).
+fn cStructSize(decl TypeDecl) i64 {
+    let off i64: 0
+    let maxAlign i64: 1
+    let i i64: 0
+    while i.lt(decl.fields.len()) {
+        let st String: decl.fields.at(i).typeName
+        let a i64: cFieldAlign(st)
+        if a.gt(maxAlign) { maxAlign: a }
+        off: cAlignUp(off, a)
+        off: off.add(cFieldSize(st))
+        i: i.add(1)
+    }
+    return cAlignUp(off, maxAlign)
+}
+
+// ─── Compact Suru-struct layout ────────────────────────────────────────────────
+// Regular `type` structs keep the 32-byte runtime header but lay their fields out
+// with natural alignment (same primitive sizes as a cType) and reorder them into
+// three alignment buckets — 8-byte (i64/f64/ptr/heap/__vtable), then 4-byte (i32),
+// then 1-byte (bool/char) — so padding is minimised. Ordering within each bucket
+// preserves declaration order (a stable partition), so `__vtable` (added first,
+// 8-byte) stays at index 0 / offset 32. Unlike a cType, fields ARE reordered and
+// every field still routes through the 32-byte header / clone-drop vtable.
+
+// Stable 3-bucket partition of `fields` by natural alignment: 8 ++ 4 ++ 1.
+// Declaration order is preserved within each bucket.
+fn reorderSuruFields(fields Array<TypeFieldEntry>) Array<TypeFieldEntry> {
+    let out Array<TypeFieldEntry>: []
+    // Bucket 1: 8-byte aligned (i64, f64, heap ptrs, named structs, __vtable).
+    let i i64: 0
+    while i.lt(fields.len()) {
+        if cFieldAlign(fields.at(i).typeName).equals(8) { out.add(fields.at(i)) }
+        i: i.add(1)
+    }
+    // Bucket 2: 4-byte aligned (i32).
+    i: 0
+    while i.lt(fields.len()) {
+        if cFieldAlign(fields.at(i).typeName).equals(4) { out.add(fields.at(i)) }
+        i: i.add(1)
+    }
+    // Bucket 3: 1-byte aligned (bool, char).
+    i: 0
+    while i.lt(fields.len()) {
+        if cFieldAlign(fields.at(i).typeName).equals(1) { out.add(fields.at(i)) }
+        i: i.add(1)
+    }
+    return out
+}
+
+// Byte offset of field `idx` in a regular struct's compact layout. Like
+// cFieldOffset but the accumulator starts at 32 (after the runtime header).
+// Assumes decl.fields is already reordered (reorderSuruFields, at registration).
+fn suruFieldOffset(decl TypeDecl, idx i64) i64 {
+    let off i64: 32
+    let i i64: 0
+    while i.lt(idx) {
+        let st String: decl.fields.at(i).typeName
+        off: cAlignUp(off, cFieldAlign(st))
+        off: off.add(cFieldSize(st))
+        i: i.add(1)
+    }
+    let target String: decl.fields.at(idx).typeName
+    return cAlignUp(off, cFieldAlign(target))
+}
+
+// Total byte size of a regular struct value: 32-byte header + compact fields,
+// padded up to the max of the largest field alignment and 8 (header alignment).
+// A field-less struct is exactly the 32-byte header.
+fn suruStructSize(decl TypeDecl) i64 {
+    let off i64: 32
+    let maxAlign i64: 8
+    let i i64: 0
+    while i.lt(decl.fields.len()) {
+        let st String: decl.fields.at(i).typeName
+        let a i64: cFieldAlign(st)
+        if a.gt(maxAlign) { maxAlign: a }
+        off: cAlignUp(off, a)
+        off: off.add(cFieldSize(st))
+        i: i.add(1)
+    }
+    return cAlignUp(off, maxAlign)
+}
+
+// Zero literal for an LLVM type — used to null/zero-initialise absent fields so a
+// later suru_drop_T sees a null pointer (not garbage) in heap-typed slots.
+fn suruZeroLit(llvmType String) String {
+    if llvmType.equals("double") { return "0.0" }
+    if llvmType.equals("ptr") { return "null" }
+    return "0"
 }
 
 // ─── Scalar ↔ i64 for struct field slots ─────────────────────────────────────
@@ -174,8 +297,18 @@ fn emitStructLiteralAlloc(ctx IrCodegenContext, typeName String) CodegenResult {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     // Determine field count from the registered TypeDecl.
     let decl TypeDecl: types.lookupType(ctx, typeName)
-    let fcount i64: decl.fields.len()
-    let size i64: structSize(fcount)
+    // cType: header-less C-ABI struct. malloc(cStructSize), no header writes,
+    // no @suru_clone_T/@suru_drop_T vtable pointers (a cType has no type_tag and
+    // is freed manually via an extern fn — see the FFI plan).
+    if decl.isCType {
+        let csize i64: cStructSize(decl)
+        let cArgs Array<String>: []
+        cArgs.add("i64 ".append(csize.toString()))
+        let cR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", cArgs)
+        ctx.builder: cR.builder
+        return { ctx: ctx, name: cR.name, llvmType: "ptr", suruType: typeName }
+    }
+    let size i64: suruStructSize(decl)
     let mallocArgs Array<String>: []
     mallocArgs.add("i64 ".append(size.toString()))
     let hdrR IrResult: ir.emitCall(ctx.builder, "ptr", "malloc", mallocArgs)
@@ -213,18 +346,22 @@ fn emitStructLiteralAlloc(ctx IrCodegenContext, typeName String) CodegenResult {
 }
 
 // Write field values into the flat struct at ptr mem.
-// Iterates TypeDecl fields in canonical order (TypeDeclaration.Fields), matching
-// the field slot offsets computed by fieldOffset(i).  For each declared field:
-//   - if its name appears in fieldNames: encode the corresponding SSA + store.
-//   - otherwise: zero-initialize (store i64 0) — critical for heap-typed absent fields
-//     so suru_drop_T doesn't dereference garbage when the struct is later dropped.
+// Iterates TypeDecl fields in their (reordered) layout order, storing each at its
+// compact offset (suruFieldOffset) and natural LLVM type.  For each declared field:
+//   - if its name appears in fieldNames: normalise the corresponding SSA + store.
+//   - otherwise: zero-initialize — critical for heap-typed absent fields so
+//     suru_drop_T doesn't dereference garbage when the struct is later dropped.
 // fieldNames/fieldSSAs/fieldSuruTypes are parallel arrays for the literal's provided fields.
+// NOTE: currently unused (ir-codegen.suru's emitStructLit inlines this logic); kept
+// in sync so it stays correct if a caller is reintroduced.
 fn emitStructLiteralFields(ctx IrCodegenContext, mem String, typeName String, fieldNames Array<String>, fieldSSAs Array<String>, fieldSuruTypes Array<String>) IrCodegenContext {
     let decl TypeDecl: types.lookupType(ctx, typeName)
     let i i64: 0
     while i.lt(decl.fields.len()) {
         let tdFieldName String: decl.fields.at(i).name
-        let offset i64: fieldOffset(i)
+        let annotation String: decl.fields.at(i).typeName
+        let llvm String: box.llvmTypeOf(annotation)
+        let offset i64: suruFieldOffset(decl, i)
         let fGr IrResult: ir.emitGEP(ctx.builder, "i8", mem, "i64 ".append(offset.toString()))
         ctx.builder: fGr.builder
         // Linear scan: find this TypeDecl field in the literal's provided fields.
@@ -236,14 +373,18 @@ fn emitStructLiteralFields(ctx IrCodegenContext, mem String, typeName String, fi
         }
         if foundIdx.equals(-1) {
             // Absent field — zero-initialize so heap-typed slots hold null (not garbage).
-            ctx.builder: ir.emitStore(ctx.builder, "i64", "0", fGr.name)
+            ctx.builder: ir.emitStore(ctx.builder, llvm, suruZeroLit(llvm), fGr.name)
         } else {
-            // Present field — encode value as i64 and store into the slot.
+            // Present field — normalise to the field's exact width (i64-encode then
+            // decode to `annotation`) so the natural-typed store can't clobber the
+            // following field's bytes, then store at the field's natural LLVM type.
             let fieldSsa String: fieldSSAs.at(foundIdx)
             let fieldSuruType String: fieldSuruTypes.at(foundIdx)
             let asI64 CodegenResult: structFieldToI64(ctx, fieldSsa, fieldSuruType)
             ctx: asI64.ctx
-            ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
+            let dec CodegenResult: structFieldFromI64(ctx, asI64.name, annotation)
+            ctx: dec.ctx
+            ctx.builder: ir.emitStore(ctx.builder, llvm, dec.name, fGr.name)
         }
         i: i.add(1)
     }
@@ -264,21 +405,31 @@ fn emitStructLiteralFields(ctx IrCodegenContext, mem String, typeName String, fi
 fn emitFieldAccess(ctx IrCodegenContext, recv String, recvSuruType String, fieldName String) CodegenResult {
     let decl TypeDecl: types.lookupType(ctx, recvSuruType)
     let fIdx i64: types.fieldIndex(decl, fieldName)
-    let offset i64: fieldOffset(fIdx)
-    let fGr IrResult: ir.emitGEP(ctx.builder, "i8", recv, "i64 ".append(offset.toString()))
-    ctx.builder: fGr.builder
-    // Emit "  {raw}  = load i64, ptr {fGep}" — two spaces after the SSA name.
-    // ir.emitLoad uses one space, so we manually emit the double-space variant.
-    let rawR IrResult: ir.nextTmp(ctx.builder)
-    ctx.builder: rawR.builder
-    let loadLine String: "  ".append(rawR.name).append("  = load i64, ptr ").append(fGr.name).append("\n")
-    ctx.builder: ir.emit(ctx.builder, loadLine)
-    // Resolve the field's declared Suru type for the slot-decode step.
+    // cType: read the field at its natural C-ABI offset with its natural LLVM
+    // type — no i64 slot encode/decode (the bytes already match the C ABI).
+    if decl.isCType {
+        let cOff i64: cFieldOffset(decl, fIdx)
+        let cGr IrResult: ir.emitGEP(ctx.builder, "i8", recv, "i64 ".append(cOff.toString()))
+        ctx.builder: cGr.builder
+        let cSuru String: decl.fields.at(fIdx).typeName
+        let cLlvm String: box.llvmTypeOf(cSuru)
+        let cLoad IrResult: ir.emitLoad(ctx.builder, cLlvm, cGr.name)
+        ctx.builder: cLoad.builder
+        return { ctx: ctx, name: cLoad.name, llvmType: cLlvm, suruType: cSuru }
+    }
+    // Regular struct: read the field at its compact offset with its natural LLVM
+    // type — the bytes are stored natively (no i64 slot encode/decode).
+    let annotation String: decl.fields.at(fIdx).typeName
     // makeSuruType converts annotation strings (e.g. "Array<Token>") to encoding
     // (e.g. "Array:Token") matching VarEntry.suruType conventions.
-    let annotation String: decl.fields.at(fIdx).typeName
     let fieldSuruType String: tyh.makeSuruType(annotation)
-    return structFieldFromI64(ctx, rawR.name, fieldSuruType)
+    let llvm String: box.llvmTypeOf(fieldSuruType)
+    let offset i64: suruFieldOffset(decl, fIdx)
+    let fGr IrResult: ir.emitGEP(ctx.builder, "i8", recv, "i64 ".append(offset.toString()))
+    ctx.builder: fGr.builder
+    let loadR IrResult: ir.emitLoad(ctx.builder, llvm, fGr.name)
+    ctx.builder: loadR.builder
+    return { ctx: ctx, name: loadR.name, llvmType: llvm, suruType: fieldSuruType }
 }
 
 // ─── Field assignment ─────────────────────────────────────────────────────────
@@ -288,13 +439,30 @@ fn emitFieldAccess(ctx IrCodegenContext, recv String, recvSuruType String, field
 fn emitFieldAssignment(ctx IrCodegenContext, recv String, recvSuruType String, fieldName String, val String, valSuruType String) IrCodegenContext {
     let decl TypeDecl: types.lookupType(ctx, recvSuruType)
     let fIdx i64: types.fieldIndex(decl, fieldName)
-    let offset i64: fieldOffset(fIdx)
-    // Encode the new value as i64 before writing into the field slot.
+    // cType: write the field at its natural C-ABI offset with its natural LLVM
+    // type — no i64 slot encoding.
+    if decl.isCType {
+        let cSuru String: decl.fields.at(fIdx).typeName
+        let cLlvm String: box.llvmTypeOf(cSuru)
+        let cOff i64: cFieldOffset(decl, fIdx)
+        let cGr IrResult: ir.emitGEP(ctx.builder, "i8", recv, "i64 ".append(cOff.toString()))
+        ctx.builder: cGr.builder
+        ctx.builder: ir.emitStore(ctx.builder, cLlvm, val, cGr.name)
+        return ctx
+    }
+    // Regular struct: normalise the value to the field's exact width (i64-encode
+    // then decode to the declared type) so a too-wide store can't clobber the
+    // next field, then store at the field's natural LLVM type and compact offset.
+    let annotation String: decl.fields.at(fIdx).typeName
+    let llvm String: box.llvmTypeOf(annotation)
+    let offset i64: suruFieldOffset(decl, fIdx)
     let asI64 CodegenResult: structFieldToI64(ctx, val, valSuruType)
     ctx: asI64.ctx
+    let dec CodegenResult: structFieldFromI64(ctx, asI64.name, annotation)
+    ctx: dec.ctx
     let fGr IrResult: ir.emitGEP(ctx.builder, "i8", recv, "i64 ".append(offset.toString()))
     ctx.builder: fGr.builder
-    ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
+    ctx.builder: ir.emitStore(ctx.builder, llvm, dec.name, fGr.name)
     return ctx
 }
 

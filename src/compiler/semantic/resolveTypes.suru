@@ -75,7 +75,7 @@ fn rtLookupTypeEntry(state AnalyzerState, name String) SemTypeEntry {
         if decls.at(i).name.equals(name) { return decls.at(i) }
         i: i.add(1)
     }
-    return { name: "", fields: [], methods: [], privateFieldNames: [], privateMethodNames: [] }
+    return { name: "", fields: [], methods: [], privateFieldNames: [], privateMethodNames: [], isCType: false, isExternType: false, hasCustomLifecycle: false }
 }
 
 // rtLookupFieldType — declared type annotation for `fieldName` on `decl`,
@@ -118,6 +118,17 @@ fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl
 // struct literal that is not declared on the type. Private methods (isPrivate=true)
 // are literal-only extensions and are exempt from this check.
 fn rtCheckUndeclaredMethods(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, line i64, col i64) {
+    // A cType is data-only — any method member (public or private) is rejected.
+    if decl.isCType {
+        let ci i64: 0
+        while ci.lt(fields.len()) {
+            if fields.at(ci).isMethod {
+                state.addError("cType '".append(decl.name).append("' cannot have methods (it is data-only)"), line, col)
+            }
+            ci: ci.add(1)
+        }
+        return
+    }
     let i i64: 0
     while i.lt(fields.len()) {
         let f StructFieldNode: fields.at(i)
@@ -175,7 +186,7 @@ fn rtHasField(fields Array<SemFieldEntry>, name String) bool {
 // isPrivate data field to the SemTypeEntry for `typeName` if not already present.
 // Also records its name in privateFieldNames (data) or privateMethodNames (methods).
 // Must be called before rtResolveStructMethods so method bodies can resolve this.field.
-fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<StructFieldNode>) {
+fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<StructFieldNode>, line i64, col i64) {
     let i i64: 0
     while i.lt(litFields.len()) {
         let f StructFieldNode: litFields.at(i)
@@ -192,6 +203,14 @@ fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<
                             privMethods.add(f.name)
                         }
                     } else {
+                        // ptr/extern-type private fields require the type to declare
+                        // clone() and drop() so codegen can emit vtable-dispatch wrappers
+                        // instead of the field-walking auto-generated clone/drop bodies.
+                        if f.privateTypeName.equals("ptr") or passes.isExternTypeNamed(state, f.privateTypeName) {
+                            if not entry.hasCustomLifecycle {
+                                state.addError("private field '".append(f.name).append("' has type 'ptr' — type '").append(typeName).append("' must declare clone() and drop() methods"), line, col)
+                            }
+                        }
                         // Private data field: add to fields for this.field resolution,
                         // and record name for FieldAccessNode privacy check.
                         let semFields Array<SemFieldEntry>: entry.fields
@@ -369,6 +388,16 @@ fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode) AnalyzerSt
     if isPrivateName(mPrivNames, typed.methodName) and not isThisReceiver(rcv) {
         state.addError("cannot call private method '".append(typed.methodName).append("' from outside its object"), typed.line, typed.col)
     }
+    // A cType or raw ptr has no runtime header (no type_tag), so the dynamic
+    // clone/drop dispatch cannot run on it — memory is managed manually via extern fn.
+    let mIsCloneOrDrop bool: typed.methodName.equals("clone") or typed.methodName.equals("drop")
+    if mdecl.isCType and mIsCloneOrDrop {
+        state.addError("cannot call ".append(typed.methodName).append("() on cType '").append(mdecl.name).append("' (no type_tag); free it manually via an extern fn"), typed.line, typed.col)
+    } else if mdecl.isExternType and mIsCloneOrDrop {
+        state.addError("cannot call ".append(typed.methodName).append("() on extern type '").append(mdecl.name).append("' (no type_tag); free it manually via an extern fn"), typed.line, typed.col)
+    } else if rcvType.equals("ptr") and mIsCloneOrDrop {
+        state.addError("cannot call ".append(typed.methodName).append("() on 'ptr' (unmanaged pointer; free it manually via an extern fn)"), typed.line, typed.col)
+    }
     let userRet String: rtLookupMethodReturn(mdecl, typed.methodName)
     if not userRet.equals("") {
         typed.resolvedType: tyh.makeSuruType(userRet)
@@ -454,7 +483,7 @@ fn rtResolveStructLitNode(state AnalyzerState, typed StructLitNode, expected Str
     rtResolveStructFields(state, fields, decl)
     // Augment the SemTypeEntry with private fields/methods from this literal
     // before resolving method bodies, so `this.fieldname` lookups succeed.
-    rtAugmentPrivateFields(state, expected, fields)
+    rtAugmentPrivateFields(state, expected, fields, typed.line, typed.col)
     // Method members (isMethod=true) carry a body that references
     // `this` and the method params. Resolve them now so the lift can
     // hoist already-typed bodies into top-level functions.
@@ -514,11 +543,27 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             let typed CallNode: expr
             let name String: typed.name
             rtResolveCallArgs(state, typed.args, name)
-            // readFile is a builtin that returns String; everything else falls
-            // through to the function-signature lookup. exit/printLn return
-            // nothing meaningful for type-inference purposes — leave "".
+            // readFile is a builtin that returns String; ptrLoad/ptrStore are
+            // byte-addressed pointer intrinsics gated behind stdlib.ffi import;
+            // everything else falls through to the function-signature lookup.
+            // exit/printLn return nothing meaningful for type-inference — leave "".
             if name.equals("readFile") {
                 typed.resolvedType: "String"
+            } else if name.equals("ptrLoad") {
+                if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
+                    state.addError("ptrLoad is a compiler intrinsic; add: import { [ptrLoad, ptrStore]: stdlib.ffi }", typed.line, typed.col)
+                }
+                if expected.equals("") {
+                    state.addError("ptrLoad: cannot infer return type; assign to a typed variable", typed.line, typed.col)
+                    typed.resolvedType: "i64"
+                } else {
+                    typed.resolvedType: expected
+                }
+            } else if name.equals("ptrStore") {
+                if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
+                    state.addError("ptrStore is a compiler intrinsic; add: import { [ptrLoad, ptrStore]: stdlib.ffi }", typed.line, typed.col)
+                }
+                typed.resolvedType: "void"
             } else {
                 let raw String: state.functions.returnType(name)
                 typed.resolvedType: tyh.makeSuruType(raw)
@@ -573,6 +618,14 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             // Mirrors the current inferType behaviour: every binary operator
             // produces bool. Expanded to arithmetic in a future task.
             typed.resolvedType: "bool"
+        }
+
+        SizeNode: {
+            let typed SizeNode: expr
+            if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
+                state.addError("typeSize is a compiler intrinsic; add: import { [typeSize]: stdlib.ffi }", typed.line, typed.col)
+            }
+            typed.resolvedType: "i64"
         }
 
         _: {}
@@ -755,6 +808,13 @@ fn resolveModuleTypes(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
         match stmt {
             FnDeclNode: {
                 let typedFn FnDeclNode: stmt
+                // Update current-module import context before resolving the
+                // function body.  This is the per-module isolation mechanism:
+                // each function's imports are those of its owning source file,
+                // not the root file's.  The registry lookup uses fd.srcPath so
+                // this is correct for both pass 1 (per-module stmts) and pass
+                // 2 (merged stmts with injected concrete copies).
+                state.currentModuleImports: lookupModuleImports(state.moduleImportRegistry, typedFn.srcPath)
                 rtResolveFnDecl(state, typedFn)
             }
             LetNode: {

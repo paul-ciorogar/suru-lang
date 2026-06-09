@@ -62,7 +62,6 @@ import { box: Suru.Compiler.Codegen.Box }
 import { irStr: Suru.Compiler.Codegen.String }
 import { irArr: Suru.Compiler.Codegen.Array }
 import { irStruct: Suru.Compiler.Codegen.Struct }
-import { irFile: Suru.Compiler.Codegen.Fileio }
 import { irCD: Suru.Compiler.Codegen.CloneDrop }
 import { passes: Suru.Compiler.Codegen.RegisterPasses }
 import { eh: Suru.Compiler.Codegen.ExprHelpers }
@@ -209,6 +208,9 @@ fn fnMangleSym(ctx IrCodegenContext, srcPath String, name String) String {
 // actually called. Emits each arg and coerces scalar params.
 fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, args Array<AstNode>) CodegenResult {
     let sig FnEntry: types.lookupFn(ctx, lookupName)
+    if sig.returnLlvmType.equals("") {
+        printError("[DEBUG emitUserFnCallSym] MISSING sig for lookupName=".append(lookupName).append(" llvmSym=".append(llvmSym)))
+    }
     let argParts Array<String>: []
     let i i64: 0
     while i.lt(args.len()) {
@@ -229,6 +231,13 @@ fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, ar
         i: i.add(1)
     }
     let retLlvm String: sig.returnLlvmType
+    // A `void`-returning extern fn (e.g. `free`) must be called with no SSA
+    // result — `%t = call void ...` is invalid IR. Own void fns avoid this by
+    // returning `ptr` (null); only extern void fns reach this branch.
+    if retLlvm.equals("void") {
+        ctx.builder: ir.emitCallDiscard(ctx.builder, "void", llvmSym, argParts)
+        return { ctx: ctx, name: "null", llvmType: "void", suruType: "void" }
+    }
     let rr IrResult: ir.emitCall(ctx.builder, retLlvm, llvmSym, argParts)
     ctx.builder: rr.builder
     return { ctx: ctx, name: rr.name, llvmType: retLlvm, suruType: sig.returnSuruType }
@@ -351,6 +360,15 @@ fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String)
 // BEFORE evaluating the field value — GEP SSA name must have a lower number than the
 // field value's intermediate SSA names (dominance invariant).
 // typeName is the declared struct type (from let annotation or current fn return type).
+// Zero literal for a cType field's LLVM type. Only reached for an absent field,
+// which is already a semantic error (all public cType fields are required), so
+// this is a defensive default rather than a normal path.
+fn cTypeZeroLit(llvmType String) String {
+    if llvmType.equals("double") { return "0.0" }
+    if llvmType.equals("ptr") { return "null" }
+    return "0"
+}
+
 fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName String) CodegenResult {
     // `{}` against a field whose type is NOT a registered struct — i.e. a sum
     // type (e.g. AstNode) or an array (e.g. Array:AstNode) — is the
@@ -365,18 +383,58 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
     if lt.name.equals("") and fields.len().equals(0) {
         return { ctx: ctx, name: "null", llvmType: "ptr", suruType: typeName }
     }
-    // Step 1: allocate struct memory and write the 32-byte header.
+    // Step 1: allocate struct memory (header-less for a cType).
     let allocR CodegenResult: irStruct.emitStructLiteralAlloc(ctx, typeName)
     ctx: allocR.ctx
     let mem String: allocR.name
-    // Step 2: for each TypeDecl field (canonical order), GEP the slot FIRST, then
-    // evaluate the field value, then encode as i64 and store.
-    // Absent fields (not in the literal) are zero-initialized.
     let decl TypeDecl: types.lookupType(ctx, typeName)
+    // cType: write each field at its natural C-ABI offset with its natural LLVM
+    // type — no 32-byte header, no i64 slot encoding. All public fields are
+    // required (enforced in semantic), so every declared field is provided here.
+    if decl.isCType {
+        let ci i64: 0
+        while ci.lt(decl.fields.len()) {
+            let cFieldName String: decl.fields.at(ci).name
+            let cSuru String: decl.fields.at(ci).typeName
+            let cLlvm String: box.llvmTypeOf(cSuru)
+            let cOff i64: irStruct.cFieldOffset(decl, ci)
+            let cGr IrResult: ir.emitGEP(ctx.builder, "i8", mem, "i64 ".append(cOff.toString()))
+            ctx.builder: cGr.builder
+            let cFound i64: -1
+            let ck i64: 0
+            while ck.lt(fields.len()) {
+                if fields.at(ck).name.equals(cFieldName) { cFound: ck }
+                ck: ck.add(1)
+            }
+            if cFound.equals(-1) {
+                ctx.builder: ir.emitStore(ctx.builder, cLlvm, cTypeZeroLit(cLlvm), cGr.name)
+            } else {
+                let cfr CodegenResult: emitValue(ctx, fields.at(cFound).value)
+                ctx: cfr.ctx
+                // Normalise the emitted value to the field's exact declared type
+                // (i64-encode then decode) so the store width matches cLlvm — a
+                // too-wide store would clobber the following field's bytes.
+                let cEnc CodegenResult: irStruct.structFieldToI64(ctx, cfr.name, cfr.suruType)
+                ctx: cEnc.ctx
+                let cDec CodegenResult: irStruct.structFieldFromI64(ctx, cEnc.name, cSuru)
+                ctx: cDec.ctx
+                ctx.builder: ir.emitStore(ctx.builder, cLlvm, cDec.name, cGr.name)
+            }
+            ci: ci.add(1)
+        }
+        return { ctx: ctx, name: mem, llvmType: "ptr", suruType: typeName }
+    }
+    // Step 2: for each TypeDecl field (compact reordered layout), GEP the slot
+    // FIRST, then evaluate the field value, normalise it to the field's exact width
+    // (i64-encode then decode) so a natural-typed store can't clobber the next
+    // field, and store at the field's natural LLVM type. Absent fields are
+    // zero-initialized (critical for heap slots so suru_drop_T sees null).
     let i i64: 0
     while i.lt(decl.fields.len()) {
         let tdFieldName String: decl.fields.at(i).name
-        let offset i64: irStruct.fieldOffset(i)
+        let annotation String: decl.fields.at(i).typeName
+        let llvm String: box.llvmTypeOf(annotation)
+        let offset i64: irStruct.suruFieldOffset(decl, i)
         let fGr IrResult: ir.emitGEP(ctx.builder, "i8", mem, "i64 ".append(offset.toString()))
         ctx.builder: fGr.builder
         // Linear scan: find this TypeDecl field in the literal's provided fields.
@@ -387,13 +445,15 @@ fn emitStructLit(ctx IrCodegenContext, fields Array<StructFieldNode>, typeName S
             k: k.add(1)
         }
         if foundIdx.equals(-1) {
-            ctx.builder: ir.emitStore(ctx.builder, "i64", "0", fGr.name)
+            ctx.builder: ir.emitStore(ctx.builder, llvm, cTypeZeroLit(llvm), fGr.name)
         } else {
             let fr CodegenResult: emitValue(ctx, fields.at(foundIdx).value)
             ctx: fr.ctx
             let asI64 CodegenResult: irStruct.structFieldToI64(ctx, fr.name, fr.suruType)
             ctx: asI64.ctx
-            ctx.builder: ir.emitStore(ctx.builder, "i64", asI64.name, fGr.name)
+            let dec CodegenResult: irStruct.structFieldFromI64(ctx, asI64.name, annotation)
+            ctx: dec.ctx
+            ctx.builder: ir.emitStore(ctx.builder, llvm, dec.name, fGr.name)
         }
         i: i.add(1)
     }
@@ -493,6 +553,10 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         IntLitNode: {
             return { ctx: ctx, name: expr.text, llvmType: "i64", suruType: "i64" }
         }
+        SizeNode: {
+            let sizeBytes i64: irArr.elemSizeBytes(expr.typeName)
+            return { ctx: ctx, name: sizeBytes.toString(), llvmType: "i64", suruType: "i64" }
+        }
         BoolLitNode: {
             let bv String: match expr.boolVal { true: "1", _: "0" }
             return { ctx: ctx, name: bv, llvmType: "i1", suruType: "bool" }
@@ -556,19 +620,14 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         CallNode: {
             match expr.name.equals("readFile") {
                 true: {
-                    let pathArg AstNode: expr.args.at(0)
-                    match pathArg {
-                        StrLitNode: {
-                            ctx: strIntern.internString(ctx, pathArg.text)
-                            let gname String: strIntern.lookupStrGlobal(ctx, pathArg.text)
-                            return irFile.emitReadFileLit(ctx, gname)
-                        }
-                        _: {
-                            let ar CodegenResult: emitValue(ctx, pathArg)
-                            ctx: ar.ctx
-                            return irFile.emitReadFile(ctx, ar.name)
-                        }
-                    }
+                    ctx: types.addSuruDecl(ctx, "declare ptr @suru_readfile(ptr)\n")
+                    let ar CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: ar.ctx
+                    let rfArgs Array<String>: []
+                    rfArgs.add("ptr ".append(ar.name))
+                    let rfR IrResult: ir.emitCall(ctx.builder, "ptr", "suru_readfile", rfArgs)
+                    ctx.builder: rfR.builder
+                    return { ctx: ctx, name: rfR.name, llvmType: "ptr", suruType: "String" }
                 }
                 _: {}
             }
@@ -618,7 +677,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                         _: {
                             let ar CodegenResult: emitValue(ctx, cmdArg)
                             ctx: ar.ctx
-                            let dataR CodegenResult: irFile.extractStringData(ctx, ar.name)
+                            let dataR CodegenResult: irStr.emitExtractStringData(ctx, ar.name)
                             ctx: dataR.ctx
                             let sysArgs Array<String>: []
                             sysArgs.add("ptr ".append(dataR.name))
@@ -633,6 +692,54 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
                             return { ctx: ctx, name: sr.name, llvmType: "i64", suruType: "i64" }
                         }
                     }
+                }
+                _: {}
+            }
+            match expr.name.equals("ptrLoad") {
+                true: {
+                    let pArg CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: pArg.ctx
+                    let offArg CodegenResult: emitValue(ctx, expr.args.at(1))
+                    ctx: offArg.ctx
+                    let gepR IrResult: ir.emitGEP(ctx.builder, "i8", pArg.name, "i64 ".append(offArg.name))
+                    ctx.builder: gepR.builder
+                    let suruT String: expr.resolvedType
+                    if suruT.equals("bool") {
+                        // Memory width for bool is i8; narrow to i1 after load.
+                        let loadR IrResult: ir.emitLoad(ctx.builder, "i8", gepR.name)
+                        ctx.builder: loadR.builder
+                        let truncR IrResult: ir.emitTrunc(ctx.builder, "i8", loadR.name, "i1")
+                        ctx.builder: truncR.builder
+                        return { ctx: ctx, name: truncR.name, llvmType: "i1", suruType: "bool" }
+                    } else {
+                        let llvmT String: box.irLlvmTypeOf(suruT)
+                        let loadR IrResult: ir.emitLoad(ctx.builder, llvmT, gepR.name)
+                        ctx.builder: loadR.builder
+                        return { ctx: ctx, name: loadR.name, llvmType: llvmT, suruType: suruT }
+                    }
+                }
+                _: {}
+            }
+            match expr.name.equals("ptrStore") {
+                true: {
+                    let pArg CodegenResult: emitValue(ctx, expr.args.at(0))
+                    ctx: pArg.ctx
+                    let offArg CodegenResult: emitValue(ctx, expr.args.at(1))
+                    ctx: offArg.ctx
+                    let valArg CodegenResult: emitValue(ctx, expr.args.at(2))
+                    ctx: valArg.ctx
+                    let gepR IrResult: ir.emitGEP(ctx.builder, "i8", pArg.name, "i64 ".append(offArg.name))
+                    ctx.builder: gepR.builder
+                    if valArg.suruType.equals("bool") {
+                        // Widen i1 to i8 for memory storage to match bool array convention.
+                        let zextR IrResult: ir.emitZext(ctx.builder, "i1", valArg.name, "i8")
+                        ctx.builder: zextR.builder
+                        ctx.builder: ir.emitStore(ctx.builder, "i8", zextR.name, gepR.name)
+                    } else {
+                        let llvmT String: box.irLlvmTypeOf(valArg.suruType)
+                        ctx.builder: ir.emitStore(ctx.builder, llvmT, valArg.name, gepR.name)
+                    }
+                    return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
                 }
                 _: {}
             }
@@ -717,13 +824,13 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // the method's vtable index (== declared-method order).
 fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal String, decl TypeDecl, method String, mIdx i64) CodegenResult {
     let me TypeMethodEntry: types.methodEntry(decl, method)
-    // __vtable is field slot 0: load the i64 slot and turn it into a ptr.
-    let vtOff i64: irStruct.fieldOffset(0)
+    // __vtable is an 8-byte ptr field (compact layout keeps it at index 0 / offset
+    // 32): GEP its slot and load the vtable pointer natively.
+    let vtIdx i64: types.fieldIndex(decl, "__vtable")
+    let vtOff i64: irStruct.suruFieldOffset(decl, vtIdx)
     let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
     ctx.builder: slotR.builder
-    let rawR IrResult: ir.emitLoad(ctx.builder, "i64", slotR.name)
-    ctx.builder: rawR.builder
-    let vtR IrResult: ir.emitIntToPtr(ctx.builder, rawR.name)
+    let vtR IrResult: ir.emitLoad(ctx.builder, "ptr", slotR.name)
     ctx.builder: vtR.builder
     // GEP to the method's pointer slot in the vtable array, then load the fp.
     let fpSlotR IrResult: ir.emitGEP(ctx.builder, "ptr", vtR.name, "i64 ".append(mIdx.toString()))
@@ -771,23 +878,6 @@ fn emitRawIndex(ctx IrCodegenContext, argNode AstNode) CodegenResult {
     return box.unboxInt64(ctx, r.name)
 }
 
-// Resolve a file-path argument to a raw `ptr` to its C string data. Literal
-// paths intern to a `@.str.N` global; dynamic paths emit the value and extract
-// the data pointer via irFile.extractStringData.
-fn emitFilePathArg(ctx IrCodegenContext, pathNode AstNode) CodegenResult {
-    match pathNode {
-        StrLitNode: {
-            ctx: strIntern.internString(ctx, pathNode.text)
-            let g String: strIntern.lookupStrGlobal(ctx, pathNode.text)
-            return { ctx: ctx, name: g, llvmType: "ptr", suruType: "String" }
-        }
-        _: {
-            let pr CodegenResult: emitValue(ctx, pathNode)
-            ctx: pr.ctx
-            return irFile.extractStringData(ctx, pr.name)
-        }
-    }
-}
 
 // Emit a typed println/printerror call for the scalar arms (bool/i32/i64/f64)
 // and the dynamic fallback (`ptr`). `suffix` is "println" or "printerror".
@@ -827,6 +917,52 @@ fn emitPrintByType(ctx IrCodegenContext, valueName String, suruType String, suff
 fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let method String: expr.methodName
     let recv AstNode: expr.receiver
+
+    // ptrLoad / ptrStore are ffi intrinsics intercepted here because a selective
+    // import (`import { [ptrLoad, ptrStore]: stdlib.ffi }`) rewrites the original
+    // CallNode to MethodCallNode{QualifiedNameNode, ptrLoad/ptrStore, args}.
+    // The args array is identical to the original call: [p ptr, offset i64] for
+    // ptrLoad and [p ptr, offset i64, val T] for ptrStore.
+    if method.equals("ptrLoad") {
+        let pArg CodegenResult: emitValue(ctx, expr.args.at(0))
+        ctx: pArg.ctx
+        let offArg CodegenResult: emitValue(ctx, expr.args.at(1))
+        ctx: offArg.ctx
+        let gepR IrResult: ir.emitGEP(ctx.builder, "i8", pArg.name, "i64 ".append(offArg.name))
+        ctx.builder: gepR.builder
+        let suruT String: expr.resolvedType
+        if suruT.equals("bool") {
+            let loadR IrResult: ir.emitLoad(ctx.builder, "i8", gepR.name)
+            ctx.builder: loadR.builder
+            let truncR IrResult: ir.emitTrunc(ctx.builder, "i8", loadR.name, "i1")
+            ctx.builder: truncR.builder
+            return { ctx: ctx, name: truncR.name, llvmType: "i1", suruType: "bool" }
+        } else {
+            let llvmT String: box.irLlvmTypeOf(suruT)
+            let loadR IrResult: ir.emitLoad(ctx.builder, llvmT, gepR.name)
+            ctx.builder: loadR.builder
+            return { ctx: ctx, name: loadR.name, llvmType: llvmT, suruType: suruT }
+        }
+    }
+    if method.equals("ptrStore") {
+        let pArg CodegenResult: emitValue(ctx, expr.args.at(0))
+        ctx: pArg.ctx
+        let offArg CodegenResult: emitValue(ctx, expr.args.at(1))
+        ctx: offArg.ctx
+        let valArg CodegenResult: emitValue(ctx, expr.args.at(2))
+        ctx: valArg.ctx
+        let gepR IrResult: ir.emitGEP(ctx.builder, "i8", pArg.name, "i64 ".append(offArg.name))
+        ctx.builder: gepR.builder
+        if valArg.suruType.equals("bool") {
+            let zextR IrResult: ir.emitZext(ctx.builder, "i1", valArg.name, "i8")
+            ctx.builder: zextR.builder
+            ctx.builder: ir.emitStore(ctx.builder, "i8", zextR.name, gepR.name)
+        } else {
+            let llvmT String: box.irLlvmTypeOf(valArg.suruType)
+            ctx.builder: ir.emitStore(ctx.builder, llvmT, valArg.name, gepR.name)
+        }
+        return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
+    }
 
     // Namespace alias call: receiver VarRef not in local scope → direct fn call.
     match recv {
@@ -1139,6 +1275,24 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
             let ur CodegenResult: box.unboxInt64(ctx, recvVal)
             ctx: ur.ctx
             rawI: ur.name
+        }
+        // Narrower integer scalars (i32 sign-extended, char/bool zero-extended)
+        // must widen to i64 before suru_int64_to_string — passing an i32/i8/i1
+        // where i64 is expected is invalid IR. Reachable e.g. for an i32 cType field.
+        if recvSuruType.equals("i32") {
+            let wR IrResult: ir.emitSext(ctx.builder, "i32", rawI, "i64")
+            ctx.builder: wR.builder
+            rawI: wR.name
+        }
+        if recvSuruType.equals("char") {
+            let wR IrResult: ir.emitZext(ctx.builder, "i8", rawI, "i64")
+            ctx.builder: wR.builder
+            rawI: wR.name
+        }
+        if recvSuruType.equals("bool") {
+            let wR IrResult: ir.emitZext(ctx.builder, "i1", rawI, "i64")
+            ctx.builder: wR.builder
+            rawI: wR.name
         }
         return irStr.emitInt64ToString(ctx, rawI)
     }
@@ -1875,46 +2029,34 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                         }
                         _: {}
                     }
-                    // writeFile — resolve path to raw char*, then resolve content.
+                    // writeFile — pass path and content Suru Strings to the C runtime.
                     match expr.name.equals("writeFile") {
                         true: {
-                            let pathR CodegenResult: emitFilePathArg(ctx, expr.args.at(0))
+                            ctx: types.addSuruDecl(ctx, "declare void @suru_writefile(ptr, ptr)\n")
+                            let pathR CodegenResult: emitValue(ctx, expr.args.at(0))
                             ctx: pathR.ctx
-                            let wfContent AstNode: expr.args.at(1)
-                            match wfContent {
-                                StrLitNode: {
-                                    ctx: strIntern.internString(ctx, wfContent.text)
-                                    let gname String: strIntern.lookupStrGlobal(ctx, wfContent.text)
-                                    ctx: irFile.emitWriteFileLit(ctx, pathR.name, gname, wfContent.text.len())
-                                }
-                                _: {
-                                    let cr CodegenResult: emitValue(ctx, wfContent)
-                                    ctx: cr.ctx
-                                    ctx: irFile.emitWriteFile(ctx, pathR.name, cr.name)
-                                }
-                            }
+                            let contentR CodegenResult: emitValue(ctx, expr.args.at(1))
+                            ctx: contentR.ctx
+                            let wfArgs Array<String>: []
+                            wfArgs.add("ptr ".append(pathR.name))
+                            wfArgs.add("ptr ".append(contentR.name))
+                            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_writefile", wfArgs)
                             return ctx
                         }
                         _: {}
                     }
-                    // appendToFile — same path-first ordering as writeFile.
+                    // appendToFile — pass path and content Suru Strings to the C runtime.
                     match expr.name.equals("appendToFile") {
                         true: {
-                            let pathR CodegenResult: emitFilePathArg(ctx, expr.args.at(0))
+                            ctx: types.addSuruDecl(ctx, "declare void @suru_appendtofile(ptr, ptr)\n")
+                            let pathR CodegenResult: emitValue(ctx, expr.args.at(0))
                             ctx: pathR.ctx
-                            let afContent AstNode: expr.args.at(1)
-                            match afContent {
-                                StrLitNode: {
-                                    ctx: strIntern.internString(ctx, afContent.text)
-                                    let gname String: strIntern.lookupStrGlobal(ctx, afContent.text)
-                                    ctx: irFile.emitAppendToFileLit(ctx, pathR.name, gname, afContent.text.len())
-                                }
-                                _: {
-                                    let cr CodegenResult: emitValue(ctx, afContent)
-                                    ctx: cr.ctx
-                                    ctx: irFile.emitAppendToFile(ctx, pathR.name, cr.name)
-                                }
-                            }
+                            let contentR CodegenResult: emitValue(ctx, expr.args.at(1))
+                            ctx: contentR.ctx
+                            let afArgs Array<String>: []
+                            afArgs.add("ptr ".append(pathR.name))
+                            afArgs.add("ptr ".append(contentR.name))
+                            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_appendtofile", afArgs)
                             return ctx
                         }
                         _: {}
@@ -2119,6 +2261,8 @@ fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                 }
                 ctx: types.addSuruDecl(ctx, "declare ".append(retLlvm).append(" @").append(s.name).append("(").append(ir.joinArgs(paramParts)).append(")\n"))
             }
+            // ExternTypeNode: no IR emission — the name erases to `ptr` in irLlvmTypeOf.
+            ExternTypeNode: {}
             _: {}
         }
         i: i.add(1)
@@ -2268,7 +2412,6 @@ fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, o
                 }
             }
             ExternFnNode: {
-                // Register extern fn signature so emitUserFnCallSym can look it up.
                 let retSuru String: tyh.makeSuruType(s.returnType)
                 let retLlvm String: match s.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
                 let paramTypes Array<String>: []

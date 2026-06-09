@@ -1,0 +1,94 @@
+// struct_layout_test.suru — unit tests for the compact Suru-struct layout helpers.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// structLayoutTests() and folds the failures into the suite tally. Covers the
+// pure geometry helpers in Suru.Compiler.Codegen.Struct that lay out a regular
+// `type` struct: reorderSuruFields (stable 8 ++ 4 ++ 1 bucket partition),
+// suruFieldOffset (compact offsets after the 32-byte header), and suruStructSize.
+//
+// Unlike a cType (header-less, order-preserving), a regular struct reorders its
+// fields and keeps the 32-byte runtime header, so field 0 starts at offset 32 and
+// the synthetic `__vtable` (an 8-byte ptr, added first) stays at index 0 / offset 32.
+
+namespace Test.Unit.Compiler.StructLayout
+
+export { structLayoutTests }
+
+import { [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert }
+import { [reorderSuruFields, suruFieldOffset, suruStructSize]: Suru.Compiler.Codegen.Struct }
+import { [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types }
+
+// mkFields — build a parallel name/type list into an Array<TypeFieldEntry>.
+fn mkFields(fieldNames Array<String>, fieldTypes Array<String>) Array<TypeFieldEntry> {
+    let fields Array<TypeFieldEntry>: []
+    let i i64: 0
+    while i.lt(fieldNames.len()) {
+        fields.add({ name: fieldNames.at(i), typeName: fieldTypes.at(i) })
+        i: i.add(1)
+    }
+    return fields
+}
+
+// mkType — build a regular (non-cType) TypeDecl whose fields are already reordered,
+// exactly as registerTypes does before codegen consumes the decl.
+fn mkType(name String, fieldNames Array<String>, fieldTypes Array<String>) TypeDecl {
+    let reordered Array<TypeFieldEntry>: reorderSuruFields(mkFields(fieldNames, fieldTypes))
+    let methods Array<TypeMethodEntry>: []
+    let decl TypeDecl: { name: name, fields: reordered, methods: methods, isCType: false, hasCustomLifecycle: false }
+    return decl
+}
+
+fn structLayoutTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // reorderSuruFields — stable 8 ++ 4 ++ 1 partition.
+    // {p i32, q i64, r i32, s bool} → [q, p, r, s] (q is the only 8-byte; p,r keep
+    // declaration order in the 4-byte bucket; s last in the 1-byte bucket).
+    let rNames Array<String>: ["p", "q", "r", "s"]
+    let rTypes Array<String>: ["i32", "i64", "i32", "bool"]
+    let reordered Array<TypeFieldEntry>: reorderSuruFields(mkFields(rNames, rTypes))
+    results.add(assertEqStr("reorder[0]", reordered.at(0).name, "q"))
+    results.add(assertEqStr("reorder[1]", reordered.at(1).name, "p"))
+    results.add(assertEqStr("reorder[2]", reordered.at(2).name, "r"))
+    results.add(assertEqStr("reorder[3]", reordered.at(3).name, "s"))
+
+    // Mixed {a bool, b i64, c i32} → reordered [b, c, a].
+    //   b i64 @32, c i32 @40, a bool @44; size = alignUp(45, 8) = 48.
+    let mixed TypeDecl: mkType("Mixed", ["a", "b", "c"], ["bool", "i64", "i32"])
+    results.add(assertEqStr("Mixed field0", mixed.fields.at(0).name, "b"))
+    results.add(assertEqI64("Mixed offset b", suruFieldOffset(mixed, 0), 32))
+    results.add(assertEqI64("Mixed offset c", suruFieldOffset(mixed, 1), 40))
+    results.add(assertEqI64("Mixed offset a", suruFieldOffset(mixed, 2), 44))
+    results.add(assertEqI64("Mixed size", suruStructSize(mixed), 48))
+
+    // Object {__vtable, x i32, y String} → reordered [__vtable, y, x]
+    // (__vtable and y are 8-byte; x is 4-byte). __vtable stays at offset 32.
+    //   __vtable @32, y @40, x @48; size = alignUp(52, 8) = 56.
+    let obj TypeDecl: mkType("Obj", ["__vtable", "x", "y"], ["__vtable", "i32", "String"])
+    results.add(assertEqStr("Obj field0", obj.fields.at(0).name, "__vtable"))
+    results.add(assertEqI64("Obj offset __vtable", suruFieldOffset(obj, 0), 32))
+    results.add(assertEqI64("Obj offset y", suruFieldOffset(obj, 1), 40))
+    results.add(assertEqI64("Obj offset x", suruFieldOffset(obj, 2), 48))
+    results.add(assertEqI64("Obj size", suruStructSize(obj), 56))
+
+    // All 8-byte {a String, b i64} — order unchanged, no padding.
+    //   a @32, b @40; size = 48.
+    let heap TypeDecl: mkType("Heap", ["a", "b"], ["String", "i64"])
+    results.add(assertEqI64("Heap offset a", suruFieldOffset(heap, 0), 32))
+    results.add(assertEqI64("Heap offset b", suruFieldOffset(heap, 1), 40))
+    results.add(assertEqI64("Heap size", suruStructSize(heap), 48))
+
+    // {a char, b char, c i64} → reordered [c, a, b]; c @32, a @40, b @41.
+    //   size = alignUp(42, 8) = 48.
+    let chars TypeDecl: mkType("Chars", ["a", "b", "c"], ["char", "char", "i64"])
+    results.add(assertEqI64("Chars offset c", suruFieldOffset(chars, 0), 32))
+    results.add(assertEqI64("Chars offset a", suruFieldOffset(chars, 1), 40))
+    results.add(assertEqI64("Chars offset b", suruFieldOffset(chars, 2), 41))
+    results.add(assertEqI64("Chars size", suruStructSize(chars), 48))
+
+    // Field-less struct — exactly the 32-byte header.
+    let empty TypeDecl: mkType("Empty", [], [])
+    results.add(assertEqI64("Empty size", suruStructSize(empty), 32))
+
+    return results
+}

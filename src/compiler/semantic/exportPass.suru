@@ -38,6 +38,7 @@ fn collectOwnDefinedNames(ownStmts Array<AstNode>) Array<String> {
             FnDeclNode:      { names.add(stmt.name) }
             TypeDeclNode:    { names.add(stmt.name) }
             SumTypeDeclNode: { names.add(stmt.name) }
+            ExternTypeNode:  { names.add(stmt.name) }
             // Top-level let declarations act as module constants.
             LetNode:         { names.add(stmt.name) }
             _: {}

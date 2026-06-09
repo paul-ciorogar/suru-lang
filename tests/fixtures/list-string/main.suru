@@ -1,0 +1,41 @@
+namespace Test.ListString
+
+import { [List, newList]: Suru.Stdlib.List }
+
+fn main(args Array<String>) {
+    // --- add string literals and at ---
+    let arr List<String>: newList()
+    arr.add("hello")
+    arr.add("world")
+    arr.add("foo")
+    printLn(arr.len().toString())          // 3
+    printLn(arr.at(0))                     // hello
+    printLn(arr.at(1))                     // world
+    printLn(arr.at(2))                     // foo
+
+    // --- set: replace an element ---
+    arr.set(1, "bar")
+    printLn(arr.at(1))                     // bar
+
+    // --- clone: deep copy, originals are independent ---
+    let copy List<String>: arr.clone()
+    arr.set(0, "changed")
+    printLn(arr.at(0))                     // changed
+    printLn(copy.at(0))                    // hello
+
+    // --- slice [0,2): first two elements of copy ---
+    let sl List<String>: copy.slice(0, 2)
+    printLn(sl.len().toString())           // 2
+    printLn(sl.at(0))                      // hello
+    printLn(sl.at(1))                      // bar
+
+    // --- heap strings: build via append, add clones ---
+    let base String: "x".append("y")
+    arr.add(clone(base))
+    printLn(arr.at(3))                     // xy
+    drop(base)
+
+    drop(arr)
+    drop(copy)
+    drop(sl)
+}

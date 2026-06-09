@@ -1,0 +1,7 @@
+namespace Test.CTypeMethodError
+
+// A cType is data-only — declaring a method is a parse error.
+
+cType Bad: { a i64, fn foo() i64 }
+
+fn main(args Array<String>) { printLn("x") }

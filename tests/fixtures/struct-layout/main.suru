@@ -1,0 +1,53 @@
+namespace Test.StructLayout
+
+export { main }
+
+// Fields are declared in an order that forces the compact layout to reorder them
+// into alignment buckets (8 ++ 4 ++ 1):
+//   declared : flag bool, count i64, code i32, letter char, ratio f64, label String
+//   reordered: count i64 @32, ratio f64 @40, label String @48,
+//              code i32 @56, flag bool @60, letter char @61   (size 64)
+// Reading/writing each field at its natural width must not over-read or clobber a
+// neighbour, and clone/drop must walk the reordered offsets (and deep-clone label).
+type Mix: { flag bool, count i64, code i32, letter char, ratio f64, label String }
+
+fn makeMix() Mix {
+    return { flag: true, count: 1000000, code: 42, letter: 'Q', ratio: 1.5, label: "hello" }
+}
+
+fn main(args Array<String>) {
+    let m Mix: makeMix()
+
+    // Read every field at its natural width / compact offset.
+    printLn(m.flag)               // true
+    printLn(m.count)              // 1000000
+    printLn(m.code.toString())    // 42
+    printLn(m.letter.ord())       // 81  (Q)
+    printLn(m.ratio.compare(1.5)) // 0   (round-trips exactly)
+    printLn(m.label)              // hello
+
+    // Mutate the narrow fields (i32/bool/char sit at offsets 56/60/61) and a wide
+    // one (count @32). The String label @48 must stay intact through it all.
+    m.flag: false
+    m.code: 7
+    m.letter: 'Z'
+    m.count: 2000000
+    printLn(m.flag)               // false
+    printLn(m.count)              // 2000000
+    printLn(m.code.toString())    // 7
+    printLn(m.letter.ord())       // 90  (Z)
+    printLn(m.label)              // hello  (neighbour bytes untouched)
+
+    // Deep clone: reordered scalar copies + recursive String clone.
+    let c Mix: clone(m)
+    printLn(c.flag)               // false
+    printLn(c.count)              // 2000000
+    printLn(c.code.toString())    // 7
+    printLn(c.letter.ord())       // 90
+    printLn(c.label)              // hello
+
+    drop(m)
+    printLn(c.label)              // hello  (clone is independent of the dropped original)
+    drop(c)
+    printLn("ok")
+}

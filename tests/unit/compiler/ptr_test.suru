@@ -1,0 +1,44 @@
+// ptr_test.suru — unit tests for the `ptr` primitive type added in B1.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// ptrTests() and folds the failures into the suite tally. Covers the pure
+// helper assertions for ptr:
+//   - isBuiltinType("ptr")   : semantic resolver accepts ptr as a known type
+//   - irLlvmTypeOf("ptr")    : codegen maps ptr → "ptr" LLVM type
+//   - isScalarSuruType("ptr"): ptr is NOT a scalar (no boxing/unboxing)
+//
+// Full end-to-end coverage (ptr in extern fn, let binding, no-drop) is in the
+// extern-fn-ptr and extern-fn-fileio fixtures.
+
+namespace Test.Unit.Compiler.Ptr
+
+export { ptrTests }
+
+import { [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert }
+import { [isBuiltinType]: Suru.Compiler.Semantic.Passes }
+import { [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers }
+
+fn ptrTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // isBuiltinType — ptr is now a recognised builtin type.
+    results.add(assertTrue("isBuiltinType(ptr)", isBuiltinType("ptr")))
+    // Regression guard: other builtins still pass.
+    results.add(assertTrue("isBuiltinType(bool)", isBuiltinType("bool")))
+    results.add(assertTrue("isBuiltinType(i64)", isBuiltinType("i64")))
+    results.add(assertTrue("isBuiltinType(String)", isBuiltinType("String")))
+
+    // irLlvmTypeOf — ptr maps to the LLVM ptr type (raw pointer, no boxing).
+    results.add(assertEqStr("irLlvmTypeOf(ptr)", irLlvmTypeOf("ptr"), "ptr"))
+    // Regression guard: other type mappings unchanged.
+    results.add(assertEqStr("irLlvmTypeOf(i64)", irLlvmTypeOf("i64"), "i64"))
+    results.add(assertEqStr("irLlvmTypeOf(bool)", irLlvmTypeOf("bool"), "i1"))
+    results.add(assertEqStr("irLlvmTypeOf(i32)", irLlvmTypeOf("i32"), "i32"))
+    results.add(assertEqStr("irLlvmTypeOf(f64)", irLlvmTypeOf("f64"), "double"))
+    results.add(assertEqStr("irLlvmTypeOf(char)", irLlvmTypeOf("char"), "i8"))
+
+    // isScalarSuruType — ptr is NOT scalar; it must not trigger boxing/unboxing.
+    results.add(assertTrue("not isScalarSuruType(ptr)", not isScalarSuruType("ptr")))
+
+    return results
+}

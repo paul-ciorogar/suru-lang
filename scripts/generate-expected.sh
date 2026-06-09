@@ -20,6 +20,12 @@ _fmt_ms() {
 _elapsed() { _fmt_ms "$(( $(date +%s%3N) - $1 ))"; }
 _total()    { printf "=== total: %s ===\n" "$(_elapsed $_t0)"; }
 
+# Compile the C runtime (runtime/*.c) to objects — `suru build` links these.
+echo "--- Building C runtime objects ---"
+for f in /work/runtime/*.c; do
+    clang-18 -c -O2 -Wall -Wextra -o "${f%.c}.o" "$f"
+done
+
 capture() {
   local name="$1"; shift
   local extra_args=("$@")

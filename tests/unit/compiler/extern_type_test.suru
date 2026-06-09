@@ -1,0 +1,45 @@
+// extern_type_test.suru — unit tests for `extern type` codegen type-erasure behaviour.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// externTypeTests() and folds the failures into the suite tally. Covers the pure
+// helper assertions for extern type erasure:
+//   - irLlvmTypeOf("SomeHandle") → "ptr"  (default arm in irLlvmTypeOf)
+//   - isScalarSuruType("SomeHandle") → false  (extern types are non-scalar, like ptr)
+//   - makeSuruType("SomeHandle")    → "SomeHandle"  (pass-through, not array/generic)
+//
+// Full end-to-end coverage (extern type declaration, let binding, pass to extern fn,
+// no-drop) is in the extern-type-opaque fixture.
+
+namespace Test.Unit.Compiler.ExternType
+
+export { externTypeTests }
+
+import { [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert }
+import { [irLlvmTypeOf, isScalarSuruType, makeSuruType]: Suru.Compiler.Codegen.TypeHelpers }
+
+fn externTypeTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // irLlvmTypeOf — any unknown type name (including an extern type name) maps to
+    // the LLVM ptr type via the default `_: "ptr"` arm.
+    results.add(assertEqStr("irLlvmTypeOf(SomeHandle)", irLlvmTypeOf("SomeHandle"), "ptr"))
+    results.add(assertEqStr("irLlvmTypeOf(LLVMContextRef)", irLlvmTypeOf("LLVMContextRef"), "ptr"))
+
+    // Regression guard: primitive type mappings are unchanged.
+    results.add(assertEqStr("irLlvmTypeOf(i64)", irLlvmTypeOf("i64"), "i64"))
+    results.add(assertEqStr("irLlvmTypeOf(bool)", irLlvmTypeOf("bool"), "i1"))
+    results.add(assertEqStr("irLlvmTypeOf(i32)", irLlvmTypeOf("i32"), "i32"))
+    results.add(assertEqStr("irLlvmTypeOf(f64)", irLlvmTypeOf("f64"), "double"))
+    results.add(assertEqStr("irLlvmTypeOf(char)", irLlvmTypeOf("char"), "i8"))
+    results.add(assertEqStr("irLlvmTypeOf(ptr)", irLlvmTypeOf("ptr"), "ptr"))
+
+    // isScalarSuruType — extern type names are NOT scalar; they pass through as raw
+    // ptr values without boxing/unboxing (same path as the built-in `ptr` type).
+    results.add(assertTrue("not isScalarSuruType(SomeHandle)", not isScalarSuruType("SomeHandle")))
+
+    // makeSuruType — extern type names pass through unchanged (not array or generic).
+    results.add(assertEqStr("makeSuruType(SomeHandle)", makeSuruType("SomeHandle"), "SomeHandle"))
+    results.add(assertEqStr("makeSuruType(LLVMContextRef)", makeSuruType("LLVMContextRef"), "LLVMContextRef"))
+
+    return results
+}

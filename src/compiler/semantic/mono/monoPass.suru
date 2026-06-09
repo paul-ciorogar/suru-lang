@@ -24,6 +24,9 @@ export {
     isGenericStmt
     filterGenericDefs
     rewriteCallName
+    rewriteZeroArgCallName
+    rewriteCallInExprWithAnnotation
+    rewriteZeroArgFnFromAnnotation
     rewriteCallsInExprs
     rewriteCallsInStmts
     rewriteMatchArm
@@ -163,6 +166,94 @@ fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
     let concretes Array<String>: infer.buildConcreteTypes(def.typeParams(), def.node.params, argTypes, concretesOut)
     if not infer.allBound(concretes) { return cn.name }
     return inst.mangleGenericName(cn.name, concretes)
+}
+
+// rewriteZeroArgCallName — for a zero-param generic CallNode, try to determine
+// the mangled name from the let-binding type annotation (return-type context).
+// Returns cn.name unchanged if no mangling can be determined.
+fn rewriteZeroArgCallName(cn CallNode, annotation String, registry GenericRegistry) String {
+    let fnIdx i64: registry.findFn(cn.name)
+    if fnIdx.equals(registry.fns.len()) { return cn.name }
+    let def GenericFnDef: registry.fns.at(fnIdx)
+    if not def.node.params.len().equals(0) { return cn.name }
+    let typeParams Array<String>: def.typeParams()
+    if not typeParams.len().equals(1) { return cn.name }
+    let bound String: infer.matchReturnTypeSingle(def.node.returnType, annotation, typeParams.at(0))
+    if bound.equals("") { return cn.name }
+    let concretes Array<String>: []
+    concretes.add(clone(bound))
+    drop(bound)
+    let mangled String: inst.mangleGenericName(cn.name, concretes)
+    drop(concretes)
+    return mangled
+}
+
+// rewriteCallInExprWithAnnotation — rewrite a call expression using the
+// expected-type annotation as context for zero-arg generic calls.
+// Falls through to rewriteCallsInExpr for all other expression types.
+fn rewriteCallInExprWithAnnotation(expr AstNode, annotation String, registry GenericRegistry) AstNode {
+    match expr {
+        CallNode: {
+            let cn CallNode: expr
+            let newName String: rewriteCallName(cn, registry)
+            // If arg-based binding failed, try annotation-based binding.
+            let shouldTry bool: newName.equals(cn.name) and not annotation.equals("")
+            let finalName String: match shouldTry {
+                true: rewriteZeroArgCallName(cn, annotation, registry)
+                _: newName
+            }
+            let newArgs Array<AstNode>: rewriteCallsInExprs(cn.args, registry)
+            let result CallNode: { name: finalName, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            return result
+        }
+        _: { return rewriteCallsInExpr(expr, registry) }
+    }
+    return rewriteCallsInExpr(expr, registry)
+}
+
+// rewriteZeroArgFnFromAnnotation — scan registry for a zero-arg generic function
+// whose return type can produce `annotation`. Returns the mangled name of the
+// first matching function, or "" if none found.
+// Used as a fallback when rewriteCallInExprWithAnnotation cannot match the call
+// expression's variant (bootstrap binary limitation).
+fn rewriteZeroArgFnFromAnnotation(annotation String, resolvedRet String, registry GenericRegistry) String {
+    // Only proceed if annotation is a generic application (has a '<').
+    let annotBase String: infer.extractBaseTypeName(annotation)
+    if annotBase.equals(annotation) { drop(annotBase)  return "" }
+    let i i64: 0
+    while i.lt(registry.fns.len()) {
+        let def GenericFnDef: registry.fns.at(i)
+        if def.node.params.len().equals(0) {
+            let typeParams Array<String>: def.typeParams()
+            if typeParams.len().equals(1) {
+                let defBase String: infer.extractBaseTypeName(def.node.returnType)
+                let baseMatch bool: defBase.equals(annotBase)
+                drop(defBase)
+                if baseMatch {
+                    // Also verify against the expression's resolved return type
+                    // (contains the generic type param, e.g. "List<T>").
+                    let resolvedBase String: infer.extractBaseTypeName(resolvedRet)
+                    let resolvedMatch bool: resolvedBase.equals(annotBase)
+                    drop(resolvedBase)
+                    if resolvedMatch {
+                        let bound String: infer.matchReturnTypeSingle(def.node.returnType, annotation, typeParams.at(0))
+                        if not bound.equals("") {
+                            let concretes Array<String>: []
+                            concretes.add(clone(bound))
+                            drop(bound)
+                            drop(annotBase)
+                            let mangled String: inst.mangleGenericName(def.name, concretes)
+                            drop(concretes)
+                            return mangled
+                        }
+                    }
+                }
+            }
+        }
+        i: i.add(1)
+    }
+    drop(annotBase)
+    return ""
 }
 
 // rewriteCallsInExprs — return a new expression array with all generic call names mangled.
@@ -341,7 +432,27 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
         TypeDeclNode: { return node }
         LetNode: {
             let ln LetNode: node
-            let newVal AstNode: rewriteCallsInExpr(ln.value, registry)
+            // Pass the annotation as context so zero-arg generic calls can be
+            // mangled even when arg-based binding fails (e.g. newList()).
+            let newVal AstNode: rewriteCallInExprWithAnnotation(ln.value, ln.typeName, registry)
+            // Fallback: if the value has a generic resolved return type that
+            // matches the annotation base (e.g. "List<T>" vs "List<i64>"),
+            // scan registry.fns for a zero-arg function producing that type.
+            // This handles cases where rewriteCallInExprWithAnnotation's match on
+            // the expr's AstNode variant does not fire (bootstrap binary limitation).
+            // resolvedTypeOf returns a borrowed field reference — do NOT drop it.
+            let resolvedRet String: infer.resolvedTypeOf(newVal)
+            if not resolvedRet.equals("") {
+                if not resolvedRet.equals(ln.typeName) {
+                    let mangledName String: rewriteZeroArgFnFromAnnotation(ln.typeName, resolvedRet, registry)
+                    if not mangledName.equals("") {
+                        // mangledName ownership transfers to rewrittenCall.name — do NOT drop.
+                        let emptyArgs Array<AstNode>: []
+                        let rewrittenCall CallNode: { name: mangledName, args: emptyArgs, line: 0, col: 0, resolvedType: ln.typeName }
+                        newVal: rewrittenCall
+                    }
+                }
+            }
             let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col, srcPath: ln.srcPath }
             return result
         }

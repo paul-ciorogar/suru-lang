@@ -1,0 +1,43 @@
+namespace Test.SuruStringBasic
+
+import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+
+fn main(args Array<String>) {
+    // --- create from literal ---
+    let s SuruString: suruStringFrom("hello")
+    printLn(s.len().toString())         // 5
+    printLn(s.charAt(0).toString())     // h
+    printLn(s.charAt(4).toString())     // o
+
+    // --- equals with built-in String ---
+    printLn(s.equals("hello"))          // true
+    printLn(s.equals("world"))          // false
+
+    // --- concat: returns a new immutable string ---
+    let t SuruString: s.concat(" world")
+    printLn(t.len().toString())         // 11
+    printLn(t.charAt(5).toString())     // (space)
+    printLn(t.equals("hello world"))    // true
+
+    // --- equalsStr: compare two SuruStrings ---
+    let u SuruString: suruStringFrom("hello world")
+    printLn(t.equalsStr(u))             // true
+
+    // --- slice: bytes [6,11) = "world" ---
+    let sl SuruString: t.slice(6, 11)
+    printLn(sl.len().toString())        // 5
+    printLn(sl.equals("world"))         // true
+
+    // --- clone: independent copy ---
+    let c SuruString: s.clone()
+    printLn(c.len().toString())         // 5
+    printLn(c.equals("hello"))          // true
+    printLn(c.equalsStr(s))             // true
+
+    drop(s)
+    drop(t)
+    drop(u)
+    drop(sl)
+    drop(c)
+    printLn("ok")
+}

@@ -1,0 +1,3 @@
+/work/tests/fixtures/custom-lifecycle-ptr-no-lifecycle/main.suru:13:16: error: private field 'data' has type 'ptr' — type 'Bag' must declare clone() and drop() methods
+  13 |     let b Bag: {
+                      ^

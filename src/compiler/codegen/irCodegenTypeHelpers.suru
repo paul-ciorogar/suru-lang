@@ -206,6 +206,7 @@ fn irLlvmTypeOf(suruType String) String {
         "i32":    "i32"
         "char":     "i8"
         "f64":  "double"
+        "ptr":      "ptr"
         _:          "ptr"
     }
 }

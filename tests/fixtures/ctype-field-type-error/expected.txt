@@ -1,0 +1,3 @@
+/work/tests/fixtures/ctype-field-type-error/main.suru:5:7: error: cType 'Bad' field 's' has type 'String'; only bool, char, i32, i64, f64 are allowed
+  5 | cType Bad: { a i64, s String }
+            ^

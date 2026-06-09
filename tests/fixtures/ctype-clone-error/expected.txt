@@ -1,0 +1,3 @@
+/work/tests/fixtures/ctype-clone-error/main.suru:10:19: error: cannot call clone() on cType 'Pair' (no type_tag); free it manually via an extern fn
+  10 |     let q Pair: p.clone()
+                         ^

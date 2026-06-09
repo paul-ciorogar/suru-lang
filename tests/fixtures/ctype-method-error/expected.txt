@@ -1,0 +1,3 @@
+/work/tests/fixtures/ctype-method-error/main.suru:5:21: error: cType 'Bad' cannot declare methods (it is data-only)
+  5 | cType Bad: { a i64, fn foo() i64 }
+                          ^

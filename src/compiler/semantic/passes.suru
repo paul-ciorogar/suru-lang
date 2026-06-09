@@ -38,11 +38,14 @@ export {
     resolveTypeName
     isTypeParam
     recordTypeDecl
+    isCTypeNamed
+    isExternTypeNamed
     collectTypeDeclarations
     registerFnDecl
     registerExternFnDecl
     collectFunctionDeclarations
     runPrePasses
+    normalizeGenericTypeName
 }
 
 import { sem: Suru.Compiler.Semantic }
@@ -60,7 +63,8 @@ fn isArrayGeneric(name String) bool {
     }
 }
 
-// isBuiltinType — true for the six primitive type names and generic Array forms.
+// isBuiltinType — true for the seven primitive type names, ptr, and generic Array forms.
+// ptr is an untyped C pointer, valid only in extern fn signatures and let declarations.
 fn isBuiltinType(name String) bool {
     return name.equals("bool")
         or name.equals("i32")
@@ -68,6 +72,7 @@ fn isBuiltinType(name String) bool {
         or name.equals("f64")
         or name.equals("char")
         or name.equals("String")
+        or name.equals("ptr")
         or name.equals("Array")
         or isArrayGeneric(name)
 }
@@ -213,6 +218,59 @@ fn isTypeParam(name String, typeParams Array<String>) bool {
 
 // ─── Pass 1: collect type declarations ───────────────────────────────────────
 
+// isCTypeNamed — true if `typeName` names a registered cType. Used by the
+// analyze pass to reject clone()/drop() in function-call form on a cType value.
+// Returns false for unknown / empty names, so it never produces a false positive.
+fn isCTypeNamed(state AnalyzerState, typeName String) bool {
+    let decls Array<SemTypeEntry>: state.typeDecls
+    let i i64: 0
+    while i.lt(decls.len()) {
+        let e SemTypeEntry: decls.at(i)
+        if e.name.equals(typeName) { return e.isCType }
+        i: i.add(1)
+    }
+    return false
+}
+
+// isExternTypeNamed — true when `typeName` resolves to a declared `extern type`.
+// Used to reject clone()/drop() and use as a regular struct field.
+fn isExternTypeNamed(state AnalyzerState, typeName String) bool {
+    let decls Array<SemTypeEntry>: state.typeDecls
+    let i i64: 0
+    while i.lt(decls.len()) {
+        let e SemTypeEntry: decls.at(i)
+        if e.name.equals(typeName) { return e.isExternType }
+        i: i.add(1)
+    }
+    return false
+}
+
+// isCAbiPrimitive — true for the scalar types that have a fixed C ABI size and
+// alignment and may therefore appear as cType fields. `ptr` is added with the
+// Phase B `ptr` primitive; String/Array/named types are deferred.
+fn isCAbiPrimitive(typeName String) bool {
+    return typeName.equals("bool") or typeName.equals("char") or typeName.equals("i32") or typeName.equals("i64") or typeName.equals("f64")
+}
+
+// normalizeGenericTypeName — convert a generic-application return type like
+// "DynArray<i64>" to its mangled form "DynArray__i64" for hasCustomLifecycle
+// comparison.  Handles single-level generics only (all clone() return types
+// are necessarily single-level — a type clones itself, not a nested wrapper).
+// Plain types without '<' are returned unchanged.
+fn normalizeGenericTypeName(typeName String) String {
+    let len i64: typeName.len()
+    let i i64: 0
+    while i.lt(len) {
+        if typeName.at(i).equals("<") {
+            let base String: typeName.slice(0, i)
+            let inner String: typeName.slice(i.add(1), len.take(1))
+            return base.append("__").append(inner)
+        }
+        i: i.add(1)
+    }
+    return clone(typeName)
+}
+
 // recordTypeDecl — copy a parser TypeDeclNode into a semantic-layer
 // SemTypeEntry and append it to state.typeDecls. Used so resolveTypes.suru can
 // look up struct field types without importing the parser AST into the leaf
@@ -225,6 +283,12 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
         let p Param: params.at(fi)
         let entry SemFieldEntry: { name: p.name, typeName: p.typeName }
         semFields.add(entry)
+        // A cType maps onto the C ABI, so each field must be a fixed-layout C
+        // primitive. String/Array/named-struct/nested-cType fields are rejected
+        // (deferred per the FFI plan).
+        if typed.isCType and not isCAbiPrimitive(p.typeName) {
+            state.addError("cType '".append(typed.name).append("' field '").append(p.name).append("' has type '").append(p.typeName).append("'; only bool, char, i32, i64, f64 are allowed"), typed.line, typed.col)
+        }
         fi: fi.add(1)
     }
     let semMethods Array<SemMethodEntry>: []
@@ -243,10 +307,29 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
         semMethods.add(me)
         mi: mi.add(1)
     }
+    // hasCustomLifecycle: true when the interface declares both clone() returning the
+    // same type and drop() returning void. Enables ptr/extern-type private fields.
+    // For monomorphized generic types, clone() return types may arrive as the
+    // generic-application form ("DynArray<i64>") rather than the mangled form
+    // ("DynArray__i64"); normalizeGenericTypeName handles the comparison in both forms.
+    let hasClone bool: false
+    let hasDrop bool: false
+    let lci i64: 0
+    while lci.lt(methodSigs.len()) {
+        let lms MethodSig: methodSigs.at(lci)
+        if lms.name.equals("clone") {
+            let normalizedRet String: normalizeGenericTypeName(lms.returnType)
+            if lms.returnType.equals(typed.name) or normalizedRet.equals(typed.name) { hasClone: true }
+            drop(normalizedRet)
+        }
+        if lms.name.equals("drop") and lms.returnType.equals("void") { hasDrop: true }
+        lci: lci.add(1)
+    }
+    let hasCustomLifecycle bool: hasClone and hasDrop
     let typeDecls Array<SemTypeEntry>: state.typeDecls
     // privateFieldNames and privateMethodNames start empty; resolveTypes.suru populates
     // them lazily on first encounter of a StructLitNode with isPrivate members.
-    let teEntry SemTypeEntry: { name: typed.name, fields: semFields, methods: semMethods, privateFieldNames: [], privateMethodNames: [] }
+    let teEntry SemTypeEntry: { name: typed.name, fields: semFields, methods: semMethods, privateFieldNames: [], privateMethodNames: [], isCType: typed.isCType, isExternType: false, hasCustomLifecycle: hasCustomLifecycle }
     typeDecls.add(teEntry)
     return state
 }
@@ -279,9 +362,52 @@ fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerSt
                     state.recordSumType(sumTyped.name, sumTyped.variants)
                 }
             }
+            ExternTypeNode: {
+                let extTyped ExternTypeNode: stmt
+                if typeNameExistsAt(typeNames, extTyped.name) {
+                    state.addError("type '".append(extTyped.name).append("' is already declared"), extTyped.line, extTyped.col)
+                } else {
+                    typeNames.add(extTyped.name)
+                    let typeDecls Array<SemTypeEntry>: state.typeDecls
+                    let noFields Array<SemFieldEntry>: []
+                    let noMethods Array<SemMethodEntry>: []
+                    let extEntry SemTypeEntry: { name: extTyped.name, fields: noFields, methods: noMethods, privateFieldNames: [], privateMethodNames: [], isCType: false, isExternType: true, hasCustomLifecycle: false }
+                    typeDecls.add(extEntry)
+                }
+            }
             _: {}
         }
         i: i.add(1)
+    }
+    // Second pass (order-independent — all cTypes and extern types are now registered):
+    // reject a cType, extern type, or ptr used as a field of a regular type. A regular struct carries a runtime
+    // header and its generated clone/drop would treat an unmanaged pointer as a
+    // managed heap value (calling suru_clone_dyn on a raw allocation), so
+    // this is a compile error regardless of whether the container is instantiated.
+    let j i64: 0
+    while j.lt(stmts.len()) {
+        match stmts.at(j) {
+            TypeDeclNode: {
+                let td2 TypeDeclNode: stmts.at(j)
+                if not td2.isCType {
+                    let fparams Array<Param>: td2.fields
+                    let fk i64: 0
+                    while fk.lt(fparams.len()) {
+                        let fp Param: fparams.at(fk)
+                        if isCTypeNamed(state, fp.typeName) {
+                            state.addError("cType '".append(fp.typeName).append("' cannot be a field of regular type '").append(td2.name).append("' (use it only at the extern fn boundary)"), td2.line, td2.col)
+                        } else if isExternTypeNamed(state, fp.typeName) {
+                            state.addError("extern type '".append(fp.typeName).append("' cannot be a field of regular type '").append(td2.name).append("' (use it only at the extern fn boundary)"), td2.line, td2.col)
+                        } else if fp.typeName.equals("ptr") {
+                            state.addError("'ptr' cannot be a field of type '".append(td2.name).append("' (only allowed in extern fn signatures and let declarations)"), td2.line, td2.col)
+                        }
+                        fk: fk.add(1)
+                    }
+                }
+            }
+            _: {}
+        }
+        j: j.add(1)
     }
     return state
 }
@@ -300,7 +426,9 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
-        if resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
+        if pType.equals("ptr") {
+            state.addError("type 'ptr' is not allowed in regular function parameters; use extern fn for C interop", stmt.line, stmt.col)
+        } else if resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
             paramTypes.add(pType)
         } else {
             state.addError("unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"), stmt.line, stmt.col)
@@ -308,9 +436,13 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
         pi: pi.add(1)
     }
     let returnType String: stmt.returnType
-    let validReturn bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
-    if not validReturn {
-        state.addError("unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"), stmt.line, stmt.col)
+    if returnType.equals("ptr") {
+        state.addError("type 'ptr' is not allowed as a regular function return type; use extern fn for C interop", stmt.line, stmt.col)
+    } else {
+        let validReturn bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
+        if not validReturn {
+            state.addError("unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"), stmt.line, stmt.col)
+        }
     }
     let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, stmt.srcPath)
     state.functions.add(sig)

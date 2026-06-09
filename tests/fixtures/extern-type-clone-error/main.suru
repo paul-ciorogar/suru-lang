@@ -1,0 +1,14 @@
+// extern-type-clone-error: clone()/drop() are rejected on an extern type —
+// it has no type_tag, so it must be freed manually via an extern fn.
+namespace Test.ExternTypeCloneError
+
+extern type Handle
+
+extern fn malloc(size i64) Handle
+extern fn free(h Handle) void
+
+fn main(args Array<String>) {
+    let h Handle: malloc(64)
+    let h2 Handle: h.clone()
+    free(h)
+}

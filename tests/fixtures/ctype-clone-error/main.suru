@@ -1,0 +1,12 @@
+namespace Test.CTypeCloneError
+
+// clone()/drop() are rejected on a cType — it has no type_tag, so it must be
+// freed manually via an extern fn.
+
+cType Pair: { a i64, b i32 }
+
+fn main(args Array<String>) {
+    let p Pair: { a: 1, b: 2 }
+    let q Pair: p.clone()
+    printLn("x")
+}

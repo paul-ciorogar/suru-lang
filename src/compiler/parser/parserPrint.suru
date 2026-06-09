@@ -72,6 +72,7 @@ fn printStmt(stmt AstNode, indent String) {
         MatchStmtNode:   { printStmtMatchStatement(stmt, indent) }
         IfNode:          { printStmtIf(stmt, indent) }
         ExternFnNode:      { printStmtExternFnDecl(stmt, indent) }
+        ExternTypeNode:    { printStmtExternTypeDecl(stmt, indent) }
         BreakNode:         { printLn(indent.append("BreakStatement")) }
         ContinueNode:      { printLn(indent.append("ContinueStatement")) }
         NamespaceDeclNode: { printLn(indent.append("NamespaceDeclaration [").append(stmt.name).append("]")) }
@@ -235,6 +236,11 @@ fn printStmtIf(stmt IfNode, indent String) {
     }
 }
 
+// printStmtExternTypeDecl — render an ExternTypeNode as a one-line summary.
+fn printStmtExternTypeDecl(stmt ExternTypeNode, indent String) {
+    printLn(indent.append("ExternTypeNode [").append(stmt.name).append("]"))
+}
+
 // printStmtExternFnDecl — render an ExternFnNode as a one-line summary.
 fn printStmtExternFnDecl(stmt ExternFnNode, indent String) {
     let paramStr String: buildParamStr(stmt.params)
@@ -270,6 +276,7 @@ fn printExpr(expr AstNode, indent String) {
         UnaryNode:       { printExprUnary(expr, indent) }
         BinaryNode:       { printExprBinary(expr, indent) }
         QualifiedNameNode:{ printExprQualifiedName(expr, indent) }
+        SizeNode:         { printLn(indent.append("TypeSizeCall [").append(expr.typeName).append("]")) }
         _:                { printLn(indent.append("UnknownExpr")) }
     }
 }

@@ -1,0 +1,49 @@
+// size-expr — exercises the `typeSize(T)` compiler intrinsic (Task D1a).
+// Verifies the constant values emitted for primitive types, a user-defined
+// struct type, and inside a generic function body (after monomorphization).
+
+namespace Test.SizeExpr
+
+import { [typeSize]: stdlib.ffi }
+
+type Person: { name String, age i64 }
+
+// elemBytes<T> — returns the element storage size of type T.
+// A dummy value of type T is passed so the monomorphizer can infer T.
+fn elemBytes<T>(dummy T) i64 {
+    return typeSize(T)
+}
+
+fn main(args Array<String>) {
+    // Primitive types — direct typeSize expression.
+    let s0 i64: typeSize(i64)
+    printLn(s0.toString())    // 8
+    let s1 i64: typeSize(i32)
+    printLn(s1.toString())    // 4
+    let s2 i64: typeSize(bool)
+    printLn(s2.toString())    // 1
+    let s3 i64: typeSize(char)
+    printLn(s3.toString())    // 1
+    let s4 i64: typeSize(f64)
+    printLn(s4.toString())    // 8
+    let s5 i64: typeSize(String)
+    printLn(s5.toString())    // 8
+
+    // User-defined struct type — heap-allocated; slot is an 8-byte pointer.
+    let s6 i64: typeSize(Person)
+    printLn(s6.toString())    // 8
+
+    // Generic context: `typeSize(T)` inside a generic function,
+    // instantiated with different concrete types via type inference.
+    let dummy64 i64: 0
+    let g0 i64: elemBytes(dummy64)
+    printLn(g0.toString())    // 8
+
+    let dummy32 i32: 0
+    let g1 i64: elemBytes(dummy32)
+    printLn(g1.toString())    // 4
+
+    let dummyBool bool: false
+    let g2 i64: elemBytes(dummyBool)
+    printLn(g2.toString())    // 1
+}

@@ -1,6 +1,12 @@
 namespace Suru.Tests.Runner
 
 import { [lexerTests]: Test.Unit.Compiler.Lexer }
+import { [ctypeLayoutTests]: Test.Unit.Compiler.CTypeLayout }
+import { [structLayoutTests]: Test.Unit.Compiler.StructLayout }
+import { [ptrTests]: Test.Unit.Compiler.Ptr }
+import { [externTypeTests]: Test.Unit.Compiler.ExternType }
+import { [sizeExprTests]: Test.Unit.Compiler.SizeExpr }
+import { [ptrLoadStoreTests]: Test.Unit.Compiler.PtrLoadStore }
 import { [reportResults]: Test.Unit.Assert }
 
 // xfail marks a known-broken test that must NOT block the build: an xfail that
@@ -27,6 +33,7 @@ fn main(args Array<String>) {
         { name: "comparisons",  source: "tests/fixtures/comparisons",  args: "",                                        expected: readFile("/work/tests/fixtures/comparisons/expected.txt"),  xfail: false, compileError: false },
         { name: "arrays",       source: "tests/fixtures/arrays",       args: "",                                        expected: readFile("/work/tests/fixtures/arrays/expected.txt"),       xfail: false, compileError: false },
         { name: "types",        source: "tests/fixtures/types",        args: "",                                        expected: readFile("/work/tests/fixtures/types/expected.txt"),        xfail: false, compileError: false },
+        { name: "struct-layout", source: "tests/fixtures/struct-layout", args: "",                                        expected: readFile("/work/tests/fixtures/struct-layout/expected.txt"), xfail: false, compileError: false },
         { name: "file_io",      source: "tests/fixtures/file_io",      args: " /work/tests/fixtures/file_io/input.txt", expected: readFile("/work/tests/fixtures/file_io/expected.txt"),      xfail: false, compileError: false },
         { name: "exec-test",    source: "tests/fixtures/exec-test",    args: "",                                        expected: readFile("/work/tests/fixtures/exec-test/expected.txt"),    xfail: false, compileError: false },
         { name: "alloc-stress", source: "tests/fixtures/alloc-stress", args: "",                                        expected: readFile("/work/tests/fixtures/alloc-stress/expected.txt"), xfail: false, compileError: false },
@@ -64,6 +71,9 @@ fn main(args Array<String>) {
         { name: "objects-option-find",    source: "tests/fixtures/objects-option-find",    args: "", expected: readFile("/work/tests/fixtures/objects-option-find/expected.txt"),    xfail: false, compileError: false },
         { name: "stdlib-result",          source: "tests/fixtures/stdlib-result",          args: "", expected: readFile("/work/tests/fixtures/stdlib-result/expected.txt"),          xfail: false, compileError: false },
         { name: "extern-fn-basic",        source: "tests/fixtures/extern-fn-basic",        args: "", expected: readFile("/work/tests/fixtures/extern-fn-basic/expected.txt"), xfail: false, compileError: false },
+        { name: "extern-fn-ptr",          source: "tests/fixtures/extern-fn-ptr",          args: "", expected: readFile("/work/tests/fixtures/extern-fn-ptr/expected.txt"),    xfail: false, compileError: false },
+        { name: "extern-fn-fileio",       source: "tests/fixtures/extern-fn-fileio",       args: "", expected: readFile("/work/tests/fixtures/extern-fn-fileio/expected.txt"),  xfail: false, compileError: false },
+        { name: "ctype-struct",           source: "tests/fixtures/ctype-struct",           args: "", expected: readFile("/work/tests/fixtures/ctype-struct/expected.txt"), xfail: false, compileError: false },
         { name: "private-fields",          source: "tests/fixtures/private-fields",          args: "", expected: readFile("/work/tests/fixtures/private-fields/expected.txt"), xfail: false, compileError: false },
         { name: "private-fields-error",    source: "tests/fixtures/private-fields-error",    args: "", expected: readFile("/work/tests/fixtures/private-fields-error/expected.txt"), xfail: false, compileError: true },
         { name: "move-valid",              source: "tests/fixtures/move-valid",              args: "", expected: readFile("/work/tests/fixtures/move-valid/expected.txt"), xfail: false, compileError: false },
@@ -78,6 +88,10 @@ fn main(args Array<String>) {
         { name: "dup-type-error",              source: "tests/fixtures/dup-type-error",              args: "", expected: readFile("/work/tests/fixtures/dup-type-error/expected.txt"),              xfail: false, compileError: true },
         { name: "struct-missing-field-error", source: "tests/fixtures/struct-missing-field-error", args: "", expected: readFile("/work/tests/fixtures/struct-missing-field-error/expected.txt"), xfail: false, compileError: true },
         { name: "struct-undeclared-method-error", source: "tests/fixtures/struct-undeclared-method-error", args: "", expected: readFile("/work/tests/fixtures/struct-undeclared-method-error/expected.txt"), xfail: false, compileError: true },
+        { name: "ctype-method-error",     source: "tests/fixtures/ctype-method-error",     args: "", expected: readFile("/work/tests/fixtures/ctype-method-error/expected.txt"),     xfail: false, compileError: true },
+        { name: "ctype-clone-error",      source: "tests/fixtures/ctype-clone-error",      args: "", expected: readFile("/work/tests/fixtures/ctype-clone-error/expected.txt"),      xfail: false, compileError: true },
+        { name: "ctype-nested-error",     source: "tests/fixtures/ctype-nested-error",     args: "", expected: readFile("/work/tests/fixtures/ctype-nested-error/expected.txt"),     xfail: false, compileError: true },
+        { name: "ctype-field-type-error", source: "tests/fixtures/ctype-field-type-error", args: "", expected: readFile("/work/tests/fixtures/ctype-field-type-error/expected.txt"), xfail: false, compileError: true },
         { name: "namespace-export", source: "tests/fixtures/namespace-export", args: "", expected: readFile("/work/tests/fixtures/namespace-export/expected.txt"), xfail: false, compileError: false },
         { name: "namespace-import",          source: "tests/fixtures/namespace-import",          args: "", expected: readFile("/work/tests/fixtures/namespace-import/expected.txt"),          xfail: false, compileError: true },
         { name: "namespace-error-invalid",   source: "tests/fixtures/namespace-error-invalid",   args: "", expected: readFile("/work/tests/fixtures/namespace-error-invalid/expected.txt"),   xfail: false, compileError: true },
@@ -94,6 +108,17 @@ fn main(args Array<String>) {
         { name: "namespace-import-aliastns",          source: "tests/fixtures/namespace-import-aliastns",          args: "", expected: readFile("/work/tests/fixtures/namespace-import-aliastns/expected.txt"),          xfail: false, compileError: false },
         { name: "namespace-import-selective-multi",   source: "tests/fixtures/namespace-import-selective-multi",   args: "", expected: readFile("/work/tests/fixtures/namespace-import-selective-multi/expected.txt"),   xfail: false, compileError: false },
         { name: "namespace-import-selective-aliased", source: "tests/fixtures/namespace-import-selective-aliased", args: "", expected: readFile("/work/tests/fixtures/namespace-import-selective-aliased/expected.txt"), xfail: false, compileError: false },
+        { name: "extern-type-opaque",      source: "tests/fixtures/extern-type-opaque",      args: "", expected: readFile("/work/tests/fixtures/extern-type-opaque/expected.txt"),      xfail: false, compileError: false },
+        { name: "extern-type-clone-error", source: "tests/fixtures/extern-type-clone-error", args: "", expected: readFile("/work/tests/fixtures/extern-type-clone-error/expected.txt"), xfail: false, compileError: true },
+        { name: "extern-type-field-error", source: "tests/fixtures/extern-type-field-error", args: "", expected: readFile("/work/tests/fixtures/extern-type-field-error/expected.txt"), xfail: false, compileError: true },
+        { name: "custom-lifecycle",                  source: "tests/fixtures/custom-lifecycle",                  args: "", expected: readFile("/work/tests/fixtures/custom-lifecycle/expected.txt"),                  xfail: false, compileError: false },
+        { name: "custom-lifecycle-ptr-no-lifecycle", source: "tests/fixtures/custom-lifecycle-ptr-no-lifecycle", args: "", expected: readFile("/work/tests/fixtures/custom-lifecycle-ptr-no-lifecycle/expected.txt"), xfail: false, compileError: true },
+        { name: "size-expr",                         source: "tests/fixtures/size-expr",                         args: "", expected: readFile("/work/tests/fixtures/size-expr/expected.txt"),                         xfail: false, compileError: false },
+        { name: "ptr-load-store",                    source: "tests/fixtures/ptr-load-store",                    args: "", expected: readFile("/work/tests/fixtures/ptr-load-store/expected.txt"),                    xfail: false, compileError: false },
+        { name: "list-basic",                        source: "tests/fixtures/list-basic",                        args: "", expected: readFile("/work/tests/fixtures/list-basic/expected.txt"),                        xfail: false, compileError: false },
+        { name: "list-string",                       source: "tests/fixtures/list-string",                       args: "", expected: readFile("/work/tests/fixtures/list-string/expected.txt"),                       xfail: false, compileError: false },
+        { name: "surustring-basic",                  source: "tests/fixtures/surustring-basic",                  args: "", expected: readFile("/work/tests/fixtures/surustring-basic/expected.txt"),                  xfail: false, compileError: false },
+        { name: "stringbuilder-basic",               source: "tests/fixtures/stringbuilder-basic",               args: "", expected: readFile("/work/tests/fixtures/stringbuilder-basic/expected.txt"),               xfail: false, compileError: false },
     ]
 
     let passed i64: 0
@@ -109,6 +134,18 @@ fn main(args Array<String>) {
     printLn("--- Unit tests ---")
     let unitFailed i64: reportResults("lexer", lexerTests())
     failed: failed.add(unitFailed)
+    let ctypeFailed i64: reportResults("ctype-layout", ctypeLayoutTests())
+    failed: failed.add(ctypeFailed)
+    let structFailed i64: reportResults("struct-layout", structLayoutTests())
+    failed: failed.add(structFailed)
+    let ptrFailed i64: reportResults("ptr", ptrTests())
+    failed: failed.add(ptrFailed)
+    let externTypeFailed i64: reportResults("extern-type", externTypeTests())
+    failed: failed.add(externTypeFailed)
+    let sizeExprFailed i64: reportResults("size-expr", sizeExprTests())
+    failed: failed.add(sizeExprFailed)
+    let ptrLoadStoreFailed i64: reportResults("ptr-load-store", ptrLoadStoreTests())
+    failed: failed.add(ptrLoadStoreFailed)
     printLn("")
 
     while i.lt(cases.len()) {
@@ -128,7 +165,7 @@ fn main(args Array<String>) {
             actual: readFile(outFile)
         } else {
             exec("suru compile /work/".append(tc.source).append("/main.suru ").append(ll).append(" 2>/dev/null"))
-            exec("clang-18 ".append(dir).append("*.ll ").append(runtime).append("/*.ll -o ").append(bin).append(" 2>/dev/null"))
+            exec("clang-18 ".append(dir).append("*.ll ").append(runtime).append("/*.o -o ").append(bin).append(" 2>/dev/null"))
             exec(bin.append(tc.args).append(" > ").append(outFile).append(" 2>&1"))
             actual: readFile(outFile)
             memCheck: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))

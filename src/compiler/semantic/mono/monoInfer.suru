@@ -38,6 +38,9 @@ export {
     keyAlreadySeen
     deduplicateRequests
     collectInstantiations
+    matchReturnTypeSingle
+    inferZeroArgFnFromAnnotation
+    inferZeroArgFnsFromAnnotation
 }
 
 import { inst: Suru.Compiler.Semantic.Mono.Instantiate }
@@ -323,6 +326,96 @@ fn inferFromMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry, ou
     return out
 }
 
+// ─── Zero-arg generic function inference ─────────────────────────────────────
+//
+// Some generic functions take no parameters (e.g. fn newList<T>() List<T>).
+// Their type variable T cannot be bound from call arguments, but it can be bound
+// from the expected return type when the call appears as a let-binding value:
+//
+//   let arr List<i64>: newList()
+//
+// matchReturnTypeSingle matches the fn's declared return type against the
+// annotation to extract the single type-variable binding.  Only handles the
+// single-type-param case (one level of generic application).
+
+// matchReturnTypeSingle — for a single type parameter, match returnType against
+// expected and return the bound concrete type, or "" when no match.
+// Handles:
+//   returnType = "T"             → expected                    (bare var)
+//   returnType = "Base<T>"       → inner of expected           (one-level generic)
+fn matchReturnTypeSingle(returnType String, expected String, typeParam String) String {
+    if returnType.equals(typeParam) { return clone(expected) }
+    let rtLt i64: subst.indexOfLT(returnType)
+    if rtLt.equals(returnType.len()) { return "" }
+    let exLt i64: subst.indexOfLT(expected)
+    if exLt.equals(expected.len()) { return "" }
+    let rtBase String: returnType.slice(0, rtLt)
+    let exBase String: expected.slice(0, exLt)
+    let basesMatch bool: rtBase.equals(exBase)
+    drop(rtBase)
+    drop(exBase)
+    if not basesMatch { return "" }
+    let rtInner String: returnType.slice(rtLt.add(1), returnType.len().take(1))
+    let innerIsParam bool: rtInner.equals(typeParam)
+    drop(rtInner)
+    if not innerIsParam { return "" }
+    return expected.slice(exLt.add(1), expected.len().take(1))
+}
+
+// inferZeroArgFnFromAnnotation — if fnName is a registered zero-param generic
+// function whose return type matches expectedType under a single type binding,
+// return one InstantiationRequest for that concrete instantiation.
+// Used for let-binding patterns: let arr List<i64>: newList()
+fn inferZeroArgFnFromAnnotation(fnName String, expectedType String, registry GenericRegistry) Array<InstantiationRequest> {
+    let empty Array<InstantiationRequest>: []
+    let fnIdx i64: registry.findFn(fnName)
+    if fnIdx.equals(registry.fns.len()) { return empty }
+    let def GenericFnDef: registry.fns.at(fnIdx)
+    if not def.node.params.len().equals(0) { return empty }
+    let typeParams Array<String>: def.typeParams()
+    if not typeParams.len().equals(1) { return empty }
+    let bound String: matchReturnTypeSingle(def.node.returnType, expectedType, typeParams.at(0))
+    if bound.equals("") { return empty }
+    drop(empty)
+    let concretes Array<String>: []
+    concretes.add(clone(bound))
+    drop(bound)
+    let req InstantiationRequest: { genericName: clone(def.name), concreteTypes: concretes }
+    let result Array<InstantiationRequest>: []
+    result.add(req)
+    return result
+}
+
+// inferZeroArgFnsFromAnnotation — scan ALL zero-param generic functions in
+// registry and return InstantiationRequests for any that can produce expectedType.
+// This avoids pattern-matching on the call expression's AstNode variant tag,
+// which can be unreliable across bootstrap binary versions.
+// Safe to call for any LetNode annotation — spurious matches are prevented by
+// deduplication and the `allBound` guard inside instantiateAll.
+fn inferZeroArgFnsFromAnnotation(expectedType String, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    let ltIdx i64: subst.indexOfLT(expectedType)
+    if ltIdx.equals(expectedType.len()) { return out }
+    let i i64: 0
+    while i.lt(registry.fns.len()) {
+        let def GenericFnDef: registry.fns.at(i)
+        if def.node.params.len().equals(0) {
+            let typeParams Array<String>: def.typeParams()
+            if typeParams.len().equals(1) {
+                let bound String: matchReturnTypeSingle(def.node.returnType, expectedType, typeParams.at(0))
+                if not bound.equals("") {
+                    let concretes Array<String>: []
+                    concretes.add(clone(bound))
+                    drop(bound)
+                    let req InstantiationRequest: { genericName: clone(def.name), concreteTypes: concretes }
+                    out.add(req)
+                }
+            }
+        }
+        i: i.add(1)
+    }
+    return out
+}
+
 // ─── Expression walker ────────────────────────────────────────────────────────
 
 // inferFromExpr — walk an expression node and collect all generic
@@ -406,6 +499,12 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
             let fromLet Array<InstantiationRequest>: inferFromAnnotation(ln.typeName, registry)
             out: appendAll(fromLet, out)
             drop(fromLet)
+            // Zero-arg generic function inference from the let annotation.
+            // Scans all zero-param generic fns in the registry to find any that
+            // can produce ln.typeName — avoids matching on ln.value's AstNode
+            // variant tag (which is unreliable across bootstrap binary versions).
+            // E.g. let arr List<i64>: newList() → {newList, ["i64"]}
+            out: inferZeroArgFnsFromAnnotation(ln.typeName, registry, out)
             out: inferFromExpr(ln.value, registry, out)
             return out
         }

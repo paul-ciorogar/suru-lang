@@ -1,0 +1,188 @@
+// string.suru — SuruString: a fully Suru-native, IMMUTABLE string type.
+//
+// Implements a NUL-terminated byte string using only libc primitives
+// (malloc / free / realloc) — no calls to runtime/string.c functions.
+//
+// A SuruString is immutable: it exposes no in-place mutating methods. Every
+// transformation (concat, slice, clone) allocates and returns a fresh
+// SuruString. To build a string incrementally, use StringBuilder
+// (Suru.Stdlib.StringBuilder) and call its toString() to produce a SuruString.
+//
+// Internal layout:
+//   _ data  ptr   — malloc'd NUL-terminated byte buffer
+//   _ count i64   — number of bytes stored (excluding the NUL terminator)
+//   _ cap   i64   — total allocated buffer capacity in bytes (always > count)
+//
+// Construction model: `ptr` cannot be passed to a regular fn, so there is no
+// raw-buffer factory. Instead every constructor and every transforming method
+// fills a StringBuilder and converts it via suruStringFromBuilder — the single
+// site that holds the SuruString object literal. suruStringFromBuilder reads the
+// builder through its public len()/charAt() (a copy), so the builder is left
+// untouched and the produced SuruString owns an independent buffer.
+//
+// Memory model:
+//   SuruString owns its data buffer exclusively.
+//   drop() frees the buffer; the struct header is freed by the vtable wrapper.
+//
+// ptrLoad type-inference note: T is only inferred from let-binding types and
+// return types — not from method-argument positions or method-receiver chains.
+// All ptrLoad calls therefore use an explicit `let b char: ptrLoad(...)` form.
+//
+// Usage:
+//   import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+//   let s SuruString: suruStringFrom("hello")
+//   let t SuruString: s.concat(" world")   // returns a new string
+//   printLn(t.len().toString())            // 11
+//   drop(s)
+//   drop(t)
+
+namespace Suru.Stdlib.String
+
+import { [ptrLoad, ptrStore]: stdlib.ffi }
+import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+
+export {
+    SuruString
+    newSuruString
+    suruStringFrom
+    suruStringFromBuilder
+}
+
+extern fn malloc(n i64) ptr
+extern fn free(p ptr) void
+
+// SuruString: an immutable string with explicit clone/drop lifecycle.
+// Declaring fn clone() and fn drop() sets hasCustomLifecycle = true, so the
+// compiler emits vtable-dispatch @suru_clone_SuruString / @suru_drop_SuruString
+// wrappers instead of auto-walking fields — required because `data` is a raw ptr.
+type SuruString: {
+    fn concat(other String) SuruString
+    fn len() i64
+    fn charAt(idx i64) char
+    fn equals(other String) bool
+    fn equalsStr(other SuruString) bool
+    fn slice(from i64, to i64) SuruString
+    fn clone() SuruString
+    fn drop() void
+}
+
+// suruStringFromBuilder — the single SuruString factory. Copies the builder's
+// bytes into a fresh malloc'd buffer and wraps them in an immutable SuruString.
+// The builder is read-only here (via its public len()/charAt()) and remains
+// owned by the caller. This is the only object-literal site for SuruString.
+fn suruStringFromBuilder(b StringBuilder) SuruString {
+    let n i64: b.len()
+    let buf ptr: malloc(n.add(1))
+    let i i64: 0
+    while i.lt(n) {
+        ptrStore(buf, i, b.charAt(i))
+        i: i.add(1)
+    }
+    ptrStore(buf, n, '\0')
+    return {
+        _ data  ptr: buf
+        _ count i64: n
+        _ cap   i64: n.add(1)
+
+        // concat — return a new SuruString equal to this + other. Does not
+        // modify this. Accumulates both halves in a StringBuilder, then snapshots.
+        fn concat(other String) SuruString {
+            let sb StringBuilder: newStringBuilder()
+            let i i64: 0
+            while i.lt(this.count) {
+                let c char: ptrLoad(this.data, i)
+                sb.appendChar(c)
+                i: i.add(1)
+            }
+            sb.append(other)
+            let r SuruString: suruStringFromBuilder(sb)
+            drop(sb)
+            return r
+        }
+
+        // len — number of bytes in this string (not counting the NUL terminator).
+        fn len() i64 { return this.count }
+
+        // charAt — return the byte at position idx (0-based, no bounds check).
+        fn charAt(idx i64) char {
+            let b char: ptrLoad(this.data, idx)
+            return b
+        }
+
+        // equals — compare with a built-in String value byte-by-byte.
+        fn equals(other String) bool {
+            if not this.count.equals(other.len()) { return false }
+            let i i64: 0
+            while i.lt(this.count) {
+                let b char: ptrLoad(this.data, i)
+                if not b.equals(other.__at(i)) { return false }
+                i: i.add(1)
+            }
+            return true
+        }
+
+        // equalsStr — compare two SuruStrings byte-by-byte.
+        fn equalsStr(other SuruString) bool {
+            if not this.count.equals(other.len()) { return false }
+            let i i64: 0
+            while i.lt(this.count) {
+                let b char: ptrLoad(this.data, i)
+                if not b.equals(other.charAt(i)) { return false }
+                i: i.add(1)
+            }
+            return true
+        }
+
+        // slice — return a new SuruString containing bytes [from, to).
+        fn slice(from i64, to i64) SuruString {
+            let sb StringBuilder: newStringBuilder()
+            let i i64: from
+            while i.lt(to) {
+                let c char: ptrLoad(this.data, i)
+                sb.appendChar(c)
+                i: i.add(1)
+            }
+            let r SuruString: suruStringFromBuilder(sb)
+            drop(sb)
+            return r
+        }
+
+        // clone — return a deep copy: fresh buffer, same bytes, same length.
+        fn clone() SuruString {
+            let sb StringBuilder: newStringBuilder()
+            let i i64: 0
+            while i.lt(this.count) {
+                let c char: ptrLoad(this.data, i)
+                sb.appendChar(c)
+                i: i.add(1)
+            }
+            let r SuruString: suruStringFromBuilder(sb)
+            drop(sb)
+            return r
+        }
+
+        // drop — free the data buffer.
+        // The struct header itself is freed by the vtable-dispatch wrapper after this returns.
+        fn drop() void {
+            free(this.data)
+        }
+    }
+}
+
+// newSuruString — create an empty immutable SuruString.
+fn newSuruString() SuruString {
+    let sb StringBuilder: newStringBuilder()
+    let r SuruString: suruStringFromBuilder(sb)
+    drop(sb)
+    return r
+}
+
+// suruStringFrom — create a SuruString by copying bytes from a built-in String value.
+// Handles both static string literals (type_tag=8) and heap strings (type_tag=6).
+fn suruStringFrom(s String) SuruString {
+    let sb StringBuilder: newStringBuilder()
+    sb.append(s)
+    let r SuruString: suruStringFromBuilder(sb)
+    drop(sb)
+    return r
+}

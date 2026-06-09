@@ -1,0 +1,15 @@
+5
+h
+o
+true
+false
+11
+ 
+true
+true
+5
+true
+5
+true
+true
+ok

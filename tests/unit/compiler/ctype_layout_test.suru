@@ -1,0 +1,79 @@
+// ctype_layout_test.suru — unit tests for the cType C-ABI layout helpers.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// ctypeLayoutTests() and folds the failures into the suite tally. Covers the
+// pure geometry helpers in Suru.Compiler.Codegen.Struct that compute a cType's
+// header-less, natural-alignment layout: cFieldSize, cFieldAlign, cAlignUp,
+// cFieldOffset, cStructSize. Field order is preserved (C ABI is order-sensitive),
+// so these directly verify the offset/padding math used by codegen.
+
+namespace Test.Unit.Compiler.CTypeLayout
+
+export { ctypeLayoutTests }
+
+import { [TestResult, assertEqI64]: Test.Unit.Assert }
+import { [cFieldSize, cFieldAlign, cAlignUp, cFieldOffset, cStructSize]: Suru.Compiler.Codegen.Struct }
+import { [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types }
+
+// mkCType — build a cType TypeDecl from parallel name/type lists (data-only).
+fn mkCType(name String, fieldNames Array<String>, fieldTypes Array<String>) TypeDecl {
+    let fields Array<TypeFieldEntry>: []
+    let i i64: 0
+    while i.lt(fieldNames.len()) {
+        fields.add({ name: fieldNames.at(i), typeName: fieldTypes.at(i) })
+        i: i.add(1)
+    }
+    let methods Array<TypeMethodEntry>: []
+    let decl TypeDecl: { name: name, fields: fields, methods: methods, isCType: true, hasCustomLifecycle: false }
+    return decl
+}
+
+fn ctypeLayoutTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // cFieldSize — natural C size per primitive.
+    results.add(assertEqI64("size bool", cFieldSize("bool"), 1))
+    results.add(assertEqI64("size char", cFieldSize("char"), 1))
+    results.add(assertEqI64("size i32", cFieldSize("i32"), 4))
+    results.add(assertEqI64("size i64", cFieldSize("i64"), 8))
+    results.add(assertEqI64("size f64", cFieldSize("f64"), 8))
+
+    // cFieldAlign — equal to size for scalars.
+    results.add(assertEqI64("align i32", cFieldAlign("i32"), 4))
+    results.add(assertEqI64("align i64", cFieldAlign("i64"), 8))
+
+    // cAlignUp — round up to the next multiple.
+    results.add(assertEqI64("alignUp(0,8)", cAlignUp(0, 8), 0))
+    results.add(assertEqI64("alignUp(4,8)", cAlignUp(4, 8), 8))
+    results.add(assertEqI64("alignUp(8,8)", cAlignUp(8, 8), 8))
+    results.add(assertEqI64("alignUp(12,8)", cAlignUp(12, 8), 16))
+    results.add(assertEqI64("alignUp(1,4)", cAlignUp(1, 4), 4))
+
+    // Pair { a i64, b i32 } — the fixture's layout (no padding before b).
+    let names1 Array<String>: ["a", "b"]
+    let types1 Array<String>: ["i64", "i32"]
+    let pair TypeDecl: mkCType("Pair", names1, types1)
+    results.add(assertEqI64("Pair offset a", cFieldOffset(pair, 0), 0))
+    results.add(assertEqI64("Pair offset b", cFieldOffset(pair, 1), 8))
+    results.add(assertEqI64("Pair size", cStructSize(pair), 16))
+
+    // Mixed { a bool, b i64, c i32 } — padding before the i64, order preserved.
+    //   a bool @0, b i64 @8 (7B pad), c i32 @16; size = alignUp(20,8) = 24.
+    let names2 Array<String>: ["a", "b", "c"]
+    let types2 Array<String>: ["bool", "i64", "i32"]
+    let mixed TypeDecl: mkCType("Mixed", names2, types2)
+    results.add(assertEqI64("Mixed offset a", cFieldOffset(mixed, 0), 0))
+    results.add(assertEqI64("Mixed offset b", cFieldOffset(mixed, 1), 8))
+    results.add(assertEqI64("Mixed offset c", cFieldOffset(mixed, 2), 16))
+    results.add(assertEqI64("Mixed size", cStructSize(mixed), 24))
+
+    // { x i32, y i64 } — i64 forces 4B padding after the i32.
+    let names3 Array<String>: ["x", "y"]
+    let types3 Array<String>: ["i32", "i64"]
+    let xy TypeDecl: mkCType("XY", names3, types3)
+    results.add(assertEqI64("XY offset x", cFieldOffset(xy, 0), 0))
+    results.add(assertEqI64("XY offset y", cFieldOffset(xy, 1), 8))
+    results.add(assertEqI64("XY size", cStructSize(xy), 16))
+
+    return results
+}

@@ -44,6 +44,8 @@ export {
     TOK_NAMESPACE
     TOK_IMPORT
     TOK_EXPORT
+    TOK_CTYPE
+    TOK_SIZE
     isDigit
     isLetter
     isLetterDigitUnderscore
@@ -103,6 +105,8 @@ let TOK_CONTINUE  i64: 38
 let TOK_NAMESPACE i64: 39
 let TOK_IMPORT    i64: 40
 let TOK_EXPORT    i64: 41
+let TOK_CTYPE     i64: 42
+let TOK_SIZE      i64: 43 // TODO remove this
 
 type Token: { kind i64, text String, line i64, col i64 }
 
@@ -195,6 +199,7 @@ fn keywordKind(text String) i64 {
         "namespace": TOK_NAMESPACE
         "import":    TOK_IMPORT
         "export":    TOK_EXPORT
+        "cType":     TOK_CTYPE
         _:           TOK_IDENT
     }
 }
@@ -273,6 +278,8 @@ fn tokenKindName(kind i64) String {
         TOK_NAMESPACE : "NAMESPACE"
         TOK_IMPORT    : "IMPORT"
         TOK_EXPORT    : "EXPORT"
+        TOK_CTYPE     : "CTYPE"
+        TOK_SIZE      : "SIZE"
         _             : "UNKNOWN"
     }
 }
@@ -360,7 +367,7 @@ fn newLexer(source String, srcPath String) Lexer {
         }
 
         fn consumeWhitespace() {
-            if this.source.at(this.pos).equals("\n") {
+            if this.current().equals('\n') {
                 this.pos: this.pos.add(1)
                 this.line: this.line.add(1)
                 this.col: 1

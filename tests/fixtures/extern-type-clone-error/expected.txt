@@ -1,0 +1,3 @@
+/work/tests/fixtures/extern-type-clone-error/main.suru:12:22: error: cannot call clone() on extern type 'Handle' (no type_tag); free it manually via an extern fn
+  12 |     let h2 Handle: h.clone()
+                            ^

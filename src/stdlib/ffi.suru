@@ -1,0 +1,37 @@
+namespace stdlib.ffi
+
+// typeSize(T) is a compiler intrinsic that returns the element storage size
+// of type T in bytes as a compile-time i64 constant:
+//   bool, char → 1 | i32 → 4 | all other types → 8
+//
+// Usage: import { [typeSize]: stdlib.ffi }
+// then:  typeSize(i64)          → 8
+//        typeSize(i32)          → 4
+//        typeSize(T)            → size of T (inside a generic function body)
+//
+// Note: the argument position accepts a type name, not a value expression.
+// The parser rewrites typeSize(T) to a compile-time SizeNode constant before
+// semantic analysis; this declaration exists solely to satisfy the export
+// system so the import can be validated.
+
+// ptrLoad(p, offset) and ptrStore(p, offset, val) are compiler intrinsics for
+// byte-addressed typed pointer reads and writes:
+//
+//   ptrLoad(p ptr, offset i64) → T     // GEP i8 + typed load
+//   ptrStore(p ptr, offset i64, val T) // GEP i8 + typed store; void
+//
+// Usage: import { [ptrLoad, ptrStore]: stdlib.ffi }
+//
+// T is inferred from context (the declared type of the let binding, return
+// type, etc.). If the type cannot be inferred a compile error is emitted.
+// p/offset use i64 placeholders in the phantom below because ptr is rejected
+// in regular fn signatures; the bodies are never called.
+
+export { typeSize, ptrLoad, ptrStore }
+
+fn typeSize<T>() i64 { return 0 }
+// Non-generic phantoms: the compiler intercepts ptrLoad/ptrStore by name before
+// any call dispatch, so these bodies never execute. Non-generic so the mono pass
+// does not mangle call sites to ptrLoad__i64 etc. (which would break the intercept).
+fn ptrLoad(p i64, offset i64) i64 { return 0 }
+fn ptrStore(p i64, offset i64, val i64) void { }

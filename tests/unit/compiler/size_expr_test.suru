@@ -1,0 +1,39 @@
+// size_expr_test.suru — unit tests for the `typeSize(T)` compiler intrinsic (Task D1a).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// sizeExprTests() and folds the failures into the suite tally.  Tests cover
+// elemSizeBytes() directly for all supported Suru types, verifying the constant
+// values that the `typeSize(T)` codegen emits.
+
+namespace Test.Unit.Compiler.SizeExpr
+
+export { sizeExprTests }
+
+import { [TestResult, assertEqI64]: Test.Unit.Assert }
+import { [elemSizeBytes]: Suru.Compiler.Codegen.Array }
+
+fn sizeExprTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // 1-byte types.
+    results.add(assertEqI64("typeSize(bool)",    elemSizeBytes("bool"), 1))
+    results.add(assertEqI64("typeSize(char)",    elemSizeBytes("char"), 1))
+
+    // 4-byte types.
+    results.add(assertEqI64("typeSize(i32)",     elemSizeBytes("i32"), 4))
+
+    // 8-byte scalar types.
+    results.add(assertEqI64("typeSize(i64)",     elemSizeBytes("i64"), 8))
+    results.add(assertEqI64("typeSize(f64)",     elemSizeBytes("f64"), 8))
+
+    // 8-byte pointer/heap types (stored as pointer-sized slots).
+    results.add(assertEqI64("typeSize(ptr)",     elemSizeBytes("ptr"), 8))
+    results.add(assertEqI64("typeSize(String)",  elemSizeBytes("String"), 8))
+    // Array<T> is heap-allocated; the slot holds an 8-byte pointer.
+    results.add(assertEqI64("typeSize(Array:i64)", elemSizeBytes("Array:i64"), 8))
+    // User-defined struct types are heap-allocated; slot is an 8-byte pointer.
+    results.add(assertEqI64("typeSize(Person)",  elemSizeBytes("Person"), 8))
+    results.add(assertEqI64("typeSize(MyType)",  elemSizeBytes("MyType"), 8))
+
+    return results
+}

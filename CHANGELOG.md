@@ -7,6 +7,392 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Refactor — `List`, immutable `SuruString`, and new `StringBuilder`
+
+Three stdlib refactors, plus a compiler fix that import cycles between stdlib modules
+exposed.
+
+- **`DynArray<T>` → `List<T>`.** Renamed the generic resizable array: file
+  `src/stdlib/dynarray.suru` → `src/stdlib/list.suru`, type `DynArray` → `List`,
+  constructor `newDynArray` → `newList`, namespace `Suru.Stdlib.DynArray` →
+  `Suru.Stdlib.List`. Fixtures `dynarray-basic`/`dynarray-string` → `list-basic`/`list-string`.
+- **`SuruString` is now immutable.** It exposes no in-place mutating methods; `append`
+  is renamed `concat` and (like `slice`/`clone`) returns a fresh `SuruString`. Because a
+  raw `ptr` cannot be a regular-function parameter, every constructor and transforming
+  method funnels through `suruStringFromBuilder(b StringBuilder)` — the single
+  object-literal site — which copies the builder's bytes (read via its public
+  `len()`/`charAt()`) into a new immutable buffer.
+- **New `StringBuilder`** (`src/stdlib/stringBuilder.suru`, namespace
+  `Suru.Stdlib.StringBuilder`): a mutable, in-place byte accumulator with
+  `append(String)`, `appendChar(char)`, `appendStr(SuruString)`, `len()`, `charAt()`,
+  `clone()`, `drop()`, and `toString()` to snapshot an immutable `SuruString`. Fixture
+  `surustring-build` → `stringbuilder-basic`; `surustring-basic` updated to use `concat`.
+
+`SuruString` and `StringBuilder` are mutually referential (`SuruString` builds via
+`StringBuilder`; `StringBuilder.toString()` returns `SuruString`). Compiling each as its
+own root module surfaced a latent bug:
+
+- **Compiler fix — module dedup under import cycles** (`pipeline.suru`,
+  `resolveIncludes`): the root path was never seeded into the `resolved` set, so an
+  import cycle that led back to the root (e.g. `String → StringBuilder → String`)
+  re-included the root as a transitive dependency. Its declarations were added twice and
+  codegen emitted every root function and object-literal (and its vtable / `clone`/`drop`
+  wrappers) twice, producing `invalid redefinition` link errors. The root path is now
+  seeded into `resolved` as a cycle guard and excluded from the returned `includedPaths`
+  so `runBuildDriver` does not recompile the root as a dependency.
+
+### Refactor — Per-module import isolation (proper module system)
+
+Modules are now first-class compilation units. Previously, the pipeline merged all
+transitive source files into one flat statement array and used two global boolean flags
+(`typeSizeImported`, `ptrFfiImported`) set from the root file's imports to gate
+compiler intrinsics (`typeSize`, `ptrLoad`, `ptrStore`). This broke the fundamental
+invariant that a module's imports are private to that module.
+
+The new architecture:
+
+- `resolveIncludes` returns `Array<Module>` (each `Module` carries `srcPath`, `ns`,
+  `stmts`, and `importedNs`). Modules are the primary output; the flat merged stmts
+  array is derived by concatenation for global passes.
+- `resolveIncludesRec` builds one `Module` per file as it recurses, collecting the
+  file's import namespace strings into `importedNs`.
+- `AnalyzerState` gains `currentModuleImports Array<String>` (the active module's
+  imports during type resolution) and `moduleImportRegistry Array<SrcModImports>`
+  (the full per-file import map, built once and shared across both semantic passes).
+- `resolveModuleTypes` updates `state.currentModuleImports` via registry lookup on
+  each `FnDeclNode` entry. This is correct for both pass 1 (per-module loop) and pass 2
+  (merged stmts — concrete copies inherit `srcPath` from their generic template, so the
+  registry lookup gives the right answer).
+- Pass 1 in `runPipelineFull` and `runPipelineDebug` is now a per-module loop calling
+  `resolveModuleTypes(state, module.stmts)` for each module. Pass 2 still runs on
+  merged stmts (needed to cover concrete copies injected by monomorphization).
+- Import gate checks in `resolveTypes.suru` now call
+  `currentModuleHasImport(state.currentModuleImports, "stdlib.ffi")` instead of reading
+  the old boolean flags.
+- The hardcoded scan functions `ownStmtsImportFfiTypeSize` and `ownStmtsImportFfiPtrFfi`
+  in `pipeline.suru` are deleted. Adding a new intrinsic namespace requires no new flags
+  or scan functions — just check `currentModuleHasImport(state.currentModuleImports, "ns")`.
+
+Files changed:
+- `src/compiler/semantic/semantic.suru`: added `SrcModImports` type; replaced bool flags
+  with `currentModuleImports`/`moduleImportRegistry`; added `currentModuleHasImport` and
+  `lookupModuleImports` helpers.
+- `src/compiler/pipeline.suru`: added `Module` type; added `modules` field to
+  `ResolveState` and `ResolveResult`; added `buildModuleImportRegistry`; updated
+  `resolveIncludesRec`, `resolveIncludes`, `runPipelineFull`, `runPipelineDebug`,
+  `compileOneFile`.
+- `src/compiler/semantic/resolveTypes.suru`: per-FnDecl registry lookup in
+  `resolveModuleTypes`; replaced all three gate checks.
+
+### Add — `DynArray<T>` stdlib generic resizable array (FFI Phase D1c)
+
+`src/stdlib/dynarray.suru` implements a generic resizable array backed by a raw `malloc`'d
+buffer. `newDynArray<T>() DynArray<T>` constructs an empty array with capacity 8; the buffer
+doubles on overflow (via `realloc`). Named `DynArray<T>` to leave the existing built-in
+`Array<T>` codegen untouched.
+
+```suru
+namespace My.App
+import { [DynArray, newDynArray]: Suru.Stdlib.DynArray }
+
+fn main(args Array<String>) {
+    let arr DynArray<i64>: newDynArray()
+    arr.add(10)
+    arr.add(20)
+    arr.add(30)
+    printLn(arr.at(0).toString())   // 10
+    printLn(arr.len().toString())   // 3
+
+    let copy DynArray<i64>: arr.clone()
+    let sl   DynArray<i64>: arr.slice(1, 3)
+    drop(arr)
+    drop(copy)
+    drop(sl)
+}
+```
+
+**Interface** (`type DynArray<T>`):
+
+| Method | Description |
+|--------|-------------|
+| `add(val T) void` | append, growing the buffer if needed |
+| `at(idx i64) T` | element at index (no bounds check) |
+| `set(idx i64, val T) void` | overwrite element at index |
+| `len() i64` | number of live elements |
+| `clone() DynArray<T>` | deep-copy (clones each element individually) |
+| `drop() void` | drop each element and free the buffer |
+| `slice(from, to) DynArray<T>` | deep-copy of `[from, to)` range |
+
+**Runtime requirements**: `extern fn malloc / realloc / free` (already in libc), plus
+`typeSize(T)` and `ptrLoad` / `ptrStore` from `stdlib.ffi` (D1a + D1b).
+
+**Key compiler additions**:
+
+- `hasCustomLifecycle` flag on `SemTypeEntry` / `TypeDecl` (set when the interface declares
+  both `fn clone() T` and `fn drop() void`). Codegen emits vtable-dispatch
+  `@suru_clone_T` / `@suru_drop_T` wrappers instead of field-walking — necessary because
+  `_ buf ptr` has no type_tag.
+- `inferZeroArgFnsFromAnnotation` in `monoInfer.suru` infers the type parameter for a
+  zero-argument generic constructor call from the surrounding `let`-binding annotation
+  (e.g. `let arr DynArray<i64>: newDynArray()` → `T = i64`).
+
+Files changed:
+- `src/stdlib/dynarray.suru` (new, 122 lines)
+- `tests/fixtures/dynarray-basic/` (new — `DynArray<i64>` fixture, valgrind-clean)
+- `tests/fixtures/dynarray-string/` (new — `DynArray<String>` fixture, valgrind-clean)
+- `src/compiler/semantic/passes.suru` — `hasCustomLifecycle` detection
+- `src/compiler/codegen/irTypeCloneDropCodegen.suru` — `emitCustomLifecycleCloneDrop`
+- `src/compiler/codegen/irRegisterPasses.suru` — `cloneReturnMatchesType` + `hasCustomLifecycle` on `TypeDecl`
+- `src/compiler/semantic/mono/monoInfer.suru` — `inferZeroArgFnFromAnnotation` / `inferZeroArgFnsFromAnnotation`
+- `tests/runner/main.suru` — two new test cases
+
+---
+
+### Add — `ptrLoad` / `ptrStore` intrinsics (FFI Phase D1b)
+
+`ptrLoad(p ptr, offset i64) T` and `ptrStore(p ptr, offset i64, val T)` are
+byte-addressed typed pointer reads and writes, gated behind
+`import { [ptrLoad, ptrStore]: stdlib.ffi }`. Together with `typeSize(T)` (D1a),
+they provide the primitives needed to implement `DynArray<T>` entirely in Suru.
+
+```suru
+namespace MyBuf
+import { [ptrLoad, ptrStore]: stdlib.ffi }
+
+extern fn malloc(size i64) ptr
+extern fn free(p ptr) void
+
+fn main(args Array<String>) {
+    let buf ptr: malloc(24)
+    ptrStore(buf, 0, 42)          // i64 at offset 0
+    let i32val i32: 77
+    ptrStore(buf, 8, i32val)      // i32 at offset 8
+    ptrStore(buf, 12, true)       // bool at offset 12
+    let a i64: ptrLoad(buf, 0)    // → 42
+    let b i32: ptrLoad(buf, 8)    // → 77
+    let c bool: ptrLoad(buf, 12)  // → true
+    free(buf)
+}
+```
+
+`T` for `ptrLoad` is inferred from context (declared type of the `let` binding,
+function return type, etc.); a compile error is emitted when the type cannot be
+inferred. `ptrStore` always resolves to `void`. The bool memory convention matches
+the array runtime: ptrLoad reads `i8` → `trunc i8 to i1`; ptrStore `zext i1 to i8`
+→ stores `i8`.
+
+Implementation:
+- `src/stdlib/ffi.suru`: non-generic phantom exports `fn ptrLoad(p i64, offset i64) i64`
+  and `fn ptrStore(p i64, offset i64, val i64) void` (non-generic so the mono pass
+  does not mangle call sites).
+- `src/compiler/semantic/semantic.suru`: `AnalyzerState` gains `ptrFfiImported bool`.
+- `src/compiler/pipeline.suru`: `ownStmtsImportFfiPtrFfi` scans for the import;
+  `state.ptrFfiImported` set before each type-resolution pass.
+- `src/compiler/semantic/resolveTypes.suru`: `CallNode` arm intercepts `ptrLoad`/
+  `ptrStore` — import-gate check + return-type inference from `expected` context.
+- `src/compiler/semantic/exprs.suru`: `checkCallArgTypesAt` returns early for
+  `ptrLoad`/`ptrStore` to skip the i64-placeholder phantom signature check.
+- `src/compiler/codegen/irCodegen.suru`: intercepts in both `emitValue` `CallNode`
+  arm (pre-desugaring) and at the top of `emitMethodCall` (post selective-import
+  desugaring which rewrites calls to `MethodCallNode`); emits `getelementptr i8` +
+  typed load/store with bool widening/narrowing.
+- Tests: `ptr-load-store` fixture; `ptrloadstore_test.suru` unit tests (14 assertions).
+
+### Change — `size T` replaced by `typeSize(T)` from `stdlib.ffi`
+
+The `size T` contextual-keyword expression has been replaced by `typeSize(T)`, a
+compiler intrinsic that must be imported from `stdlib.ffi`. The behaviour is
+identical — `typeSize(T)` returns an `i64` compile-time constant equal to the
+element storage size of `T` (bool/char → 1, i32 → 4, everything else → 8) — but
+the new form is function-call style and requires an explicit import, keeping the
+name out of module scope in files that don't need it.
+
+```suru
+namespace My.Ffi
+import { [typeSize]: stdlib.ffi }
+
+fn bufBytes<T>(dummy T) i64 {
+    return typeSize(T)     // generic — resolved after monomorphization
+}
+
+fn main(args Array<String>) {
+    let sz i64: typeSize(i64)   // → 8
+    let s2 i64: typeSize(i32)   // → 4
+    let s3 i64: typeSize(bool)  // → 1
+    printLn(sz.toString())
+}
+```
+
+Using `typeSize(T)` without the import is a compile-time error:
+```
+error: typeSize is a compiler intrinsic; add: import { [typeSize]: stdlib.ffi }
+```
+
+Implementation:
+- `src/stdlib/ffi.suru` (new): namespace `stdlib.ffi`; exports a phantom
+  `fn typeSize<T>() i64 { return 0 }` that satisfies the import validator —
+  the body is never executed because `typeSize(T)` is parsed as a `SizeNode`
+  before semantic analysis.
+- `src/compiler/parser/parser.suru`: contextual trigger changed from
+  `size IDENT` to `typeSize(`, new `parsePrimaryTypeSize` method.
+- `src/compiler/parser/parserAst.suru`: `Parser` type method renamed
+  `parsePrimaryTypeSize`; `SizeNode` doc comment updated. `SizeNode` stays
+  at index 36 in the `AstNode` sum type (bootstrap stability — never remove).
+- `src/compiler/semantic/semantic.suru`: `AnalyzerState` gains
+  `typeSizeImported bool`.
+- `src/compiler/semantic/resolveTypes.suru`: `SizeNode` arm emits a compile
+  error if `state.typeSizeImported` is false.
+- `src/compiler/pipeline.suru`: `ownStmtsImportFfiTypeSize` helper scans the
+  root module's own statements for the stdlib.ffi import; sets
+  `state.typeSizeImported` before each type-resolution pass so the check is
+  live when SizeNode is encountered.
+- Tests: `size-expr` fixture and `size_expr_test.suru` updated to the new syntax.
+
+### Remove — fileio codegen special-case (FFI Phase C)
+
+`irFileioCodegen.suru` (410 lines of hand-written LLVM IR emission for `fopen`/
+`fseek`/`ftell`/`rewind`/`malloc`/`fread`/`fwrite`/`fclose` sequences) is deleted.
+Its logic is replaced by three plain C functions in `runtime/fileio.c`
+(`suru_readfile`, `suru_writefile`, `suru_appendtofile`). The codegen dispatch
+for `readFile`, `writeFile`, and `appendToFile` in `irCodegen.suru` now emits
+a single `call` to the corresponding C runtime function rather than a multi-step
+IR sequence. `exec` no longer depends on `irFileioCodegen`'s `extractStringData`
+helper — it uses `irStringCodegen`'s `emitExtractStringData` instead. No syntax,
+semantic, or test fixture changes.
+
+### Add — `extern type` declaration (FFI Phase B2)
+
+`extern type Foo` declares a named opaque C handle type (e.g. `FILE*`,
+`LLVMContextRef`). The name is used for compile-time call-site type checking but
+erased to `ptr` in codegen — no IR emitted for the declaration, no runtime header,
+no clone/drop. `clone()`/`drop()` and use as a regular struct field are compile
+errors with caret diagnostics.
+
+```suru
+extern type Buffer
+
+extern fn malloc(size i64) Buffer
+extern fn free(b Buffer) void
+
+fn main(args Array<String>) {
+    let buf Buffer: malloc(64)
+    free(buf)
+    printLn("ok")
+}
+```
+
+### Add — `ptr` type in `extern fn` (FFI Phase B1)
+
+`ptr` is now a first-class type name in the Suru type system, representing an
+untyped C pointer (`void*` / LLVM `ptr`). Valid in `extern fn` param/return types
+and `let` declarations; rejected in regular `fn` signatures and struct fields
+(compile errors with caret diagnostics). No boxing or unboxing: a `ptr` value is
+stored as a raw LLVM `ptr` alloca and passes to/from C functions directly.
+
+```suru
+extern fn malloc(size i64) ptr
+extern fn free(p ptr)  void
+extern fn memset(p ptr, c i32, n i64) ptr
+
+fn main(args Array<String>) {
+    let buf ptr: malloc(64)
+    let zeroed ptr: memset(buf, 0, 64)
+    free(zeroed)
+}
+```
+
+Semantic changes: `isBuiltinType("ptr")` = true (`passes.suru`); `ptr` rejected in
+`registerFnDecl` (regular fn params/return) and `collectTypeDeclarations` (struct
+fields); `clone()`/`drop()` on a `ptr` value is a compile error in both method
+form (`resolveTypes.suru`) and function form (`exprs.suru`). Codegen: explicit
+`"ptr": "ptr"` arm added to `irLlvmTypeOf` in `irCodegenTypeHelpers.suru`
+(the `_: "ptr"` catch-all already handled it; the new arm documents the intent).
+
+Covered by `extern-fn-ptr` and `extern-fn-fileio` fixtures (malloc/free/memset
+round-trips, valgrind-clean) and 11 in-process `ptr` unit-test assertions.
+
+### Change — Compact struct layout (FFI Phase E3)
+
+Regular `type` structs now use a **compact, natural-alignment field layout** instead
+of the old "every field is an 8-byte `i64` slot". The 32-byte runtime header is
+unchanged; fields start at offset 32, each at its natural size/alignment (bool/char
+1, i32 4, i64/f64/heap-ptr 8), and are **reordered into three alignment buckets
+(8 ++ 4 ++ 1, stable within each)** so padding is minimised — e.g. `{a bool, b i64,
+c i32}` drops from 24 to 16 bytes of field space. The synthetic `__vtable` ptr stays
+at offset 32, so object dispatch is unaffected.
+
+Pure codegen change — no syntax or semantics change, identical program output. New
+`reorderSuruFields`/`suruFieldOffset`/`suruStructSize` helpers in `irStructCodegen.suru`
+(reusing the E2 C-ABI geometry, based at offset 32); `irRegisterPasses.suru` reorders
+non-`cType` `TypeDecl.fields` at registration so every consumer agrees; field
+access/assign and `emitStructLit` store at the field's natural LLVM type; clone/drop
+gain a natural-width `copyScalarField` and walk the reordered offsets (heap fields
+keep the recursive 8-byte clone/drop). Covered by the `struct-layout` fixture and 22
+in-process `struct-layout` unit-test assertions; bootstrap holds the self-hosting
+fixed point (C2 == C3). `cType` (header-less, order-preserving) is unchanged.
+
+### Add — `cType` declarations + C ABI layout (FFI Phase E2)
+
+New top-level `cType Foo: { ... }` declaration for header-less, C-ABI-laid-out
+structs, the foundation for passing structured data to C functions by pointer.
+Unlike a regular `type` (32-byte runtime header, every field an 8-byte `i64`
+slot), a `cType`:
+
+- has **no runtime header** — field 0 starts at offset 0;
+- uses **natural C alignment** with padding between misaligned fields, total size
+  rounded up to the max field alignment (x86_64 sizes: bool/char 1, i32 4,
+  i64/f64 8); **field order is preserved** (the C ABI is order-sensitive);
+- is **erased to a raw C pointer** at the `extern fn` boundary, so a `cType` value
+  passes straight to libc functions (e.g. `memcpy`, `gettimeofday`);
+- is **managed manually** — it has no type_tag, so `clone()`/`drop()` are rejected
+  and its memory is freed via an `extern fn free`.
+
+Fields are limited to fixed-layout primitives (`bool`, `char`, `i32`, `i64`,
+`f64`); `String`/`Array`/named/nested-`cType` fields, methods on a `cType`, and a
+`cType` used as a field of a regular type are all compile errors. Implementation:
+`TOK_CTYPE` keyword + `parseCTypeDeclaration` (lexer/parser), `isCType` threaded
+through `TypeDeclNode`/`SemTypeEntry`/`TypeDecl`, the rejections in
+`semantic/passes.suru`/`resolveTypes.suru`/`exprs.suru`, and the natural-alignment
+geometry (`cFieldSize`/`cFieldAlign`/`cAlignUp`/`cFieldOffset`/`cStructSize`) +
+header-less alloc/access/assign in `codegen/irStructCodegen.suru`/`irCodegen.suru`.
+Covered by the `ctype-struct` fixture (memcpy round-trip, valgrind-clean), four
+`ctype-*-error` diagnostic fixtures, and the in-process `ctype-layout` unit tests.
+Self-hosting fixed point (C2 == C3) holds.
+
+Two supporting codegen fixes landed alongside: a `void`-returning `extern fn`
+(e.g. `free`) is now called with no SSA result (`call void @free(...)`) instead of
+emitting invalid `%t = call void`; and `toString()` on a narrower integer scalar
+(`i32`/`char`/`bool`, e.g. a `cType` field) now widens to `i64` before the
+`suru_int64_to_string` call.
+
+### Remove — deprecated LLVM IR runtime files (FFI Phase A5)
+
+Deleted the five hand-written `runtime/*.ll` files (`array`/`box`/`string`/`struct`/`variant`),
+superseded by the C runtime (`runtime/*.c`) linked since Phase A4. Documentation (CLAUDE.md,
+README.md) and the stale `.ll` comments in `irArrayCodegen.suru`/`irStringCodegen.suru` now
+reference the C runtime. No build, output, or IR change — the self-hosting fixed point (C2 ==
+C3) is unaffected. This completes Phase A of the FFI plan.
+
+### Change — runtime linked from C objects instead of LLVM IR (FFI Phase A complete)
+
+Compiled programs now link against the C runtime (`runtime/*.c`) instead of the
+hand-written LLVM IR (`runtime/*.ll`). This completes Phase A of the FFI plan:
+tasks A1–A3 had already ported `box`/`struct`/`array`/`string` to C; A4 adds the
+final file and flips the link step. No language- or output-visible change — the
+emitted IR is byte-for-byte identical, so the self-hosting fixed point (C2 == C3)
+holds unchanged.
+
+- New `runtime/variant.c`: 1:1 port of `variant.ll`
+  (`suru_variant_create`/`_tag`/`_inner`/`_drop`) over the shared `SuruHeader`
+  layout in `runtime/suru_runtime.h`. Verified symbol-identical to `variant.ll`.
+- The Docker scripts (`scripts/test.sh`, `bootstrap.sh`, `build.sh`,
+  `generate-expected.sh`) now compile `runtime/*.c` → `runtime/*.o` once per run
+  (the runtime dir is bind-mounted, so objects are produced at container runtime).
+- Both link sites (`src/compiler/pipeline.suru` `compilePipeline`,
+  `tests/runner/main.suru`) glob `runtime/*.o` instead of `runtime/*.ll`.
+- `runtime/*.ll` files are kept (marked `DEPRECATED`, no longer linked) and will
+  be deleted in task A5; `runtime/*.o` is gitignored.
+
 ### Add — hexadecimal integer literals
 
 Integer literals can now be written in hex with a `0x` / `0X` prefix

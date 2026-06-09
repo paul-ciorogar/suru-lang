@@ -21,6 +21,45 @@ import { ast: Suru.Compiler.Parser.Ast }
 import { types: Suru.Compiler.Codegen.Types }
 import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 import { box: Suru.Compiler.Codegen.Box }
+import { irStruct: Suru.Compiler.Codegen.Struct }
+
+// cloneReturnMatchesType — true when returnType refers to the same (possibly
+// generic) type as typeName.  Handles two forms:
+//   1. Exact string match:            "MyType"      == "MyType"
+//   2. Generic vs mangled mismatch:   "DynArray<String>" ~ "DynArray__String"
+//      (clone returns "Base<Arg>" but the type name is the monomorphized "Base__Arg")
+// We detect case 2 by comparing base names: the prefix before '<' in returnType
+// must equal the prefix before the first '__' in typeName.
+fn cloneReturnMatchesType(returnType String, typeName String) bool {
+    if returnType.equals(typeName) { return true }
+    // Find '<' in returnType
+    let ri i64: 0
+    while ri.lt(returnType.len()) {
+        if returnType.at(ri).equals("<") { break }
+        ri: ri.add(1)
+    }
+    if ri.equals(returnType.len()) { return false }  // no '<', exact-only
+    // Find first '__' in typeName
+    let ti i64: 0
+    while ti.lt(typeName.len()) {
+        if typeName.at(ti).equals("_") {
+            if ti.add(1).lt(typeName.len()) {
+                if typeName.at(ti.add(1)).equals("_") { break }
+            }
+        }
+        ti: ti.add(1)
+    }
+    if ti.equals(typeName.len()) { return false }  // no '__', exact-only
+    // Base lengths must match
+    if not ri.equals(ti) { return false }
+    // Check character by character up to ri
+    let j i64: 0
+    while j.lt(ri) {
+        if not returnType.at(j).equals(typeName.at(j)) { return false }
+        j: j.add(1)
+    }
+    return true
+}
 
 // Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
 fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
@@ -56,13 +95,35 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
                     tmethods.add({ name: msig.name, paramTypes: ptys, returnType: msig.returnType })
                     mj: mj.add(1)
                 }
-                let td TypeDecl: { name: s.name, fields: fields, methods: tmethods }
+                // Regular structs use the compact layout: reorder fields into
+                // alignment buckets (8 ++ 4 ++ 1, stable) so suruFieldOffset/
+                // suruStructSize lay them out densely. cTypes keep declaration
+                // order (the C ABI is order-sensitive).
+                let layoutFields Array<TypeFieldEntry>: match s.isCType {
+                    true: fields
+                    _:    irStruct.reorderSuruFields(fields)
+                }
+                // Mirror the semantic hasCustomLifecycle flag: true when the interface
+                // declares both clone() returning the same type and drop() returning void.
+                let hasCloneFn bool: false
+                let hasDropFn bool: false
+                let cli i64: 0
+                while cli.lt(ms.len()) {
+                    let csig MethodSig: ms.at(cli)
+                    if csig.name.equals("clone") and cloneReturnMatchesType(csig.returnType, s.name) { hasCloneFn: true }
+                    if csig.name.equals("drop") and csig.returnType.equals("void") { hasDropFn: true }
+                    cli: cli.add(1)
+                }
+                let td TypeDecl: { name: s.name, fields: layoutFields, methods: tmethods, isCType: s.isCType, hasCustomLifecycle: hasCloneFn and hasDropFn }
                 ctx: types.addType(ctx, td)
             }
             SumTypeDeclNode: {
                 let sd SumTypeDecl: { name: s.name, variants: s.variants }
                 ctx: types.addSumType(ctx, sd)
             }
+            // ExternTypeNode is opaque — no struct layout, no clone/drop helpers.
+            // Type erasure to `ptr` happens in irLlvmTypeOf via the default arm.
+            ExternTypeNode: {}
             _: {}
         }
         i: i.add(1)

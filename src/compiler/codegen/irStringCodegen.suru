@@ -7,7 +7,7 @@
 //
 // ── Runtime module ────────────────────────────────────────────────────────────
 // All non-trivial string operations (append, at, equals, slice, ord, clone, drop,
-// i64.from, toString) are implemented in suru_string.ll and linked separately.
+// i64.from, toString) are implemented in runtime/string.c and linked separately.
 // This file only emits idempotent `declare` stubs and call instructions.
 //
 // ── What stays inline ─────────────────────────────────────────────────────────

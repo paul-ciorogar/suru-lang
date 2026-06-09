@@ -1,0 +1,19 @@
+// extern-fn-fileio — exercises ptr flowing through multiple extern fn calls
+// with mixed ptr + scalar parameter types. Uses malloc/memset/free:
+//   malloc(i64) → ptr       : extern fn returning ptr
+//   memset(ptr, i32, i64)   : extern fn with ptr + scalars, returns ptr
+//   free(ptr)               : extern fn consuming ptr
+// Passing Suru String literals as C char* is deferred until stdlib string
+// helpers are available (Phase C).
+namespace Test.ExternFnFileio
+
+extern fn malloc(size i64) ptr
+extern fn memset(p ptr, c i32, n i64) ptr
+extern fn free(p ptr) void
+
+fn main(args Array<String>) {
+    let buf ptr: malloc(16)
+    let filled ptr: memset(buf, 0, 16)
+    free(filled)
+    printLn("ok")
+}

@@ -24,9 +24,10 @@
 //
 // CharLitNode (26), VtableRefNode (27), ExternFnNode (28), BreakNode (29),
 // ContinueNode (30), NamespaceDeclNode (31), ExportNode (32), ImportNode (33),
-// and QualifiedNameNode (34) are appended LAST: variant tags are derived from
-// declaration order, so appending keeps earlier indices stable and the bootstrap
-// fixed point intact. Never insert a variant mid-list.
+// QualifiedNameNode (34), ExternTypeNode (35), and SizeNode (36) are appended
+// LAST: variant tags are derived from declaration order, so appending keeps
+// earlier indices stable and the bootstrap fixed point intact. Never insert a
+// variant mid-list.
 //
 // `this` is NOT a distinct variant — the parser emits VarRefNode{name:"this"};
 // the method lambda-lift (pipeline.suru) introduces a real `this` param so it
@@ -96,6 +97,7 @@ export {
     ExportNode
     ImportNode
     QualifiedNameNode
+    SizeNode
     AstNode
     AstModule
 }
@@ -132,9 +134,12 @@ type Parser: {
     fn parseTypeParamList() Array<String>
     fn parseParenParamList() Array<Param>
     fn parseFnDecl() AstNode
+    fn parseExternDecl() AstNode
+    fn parseExternTypeDecl() AstNode
     fn parseExternFnDecl() AstNode
     fn parseFnReturnType() String
     fn parseTypeDeclaration() AstNode
+    fn parseCTypeDeclaration() AstNode
     fn parseStructTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode
     fn parseStructTypeMemberInto(fields Array<Param>, methods Array<MethodSig>)
     fn parseDataFieldInto(fields Array<Param>)
@@ -183,6 +188,7 @@ type Parser: {
     fn parsePrimaryIdent(tok Token) AstNode
     fn parsePrimaryCall(name String, tok Token) AstNode
     fn parsePrimaryMinus() AstNode
+    fn parsePrimaryTypeSize(tok Token) AstNode
     fn parseMatchArm() MatchArm
     fn parseMatchPattern() AstNode
     fn parseNegativePattern() AstNode
@@ -241,8 +247,9 @@ type ReturnNode:      { hasValue bool, value AstNode, line i64, col i64 }
 type WhileNode:       { condition AstNode, body Array<AstNode>, line i64, col i64 }
 type ExprStmtNode:    { expr AstNode }
 // TypeDeclNode: a struct/interface type. `fields` are data members; `methods`
-// are declared method signatures (empty for a plain data record).
-type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String>, line i64, col i64 }
+// are declared method signatures (empty for a plain data record). `isCType` is
+// true for `cType` declarations — header-less, C-ABI-laid-out structs for FFI.
+type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String>, isCType bool, line i64, col i64 }
 type SumTypeDeclNode: { name String, variants Array<String>, typeParams Array<String>, line i64, col i64 }
 type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
 // BlockNode: a brace-delimited sequence of statements.
@@ -261,6 +268,10 @@ type ExternFnNode:    { name String, params Array<Param>, returnType String }
 // is the entire statement. Appended LAST (indices 30, 31) to keep prior indices stable.
 type BreakNode:       { line i64, col i64 }
 type ContinueNode:    { line i64, col i64 }
+// ExternTypeNode: `extern type Foo` — an opaque handle type backed by a C pointer.
+// No fields or methods; the name is used only for compile-time call-site checking
+// and is erased to `ptr` in codegen. Appended LAST (index 36).
+type ExternTypeNode:  { name String, line i64, col i64 }
 
 // ─── Expression node types (AstNode variants 13–26) ───────────────────────────
 
@@ -317,9 +328,18 @@ type ImportNode: { entries Array<ImportEntry>, line i64, col i64 }
 // Appended LAST (index 35).
 type QualifiedNameNode: { parts Array<String>, line i64, col i64, resolvedType String }
 
+// SizeNode: `typeSize(T)` compiler intrinsic returning the element storage size
+// of type T as an i64 constant (bool/char=1, i32=4, everything else=8).
+// Used in FFI/memory code to compute buffer byte sizes (e.g. malloc(n * typeSize(T))).
+// Import from stdlib.ffi before use.
+// typeName is the raw parsed type string; monoSubst rewrites it to the concrete
+// type during monomorphization so generic functions get the right constant.
+// Appended LAST (index 36) — do NOT move or remove (bootstrap stability).
+type SizeNode: { typeName String, line i64, col i64, resolvedType String }
+
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode
+type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode, ExternTypeNode, SizeNode
 
 // ─── Module type ───────────────────────────────────────────────────────────────
 

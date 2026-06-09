@@ -1,0 +1,121 @@
+// list.suru — generic resizable array backed by a raw malloc'd buffer.
+//
+// List<T> stores elements at their natural size (typeSize(T) bytes each).
+// Ownership: `add` takes an already-owned T; callers must clone heap values
+// before adding if they still need the original.
+//
+// Memory model
+//   _ buf   ptr  — raw buffer holding count elements, each typeSize(T) bytes
+//   _ count i64  — number of live elements
+//   _ cap   i64  — buffer capacity in elements
+//
+// Growth policy: initial capacity 8; doubles when full.
+// The struct header is freed by the vtable wrapper after drop() returns;
+// drop() itself only frees `this.buf` (and drops each heap element).
+//
+// Usage:
+//   import { [List, newList]: Suru.Stdlib.List }
+//   let arr List<i64>: newList()
+//   arr.add(42)
+//   printLn(arr.at(0).toString())
+//   drop(arr)
+
+namespace Suru.Stdlib.List
+
+import { [typeSize, ptrLoad, ptrStore]: stdlib.ffi }
+
+export {
+    List
+    newList
+}
+
+extern fn malloc(size i64) ptr
+extern fn realloc(p ptr, n i64) ptr
+extern fn free(p ptr) void
+
+// List<T>: a resizable array of T elements.
+// Declares fn clone() and fn drop() so the compiler generates vtable-dispatch
+// wrappers instead of auto-walking fields (required because `buf` is a raw ptr).
+type List<T>: {
+    fn add(val T) void
+    fn at(idx i64) T
+    fn set(idx i64, val T) void
+    fn len() i64
+    fn clone() List<T>
+    fn drop() void
+    fn slice(from i64, to i64) List<T>
+}
+
+// newList — returns a new empty List<T> with capacity 8.
+// T is inferred from the let-binding annotation at the call site, e.g.:
+//   let arr List<i64>: newList()
+fn newList<T>() List<T> {
+    let initCap i64: 8
+    return {
+        _ buf   ptr: malloc(initCap.multiply(typeSize(T)))
+        _ count i64: 0
+        _ cap   i64: initCap
+
+        // add — append val to the end; grows the buffer if needed.
+        fn add(val T) void {
+            if this.count.equals(this.cap) {
+                let newCap i64: this.cap.multiply(2)
+                this.buf: realloc(this.buf, newCap.multiply(typeSize(T)))
+                this.cap: newCap
+            }
+            ptrStore(this.buf, this.count.multiply(typeSize(T)), val)
+            this.count: this.count.add(1)
+        }
+
+        // at — return the element at idx (no bounds check; caller must ensure 0 <= idx < len).
+        fn at(idx i64) T {
+            return ptrLoad(this.buf, idx.multiply(typeSize(T)))
+        }
+
+        // set — overwrite the element at idx.
+        fn set(idx i64, val T) void {
+            ptrStore(this.buf, idx.multiply(typeSize(T)), val)
+        }
+
+        // len — number of live elements.
+        fn len() i64 { return this.count }
+
+        // clone — deep-copy: each element is cloned individually.
+        // For scalar T (i64, i32, etc.) clone(elem) is a no-op value copy.
+        // For heap T (String, Array, user structs) clone(elem) calls suru_clone_dyn.
+        fn clone() List<T> {
+            let result List<T>: newList()
+            let i i64: 0
+            while i.lt(this.count) {
+                let elem T: ptrLoad(this.buf, i.multiply(typeSize(T)))
+                result.add(clone(elem))
+                i: i.add(1)
+            }
+            return result
+        }
+
+        // drop — release each heap element, then free the buffer.
+        // The struct header itself is freed by the vtable wrapper after this returns.
+        fn drop() void {
+            let i i64: 0
+            while i.lt(this.count) {
+                let elem T: ptrLoad(this.buf, i.multiply(typeSize(T)))
+                drop(elem)
+                i: i.add(1)
+            }
+            free(this.buf)
+        }
+
+        // slice — return a new List containing a deep-copied [from, to) range.
+        fn slice(from i64, to i64) List<T> {
+            let result List<T>: newList()
+            let i i64: from
+            while i.lt(to) {
+                let elem T: ptrLoad(this.buf, i.multiply(typeSize(T)))
+                result.add(clone(elem))
+                i: i.add(1)
+            }
+            return result
+        }
+    }
+}

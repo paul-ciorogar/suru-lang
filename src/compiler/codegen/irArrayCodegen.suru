@@ -10,7 +10,7 @@
 //
 // ── Runtime module ─────────────────────────────────────────────────────────────
 //
-// Non-trivial array operations are implemented in suru_array.ll and linked separately.
+// Non-trivial array operations are implemented in runtime/array.c and linked separately.
 // at() and set() are inlined as typed GEP+load/store — no runtime call.
 // add() calls a typed runtime variant:
 //   suru_array_add_i8(ptr arr, i8 val)    — bool

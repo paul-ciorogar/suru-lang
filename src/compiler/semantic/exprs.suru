@@ -178,7 +178,12 @@ fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) Ana
 // types for function fnName.
 // Emits "argument type mismatch: expected X, got Y" when both types are known
 // and do not match (and the actual type is not a sum-type variant of expected).
+// ptrLoad / ptrStore are compiler intrinsics whose phantom signatures use i64
+// placeholders; skip their argument types here — the intrinsic intercepts in
+// semantic/resolveTypes.suru and codegen handle the actual constraints.
 fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
+    if fnName.equals("ptrLoad") { return state }
+    if fnName.equals("ptrStore") { return state }
     let i i64: 0
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
@@ -252,8 +257,14 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                 QualifiedNameNode: {
                     // Desugared import alias: lib.fn(args) → MethodCallNode{QualNS,fn,args}.
                     // Mirror the VarRefNode namespace-alias branch: analyze args and check types.
+                    // ptrLoad / ptrStore are compiler intrinsics that accept any arg types
+                    // (ptr, any-value) — skip the registered phantom signature check for them.
                     analyzeExprAt(state, typed.args)
-                    checkCallArgTypesAt(state, typed.methodName, typed.args, typed.line, typed.col)
+                    if not typed.methodName.equals("ptrLoad") {
+                        if not typed.methodName.equals("ptrStore") {
+                            checkCallArgTypesAt(state, typed.methodName, typed.args, typed.line, typed.col)
+                        }
+                    }
                 }
                 _: {
                     analyzeExpr(state, rcv)
@@ -279,6 +290,23 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let paramCount i64: state.functions.paramCount(name)
             if not is1ArgBuiltin and not is2ArgBuiltin and paramCount.gte(0) and not argCount.equals(paramCount) {
                 state.addError("function '".append(name).append("' called with ").append(argCount.toString()).append(" argument(s), expected ").append(paramCount.toString()), typed.line, typed.col)
+            }
+            let isCloneOrDrop bool: name.equals("clone") or name.equals("drop")
+            if isCloneOrDrop and argCount.equals(1) {
+                match args.at(0) {
+                    VarRefNode: {
+                        let cva VarRefNode: args.at(0)
+                        let cvt String: state.lookupSymbol(cva.name)
+                        if passes.isCTypeNamed(state, cvt) {
+                            state.addError("cannot call ".append(name).append("() on cType '").append(cvt).append("' (no type_tag); free it manually via an extern fn"), typed.line, typed.col)
+                        } else if passes.isExternTypeNamed(state, cvt) {
+                            state.addError("cannot call ".append(name).append("() on extern type '").append(cvt).append("' (no type_tag); free it manually via an extern fn"), typed.line, typed.col)
+                        } else if cvt.equals("ptr") {
+                            state.addError("cannot call ".append(name).append("() on 'ptr' (unmanaged pointer; free it manually via an extern fn)"), typed.line, typed.col)
+                        }
+                    }
+                    _: {}
+                }
             }
             if name.equals("move") and argCount.equals(1) {
                 match args.at(0) {

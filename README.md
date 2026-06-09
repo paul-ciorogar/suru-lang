@@ -18,9 +18,12 @@ A minimalist, library-driven, general-purpose programming language — staticall
   - [Control flow — match](#control-flow--match)
   - [Functions](#functions)
   - [Named types](#named-types)
+  - [Object interface types](#object-interface-types)
+  - [Custom lifecycle (ptr fields)](#custom-lifecycle-ptr-fields)
   - [Sum types](#sum-types-discriminated-unions)
   - [Arrays](#arrays)
   - [Strings](#strings)
+  - [SuruString and StringBuilder (stdlib)](#surustring-and-stringbuilder-stdlib)
   - [Characters](#characters)
   - [Type conversions](#type-conversions)
   - [File I/O](#file-io)
@@ -28,6 +31,7 @@ A minimalist, library-driven, general-purpose programming language — staticall
   - [printError](#printerror)
   - [Built-in functions](#built-in-functions)
   - [Namespaces and imports](#namespaces-and-imports)
+  - [FFI utilities — stdlib.ffi](#ffi-utilities--stdiblibffi)
   - [Main function and CLI arguments](#main-function-and-cli-arguments)
 - [Getting started](#getting-started)
 - [CLI](#cli)
@@ -51,6 +55,9 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
 - Types: `bool`, `i32`, `i64`, `f64`, `char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
+- C-ABI structs for FFI: `cType Foo: { a i64, b i32 }` — header-less, natural C
+  alignment, field order preserved; erased to a raw pointer at the `extern fn`
+  boundary (passes straight to libc), freed manually (no `clone`/`drop`)
 - Control flow: `while` (with `break` and `continue`), `if` / `else if` / `else`, `match` (statement and expression forms)
 - No GC: explicit `clone` / `drop` for heap values
 - Namespace + import system: every `.suru` file declares `namespace A.B.C`; cross-file dependencies use `import { ... }`
@@ -414,6 +421,60 @@ Private methods follow the same `_ fn name(params) Ret { ... }` syntax and are a
 
 **Design rule**: private members appear only on the object literal, never in the `type` declaration. The `type` declaration is the public interface.
 
+### Custom lifecycle (ptr fields)
+
+Object types that need to hold a raw pointer (e.g. a malloc'd buffer for a custom data structure) can declare `ptr` private fields, provided the `type` interface explicitly declares **both** `fn clone() TypeName` and `fn drop() void`. This opt-in requirement ensures the compiler never auto-generates clone/drop for unmanaged memory.
+
+```suru
+extern fn malloc(size i64) ptr
+extern fn free(p ptr) void
+
+type OwnedBuf: {
+    fn clone() OwnedBuf
+    fn drop() void
+    fn len() i64
+}
+
+fn newOwnedBuf(capacity i64) OwnedBuf {
+    return {
+        _ data ptr: malloc(capacity)
+        _ size i64: 0
+        fn clone() OwnedBuf {
+            let copy OwnedBuf: newOwnedBuf(this.size)
+            return copy
+        }
+        fn drop() void {
+            free(this.data)
+        }
+        fn len() i64 { return this.size }
+    }
+}
+
+fn main(args Array<String>) {
+    let a OwnedBuf: newOwnedBuf(64)
+    let b OwnedBuf: a.clone()
+    drop(a)
+    drop(b)
+}
+```
+
+**How it works at runtime:**
+
+When `drop(a)` is called, the compiler dispatches through the vtable to `fn drop() void`, which frees user-owned resources (`this.data`). The compiler then frees the struct allocation itself. The same vtable dispatch applies when `clone(a)` is called — the user-provided `fn clone()` is responsible for allocating and returning a fully independent copy.
+
+**The `fn drop()` contract:**
+
+- Free only the resources your object owns (e.g. `free(this.data)`)
+- Do **not** call `drop(this)` — that would recurse back into `fn drop()` infinitely
+- The struct allocation is freed automatically after `fn drop()` returns
+
+**The `fn clone()` contract:**
+
+- Allocate and return a fully independent copy of the object
+- All `ptr` fields must be deep-copied manually (the compiler cannot do this for unmanaged pointers)
+
+If the `type` interface has only `clone()` or only `drop()` but not both, `ptr` private fields are still rejected — the pair must always be declared together.
+
 ### Sum types (discriminated unions)
 
 Declare a sum type with `type Name: Variant1, Variant2, ...`. Each variant name must refer to a declared struct type:
@@ -504,7 +565,7 @@ fn describeOpt(x Option<i64>) {
 }
 ```
 
-The stdlib provides `Option<T>` and `Result<T, E>` in `src/stdlib/`:
+The stdlib provides `Option<T>`, `Result<T, E>`, and `List<T>` in `src/stdlib/`:
 
 ```suru
 namespace My.App
@@ -518,6 +579,57 @@ fn main(args Array<String>) {
     drop(s)
     drop(okVal)
     drop(errVal)
+}
+```
+
+### FFI utilities — `stdlib.ffi`
+
+`src/stdlib/ffi.suru` exports three compiler intrinsics. All require an explicit import.
+
+#### `typeSize(T)`
+
+Returns the element storage size of type `T` as an `i64` compile-time constant:
+
+| Type | `typeSize(T)` |
+|------|---------------|
+| `bool`, `char` | `1` |
+| `i32` | `4` |
+| `i64`, `f64`, `String`, any struct or array | `8` |
+
+The argument is a **type name**, not a value expression. Inside a generic function, the type parameter is substituted after monomorphization.
+
+#### `ptrLoad` / `ptrStore`
+
+Byte-addressed typed pointer reads and writes over a raw `ptr`:
+
+```suru
+ptrLoad(p ptr, offset i64) → T      // GEP i8 + typed load; T inferred from context
+ptrStore(p ptr, offset i64, val T)  // GEP i8 + typed store; void
+```
+
+All three intrinsics must be imported before use — omitting the import is a compile-time error:
+
+```suru
+namespace My.Ffi
+import { [typeSize, ptrLoad, ptrStore]: stdlib.ffi }
+
+extern fn malloc(size i64) ptr
+extern fn free(p ptr) void
+
+fn main(args Array<String>) {
+    let buf ptr: malloc(24)
+    ptrStore(buf, 0, 42)         // i64 at byte offset 0
+    let a i64: ptrLoad(buf, 0)   // → 42
+    free(buf)
+}
+```
+
+For generic use, `typeSize(T)` provides the element byte stride so offsets can be computed without hardcoding sizes:
+
+```suru
+fn allocBuf<T>(count i64) ptr {
+    extern fn malloc(size i64) ptr
+    return malloc(count * typeSize(T))
 }
 ```
 
@@ -589,6 +701,80 @@ It also returns the new string, so calls chain
 (`s.__append("y").__append("z")`). Because the previous value is freed, any
 other binding still pointing at the old string is left dangling — treat
 `__append` as taking ownership of the receiver variable.
+
+### SuruString and StringBuilder (stdlib)
+
+`SuruString` is a Suru-native, **immutable** string backed by `malloc`/`free` — a full Suru implementation with no dependency on `runtime/string.c`; every byte is accessed via `ptrLoad`/`ptrStore`. It exposes no in-place mutating methods: `concat`, `slice`, and `clone` each return a fresh `SuruString`.
+
+To build a string incrementally, use `StringBuilder` (from `Suru.Stdlib.StringBuilder`) — a mutable, in-place byte accumulator — and call its `toString()` to snapshot an immutable `SuruString`.
+
+```suru
+namespace My.App
+import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+
+fn main(args Array<String>) {
+    // Immutable string built from a built-in String literal
+    let s SuruString: suruStringFrom("hello")
+    printLn(s.len().toString())      // 5
+    printLn(s.charAt(0).toString())  // h
+    printLn(s.equals("hello"))       // true
+
+    // concat returns a NEW SuruString (s is unchanged)
+    let t SuruString: s.concat(" world")
+    printLn(t.equals("hello world")) // true
+
+    // Mutable builder: append in place, then snapshot to an immutable string
+    let b StringBuilder: newStringBuilder()
+    b.appendChar('a')
+    b.append("bc")
+    let built SuruString: b.toString()
+    printLn(built.equals("abc"))     // true
+
+    // Slice a sub-string (returns a new SuruString)
+    let sl SuruString: t.slice(6, 11)
+    printLn(sl.equals("world"))      // true
+
+    drop(s); drop(t); drop(b); drop(built); drop(sl)
+}
+```
+
+**`SuruString`** (immutable) — `Suru.Stdlib.String`
+
+| Constructor | Description |
+|---|---|
+| `newSuruString()` | Empty immutable string |
+| `suruStringFrom(s String)` | Copies bytes from a built-in `String` into a new `SuruString` |
+
+| Method | Description |
+|---|---|
+| `concat(other String) SuruString` | Return a new `SuruString` with `other` appended (this is unchanged) |
+| `len() i64` | Number of bytes stored |
+| `charAt(idx i64) char` | Byte at index (no allocation) |
+| `equals(other String) bool` | Compare with a built-in `String` |
+| `equalsStr(other SuruString) bool` | Compare two `SuruString` values |
+| `slice(from i64, to i64) SuruString` | Return a copy of bytes `[from, to)` |
+| `clone() SuruString` | Deep copy |
+| `drop() void` | Free the internal buffer |
+
+**`StringBuilder`** (mutable accumulator) — `Suru.Stdlib.StringBuilder`
+
+| Constructor | Description |
+|---|---|
+| `newStringBuilder()` | Empty builder, initial capacity 16 |
+
+| Method | Description |
+|---|---|
+| `append(other String) void` | Append a built-in `String` in place |
+| `appendChar(c char) void` | Append one character in place; buffer grows automatically |
+| `appendStr(other SuruString) void` | Append a `SuruString` in place |
+| `len() i64` | Number of bytes accumulated |
+| `charAt(idx i64) char` | Byte at index (no allocation) |
+| `toString() SuruString` | Snapshot the accumulated bytes into a fresh immutable `SuruString` |
+| `clone() StringBuilder` | Deep copy |
+| `drop() void` | Free the internal buffer |
+
+`SuruString` and `StringBuilder` values must be explicitly `drop`ped when no longer needed. `clone(x)` returns an independent copy.
 
 ### Characters
 
@@ -831,7 +1017,7 @@ Compile a `.suru` source file to LLVM IR files. This is the low-level interface 
 ```sh
 build/cli/main compile src/myprogram/main.suru /tmp/out/main.ll
 # writes main.ll and one .ll per imported file into /tmp/out/
-clang-18 /tmp/out/*.ll /usr/local/lib/suru/runtime/*.ll -o myprogram
+clang-18 /tmp/out/*.ll /usr/local/lib/suru/runtime/*.o -o myprogram
 ```
 
 ### build
@@ -920,9 +1106,9 @@ src/
       mono/       Monomorphization pass (monoCollect, monoInfer, monoInstantiate, monoSubst, monoPass)
     codegen/
     debug/        Per-pass debug printer (debugPrint.suru)
-  stdlib/         Generic stdlib types (option.suru, result.suru)
+  stdlib/         Generic stdlib types (option.suru, result.suru, ffi.suru, list.suru, string.suru, stringBuilder.suru)
   cli/            User-facing CLI entry point (main.suru)
-runtime/          LLVM IR runtime modules (box, string, array, struct, variant)
+runtime/          C runtime modules, compiled to .o and linked (box, string, array, struct, variant)
 tests/fixtures/   Corpus programs; each dir contains main.suru + expected.txt
 tests/runner/     Suru test runner compiled and invoked by scripts/test.sh
 scripts/          build.sh, test.sh, bootstrap.sh, generate-expected.sh

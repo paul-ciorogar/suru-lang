@@ -1,0 +1,15 @@
+// extern-type-opaque: happy-path test for `extern type` declarations.
+// Declares an opaque Buffer handle backed by malloc/free, passes it
+// through two extern fn calls, verifies no valgrind leaks.
+namespace Test.ExternTypeOpaque
+
+extern type Buffer
+
+extern fn malloc(size i64) Buffer
+extern fn free(b Buffer) void
+
+fn main(args Array<String>) {
+    let buf Buffer: malloc(64)
+    free(buf)
+    printLn("ok")
+}

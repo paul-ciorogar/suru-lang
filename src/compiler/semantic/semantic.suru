@@ -23,6 +23,7 @@ export {
     SemFieldEntry
     SemMethodEntry
     SemTypeEntry
+    SrcModImports
     AnalyzerState
     newFunctionSig
     newFunctionRegistry
@@ -32,9 +33,17 @@ export {
     isSumVariantAt
     isMovedAt
     clearMovedAt
+    currentModuleHasImport
+    lookupModuleImports
 }
 
 // ─── Type declarations ────────────────────────────────────────────────────────
+
+// SrcModImports — lightweight per-module import record stored in
+// AnalyzerState.moduleImportRegistry. Built by the pipeline from the Module
+// list returned by resolveIncludes. Carries only what semantic analysis needs:
+// the source path and the set of namespace strings that module imported.
+type SrcModImports: { srcPath String, importedNs Array<String> }
 
 type SymbolEntry: { name String, typeName String }
 
@@ -143,7 +152,17 @@ type SemMethodEntry: { name String, paramTypes Array<String>, returnType String 
 // are populated by resolveTypes.suru when it first encounters a StructLitNode whose
 // fields carry isPrivate=true; they drive the access-control check in FieldAccessNode
 // and MethodCallNode resolution.
-type SemTypeEntry:  { name String, fields Array<SemFieldEntry>, methods Array<SemMethodEntry>, privateFieldNames Array<String>, privateMethodNames Array<String> }
+// `isCType` is true for `cType` declarations (header-less, C-ABI FFI structs);
+// it drives the rejections of methods, clone()/drop(), and nesting in a regular type.
+// `isExternType` is true for `extern type` declarations (opaque C handles erased to
+// `ptr` in codegen); it drives the same clone()/drop() rejections and field nesting
+// rejection as isCType, but for named opaque handles like `FILE*` or `LLVMContextRef`.
+// `hasCustomLifecycle` is true when the type interface declares both `clone() TypeName`
+// and `drop() void`, signalling that the programmer provides manual memory management.
+// This allows `ptr`/extern-type private fields in the object literal and causes codegen
+// to emit vtable-dispatch wrappers for @suru_clone_T / @suru_drop_T instead of the
+// normal field-walking auto-generated bodies.
+type SemTypeEntry:  { name String, fields Array<SemFieldEntry>, methods Array<SemMethodEntry>, privateFieldNames Array<String>, privateMethodNames Array<String>, isCType bool, isExternType bool, hasCustomLifecycle bool }
 
 type AnalyzerState: {
     scopes          Array<Scope>
@@ -157,9 +176,11 @@ type AnalyzerState: {
     insideLoop      i64
     constants       Array<String>
     movedVars       Array<String>
-    currentSrcPath    String
-    moduleNamespace   String
-    exportedNames     Array<String>
+    currentSrcPath        String
+    moduleNamespace       String
+    exportedNames         Array<String>
+    currentModuleImports  Array<String>
+    moduleImportRegistry  Array<SrcModImports>
     fn pushScope()
     fn popScope()
     fn declareSymbol(name String, typeName String)
@@ -193,6 +214,8 @@ fn makeAnalyzerState() AnalyzerState {
         currentSrcPath: "",
         moduleNamespace: "",
         exportedNames: [],
+        currentModuleImports: [],
+        moduleImportRegistry: [],
 
         // ─── Scope stack ─────────────────────────────────────────────────────
 
@@ -270,7 +293,7 @@ fn makeAnalyzerState() AnalyzerState {
             }
             let sumTypes Array<SemTypeEntry>: this.sumTypes
             let noMethods Array<SemMethodEntry>: []
-            let teEntry SemTypeEntry: { name: name, fields: semVariants, methods: noMethods, privateFieldNames: [], privateMethodNames: [] }
+            let teEntry SemTypeEntry: { name: name, fields: semVariants, methods: noMethods, privateFieldNames: [], privateMethodNames: [], isCType: false, isExternType: false, hasCustomLifecycle: false }
             sumTypes.add(teEntry)
         }
 
@@ -377,4 +400,32 @@ fn clearMovedAt(src Array<String>, dst Array<String>, name String, i i64) Array<
     if not i.lt(src.len()) { return dst }
     if not src.at(i).equals(name) { dst.add(src.at(i)) }
     return clearMovedAt(src, dst, name, i.add(1))
+}
+
+// ─── Per-module import helpers ────────────────────────────────────────────────
+
+// currentModuleHasImport — returns true if the namespace `ns` appears in the
+// current module's import list (state.currentModuleImports).  Called from
+// resolveTypes.suru to gate compiler intrinsics (typeSize, ptrLoad, ptrStore)
+// behind an explicit per-module import, not a root-only global flag.
+fn currentModuleHasImport(importedNs Array<String>, ns String) bool {
+    let i i64: 0
+    while i.lt(importedNs.len()) {
+        if importedNs.at(i).equals(ns) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// lookupModuleImports — find the importedNs list for a given srcPath in the
+// registry.  Returns [] if srcPath is not found (covers synthetic nodes with
+// no source file, such as injected object-lowering stubs).
+fn lookupModuleImports(registry Array<SrcModImports>, srcPath String) Array<String> {
+    let i i64: 0
+    while i.lt(registry.len()) {
+        if registry.at(i).srcPath.equals(srcPath) { return registry.at(i).importedNs }
+        i: i.add(1)
+    }
+    let empty Array<String>: []
+    return empty
 }

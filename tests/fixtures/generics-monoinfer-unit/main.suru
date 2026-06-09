@@ -32,7 +32,7 @@ fn main() {
     typeParams.add("U")
 
     let methods Array<MethodSig>: []
-    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams, line: 0, col: 0 }
+    let pairNode TypeDeclNode: { name: "Pair", fields: fields, methods: methods, typeParams: typeParams, isCType: false, line: 0, col: 0 }
     let def GenericTypeDef: collect.newGenericTypeDef("Pair", pairNode)
 
     let regTypes Array<GenericTypeDef>: []

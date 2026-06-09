@@ -1,0 +1,8 @@
+namespace Test.CTypeNestedError
+
+// A cType cannot be a field of a regular (header-bearing) type.
+
+cType Pair: { a i64, b i32 }
+type Holder: { p Pair }
+
+fn main(args Array<String>) { printLn("x") }

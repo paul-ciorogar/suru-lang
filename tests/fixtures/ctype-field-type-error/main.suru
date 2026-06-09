@@ -1,0 +1,7 @@
+namespace Test.CTypeFieldTypeError
+
+// cType fields must be fixed-layout C primitives; String is rejected.
+
+cType Bad: { a i64, s String }
+
+fn main(args Array<String>) { printLn("x") }

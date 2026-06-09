@@ -30,6 +30,14 @@ rm -rf /tmp/suru-test-* /tmp/fresh-bin
 # Also wipe stale build outputs in the workspace — same hazard.
 rm -rf /work/src/cli/build /work/tests/runner/build /work/tests/fixtures/*/build
 
+# Compile the C runtime (runtime/*.c) to objects. These are what every linked
+# program now links against (the legacy runtime/*.ll files are no longer used).
+echo "--- Building C runtime objects ---"
+for f in /work/runtime/*.c; do
+    clang-18 -c -O2 -Wall -Wextra -o "${f%.c}.o" "$f"
+done
+_step_done
+
 # Step 1: compile a fresh CLI compiler from source using the bootstrap binary
 echo "--- Compiling fresh compiler from source ---"
 suru build /work/src/cli/main.suru

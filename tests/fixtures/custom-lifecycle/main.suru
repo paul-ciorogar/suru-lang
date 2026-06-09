@@ -1,0 +1,37 @@
+// custom-lifecycle: an object type with clone()/drop() in its interface may hold
+// ptr private fields. The compiler emits vtable-dispatch wrappers for
+// @suru_clone_T / @suru_drop_T so the user-supplied implementations are called
+// instead of the auto-generated field-walking bodies. Valgrind must report no leaks.
+namespace Test.CustomLifecycle
+
+extern fn malloc(size i64) ptr
+extern fn free(p ptr) void
+
+// A managed buffer: holds an opaque ptr that it owns.
+// clone() allocates a fresh buffer; drop() frees it.
+type OwnedBuf: {
+    fn clone() OwnedBuf
+    fn drop() void
+    fn alive() bool
+}
+
+fn newOwnedBuf() OwnedBuf {
+    return {
+        _ data ptr: malloc(8)
+        fn clone() OwnedBuf { return newOwnedBuf() }
+        fn drop() void { free(this.data) }
+        fn alive() bool { return true }
+    }
+}
+
+fn main(args Array<String>) {
+    let a OwnedBuf: newOwnedBuf()
+    printLn(a.alive().toString())
+
+    let b OwnedBuf: a.clone()
+    printLn(b.alive().toString())
+
+    drop(a)
+    drop(b)
+    printLn("ok")
+}

@@ -116,7 +116,7 @@ fn instantiateType(def GenericTypeDef, concreteTypes Array<String>) TypeDeclNode
     let newFields Array<Param>: subst.substParams(def.node.fields, def.typeParams(), concreteTypes)
     let newMethods Array<MethodSig>: subst.substMethodSigs(def.node.methods, def.typeParams(), concreteTypes)
     let emptyTp Array<String>: []
-    return { name: mangledName, fields: newFields, methods: newMethods, typeParams: emptyTp, line: 0, col: 0 }
+    return { name: mangledName, fields: newFields, methods: newMethods, typeParams: emptyTp, isCType: def.node.isCType, line: 0, col: 0 }
 }
 
 // instantiateFn — produce a concrete FnDeclNode from a generic definition.
@@ -145,7 +145,7 @@ fn wrapTypeDeclNode(td TypeDeclNode) AstNode {
     let f Array<Param>: td.fields
     let m Array<MethodSig>: td.methods
     let tp Array<String>: td.typeParams
-    let r TypeDeclNode: { name: n, fields: f, methods: m, typeParams: tp, line: 0, col: 0 }
+    let r TypeDeclNode: { name: n, fields: f, methods: m, typeParams: tp, isCType: td.isCType, line: 0, col: 0 }
     return r
 }
 fn wrapFnDeclNode(fd FnDeclNode) AstNode {

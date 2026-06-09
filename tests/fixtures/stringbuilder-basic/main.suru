@@ -1,0 +1,38 @@
+namespace Test.StringBuilderBasic
+
+import { [SuruString]: Suru.Stdlib.String }
+import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+
+fn main(args Array<String>) {
+    // --- builder: appendChar one at a time ---
+    let b StringBuilder: newStringBuilder()
+    b.appendChar('a')
+    b.appendChar('b')
+    b.appendChar('c')
+    printLn(b.len().toString())         // 3
+    let s SuruString: b.toString()
+    printLn(s.equals("abc"))            // true
+
+    // --- growth: append 20 chars to exceed initial capacity of 16 ---
+    let big StringBuilder: newStringBuilder()
+    let i i64: 0
+    while i.lt(20) {
+        big.appendChar('x')
+        i: i.add(1)
+    }
+    printLn(big.len().toString())       // 20
+    printLn(big.charAt(0).toString())   // x
+    printLn(big.charAt(19).toString())  // x
+
+    // --- in-place append of a built-in String: "abc" + "bar" = "abcbar" ---
+    b.append("bar")
+    printLn(b.len().toString())         // 6
+    let combined SuruString: b.toString()
+    printLn(combined.equals("abcbar"))  // true
+
+    drop(s)
+    drop(b)
+    drop(big)
+    drop(combined)
+    printLn("ok")
+}
