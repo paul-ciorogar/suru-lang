@@ -1,8 +1,8 @@
-// ptrloadstore_test.suru — unit tests for `ptrLoad` / `ptrStore` built-ins (Task D1b).
+// ptrloadstore_test.suru — unit tests for the `ptr.load` / `ptr.store` built-ins.
 //
 // Run in-process by the test runner (tests/runner/main.suru), which calls
 // ptrLoadStoreTests() and folds the failures into the suite tally. Covers
-// the irLlvmTypeOf() mappings that the ptrLoad/ptrStore codegen relies on to
+// the irLlvmTypeOf() mappings that the ptr.load/ptr.store codegen relies on to
 // select the correct LLVM load/store width for each Suru type.
 //
 // The bool special case (i1 in LLVM but stored as i8 in memory) is handled by

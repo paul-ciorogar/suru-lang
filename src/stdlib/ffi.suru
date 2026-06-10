@@ -14,33 +14,17 @@ namespace stdlib.ffi
 // semantic analysis; this declaration exists solely to satisfy the export
 // system so the import can be validated.
 
-// ptrLoad(p, offset) and ptrStore(p, offset, val) are compiler intrinsics for
-// byte-addressed typed pointer reads and writes:
+// Byte-addressed pointer ops are now methods on the `ptr` type — no import
+// needed (a `ptr` value behaves like an object exposing these builtins):
 //
-//   ptrLoad(p ptr, offset i64) → T     // GEP i8 + typed load
-//   ptrStore(p ptr, offset i64, val T) // GEP i8 + typed store; void
+//   p.load(offset i64) → T     // GEP i8 + typed load; T inferred from context
+//   p.store(offset i64, val T) // GEP i8 + typed store; void
+//   p.add(n i64) → ptr         // GEP i8 — p advanced by n bytes (for memcpy etc.)
 //
-// Usage: import { [ptrLoad, ptrStore]: stdlib.ffi }
-//
-// T is inferred from context (the declared type of the let binding, return
-// type, etc.). If the type cannot be inferred a compile error is emitted.
-// p/offset use i64 placeholders in the phantom below because ptr is rejected
-// in regular fn return types; the bodies are never called.
+// They are intercepted by the compiler (semantic/resolveTypes.suru +
+// codegen/irCodegen.suru) on a `ptr` receiver, so no phantom declaration is
+// required here.
 
-// ptrAdd(p ptr, n i64) ptr is a compiler intrinsic for byte-addressed pointer
-// arithmetic — it returns p advanced by n bytes (GEP i8). Use it to obtain an
-// offset source/destination pointer for memcpy and similar libc calls:
-//
-//   ptrAdd(p ptr, n i64) → ptr            // getelementptr i8
-//
-// Usage: import { [ptrAdd]: stdlib.ffi }
-
-export { typeSize, ptrLoad, ptrStore, ptrAdd }
+export { typeSize }
 
 fn typeSize<T>() i64 { return 0 }
-// Non-generic phantoms: the compiler intercepts ptrLoad/ptrStore/ptrAdd by name
-// before any call dispatch, so these bodies never execute. Non-generic so the mono
-// pass does not mangle call sites to ptrLoad__i64 etc. (which would break the intercept).
-fn ptrLoad(p i64, offset i64) i64 { return 0 }
-fn ptrStore(p i64, offset i64, val i64) void { }
-fn ptrAdd(p i64, n i64) i64 { return 0 }

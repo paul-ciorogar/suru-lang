@@ -5,7 +5,7 @@
 //
 // Key design decisions:
 //   - inferType returns a String type name ("bool", "i64", etc.) or "" for
-//     unknown/context-dependent types (array/struct literals, field access).
+//     unknown/context-dependent types (array/object literals, field access).
 //     The "" return suppresses type-mismatch errors rather than reporting false positives.
 //
 //   - Namespace alias detection: when a MethodCallNode receiver is a VarRefNode
@@ -29,7 +29,7 @@ export {
     inferType
     analyzeExprAt
     analyzeMatchArmsAt
-    analyzeStructFieldsAt
+    analyzeObjectFieldsAt
     checkCallArgTypesAt
     isBuiltinTypeName
     analyzeExpr
@@ -163,9 +163,9 @@ fn analyzeMatchArmsAt(state AnalyzerState, arms Array<MatchArm>) AnalyzerState {
     return state
 }
 
-// analyzeStructFieldsAt — iterates StructFieldNode array,
+// analyzeObjectFieldsAt — iterates ObjectFieldNode array,
 // calling analyzeExpr on each field's value expression.
-fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) AnalyzerState {
+fn analyzeObjectFieldsAt(state AnalyzerState, fields Array<ObjectFieldNode>) AnalyzerState {
     let i i64: 0
     while i.lt(fields.len()) {
         analyzeExpr(state, fields.at(i).value)
@@ -178,13 +178,7 @@ fn analyzeStructFieldsAt(state AnalyzerState, fields Array<StructFieldNode>) Ana
 // types for function fnName.
 // Emits "argument type mismatch: expected X, got Y" when both types are known
 // and do not match (and the actual type is not a sum-type variant of expected).
-// ptrLoad / ptrStore are compiler intrinsics whose phantom signatures use i64
-// placeholders; skip their argument types here — the intrinsic intercepts in
-// semantic/resolveTypes.suru and codegen handle the actual constraints.
 fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
-    if fnName.equals("ptrLoad") { return state }
-    if fnName.equals("ptrStore") { return state }
-    if fnName.equals("ptrAdd") { return state }
     let i i64: 0
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
@@ -258,14 +252,8 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                 QualifiedNameNode: {
                     // Desugared import alias: lib.fn(args) → MethodCallNode{QualNS,fn,args}.
                     // Mirror the VarRefNode namespace-alias branch: analyze args and check types.
-                    // ptrLoad / ptrStore are compiler intrinsics that accept any arg types
-                    // (ptr, any-value) — skip the registered phantom signature check for them.
                     analyzeExprAt(state, typed.args)
-                    if not typed.methodName.equals("ptrLoad") {
-                        if not typed.methodName.equals("ptrStore") {
-                            checkCallArgTypesAt(state, typed.methodName, typed.args, typed.line, typed.col)
-                        }
-                    }
+                    checkCallArgTypesAt(state, typed.methodName, typed.args, typed.line, typed.col)
                 }
                 _: {
                     analyzeExpr(state, rcv)
@@ -350,9 +338,9 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             analyzeExprAt(state, typed.elems)
         }
 
-        StructLitNode: {
-            let typed StructLitNode: expr
-            analyzeStructFieldsAt(state, typed.fields)
+        ObjectLitNode: {
+            let typed ObjectLitNode: expr
+            analyzeObjectFieldsAt(state, typed.fields)
         }
 
         UnaryNode: {

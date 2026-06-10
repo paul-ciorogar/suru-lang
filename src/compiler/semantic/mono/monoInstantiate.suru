@@ -134,11 +134,11 @@ fn instantiateFn(def GenericFnDef, concreteTypes Array<String>) FnDeclNode {
 // ─── AstNode wrap helpers ────────────────────────────────────────────────────
 // The bootstrap binary's codegen only emits the AstNode sum-type header
 // (offset 0 = SumType runtime tag, offset 8 = variant index) when a new
-// struct LITERAL is returned from a function whose return type is AstNode.
+// object LITERAL is returned from a function whose return type is AstNode.
 // Merely returning an existing TypeDeclNode/FnDeclNode pointer does NOT add
 // the header, leaving offset 8 as 0 (refCount), which match dispatch reads as
 // FnDeclNode (variant 0) instead of TypeDeclNode (7).
-// The workaround: create a fresh struct literal with all fields copied so
+// The workaround: create a fresh object literal with all fields copied so
 // the codegen emits the correct variant index at offset 8.
 fn wrapTypeDeclNode(td TypeDeclNode) AstNode {
     let n String: td.name

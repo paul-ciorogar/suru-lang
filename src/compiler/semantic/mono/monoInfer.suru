@@ -29,8 +29,8 @@ export {
     inferFromStmts
     inferFromExprs
     inferFromParams
-    inferFromStructFieldAt
-    inferFromStructFields
+    inferFromObjectFieldAt
+    inferFromObjectFields
     inferFromMatchArms
     inferFromMatchStmtArms
     inferFromExpr
@@ -125,7 +125,7 @@ fn resolvedTypeOf(node AstNode) String {
         MethodCallNode:   node.resolvedType
         FieldAccessNode:  node.resolvedType
         ArrayLitNode:     node.resolvedType
-        StructLitNode:    node.resolvedType
+        ObjectLitNode:    node.resolvedType
         MatchExprNode:    node.resolvedType
         UnaryNode:        node.resolvedType
         BinaryNode:       node.resolvedType
@@ -285,20 +285,20 @@ fn inferFromParams(params Array<Param>, registry GenericRegistry, out Array<Inst
     return out
 }
 
-// inferFromStructFieldAt — recurse into a StructFieldNode's value and any
+// inferFromObjectFieldAt — recurse into a ObjectFieldNode's value and any
 // method body.
-fn inferFromStructFieldAt(field StructFieldNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+fn inferFromObjectFieldAt(field ObjectFieldNode, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
     out: inferFromExpr(field.value, registry, out)
     out: inferFromStmts(field.methodBody, registry, out)
     return out
 }
 
-// inferFromStructFields — recurse into each StructFieldNode in fields,
+// inferFromObjectFields — recurse into each ObjectFieldNode in fields,
 // including method bodies (which are statement lists, not just expressions).
-fn inferFromStructFields(fields Array<StructFieldNode>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+fn inferFromObjectFields(fields Array<ObjectFieldNode>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
     let i i64: 0
     while i.lt(fields.len()) {
-        out: inferFromStructFieldAt(fields.at(i), registry, out)
+        out: inferFromObjectFieldAt(fields.at(i), registry, out)
         i: i.add(1)
     }
     return out
@@ -456,14 +456,14 @@ fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<Instantiation
             out: inferFromExprs(aln.elems, registry, out)
             return out
         }
-        StructLitNode: {
-            let sln StructLitNode: expr
+        ObjectLitNode: {
+            let sln ObjectLitNode: expr
             // resolvedType may be a generic application (e.g. set by top-down
             // propagation from a LetNode annotation).
             let fromSln Array<InstantiationRequest>: inferFromAnnotation(sln.resolvedType, registry)
             out: appendAll(fromSln, out)
             drop(fromSln)
-            out: inferFromStructFields(sln.fields, registry, out)
+            out: inferFromObjectFields(sln.fields, registry, out)
             return out
         }
         MatchExprNode: {

@@ -33,8 +33,8 @@ export {
     rewriteMatchArms
     rewriteMatchStmtArm
     rewriteMatchStmtArms
-    rewriteStructField
-    rewriteStructFields
+    rewriteObjectField
+    rewriteObjectFields
     rewriteBlock
     rewriteCallsInExpr
     rewriteCallsInStmt
@@ -316,20 +316,20 @@ fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Arra
     return out
 }
 
-// rewriteStructField — rewrite generic calls in a StructFieldNode's value expression
+// rewriteObjectField — rewrite generic calls in a ObjectFieldNode's value expression
 // and optional inline method body.
-fn rewriteStructField(sf StructFieldNode, registry GenericRegistry) StructFieldNode {
+fn rewriteObjectField(sf ObjectFieldNode, registry GenericRegistry) ObjectFieldNode {
     let newVal AstNode: rewriteCallsInExpr(sf.value, registry)
     let newMbody Array<AstNode>: rewriteCallsInStmts(sf.methodBody, registry)
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newMbody }
 }
 
-// rewriteStructFields — return a new StructFieldNode array with all generic call names mangled.
-fn rewriteStructFields(fields Array<StructFieldNode>, registry GenericRegistry) Array<StructFieldNode> {
-    let out Array<StructFieldNode>: []
+// rewriteObjectFields — return a new ObjectFieldNode array with all generic call names mangled.
+fn rewriteObjectFields(fields Array<ObjectFieldNode>, registry GenericRegistry) Array<ObjectFieldNode> {
+    let out Array<ObjectFieldNode>: []
     let i i64: 0
     while i.lt(fields.len()) {
-        out.add(rewriteStructField(fields.at(i), registry))
+        out.add(rewriteObjectField(fields.at(i), registry))
         i: i.add(1)
     }
     return out
@@ -388,10 +388,10 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
             let result ArrayLitNode: { elems: newElems, resolvedType: aln.resolvedType }
             return result
         }
-        StructLitNode: {
-            let sln StructLitNode: node
-            let newFields Array<StructFieldNode>: rewriteStructFields(sln.fields, registry)
-            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+        ObjectLitNode: {
+            let sln ObjectLitNode: node
+            let newFields Array<ObjectFieldNode>: rewriteObjectFields(sln.fields, registry)
+            let result ObjectLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
             return result
         }
         MatchExprNode: {

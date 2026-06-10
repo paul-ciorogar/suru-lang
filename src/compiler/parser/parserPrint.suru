@@ -31,7 +31,7 @@ export {
     printExprMethodCall
     printExprFieldAccess
     printExprArrayLit
-    printExprStructLit
+    printExprObjectLit
     printExprMatch
     printExprUnary
     printExprBinary
@@ -271,7 +271,7 @@ fn printExpr(expr AstNode, indent String) {
         MethodCallNode:  { printExprMethodCall(expr, indent) }
         FieldAccessNode: { printExprFieldAccess(expr, indent) }
         ArrayLitNode:    { printExprArrayLit(expr, indent) }
-        StructLitNode:   { printExprStructLit(expr, indent) }
+        ObjectLitNode:   { printExprObjectLit(expr, indent) }
         MatchExprNode:   { printExprMatch(expr, indent) }
         UnaryNode:       { printExprUnary(expr, indent) }
         BinaryNode:       { printExprBinary(expr, indent) }
@@ -331,14 +331,14 @@ fn printExprArrayLit(expr ArrayLitNode, indent String) {
     }
 }
 
-fn printExprStructLit(expr StructLitNode, indent String) {
+fn printExprObjectLit(expr ObjectLitNode, indent String) {
     let nfields i64: expr.fields.len()
-    printLn(indent.append("StructLiteral [").append(nfields.toString()).append(" fields]"))
+    printLn(indent.append("ObjectLiteral [").append(nfields.toString()).append(" fields]"))
     let fieldIndent String: makeIndent(indent)
     let valIndent String: makeIndent(fieldIndent)
     let i i64: 0
     while i.lt(nfields) {
-        let f StructFieldNode: expr.fields.at(i)
+        let f ObjectFieldNode: expr.fields.at(i)
         let privLabel String: match f.isPrivate { true: " [private]", _: "" }
         printLn(fieldIndent.append("Field [").append(f.name).append("]").append(privLabel))
         printExpr(f.value, valIndent)

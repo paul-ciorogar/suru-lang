@@ -40,7 +40,7 @@ export {
     lowerObjectsStmt
     lowerObjectsExprList
     lowerObjectsExpr
-    lowerObjectsStructLit
+    lowerObjectsObjectLit
     augPrivAddField
     augPrivFromLitFields
     augPrivInBody
@@ -535,9 +535,9 @@ fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
 
 // ─── Object method lambda-lift ─────────────────────────────────────────────────
 //
-// Runs after resolveModuleTypes (so every StructLitNode.resolvedType and every
+// Runs after resolveModuleTypes (so every ObjectLitNode.resolvedType and every
 // method-body expression is type-annotated) and before codegen. For each
-// struct literal of a type that declares methods it:
+// object literal of a type that declares methods it:
 //   • synthesises one top-level FnDeclNode per declared method, with an
 //     implicit leading `this` param, body = the per-instance method body;
 //   • builds a constant vtable reference listing those functions in the type's
@@ -564,7 +564,7 @@ fn loTypeMethods(state AnalyzerState, typeName String) Array<SemMethodEntry> {
     return empty
 }
 
-fn loHasMethodMembers(fields Array<StructFieldNode>) bool {
+fn loHasMethodMembers(fields Array<ObjectFieldNode>) bool {
     let i i64: 0
     while i.lt(fields.len()) {
         if fields.at(i).isMethod { return true }
@@ -575,10 +575,10 @@ fn loHasMethodMembers(fields Array<StructFieldNode>) bool {
 
 // Find the method member named `name` in a literal, or a sentinel whose
 // name is "" when absent (strict-contract violation).
-fn loFindMethodMember(fields Array<StructFieldNode>, name String) StructFieldNode {
+fn loFindMethodMember(fields Array<ObjectFieldNode>, name String) ObjectFieldNode {
     let i i64: 0
     while i.lt(fields.len()) {
-        let f StructFieldNode: fields.at(i)
+        let f ObjectFieldNode: fields.at(i)
         if f.isMethod {
             if f.name.equals(name) { return f }
         }
@@ -587,12 +587,12 @@ fn loFindMethodMember(fields Array<StructFieldNode>, name String) StructFieldNod
     let dummy WildcardNode: {}
     let noP Array<Param>: []
     let noB Array<AstNode>: []
-    let none StructFieldNode: nodes.newStructFieldNode("", dummy, false, false, "", noP, "", noB)
+    let none ObjectFieldNode: nodes.newObjectFieldNode("", dummy, false, false, "", noP, "", noB)
     return none
 }
 
 // lookupSrcPathNs — return the namespace string for srcPath from nsEntries, or "" if not found.
-// Used by lowerObjectsStructLit to mangle vtable entry names consistently with function definitions.
+// Used by lowerObjectsObjectLit to mangle vtable entry names consistently with function definitions.
 fn lookupSrcPathNs(nsEntries Array<SrcNsEntry>, srcPath String) String {
     let i i64: 0
     while i.lt(nsEntries.len()) {
@@ -721,9 +721,9 @@ fn lowerObjectsExprList(state AnalyzerState, xs Array<AstNode>, newDecls Array<A
 
 fn lowerObjectsExpr(state AnalyzerState, expr AstNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     match expr {
-        StructLitNode: {
-            let lit StructLitNode: expr
-            lowerObjectsStructLit(state, lit, newDecls, ctr, srcPath, root, nsEntries)
+        ObjectLitNode: {
+            let lit ObjectLitNode: expr
+            lowerObjectsObjectLit(state, lit, newDecls, ctr, srcPath, root, nsEntries)
         }
         ArrayLitNode: {
             let a ArrayLitNode: expr
@@ -765,13 +765,13 @@ fn lowerObjectsExpr(state AnalyzerState, expr AstNode, newDecls Array<AstNode>, 
     }
 }
 
-fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
+fn lowerObjectsObjectLit(state AnalyzerState, lit ObjectLitNode, newDecls Array<AstNode>, ctr Array<i64>, srcPath String, root String, nsEntries Array<SrcNsEntry>) {
     let typeName String: lit.resolvedType
-    let fields Array<StructFieldNode>: lit.fields
+    let fields Array<ObjectFieldNode>: lit.fields
     let methods Array<SemMethodEntry>: loTypeMethods(state, typeName)
     let hasM bool: loHasMethodMembers(fields)
     if hasM and methods.len().equals(0) {
-        state.addError("struct literal supplies a method body but type '".append(typeName).append("' declares no methods"), lit.line, lit.col)
+        state.addError("object literal supplies a method body but type '".append(typeName).append("' declares no methods"), lit.line, lit.col)
         return
     }
     if methods.len().equals(0) {
@@ -791,9 +791,9 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
     let errsBefore i64: state.errors.len()
     while j.lt(methods.len()) {
         let m SemMethodEntry: methods.at(j)
-        let member StructFieldNode: loFindMethodMember(fields, m.name)
+        let member ObjectFieldNode: loFindMethodMember(fields, m.name)
         if member.name.equals("") {
-            state.addError("struct literal of type '".append(typeName).append("' is missing required implementation for method '").append(m.name).append("'"), lit.line, lit.col)
+            state.addError("object literal of type '".append(typeName).append("' is missing required implementation for method '").append(m.name).append("'"), lit.line, lit.col)
             j: j.add(1)
         }
         if not member.name.equals("") {
@@ -829,14 +829,14 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
     // own vtable globals (codegen of an included file's literal is skipped in
     // the root compilation), so this naming guarantees link-time uniqueness.
     let vtsym String: "@vtable.".append(vtablePrefix(entryNs, srcPath)).append(".").append(typeName).append(".").append(siteStr)
-    let newFields Array<StructFieldNode>: []
+    let newFields Array<ObjectFieldNode>: []
     let vr VtableRefNode: { sym: vtsym, entries: entrySyms, resolvedType: typeName }
     let noP Array<Param>: []
     let noB Array<AstNode>: []
-    newFields.add(nodes.newStructFieldNode("__vtable", vr, false, false, "", noP, "", noB))
+    newFields.add(nodes.newObjectFieldNode("__vtable", vr, false, false, "", noP, "", noB))
     let d i64: 0
     while d.lt(fields.len()) {
-        let f StructFieldNode: fields.at(d)
+        let f ObjectFieldNode: fields.at(d)
         if not f.isMethod {
             newFields.add(f)
             lowerObjectsExpr(state, f.value, newDecls, ctr, srcPath, root, nsEntries)
@@ -847,7 +847,7 @@ fn lowerObjectsStructLit(state AnalyzerState, lit StructLitNode, newDecls Array<
 }
 
 // ─── Private field codegen augmentation ──────────────────────────────────────
-// These helpers scan the stmts for struct literals that carry isPrivate data
+// These helpers scan the stmts for object literals that carry isPrivate data
 // fields and inject those fields into the corresponding TypeDeclNode.fields so
 // the codegen's registerTypes step includes them in the struct layout.
 // This must run before lowerObjects (and therefore before registerTypes).
@@ -882,12 +882,12 @@ fn augPrivAddField(stmts Array<AstNode>, typeName String, fieldName String, fiel
     drop(mangledTypeName)
 }
 
-// augPrivFromLitFields — iterates a struct literal's fields; for each private
+// augPrivFromLitFields — iterates a object literal's fields; for each private
 // data field, calls augPrivAddField to update the TypeDeclNode.
-fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<StructFieldNode>) {
+fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<ObjectFieldNode>) {
     let i i64: 0
     while i.lt(litFields.len()) {
-        let f StructFieldNode: litFields.at(i)
+        let f ObjectFieldNode: litFields.at(i)
         if f.isPrivate and not f.isMethod {
             augPrivAddField(stmts, typeName, f.name, f.privateTypeName)
         }
@@ -906,8 +906,8 @@ fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, returnTypeName Strin
             LetNode: {
                 let ln LetNode: body.at(i)
                 match ln.value {
-                    StructLitNode: {
-                        let sl StructLitNode: ln.value
+                    ObjectLitNode: {
+                        let sl ObjectLitNode: ln.value
                         augPrivFromLitFields(stmts, ln.typeName, sl.fields)
                     }
                     _: {}
@@ -917,8 +917,8 @@ fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, returnTypeName Strin
                 let rn ReturnNode: body.at(i)
                 if rn.hasValue {
                     match rn.value {
-                        StructLitNode: {
-                            let sl StructLitNode: rn.value
+                        ObjectLitNode: {
+                            let sl ObjectLitNode: rn.value
                             augPrivFromLitFields(stmts, returnTypeName, sl.fields)
                         }
                         _: {}
@@ -932,7 +932,7 @@ fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, returnTypeName Strin
 }
 
 // augmentPrivateFields — top-level pass: walks function declarations and
-// injects private data fields from their body struct literals into TypeDeclNodes.
+// injects private data fields from their body object literals into TypeDeclNodes.
 fn augmentPrivateFields(stmts Array<AstNode>) {
     let i i64: 0
     while i.lt(stmts.len()) {

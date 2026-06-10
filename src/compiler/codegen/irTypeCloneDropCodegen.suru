@@ -20,7 +20,7 @@
 //
 // External types (from included modules) are NOT emitted here — their clone/drop
 // bodies are compiled from the origin .suru file.  Declare stubs for external types
-// are emitted into ctx.extCloneDropDecls by emitStructLiteralAlloc (ir-struct-codegen)
+// are emitted into ctx.extCloneDropDecls by emitObjectLiteralAlloc (ir-struct-codegen)
 // when it detects the type is absent from ctx.typeDecls.
 //
 // Include DAG: depends on ir-codegen-types.suru.
@@ -340,7 +340,7 @@ fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
             }
         }
         // External types: declare stubs are emitted on-demand by
-        // emitStructLiteralAlloc when the type is actually instantiated.
+        // emitObjectLiteralAlloc when the type is actually instantiated.
         i: i.add(1)
     }
     return ctx

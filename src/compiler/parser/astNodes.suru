@@ -1,7 +1,7 @@
 // astNodes.suru — Constructor functions for AST helper object types.
 //
 // Provides newXxx(...) factory functions for the six helper types declared in
-// parserAst.suru that are now object types: Param, MethodSig, StructFieldNode,
+// parserAst.suru that are now object types: Param, MethodSig, ObjectFieldNode,
 // MatchArm, MatchStmtArm, and BlockNode.
 //
 // Each factory returns an object literal whose update methods mutate `this` and
@@ -16,7 +16,7 @@ namespace Suru.Compiler.Parser.Nodes
 export {
     newParam
     newMethodSig
-    newStructFieldNode
+    newObjectFieldNode
     newMatchArm
     newMatchStmtArm
     newBlockNode
@@ -34,7 +34,7 @@ fn newMethodSig(name String, params Array<Param>, returnType String) MethodSig {
     return { name: name, params: params, returnType: returnType }
 }
 
-fn newStructFieldNode(name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) StructFieldNode {
+fn newObjectFieldNode(name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) ObjectFieldNode {
     return {
         name:               name
         value:              value

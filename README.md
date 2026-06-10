@@ -54,7 +54,7 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 
 - Entry point: `fn main(args Array<String>)`
 - Variables: `let name Type: value` (type annotation mandatory)
-- Types: `bool`, `i32`, `i64`, `f64`, `char`, `String`, `Array<T>`, named types, sum types, generic types, object interface types with private members
+- Types: `bool`, `i32`, `i64`, `f64`, `char`, `String`, `Array<T>`, objects (named types, with or without methods/private members), sum types, generic types. There is no separate "struct" concept — a data-only `type` is just an object with zero methods, and `{ ... }` is an object literal
 - C-ABI structs for FFI: `cType Foo: { a i64, b i32 }` — header-less, natural C
   alignment, field order preserved; erased to a raw pointer at the `extern fn`
   boundary (passes straight to libc), freed manually (no `clone`/`drop`)
@@ -62,9 +62,9 @@ The bootstrap binary was compiled from the frozen C# compiler released as [v0.1.
 - No GC: explicit `clone` / `drop` for heap values
 - Namespace + import system: every `.suru` file declares `namespace A.B.C`; cross-file dependencies use `import { ... }`
 - Built-ins: `printLn`, `printError`, `readFile`, `writeFile`, `appendToFile`, `clone`, `drop`, `move`, `exit`, `exec`
-- Type expectations flow inward: struct and array literals take their type
+- Type expectations flow inward: object and array literals take their type
   from the surrounding context (the `let` annotation, the enclosing function's
-  return type, the parent struct's field type, or the surrounding array's
+  return type, the parent object's field type, or the surrounding array's
   element type). Literals never need an inline type tag — the compiler resolves
   them via a dedicated semantic pass that annotates every expression with its
   `resolvedType`.
@@ -460,13 +460,13 @@ fn main(args Array<String>) {
 
 **How it works at runtime:**
 
-When `drop(a)` is called, the compiler dispatches through the vtable to `fn drop() void`, which frees user-owned resources (`this.data`). The compiler then frees the struct allocation itself. The same vtable dispatch applies when `clone(a)` is called — the user-provided `fn clone()` is responsible for allocating and returning a fully independent copy.
+When `drop(a)` is called, the compiler dispatches through the vtable to `fn drop() void`, which frees user-owned resources (`this.data`). The compiler then frees the object allocation itself. The same vtable dispatch applies when `clone(a)` is called — the user-provided `fn clone()` is responsible for allocating and returning a fully independent copy.
 
 **The `fn drop()` contract:**
 
 - Free only the resources your object owns (e.g. `free(this.data)`)
 - Do **not** call `drop(this)` — that would recurse back into `fn drop()` infinitely
-- The struct allocation is freed automatically after `fn drop()` returns
+- The object allocation is freed automatically after `fn drop()` returns
 
 **The `fn clone()` contract:**
 
@@ -477,7 +477,7 @@ If the `type` interface has only `clone()` or only `drop()` but not both, `ptr` 
 
 ### Sum types (discriminated unions)
 
-Declare a sum type with `type Name: Variant1, Variant2, ...`. Each variant name must refer to a declared struct type:
+Declare a sum type with `type Name: Variant1, Variant2, ...`. Each variant name must refer to a declared object type:
 
 ```suru
 type Circle: { radius i64 }
@@ -485,7 +485,7 @@ type Square: { side   i64 }
 type Shape: Circle, Square
 ```
 
-Create a variant value using the struct literal syntax with the variant type as the annotation:
+Create a variant value using the object literal syntax with the variant type as the annotation:
 
 ```suru
 let c Circle: { radius: 2283 }
@@ -535,7 +535,7 @@ fn main(args Array<String>) {
 }
 ```
 
-Type parameters are declared in `<...>` after the name. Concrete type arguments are inferred at each usage site — no explicit instantiation syntax is needed. Each unique combination of type arguments produces a separate concrete copy (e.g. `Box<i64>` and `Box<String>` are distinct types). Because Suru has no GC, heap-allocated generic structs must be explicitly `drop`ped like any other struct.
+Type parameters are declared in `<...>` after the name. Concrete type arguments are inferred at each usage site — no explicit instantiation syntax is needed. Each unique combination of type arguments produces a separate concrete copy (e.g. `Box<i64>` and `Box<String>` are distinct types). Because Suru has no GC, heap-allocated generic objects must be explicitly `drop`ped like any other object.
 
 Multiple type parameters are supported:
 
@@ -550,7 +550,7 @@ fn main(args Array<String>) {
 }
 ```
 
-Generic sum types are also supported. Variant entries may themselves be generic structs:
+Generic sum types are also supported. Variant entries may themselves be generic objects:
 
 ```suru
 type Some<T>: { value T }
@@ -594,35 +594,37 @@ Returns the element storage size of type `T` as an `i64` compile-time constant:
 |------|---------------|
 | `bool`, `char` | `1` |
 | `i32` | `4` |
-| `i64`, `f64`, `String`, any struct or array | `8` |
+| `i64`, `f64`, `String`, any object or array | `8` |
 
 The argument is a **type name**, not a value expression. Inside a generic function, the type parameter is substituted after monomorphization.
 
-#### `ptrLoad` / `ptrStore`
+#### `ptr` methods: `load` / `store` / `add`
 
-Byte-addressed typed pointer reads and writes over a raw `ptr`:
+A `ptr` value behaves like an object exposing byte-addressed memory operations.
+These are **always-available builtins** (like `arr.push`) — **no import required**:
 
 ```suru
-ptrLoad(p ptr, offset i64) → T      // GEP i8 + typed load; T inferred from context
-ptrStore(p ptr, offset i64, val T)  // GEP i8 + typed store; void
+p.load(offset i64) → T       // GEP i8 + typed load; T inferred from context
+p.store(offset i64, val T)   // GEP i8 + typed store; void
+p.add(n i64) → ptr           // GEP i8 — p advanced by n bytes (for memcpy etc.)
 ```
-
-All three intrinsics must be imported before use — omitting the import is a compile-time error:
 
 ```suru
 namespace My.Ffi
-import { [typeSize, ptrLoad, ptrStore]: stdlib.ffi }
 
 extern fn malloc(size i64) ptr
 extern fn free(p ptr) void
 
 fn main(args Array<String>) {
     let buf ptr: malloc(24)
-    ptrStore(buf, 0, 42)         // i64 at byte offset 0
-    let a i64: ptrLoad(buf, 0)   // → 42
+    buf.store(0, 42)         // i64 at byte offset 0
+    let a i64: buf.load(0)   // → 42
     free(buf)
 }
 ```
+
+> `typeSize(T)` (below) is still imported via `import { [typeSize]: stdlib.ffi }`;
+> the `ptr` methods are not gated behind any import.
 
 For generic use, `typeSize(T)` provides the element byte stride so offsets can be computed without hardcoding sizes:
 
@@ -704,7 +706,7 @@ other binding still pointing at the old string is left dangling — treat
 
 ### SuruString and StringBuilder (stdlib)
 
-`SuruString` is a Suru-native, **immutable** string backed by `malloc`/`free` — a full Suru implementation with no dependency on `runtime/string.c`; every byte is accessed via `ptrLoad`/`ptrStore`. It exposes no in-place mutating methods: `concat`, `slice`, and `clone` each return a fresh `SuruString`.
+`SuruString` is a Suru-native, **immutable** string backed by `malloc`/`free` — a full Suru implementation with no dependency on `runtime/string.c`; every byte is accessed via `ptr.load`/`ptr.store`. It exposes no in-place mutating methods: `concat`, `slice`, and `clone` each return a fresh `SuruString`.
 
 To build a string incrementally, use `StringBuilder` (from `Suru.Stdlib.StringBuilder`) — a mutable, in-place byte accumulator — and call its `toString()` to snapshot an immutable `SuruString`.
 
@@ -881,8 +883,8 @@ printError(42)
 | `readFile` | `readFile(path) → String` | Reads the entire contents of the file at `path` and returns it as a `String`. Aborts if the file cannot be opened. |
 | `writeFile` | `writeFile(path, content)` | Writes `content` to the file at `path`, creating it if it does not exist and truncating it if it does. |
 | `appendToFile` | `appendToFile(path, content)` | Appends `content` to the file at `path`. Creates the file if it does not exist. |
-| `clone` | `clone(x) → T` | Returns a deep copy of `x`. Required before storing a heap value (String, Array, or struct) in a second variable, passing it somewhere that takes ownership, or outliving the original. |
-| `drop` | `drop(x)` | Frees the heap memory owned by `x` (String, Array, or struct). After `drop`, `x` must not be used. |
+| `clone` | `clone(x) → T` | Returns a deep copy of `x`. Required before storing a heap value (String, Array, or object) in a second variable, passing it somewhere that takes ownership, or outliving the original. |
+| `drop` | `drop(x)` | Frees the heap memory owned by `x` (String, Array, or object). After `drop`, `x` must not be used. |
 | `move` | `move(x) → T` | Transfers ownership of `x` without cloning. After `move(x)`, any use of `x` is a compile-time error. Re-assigning `x` clears the moved state. The argument must be a variable, not an expression. |
 | `exit` | `exit(code)` | Terminates the process immediately with the given exit code (`i64`). Counts as a terminal statement — no `return` is needed after it in a non-void function. |
 | `exec` | `exec(cmd) → i64` | Runs `cmd` as a shell command via `system()` and returns the exit code as `i64`. Stdout and stderr pass through to the process. |

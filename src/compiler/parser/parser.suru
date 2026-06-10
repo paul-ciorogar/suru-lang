@@ -4,7 +4,7 @@
 //
 // Expression and statement parsing live in ONE file because they are mutually
 // recursive: statements contain expressions (let/return/conditions) AND
-// expressions contain statements (method bodies inside struct literals —
+// expressions contain statements (method bodies inside object literals —
 // `{ field: v, fn m(p) R { stmts } }`). Suru's per-file compilation cannot
 // split mutually recursive functions across an acyclic include DAG.
 
@@ -420,16 +420,16 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             this.consume(TOK_IDENT)
             let typeParams Array<String>: this.parseTypeParamList()
             this.consume(TOK_COLON)
-            if this.currentTokenIs(TOK_LBRACE) { return this.parseStructTypeBody(nameTok.text, typeParams, nameTok.line, nameTok.col) }
+            if this.currentTokenIs(TOK_LBRACE) { return this.parseObjectTypeBody(nameTok.text, typeParams, nameTok.line, nameTok.col) }
             return this.parseSumTypeBody(nameTok.text, typeParams, nameTok.line, nameTok.col)
         }
 
-        fn parseStructTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode {
+        fn parseObjectTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode {
             this.consume(TOK_LBRACE)
             let fields Array<Param>: []
             let methods Array<MethodSig>: []
             while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
-                this.parseStructTypeMemberInto(fields, methods)
+                this.parseObjectTypeMemberInto(fields, methods)
                 this.consumeIf(TOK_COMMA)
             }
             this.consume(TOK_RBRACE)
@@ -461,7 +461,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             return n
         }
 
-        fn parseStructTypeMemberInto(fields Array<Param>, methods Array<MethodSig>) {
+        fn parseObjectTypeMemberInto(fields Array<Param>, methods Array<MethodSig>) {
             if this.currentTokenIs(TOK_FN) { return this.parseMethodSigInto(methods) }
             this.parseDataFieldInto(fields)
         }
@@ -474,7 +474,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         }
 
         // Parse a signature-only method member in a `type` body: `fn name(params) Ret`
-        // (no body — the body is supplied per-instance in the struct literal).
+        // (no body — the body is supplied per-instance in the object literal).
         fn parseMethodSigInto(methods Array<MethodSig>) {
             this.consume(TOK_FN)
             let mNameTok Token: this.currentToken()
@@ -780,7 +780,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let k i64: tok.kind
             match k {
                 TOK_LBRACKET: { return this.parsePrimaryArray() }
-                TOK_LBRACE:   { return this.parsePrimaryStruct() }
+                TOK_LBRACE:   { return this.parsePrimaryObject() }
                 TOK_MATCH:    { return this.parsePrimaryMatch() }
                 TOK_IDENT: {
                     // `typeSize` is a contextual keyword: treat it as `typeSize(T)` only
@@ -844,48 +844,48 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         // a leading `fn` and carry their parsed body (statement list). The method
         // lambda-lift in pipeline.suru later rewrites method members into a single
         // synthetic `__vtable` data field.
-        fn parsePrimaryStruct() AstNode {
+        fn parsePrimaryObject() AstNode {
             let lbraceTok Token: this.currentToken()
             this.advance()
-            let fields Array<StructFieldNode>: []
+            let fields Array<ObjectFieldNode>: []
             while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
-                this.parseStructLitMemberInto(fields)
+                this.parseObjectLitMemberInto(fields)
                 this.consumeIf(TOK_COMMA)
             }
             this.consume(TOK_RBRACE)
-            let n StructLitNode: { fields: fields, resolvedType: "", line: lbraceTok.line, col: lbraceTok.col }
+            let n ObjectLitNode: { fields: fields, resolvedType: "", line: lbraceTok.line, col: lbraceTok.col }
             return n
         }
 
-        // parseStructLitMemberInto — dispatch to the right parser based on the leading token:
+        // parseObjectLitMemberInto — dispatch to the right parser based on the leading token:
         //   TOK_FN                → public method
         //   TOK_WILDCARD TOK_FN   → private method (`_ fn name ...`)
         //   TOK_WILDCARD          → private data field (`_ name Type: value`)
         //   TOK_IDENT             → public data field (`name: value`)
-        fn parseStructLitMemberInto(fields Array<StructFieldNode>) {
-            if this.currentTokenIs(TOK_FN) { return this.parseStructLitMethodInto(fields) }
+        fn parseObjectLitMemberInto(fields Array<ObjectFieldNode>) {
+            if this.currentTokenIs(TOK_FN) { return this.parseObjectLitMethodInto(fields) }
             if this.currentTokenIs(TOK_WILDCARD) {
-                if this.peekIs(TOK_FN) { return this.parseStructLitPrivateMethodInto(fields) }
-                return this.parseStructLitPrivateFieldInto(fields)
+                if this.peekIs(TOK_FN) { return this.parseObjectLitPrivateMethodInto(fields) }
+                return this.parseObjectLitPrivateFieldInto(fields)
             }
-            this.parseStructLitFieldInto(fields)
+            this.parseObjectLitFieldInto(fields)
         }
 
-        fn parseStructLitFieldInto(fields Array<StructFieldNode>) {
+        fn parseObjectLitFieldInto(fields Array<ObjectFieldNode>) {
             let fieldNameTok Token: this.currentToken()
             this.consume(TOK_IDENT)
             this.consume(TOK_COLON)
             let val AstNode: this.parseExpr()
             let noParams Array<Param>: []
             let noBody Array<AstNode>: []
-            let f StructFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: noParams, methodRet: "", methodBody: noBody }
+            let f ObjectFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, isPrivate: false, privateTypeName: "", methodParams: noParams, methodRet: "", methodBody: noBody }
             fields.add(f)
         }
 
-        // parseStructLitPrivateFieldInto — parses `_ fieldName TypeAnnotation: value`.
+        // parseObjectLitPrivateFieldInto — parses `_ fieldName TypeAnnotation: value`.
         // The `_` is a standalone privacy modifier; the stored field name has no underscore.
         // Type annotation is mandatory for private data fields.
-        fn parseStructLitPrivateFieldInto(fields Array<StructFieldNode>) {
+        fn parseObjectLitPrivateFieldInto(fields Array<ObjectFieldNode>) {
             this.consume(TOK_WILDCARD)
             let fieldNameTok Token: this.currentToken()
             this.consume(TOK_IDENT)
@@ -894,24 +894,24 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let val AstNode: this.parseExpr()
             let noParams Array<Param>: []
             let noBody Array<AstNode>: []
-            let f StructFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, isPrivate: true, privateTypeName: fType, methodParams: noParams, methodRet: "", methodBody: noBody }
+            let f ObjectFieldNode: { name: fieldNameTok.text, value: val, isMethod: false, isPrivate: true, privateTypeName: fType, methodParams: noParams, methodRet: "", methodBody: noBody }
             fields.add(f)
         }
 
-        fn parseStructLitMethodInto(fields Array<StructFieldNode>) {
-            this.parseStructLitMethodBase(fields, false)
+        fn parseObjectLitMethodInto(fields Array<ObjectFieldNode>) {
+            this.parseObjectLitMethodBase(fields, false)
         }
 
-        // parseStructLitPrivateMethodInto — parses `_ fn methodName(params) RetType { body }`.
+        // parseObjectLitPrivateMethodInto — parses `_ fn methodName(params) RetType { body }`.
         // The `_` marks the method as private; the stored name has no underscore.
-        fn parseStructLitPrivateMethodInto(fields Array<StructFieldNode>) {
-            this.parseStructLitMethodBase(fields, true)
+        fn parseObjectLitPrivateMethodInto(fields Array<ObjectFieldNode>) {
+            this.parseObjectLitMethodBase(fields, true)
         }
 
-        // parseStructLitMethodBase — shared implementation for public and
+        // parseObjectLitMethodBase — shared implementation for public and
         // private struct-literal method members. When isPrivate is true the
         // leading TOK_WILDCARD is consumed first.
-        fn parseStructLitMethodBase(fields Array<StructFieldNode>, isPrivate bool) {
+        fn parseObjectLitMethodBase(fields Array<ObjectFieldNode>, isPrivate bool) {
             if isPrivate { this.consume(TOK_WILDCARD) }
             this.consume(TOK_FN)
             let mNameTok Token: this.currentToken()
@@ -922,7 +922,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let mret String: this.parseFnReturnType()
             let bodyBlock BlockNode: this.parseBlock()
             let dummy WildcardNode: {}
-            let m StructFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: isPrivate, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
+            let m ObjectFieldNode: { name: mNameTok.text, value: dummy, isMethod: true, isPrivate: isPrivate, privateTypeName: "", methodParams: mparams, methodRet: mret, methodBody: bodyBlock.stmts }
             fields.add(m)
         }
 

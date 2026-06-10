@@ -1,7 +1,5 @@
 namespace PtrLoadStore
 
-import { [ptrLoad, ptrStore]: stdlib.ffi }
-
 extern fn malloc(size i64) ptr
 extern fn free(p ptr) void
 
@@ -9,14 +7,14 @@ fn main(args Array<String>) {
     // Allocate 24 bytes: i64 at offset 0, i32 at offset 8, bool at offset 12
     let buf ptr: malloc(24)
 
-    ptrStore(buf, 0, 42)
+    buf.store(0, 42)
     let i32val i32: 77
-    ptrStore(buf, 8, i32val)
-    ptrStore(buf, 12, true)
+    buf.store(8, i32val)
+    buf.store(12, true)
 
-    let a i64: ptrLoad(buf, 0)
-    let b i32: ptrLoad(buf, 8)
-    let c bool: ptrLoad(buf, 12)
+    let a i64: buf.load(0)
+    let b i32: buf.load(8)
+    let c bool: buf.load(12)
 
     printLn(a.toString())
     printLn(b.toString())

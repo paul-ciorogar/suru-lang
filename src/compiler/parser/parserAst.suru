@@ -14,7 +14,7 @@
 //  12  BoolLitNode     13 IntLitNode      14 FloatLitNode
 //  15  StrLitNode      16 WildcardNode    17 VarRefNode
 //  18  CallNode        19 MethodCallNode  20 FieldAccessNode
-//  21  ArrayLitNode    22 StructLitNode   23 MatchExprNode
+//  21  ArrayLitNode    22 ObjectLitNode   23 MatchExprNode
 //  24  UnaryNode       25 BinaryNode      26 CharLitNode
 //  27  VtableRefNode   28 ExternFnNode    29 BreakNode
 //  30  ContinueNode
@@ -51,7 +51,7 @@ export {
     Parser
     Param
     MethodSig
-    StructFieldNode
+    ObjectFieldNode
     MatchArm
     MatchStmtArm
     ExportEntry
@@ -84,7 +84,7 @@ export {
     MethodCallNode
     FieldAccessNode
     ArrayLitNode
-    StructLitNode
+    ObjectLitNode
     MatchExprNode
     UnaryNode
     BinaryNode
@@ -140,8 +140,8 @@ type Parser: {
     fn parseFnReturnType() String
     fn parseTypeDeclaration() AstNode
     fn parseCTypeDeclaration() AstNode
-    fn parseStructTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode
-    fn parseStructTypeMemberInto(fields Array<Param>, methods Array<MethodSig>)
+    fn parseObjectTypeBody(typeName String, typeParams Array<String>, line i64, col i64) AstNode
+    fn parseObjectTypeMemberInto(fields Array<Param>, methods Array<MethodSig>)
     fn parseDataFieldInto(fields Array<Param>)
     fn parseMethodSigInto(methods Array<MethodSig>)
     fn parseMethodSigReturn() String
@@ -177,13 +177,13 @@ type Parser: {
     fn parseMethodCallPart(expr AstNode, memberName String, nameTok Token) AstNode
     fn parsePrimary() AstNode
     fn parsePrimaryArray() AstNode
-    fn parsePrimaryStruct() AstNode
-    fn parseStructLitMemberInto(fields Array<StructFieldNode>)
-    fn parseStructLitFieldInto(fields Array<StructFieldNode>)
-    fn parseStructLitPrivateFieldInto(fields Array<StructFieldNode>)
-    fn parseStructLitMethodInto(fields Array<StructFieldNode>)
-    fn parseStructLitPrivateMethodInto(fields Array<StructFieldNode>)
-    fn parseStructLitMethodBase(fields Array<StructFieldNode>, isPrivate bool)
+    fn parsePrimaryObject() AstNode
+    fn parseObjectLitMemberInto(fields Array<ObjectFieldNode>)
+    fn parseObjectLitFieldInto(fields Array<ObjectFieldNode>)
+    fn parseObjectLitPrivateFieldInto(fields Array<ObjectFieldNode>)
+    fn parseObjectLitMethodInto(fields Array<ObjectFieldNode>)
+    fn parseObjectLitPrivateMethodInto(fields Array<ObjectFieldNode>)
+    fn parseObjectLitMethodBase(fields Array<ObjectFieldNode>, isPrivate bool)
     fn parsePrimaryMatch() AstNode
     fn parsePrimaryIdent(tok Token) AstNode
     fn parsePrimaryCall(name String, tok Token) AstNode
@@ -201,7 +201,7 @@ type Parser: {
 type Param:          { name String, typeName String }
 // MethodSig: a method signature in a `type` body (`fn name(params) Ret`, no body).
 type MethodSig:      { name String, params Array<Param>, returnType String }
-// StructFieldNode: one member of a `{ ... }` literal.
+// ObjectFieldNode: one member of a `{ ... }` literal.
 // Data field: isMethod=false, `value` holds the field expression.
 // Method def:  isMethod=true, `name`/`methodParams`/`methodRet`/`methodBody`
 //   hold the supplied implementation; `value` is unused until the method
@@ -211,7 +211,7 @@ type MethodSig:      { name String, params Array<Param>, returnType String }
 //   syntax; it is inaccessible outside the object literal's own method bodies.
 //   privateTypeName holds the mandatory type annotation for private data fields
 //   (e.g. "i64") so the codegen/semantic layers can add it to the struct layout.
-type StructFieldNode: { name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
+type ObjectFieldNode: { name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
 type MatchArm:       { isWildcard bool, pattern AstNode, body AstNode }
 type MatchStmtArm:   { isWildcard bool, pattern AstNode, stmts Array<AstNode> }
 
@@ -291,7 +291,7 @@ type CallNode:        { name String, args Array<AstNode>, line i64, col i64, res
 type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, line i64, col i64, resolvedType String }
 type FieldAccessNode: { receiver AstNode, fieldName String, line i64, col i64, resolvedType String }
 type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
-type StructLitNode:   { fields Array<StructFieldNode>, resolvedType String, line i64, col i64 }
+type ObjectLitNode:   { fields Array<ObjectFieldNode>, resolvedType String, line i64, col i64 }
 type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, line i64, col i64, resolvedType String }
 type UnaryNode:       { op i64, operand AstNode, resolvedType String }
 type BinaryNode:      { op i64, left AstNode, right AstNode, resolvedType String }
@@ -339,7 +339,7 @@ type SizeNode: { typeName String, line i64, col i64, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, StructLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode, ExternTypeNode, SizeNode
+type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, ObjectLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode, ExternTypeNode, SizeNode
 
 // ─── Module type ───────────────────────────────────────────────────────────────
 

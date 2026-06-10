@@ -328,7 +328,7 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
     let hasCustomLifecycle bool: hasClone and hasDrop
     let typeDecls Array<SemTypeEntry>: state.typeDecls
     // privateFieldNames and privateMethodNames start empty; resolveTypes.suru populates
-    // them lazily on first encounter of a StructLitNode with isPrivate members.
+    // them lazily on first encounter of a ObjectLitNode with isPrivate members.
     let teEntry SemTypeEntry: { name: typed.name, fields: semFields, methods: semMethods, privateFieldNames: [], privateMethodNames: [], isCType: typed.isCType, isExternType: false, hasCustomLifecycle: hasCustomLifecycle }
     typeDecls.add(teEntry)
     return state
@@ -337,7 +337,7 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
 // collectTypeDeclarations — walk stmts; for each TypeDeclNode either add its
 // name to state.typeNames or report a duplicate-type error. Non-duplicate
 // TypeDeclNodes are also copied into state.typeDecls so resolveTypes can
-// recurse into nested struct literals with the right field-type expectations.
+// recurse into nested object literals with the right field-type expectations.
 fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let typeNames Array<String>: state.typeNames
     let i i64: 0

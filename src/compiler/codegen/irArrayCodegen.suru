@@ -28,7 +28,7 @@
 // data=null); emitArrayLiteralElements calls emitArrayAdd for each element.
 // Splitting allows ir-codegen.suru to pre-emit all element SSA values first, then
 // pass the collected names to both helpers — matching the pre-emission pattern used
-// by string and struct literal helpers.
+// by string and object literal helpers.
 //
 // Include DAG: depends on ir-box-codegen.suru → ir-codegen-types.suru → ir-builder.suru.
 // Imported by ir-codegen.suru (the mutual-recursion hub).

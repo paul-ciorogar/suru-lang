@@ -15,7 +15,7 @@
 //   • Compound nodes (struct/array literal, match expression) inherit an
 //     "expected" type from the surrounding context — let annotation, return
 //     type, struct field type, array element type, call parameter type — and
-//     propagate it inward so deeply nested struct literals know their type.
+//     propagate it inward so deeply nested object literals know their type.
 //
 // This replaces the brittle `ctx.currentReturnTypeName` save/restore dance in
 // the codegen with a single read from `expr.resolvedType`. See todo.md task 3
@@ -47,8 +47,8 @@ export {
     isThisReceiver
     rtNodeResolvedType
     rtResolveArrayElems
-    rtResolveStructFields
-    rtResolveStructMethods
+    rtResolveObjectFields
+    rtResolveObjectMethods
     rtResolveMatchArms
     rtResolveCallArgs
     resolveExpr
@@ -91,9 +91,9 @@ fn rtLookupFieldType(decl SemTypeEntry, fieldName String) String {
 }
 
 // rtCheckMissingFields — emit a compile error for each publicly-declared field
-// absent from the struct literal. Private fields (in decl.privateFieldNames) are
+// absent from the object literal. Private fields (in decl.privateFieldNames) are
 // user-additive extensions and are exempt from this check.
-fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, line i64, col i64) {
+fn rtCheckMissingFields(state AnalyzerState, fields Array<ObjectFieldNode>, decl SemTypeEntry, line i64, col i64) {
     let declFields Array<SemFieldEntry>: decl.fields
     let privNames Array<String>: decl.privateFieldNames
     let di i64: 0
@@ -107,7 +107,7 @@ fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl
                 fi: fi.add(1)
             }
             if not found {
-                state.addError("struct literal of type '".append(decl.name).append("' is missing required field '").append(df.name).append("'"), line, col)
+                state.addError("object literal of type '".append(decl.name).append("' is missing required field '").append(df.name).append("'"), line, col)
             }
         }
         di: di.add(1)
@@ -115,9 +115,9 @@ fn rtCheckMissingFields(state AnalyzerState, fields Array<StructFieldNode>, decl
 }
 
 // rtCheckUndeclaredMethods — emit a compile error for each public method in the
-// struct literal that is not declared on the type. Private methods (isPrivate=true)
+// object literal that is not declared on the type. Private methods (isPrivate=true)
 // are literal-only extensions and are exempt from this check.
-fn rtCheckUndeclaredMethods(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry, line i64, col i64) {
+fn rtCheckUndeclaredMethods(state AnalyzerState, fields Array<ObjectFieldNode>, decl SemTypeEntry, line i64, col i64) {
     // A cType is data-only — any method member (public or private) is rejected.
     if decl.isCType {
         let ci i64: 0
@@ -131,7 +131,7 @@ fn rtCheckUndeclaredMethods(state AnalyzerState, fields Array<StructFieldNode>, 
     }
     let i i64: 0
     while i.lt(fields.len()) {
-        let f StructFieldNode: fields.at(i)
+        let f ObjectFieldNode: fields.at(i)
         if f.isMethod and not f.isPrivate {
             let found bool: false
             let j i64: 0
@@ -140,7 +140,7 @@ fn rtCheckUndeclaredMethods(state AnalyzerState, fields Array<StructFieldNode>, 
                 j: j.add(1)
             }
             if not found {
-                state.addError("struct literal of type '".append(decl.name).append("' provides method '").append(f.name).append("' which is not declared on the type"), line, col)
+                state.addError("object literal of type '".append(decl.name).append("' provides method '").append(f.name).append("' which is not declared on the type"), line, col)
             }
         }
         i: i.add(1)
@@ -182,14 +182,14 @@ fn rtHasField(fields Array<SemFieldEntry>, name String) bool {
     return false
 }
 
-// rtAugmentPrivateFields — walks the struct literal's field list, adding each
+// rtAugmentPrivateFields — walks the object literal's field list, adding each
 // isPrivate data field to the SemTypeEntry for `typeName` if not already present.
 // Also records its name in privateFieldNames (data) or privateMethodNames (methods).
-// Must be called before rtResolveStructMethods so method bodies can resolve this.field.
-fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<StructFieldNode>, line i64, col i64) {
+// Must be called before rtResolveObjectMethods so method bodies can resolve this.field.
+fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<ObjectFieldNode>, line i64, col i64) {
     let i i64: 0
     while i.lt(litFields.len()) {
-        let f StructFieldNode: litFields.at(i)
+        let f ObjectFieldNode: litFields.at(i)
         if f.isPrivate {
             let decls Array<SemTypeEntry>: state.typeDecls
             let di i64: 0
@@ -258,7 +258,7 @@ fn rtNodeResolvedType(expr AstNode) String {
         MethodCallNode:  { let t MethodCallNode: expr  return t.resolvedType }
         FieldAccessNode: { let t FieldAccessNode: expr return t.resolvedType }
         ArrayLitNode:    { let t ArrayLitNode: expr    return t.resolvedType }
-        StructLitNode:   { let t StructLitNode: expr   return t.resolvedType }
+        ObjectLitNode:   { let t ObjectLitNode: expr   return t.resolvedType }
         MatchExprNode:   { let t MatchExprNode: expr   return t.resolvedType }
         UnaryNode:       { let t UnaryNode: expr       return t.resolvedType }
         BinaryNode:        { let t BinaryNode: expr        return t.resolvedType }
@@ -280,13 +280,13 @@ fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected S
     return state
 }
 
-// rtResolveStructFields — recurse into each StructFieldNode's value, looking
+// rtResolveObjectFields — recurse into each ObjectFieldNode's value, looking
 // up the declared field type on `decl` and using `makeSuruType` to canonicalise
 // the annotation into the codegen-form expected by resolveExpr.
-fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, decl SemTypeEntry) AnalyzerState {
+fn rtResolveObjectFields(state AnalyzerState, fields Array<ObjectFieldNode>, decl SemTypeEntry) AnalyzerState {
     let i i64: 0
     while i.lt(fields.len()) {
-        let field StructFieldNode: fields.at(i)
+        let field ObjectFieldNode: fields.at(i)
         let annot String: rtLookupFieldType(decl, field.name)
         let expected String: tyh.makeSuruType(annot)
         resolveExpr(state, field.value, expected)
@@ -295,16 +295,16 @@ fn rtResolveStructFields(state AnalyzerState, fields Array<StructFieldNode>, dec
     return state
 }
 
-// rtResolveStructMethods — resolve the body of each method member of a struct
+// rtResolveObjectMethods — resolve the body of each method member of a struct
 // literal. Each body is analysed in a fresh scope where `this` is bound to the
 // literal's struct type and the method's declared params are in scope, with
 // the method's declared return type as the return-expectation. This annotates
 // the body expression nodes in place so the later method lambda-lift
 // (pipeline.suru) can move them into top-level functions already type-resolved.
-fn rtResolveStructMethods(state AnalyzerState, fields Array<StructFieldNode>, structType String) AnalyzerState {
+fn rtResolveObjectMethods(state AnalyzerState, fields Array<ObjectFieldNode>, structType String) AnalyzerState {
     let i i64: 0
     while i.lt(fields.len()) {
-        let field StructFieldNode: fields.at(i)
+        let field ObjectFieldNode: fields.at(i)
         if field.isMethod {
             state.pushScope()
             state.declareSymbol("this", structType)
@@ -363,15 +363,43 @@ fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String) An
 // rtResolveMethodCallNode — resolve the receiver and args of a method call,
 // enforce private-method privacy, and set the call's resolvedType from either
 // the user-declared method signature or the builtin method table.
-fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode) AnalyzerState {
+fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected String) AnalyzerState {
     let rcv AstNode: typed.receiver
     resolveExpr(state, rcv, "")
     // `arr.add(x)` on an Array<T> receiver: x is expected to be T.
-    // Without this, a struct-literal argument (e.g. params.add({...}))
+    // Without this, an object-literal argument (e.g. params.add({...}))
     // resolves with expected "" → resolvedType "" → codegen emits a
     // bogus zero-field @suru_clone_ struct. (Pre-resolvedType codegen
     // inferred this from context; the migration must do it explicitly.)
     let rcvType String: rtNodeResolvedType(rcv)
+    // ptr instance methods (FFI): byte-addressed memory ops on a raw pointer.
+    // A `ptr` value behaves like an object exposing these builtins — always
+    // available (no import gate, unlike typeSize).
+    //   p.load(off i64) T       — T inferred from surrounding context
+    //   p.store(off i64, val T) — returns void
+    //   p.add(n i64) ptr        — offset pointer arithmetic
+    if rcvType.equals("ptr") {
+        if typed.methodName.equals("load") {
+            rtResolveArrayElems(state, typed.args, "")
+            if expected.equals("") {
+                state.addError("ptr.load: cannot infer loaded type; assign to a typed variable", typed.line, typed.col)
+                typed.resolvedType: "i64"
+            } else {
+                typed.resolvedType: expected
+            }
+            return state
+        }
+        if typed.methodName.equals("store") {
+            rtResolveArrayElems(state, typed.args, "")
+            typed.resolvedType: "void"
+            return state
+        }
+        if typed.methodName.equals("add") {
+            rtResolveArrayElems(state, typed.args, "")
+            typed.resolvedType: "ptr"
+            return state
+        }
+    }
     let argExpected String: ""
     if typed.methodName.equals("add") {
         if tyh.isArraySuruType(rcvType) { argExpected: tyh.elemSuruType(rcvType) }
@@ -466,28 +494,28 @@ fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected Strin
     return state
 }
 
-// rtResolveStructLitNode — tag with the expected type, verify field/method
+// rtResolveObjectLitNode — tag with the expected type, verify field/method
 // completeness against the declared SemTypeEntry, augment with private
 // members from this literal, then resolve fields and method bodies.
-fn rtResolveStructLitNode(state AnalyzerState, typed StructLitNode, expected String) AnalyzerState {
+fn rtResolveObjectLitNode(state AnalyzerState, typed ObjectLitNode, expected String) AnalyzerState {
     typed.resolvedType: expected
-    let fields Array<StructFieldNode>: typed.fields
+    let fields Array<ObjectFieldNode>: typed.fields
     let decl SemTypeEntry: rtLookupTypeEntry(state, expected)
     // When `expected` is "" or names an unknown type, `decl.name` is
-    // "" and rtResolveStructFields will pass "" expectations down — no
+    // "" and rtResolveObjectFields will pass "" expectations down — no
     // type information is invented, the AST simply stays under-typed.
     if not decl.name.equals("") {
         rtCheckMissingFields(state, fields, decl, typed.line, typed.col)
         rtCheckUndeclaredMethods(state, fields, decl, typed.line, typed.col)
     }
-    rtResolveStructFields(state, fields, decl)
+    rtResolveObjectFields(state, fields, decl)
     // Augment the SemTypeEntry with private fields/methods from this literal
     // before resolving method bodies, so `this.fieldname` lookups succeed.
     rtAugmentPrivateFields(state, expected, fields, typed.line, typed.col)
     // Method members (isMethod=true) carry a body that references
     // `this` and the method params. Resolve them now so the lift can
     // hoist already-typed bodies into top-level functions.
-    rtResolveStructMethods(state, fields, expected)
+    rtResolveObjectMethods(state, fields, expected)
     return state
 }
 
@@ -501,7 +529,7 @@ fn rtResolveStructLitNode(state AnalyzerState, typed StructLitNode, expected Str
 // `expected = ""` means "no surrounding expectation; resolve bottom-up only".
 // For literal / var-ref / call / method-call / field-access / unary / binary
 // nodes the expected value is unused — those produce their own type from
-// scope or a fixed table. It matters for ArrayLitNode, StructLitNode and
+// scope or a fixed table. It matters for ArrayLitNode, ObjectLitNode and
 // MatchExprNode, where the surrounding context picks the type.
 fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState {
     match expr {
@@ -543,32 +571,12 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             let typed CallNode: expr
             let name String: typed.name
             rtResolveCallArgs(state, typed.args, name)
-            // readFile is a builtin that returns String; ptrLoad/ptrStore are
-            // byte-addressed pointer intrinsics gated behind stdlib.ffi import;
-            // everything else falls through to the function-signature lookup.
-            // exit/printLn return nothing meaningful for type-inference — leave "".
+            // readFile is a builtin that returns String; everything else falls
+            // through to the function-signature lookup. exit/printLn return
+            // nothing meaningful for type-inference — leave "". (Byte-addressed
+            // pointer ops are now ptr methods — see rtResolveMethodCallNode.)
             if name.equals("readFile") {
                 typed.resolvedType: "String"
-            } else if name.equals("ptrLoad") {
-                if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
-                    state.addError("ptrLoad is a compiler intrinsic; add: import { [ptrLoad, ptrStore]: stdlib.ffi }", typed.line, typed.col)
-                }
-                if expected.equals("") {
-                    state.addError("ptrLoad: cannot infer return type; assign to a typed variable", typed.line, typed.col)
-                    typed.resolvedType: "i64"
-                } else {
-                    typed.resolvedType: expected
-                }
-            } else if name.equals("ptrStore") {
-                if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
-                    state.addError("ptrStore is a compiler intrinsic; add: import { [ptrLoad, ptrStore]: stdlib.ffi }", typed.line, typed.col)
-                }
-                typed.resolvedType: "void"
-            } else if name.equals("ptrAdd") {
-                if not currentModuleHasImport(state.currentModuleImports, "stdlib.ffi") {
-                    state.addError("ptrAdd is a compiler intrinsic; add: import { [ptrAdd]: stdlib.ffi }", typed.line, typed.col)
-                }
-                typed.resolvedType: "ptr"
             } else {
                 let raw String: state.functions.returnType(name)
                 typed.resolvedType: tyh.makeSuruType(raw)
@@ -577,7 +585,7 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 
         MethodCallNode: {
             let typed MethodCallNode: expr
-            rtResolveMethodCallNode(state, typed)
+            rtResolveMethodCallNode(state, typed, expected)
         }
 
         FieldAccessNode: {
@@ -590,9 +598,9 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
             rtResolveArrayLitNode(state, typed, expected)
         }
 
-        StructLitNode: {
-            let typed StructLitNode: expr
-            rtResolveStructLitNode(state, typed, expected)
+        ObjectLitNode: {
+            let typed ObjectLitNode: expr
+            rtResolveObjectLitNode(state, typed, expected)
         }
 
         MatchExprNode: {

@@ -143,11 +143,11 @@ fn collectQualNsRefsExpr(node AstNode, found Array<String>) {
                 i: i.add(1)
             }
         }
-        StructLitNode: {
-            let sln StructLitNode: node
+        ObjectLitNode: {
+            let sln ObjectLitNode: node
             let i i64: 0
             while i.lt(sln.fields.len()) {
-                let sf StructFieldNode: sln.fields.at(i)
+                let sf ObjectFieldNode: sln.fields.at(i)
                 collectQualNsRefsExpr(sf.value, found)
                 collectQualNsPrefixesFromStmts(sf.methodBody, found)
                 i: i.add(1)
@@ -271,19 +271,19 @@ fn rewriteQualNameBlock(block BlockNode, nsExports Array<NsExportEntry>) BlockNo
     return { stmts: newStmts }
 }
 
-// rewriteQualNameStructField — rewrite value and method body of a StructFieldNode.
-fn rewriteQualNameStructField(sf StructFieldNode, nsExports Array<NsExportEntry>) StructFieldNode {
+// rewriteQualNameObjectField — rewrite value and method body of a ObjectFieldNode.
+fn rewriteQualNameObjectField(sf ObjectFieldNode, nsExports Array<NsExportEntry>) ObjectFieldNode {
     let newVal AstNode: rewriteQualNameExpr(sf.value, nsExports)
     let newBody Array<AstNode>: rewriteQualNameStmts(sf.methodBody, nsExports)
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newBody }
 }
 
-// rewriteQualNameStructFields — rewrite an array of StructFieldNodes.
-fn rewriteQualNameStructFields(fields Array<StructFieldNode>, nsExports Array<NsExportEntry>) Array<StructFieldNode> {
-    let out Array<StructFieldNode>: []
+// rewriteQualNameObjectFields — rewrite an array of ObjectFieldNodes.
+fn rewriteQualNameObjectFields(fields Array<ObjectFieldNode>, nsExports Array<NsExportEntry>) Array<ObjectFieldNode> {
+    let out Array<ObjectFieldNode>: []
     let i i64: 0
     while i.lt(fields.len()) {
-        out.add(rewriteQualNameStructField(fields.at(i), nsExports))
+        out.add(rewriteQualNameObjectField(fields.at(i), nsExports))
         i: i.add(1)
     }
     return out
@@ -396,10 +396,10 @@ fn rewriteQualNameExpr(node AstNode, nsExports Array<NsExportEntry>) AstNode {
             let result ArrayLitNode: { elems: newElems, resolvedType: aln.resolvedType }
             return result
         }
-        StructLitNode: {
-            let sln StructLitNode: node
-            let newFields Array<StructFieldNode>: rewriteQualNameStructFields(sln.fields, nsExports)
-            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+        ObjectLitNode: {
+            let sln ObjectLitNode: node
+            let newFields Array<ObjectFieldNode>: rewriteQualNameObjectFields(sln.fields, nsExports)
+            let result ObjectLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
             return result
         }
         MatchExprNode: {

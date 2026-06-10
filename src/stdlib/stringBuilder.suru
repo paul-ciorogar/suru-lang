@@ -29,7 +29,6 @@
 
 namespace Suru.Stdlib.StringBuilder
 
-import { [ptrLoad, ptrStore]: stdlib.ffi }
 import { [SuruString, suruStringFromBuilder]: Suru.Stdlib.String }
 
 export {
@@ -61,7 +60,7 @@ type StringBuilder: {
 fn newStringBuilderCap(cap i64) StringBuilder {
     let actualCap i64: cap.add(1)
     let initBuf ptr: malloc(actualCap)
-    ptrStore(initBuf, 0, '\0')
+    initBuf.store(0, '\0')
     return {
         _ data  ptr: initBuf
         _ count i64: 0
@@ -85,9 +84,9 @@ fn newStringBuilderCap(cap i64) StringBuilder {
                 this.data: realloc(this.data, newCap)
                 this.cap: newCap
             }
-            ptrStore(this.data, this.count, c)
+            this.data.store(this.count, c)
             this.count: this.count.add(1)
-            ptrStore(this.data, this.count, '\0')
+            this.data.store(this.count, '\0')
         }
 
         // appendStr — append every byte of an immutable SuruString in place.
@@ -105,7 +104,7 @@ fn newStringBuilderCap(cap i64) StringBuilder {
 
         // charAt — return the byte at position idx (0-based, no bounds check).
         fn charAt(idx i64) char {
-            let b char: ptrLoad(this.data, idx)
+            let b char: this.data.load(idx)
             return b
         }
 
@@ -121,7 +120,7 @@ fn newStringBuilderCap(cap i64) StringBuilder {
             let result StringBuilder: newStringBuilderCap(this.count)
             let i i64: 0
             while i.lt(this.count) {
-                let b char: ptrLoad(this.data, i)
+                let b char: this.data.load(i)
                 result.appendChar(b)
                 i: i.add(1)
             }

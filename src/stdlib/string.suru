@@ -24,9 +24,9 @@
 //   SuruString owns its data buffer exclusively.
 //   drop() frees the buffer; the struct header is freed by the vtable wrapper.
 //
-// ptrLoad type-inference note: T is only inferred from let-binding types and
+// ptr.load type-inference note: T is only inferred from let-binding types and
 // return types — not from method-argument positions or method-receiver chains.
-// All ptrLoad calls therefore use an explicit `let b char: ptrLoad(...)` form.
+// All p.load(...) calls therefore use an explicit `let b char: p.load(...)` form.
 //
 // Usage:
 //   import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
@@ -38,7 +38,6 @@
 
 namespace Suru.Stdlib.String
 
-import { [ptrLoad, ptrStore, ptrAdd]: stdlib.ffi }
 import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
 
 export {
@@ -85,7 +84,7 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
             let sb StringBuilder: newStringBuilder()
             let i i64: 0
             while i.lt(this.count) {
-                let c char: ptrLoad(this.data, i)
+                let c char: this.data.load(i)
                 sb.appendChar(c)
                 i: i.add(1)
             }
@@ -106,9 +105,9 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
             let total i64: n1.add(n2)
             let buf ptr: malloc(total.add(1))
             memcpy(buf, this.data, n1)
-            let dst ptr: ptrAdd(buf, n1)
+            let dst ptr: buf.add(n1)
             memcpy(dst, other.dataBuffer(), n2)
-            ptrStore(buf, total, '\0')
+            buf.store(total, '\0')
             return suruStringFromBuffer(buf, total, total.add(1))
         }
 
@@ -123,7 +122,7 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
 
         // charAt — return the byte at position idx (0-based, no bounds check).
         fn charAt(idx i64) char {
-            let b char: ptrLoad(this.data, idx)
+            let b char: this.data.load(idx)
             return b
         }
 
@@ -132,7 +131,7 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
             if not this.count.equals(other.len()) { return false }
             let i i64: 0
             while i.lt(this.count) {
-                let b char: ptrLoad(this.data, i)
+                let b char: this.data.load(i)
                 if not b.equals(other.__at(i)) { return false }
                 i: i.add(1)
             }
@@ -144,7 +143,7 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
             if not this.count.equals(other.len()) { return false }
             let i i64: 0
             while i.lt(this.count) {
-                let b char: ptrLoad(this.data, i)
+                let b char: this.data.load(i)
                 if not b.equals(other.charAt(i)) { return false }
                 i: i.add(1)
             }
@@ -157,9 +156,9 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
         fn slice(from i64, to i64) SuruString {
             let n i64: to.take(from)
             let buf ptr: malloc(n.add(1))
-            let src ptr: ptrAdd(this.data, from)
+            let src ptr: this.data.add(from)
             memcpy(buf, src, n)
-            ptrStore(buf, n, '\0')
+            buf.store(n, '\0')
             return suruStringFromBuffer(buf, n, n.add(1))
         }
 
@@ -189,10 +188,10 @@ fn suruStringFromBuilder(b StringBuilder) SuruString {
     let buf ptr: malloc(n.add(1))
     let i i64: 0
     while i.lt(n) {
-        ptrStore(buf, i, b.charAt(i))
+        buf.store(i, b.charAt(i))
         i: i.add(1)
     }
-    ptrStore(buf, n, '\0')
+    buf.store(n, '\0')
     return suruStringFromBuffer(buf, n, n.add(1))
 }
 

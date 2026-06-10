@@ -22,7 +22,7 @@
 
 namespace Suru.Stdlib.List
 
-import { [typeSize, ptrLoad, ptrStore]: stdlib.ffi }
+import { [typeSize]: stdlib.ffi }
 
 export {
     List
@@ -63,18 +63,18 @@ fn newList<T>() List<T> {
                 this.buf: realloc(this.buf, newCap.multiply(typeSize(T)))
                 this.cap: newCap
             }
-            ptrStore(this.buf, this.count.multiply(typeSize(T)), val)
+            this.buf.store(this.count.multiply(typeSize(T)), val)
             this.count: this.count.add(1)
         }
 
         // at — return the element at idx (no bounds check; caller must ensure 0 <= idx < len).
         fn at(idx i64) T {
-            return ptrLoad(this.buf, idx.multiply(typeSize(T)))
+            return this.buf.load(idx.multiply(typeSize(T)))
         }
 
         // set — overwrite the element at idx.
         fn set(idx i64, val T) void {
-            ptrStore(this.buf, idx.multiply(typeSize(T)), val)
+            this.buf.store(idx.multiply(typeSize(T)), val)
         }
 
         // len — number of live elements.
@@ -87,7 +87,7 @@ fn newList<T>() List<T> {
             let result List<T>: newList()
             let i i64: 0
             while i.lt(this.count) {
-                let elem T: ptrLoad(this.buf, i.multiply(typeSize(T)))
+                let elem T: this.buf.load(i.multiply(typeSize(T)))
                 result.add(clone(elem))
                 i: i.add(1)
             }
@@ -99,7 +99,7 @@ fn newList<T>() List<T> {
         fn drop() void {
             let i i64: 0
             while i.lt(this.count) {
-                let elem T: ptrLoad(this.buf, i.multiply(typeSize(T)))
+                let elem T: this.buf.load(i.multiply(typeSize(T)))
                 drop(elem)
                 i: i.add(1)
             }
@@ -111,7 +111,7 @@ fn newList<T>() List<T> {
             let result List<T>: newList()
             let i i64: from
             while i.lt(to) {
-                let elem T: ptrLoad(this.buf, i.multiply(typeSize(T)))
+                let elem T: this.buf.load(i.multiply(typeSize(T)))
                 result.add(clone(elem))
                 i: i.add(1)
             }

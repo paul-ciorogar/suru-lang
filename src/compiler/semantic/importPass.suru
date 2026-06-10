@@ -40,8 +40,8 @@ export {
     rewriteExprs
     rewriteStmts
     rewriteBlock
-    rewriteStructField
-    rewriteStructFields
+    rewriteObjectField
+    rewriteObjectFields
     rewriteMatchArm
     rewriteMatchArms
     rewriteMatchStmtArm
@@ -338,19 +338,19 @@ fn rewriteBlock(block BlockNode, subst SubstTable) BlockNode {
     return { stmts: newStmts }
 }
 
-// rewriteStructField — rewrite a StructFieldNode's value and method body.
-fn rewriteStructField(sf StructFieldNode, subst SubstTable) StructFieldNode {
+// rewriteObjectField — rewrite a ObjectFieldNode's value and method body.
+fn rewriteObjectField(sf ObjectFieldNode, subst SubstTable) ObjectFieldNode {
     let newVal AstNode: rewriteExpr(sf.value, subst)
     let newBody Array<AstNode>: rewriteStmts(sf.methodBody, subst)
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newBody }
 }
 
-// rewriteStructFields — rewrite an array of StructFieldNodes.
-fn rewriteStructFields(fields Array<StructFieldNode>, subst SubstTable) Array<StructFieldNode> {
-    let out Array<StructFieldNode>: []
+// rewriteObjectFields — rewrite an array of ObjectFieldNodes.
+fn rewriteObjectFields(fields Array<ObjectFieldNode>, subst SubstTable) Array<ObjectFieldNode> {
+    let out Array<ObjectFieldNode>: []
     let i i64: 0
     while i.lt(fields.len()) {
-        out.add(rewriteStructField(fields.at(i), subst))
+        out.add(rewriteObjectField(fields.at(i), subst))
         i: i.add(1)
     }
     return out
@@ -563,10 +563,10 @@ fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
             let result ArrayLitNode: { elems: newElems, resolvedType: aln.resolvedType }
             return result
         }
-        StructLitNode: {
-            let sln StructLitNode: node
-            let newFields Array<StructFieldNode>: rewriteStructFields(sln.fields, subst)
-            let result StructLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+        ObjectLitNode: {
+            let sln ObjectLitNode: node
+            let newFields Array<ObjectFieldNode>: rewriteObjectFields(sln.fields, subst)
+            let result ObjectLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
             return result
         }
         MatchExprNode: {
@@ -650,7 +650,7 @@ fn hasRenamingEntries(subst SubstTable) bool {
 //
 // IMPORTANT: own-file FnDeclNodes are rewritten via rewriteStmt (return type
 // AstNode) rather than by constructing a FnDeclNode literal directly.  The
-// bootstrap binary only emits the AstNode sum-type header when a struct literal
+// bootstrap binary only emits the AstNode sum-type header when a object literal
 // is returned from a function whose declared return type is AstNode; constructing
 // a FnDeclNode and adding it directly to Array<AstNode> bypasses that path and
 // produces a broken AstNode without the correct variant index.

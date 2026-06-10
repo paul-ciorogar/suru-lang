@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed the "struct" concept; `ptr` now feels like an object
+
+- **There is no separate "struct" at the language level — only objects and object
+  literals.** A named `type Foo: { ... }` is an *object* (with or without methods); a
+  `{ ... }` value is an *object literal*. Pure terminology refactor: the AST nodes
+  `StructLitNode`/`StructFieldNode` are renamed to `ObjectLitNode`/`ObjectFieldNode`,
+  and the object-literal pathway helpers (`parseObjectLit*`, `rtResolveObjectLitNode`,
+  `lowerObjectsObjectLit`, `emitObjectLit`, `printExprObjectLit`, …) follow suit.
+  Diagnostics now say `object literal of type '...'` instead of `struct literal ...`.
+  No behavior or IR change. ("struct" survives only as an implementation term for the
+  in-memory record layout — `irStructCodegen.suru`, `suruStructSize`, `runtime/struct.c`,
+  `type_tag 4 = Struct` — and for the C-ABI `cType`.)
+- **`ptr` is now an object-like value with method-call memory ops.** The former
+  function intrinsics `ptrAdd`/`ptrLoad`/`ptrStore` are replaced by `p.add(n)` /
+  `p.load(off)` / `p.store(off, val)`, dispatched on a `"ptr"` receiver (like
+  `arr.push`/`5.add`). They are **always available — no `import { ... : stdlib.ffi }`
+  required** (the `stdlib.ffi` import gate now applies only to `typeSize`). The old
+  function forms and their `ffi.suru` phantoms are removed; stdlib (`string`,
+  `stringBuilder`, `list`) and the `ptr-load-store` fixture migrated to method syntax.
+  Same emitted IR (GEP `i8` + typed load/store).
+
 ### `SuruString.concatStr()` — concatenate two `SuruString`s
 
 - **Added `SuruString.concatStr(other SuruString) SuruString`.** Returns a fresh

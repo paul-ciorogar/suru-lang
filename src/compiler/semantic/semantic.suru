@@ -141,7 +141,7 @@ type AnalysisError: { message String, line i64, col i64, srcPath String }
 // SemFieldEntry / SemTypeEntry mirror parser TypeDeclNode + Param shape but live
 // inside the semantic layer so semantic.suru can stay a leaf (no parser/ast
 // include). collectTypeDeclarations copies each TypeDeclNode into a SemTypeEntry
-// at pre-pass time; resolveTypes.suru reads them when resolving StructLitNodes
+// at pre-pass time; resolveTypes.suru reads them when resolving ObjectLitNodes
 // and FieldAccessNodes.
 type SemFieldEntry: { name String, typeName String }
 // SemMethodEntry mirrors a parser MethodSig (declared method signature on a
@@ -149,7 +149,7 @@ type SemFieldEntry: { name String, typeName String }
 // implicit `this` receiver is NOT included here.
 type SemMethodEntry: { name String, paramTypes Array<String>, returnType String }
 // SemTypeEntry mirrors a parser TypeDeclNode. privateFieldNames / privateMethodNames
-// are populated by resolveTypes.suru when it first encounters a StructLitNode whose
+// are populated by resolveTypes.suru when it first encounters a ObjectLitNode whose
 // fields carry isPrivate=true; they drive the access-control check in FieldAccessNode
 // and MethodCallNode resolution.
 // `isCType` is true for `cType` declarations (header-less, C-ABI FFI structs);
@@ -406,8 +406,8 @@ fn clearMovedAt(src Array<String>, dst Array<String>, name String, i i64) Array<
 
 // currentModuleHasImport — returns true if the namespace `ns` appears in the
 // current module's import list (state.currentModuleImports).  Called from
-// resolveTypes.suru to gate compiler intrinsics (typeSize, ptrLoad, ptrStore)
-// behind an explicit per-module import, not a root-only global flag.
+// resolveTypes.suru to gate the typeSize compiler intrinsic behind an explicit
+// per-module import, not a root-only global flag.
 fn currentModuleHasImport(importedNs Array<String>, ns String) bool {
     let i i64: 0
     while i.lt(importedNs.len()) {

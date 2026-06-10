@@ -7,7 +7,7 @@ export { main }
 // Validates that private fields declared in a constructor function's
 // `return { _ name Type: value, ... }` struct literal are processed correctly.
 //
-// Bug: augPrivInBody only scans LetNode → StructLitNode, so private fields
+// Bug: augPrivInBody only scans LetNode → ObjectLitNode, so private fields
 // inside a ReturnNode's struct literal are not registered in the TypeDeclNode.
 // This causes the struct layout to be missing the private field, leading to
 // incorrect GEP offsets and wrong output or a crash.
