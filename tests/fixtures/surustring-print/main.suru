@@ -1,0 +1,30 @@
+namespace Test.SuruStringPrint
+
+// Exercises printLn / printError directly on SuruString values now that codegen
+// special-cases them (dataBuffer() + puts / suru_printerror_lit) instead of
+// falling through to suru_println(ptr) → "<struct>".
+
+import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+
+fn main(args Array<String>) {
+    // --- owned variable: printed, NOT dropped by the print site ---
+    let s SuruString: suruStringFrom("hello")
+    printLn(s)                          // hello
+
+    // --- fresh temp from a CallNode: printed then dropped ---
+    printLn(suruStringFrom("world"))    // world
+
+    // --- fresh temp from a method (concat): printed then dropped ---
+    printLn(s.concat(" world"))         // hello world
+
+    // --- fresh temp from a method (slice): printed then dropped ---
+    let t SuruString: s.concat(" there")
+    printLn(t.slice(6, 11))             // there
+
+    // --- fresh temp from clone: printed then dropped ---
+    printLn(s.clone())                  // hello
+
+    drop(s)
+    drop(t)
+    printLn("ok")
+}

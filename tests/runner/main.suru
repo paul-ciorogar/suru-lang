@@ -118,6 +118,7 @@ fn main(args Array<String>) {
         { name: "list-basic",                        source: "tests/fixtures/list-basic",                        args: "", expected: readFile("/work/tests/fixtures/list-basic/expected.txt"),                        xfail: false, compileError: false },
         { name: "list-string",                       source: "tests/fixtures/list-string",                       args: "", expected: readFile("/work/tests/fixtures/list-string/expected.txt"),                       xfail: false, compileError: false },
         { name: "surustring-basic",                  source: "tests/fixtures/surustring-basic",                  args: "", expected: readFile("/work/tests/fixtures/surustring-basic/expected.txt"),                  xfail: false, compileError: false },
+        { name: "surustring-print",                  source: "tests/fixtures/surustring-print",                  args: "", expected: readFile("/work/tests/fixtures/surustring-print/expected.txt"),                  xfail: false, compileError: false },
         { name: "stringbuilder-basic",               source: "tests/fixtures/stringbuilder-basic",               args: "", expected: readFile("/work/tests/fixtures/stringbuilder-basic/expected.txt"),               xfail: false, compileError: false },
     ]
 

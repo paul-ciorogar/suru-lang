@@ -821,6 +821,52 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
     return { ctx: ctx, name: callR.name, llvmType: retLlvm, suruType: outSuru }
 }
 
+// Emit a call to a SuruString's dataBuffer() method, returning the SSA name of
+// its borrowed NUL-terminated char buffer (a raw `ptr`). Used by the printLn /
+// printError special-case: a SuruString is a vtable object (type_tag 4), so the
+// generic suru_println(ptr) path would print "<struct>". Fetching the buffer and
+// puts()-ing it prints the actual bytes. Mirrors emitObjectMethodCall's vtable
+// dispatch but with no method arguments (dataBuffer takes only `this`).
+fn emitSuruStringBuffer(ctx IrCodegenContext, recvVal String) CodegenResult {
+    let decl TypeDecl: types.lookupType(ctx, "SuruString")
+    let mIdx i64: types.methodIndex(decl, "dataBuffer")
+    let vtIdx i64: types.fieldIndex(decl, "__vtable")
+    let vtOff i64: irStruct.suruFieldOffset(decl, vtIdx)
+    let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
+    ctx.builder: slotR.builder
+    let vtR IrResult: ir.emitLoad(ctx.builder, "ptr", slotR.name)
+    ctx.builder: vtR.builder
+    let fpSlotR IrResult: ir.emitGEP(ctx.builder, "ptr", vtR.name, "i64 ".append(mIdx.toString()))
+    ctx.builder: fpSlotR.builder
+    let fpR IrResult: ir.emitLoad(ctx.builder, "ptr", fpSlotR.name)
+    ctx.builder: fpR.builder
+    let argParts Array<String>: []
+    argParts.add("ptr ".append(recvVal))
+    let callR IrResult: ir.emitIndirectCall(ctx.builder, "ptr", fpR.name, argParts)
+    ctx.builder: callR.builder
+    return { ctx: ctx, name: callR.name, llvmType: "ptr", suruType: "ptr" }
+}
+
+// Decide whether a printLn / printError argument is a freshly-allocated SuruString
+// temporary that must be dropped after printing (to stay leak-free). A bare
+// VarRefNode / FieldAccessNode is owned elsewhere (dropped at scope end / borrowed)
+// and must NOT be dropped here. CallNodes (suruStringFrom, concat helpers, ...) and
+// the owned-result SuruString methods (concat/concatStr/slice/clone) produce fresh
+// allocations. Mirrors the built-in String temp-drop heuristic.
+fn isFreshSuruStringArg(node AstNode) bool {
+    match node {
+        CallNode: { return true }
+        MethodCallNode: {
+            if node.methodName.equals("concat")    { return true }
+            if node.methodName.equals("concatStr") { return true }
+            if node.methodName.equals("slice")     { return true }
+            if node.methodName.equals("clone")     { return true }
+            return false
+        }
+        _: { return false }
+    }
+}
+
 // Emit an integer index argument: evaluate it, then unbox to a raw i64 if the
 // value came back as a boxed dyn pointer. Used by Array/String at/set/slice.
 fn emitRawIndex(ctx IrCodegenContext, argNode AstNode) CodegenResult {
@@ -1904,6 +1950,22 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             }
                             let ar CodegenResult: emitValue(ctx, printArg)
                             ctx: ar.ctx
+                            // SuruString (Suru-native string) is a vtable object
+                            // (type_tag 4); suru_println(ptr) would print "<struct>".
+                            // Print its NUL-terminated buffer via dataBuffer() + puts.
+                            if ar.suruType.equals("SuruString") {
+                                let bufR CodegenResult: emitSuruStringBuffer(ctx, ar.name)
+                                ctx: bufR.ctx
+                                ctx: types.addDecl(ctx, "declare i32 @puts(ptr)\n")
+                                let ssArgs Array<String>: []
+                                ssArgs.add("ptr ".append(bufR.name))
+                                ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "puts", ssArgs)
+                                if isFreshSuruStringArg(printArg) {
+                                    let dr CodegenResult: eh.emitDropDyn(ctx, ar.name, "SuruString")
+                                    ctx: dr.ctx
+                                }
+                                return ctx
+                            }
                             ctx: emitPrintByType(ctx, ar.name, ar.suruType, "println")
                             // Drop temp string after printing.
                             // Only drop when the arg definitely produces a new
@@ -1948,6 +2010,21 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             }
                             let ar CodegenResult: emitValue(ctx, peArg)
                             ctx: ar.ctx
+                            // SuruString: print its buffer to stderr via dataBuffer()
+                            // + suru_printerror_lit (fputs + newline), mirroring printLn.
+                            if ar.suruType.equals("SuruString") {
+                                let bufR CodegenResult: emitSuruStringBuffer(ctx, ar.name)
+                                ctx: bufR.ctx
+                                ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_lit(ptr)\n")
+                                let ssArgs Array<String>: []
+                                ssArgs.add("ptr ".append(bufR.name))
+                                ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_lit", ssArgs)
+                                if isFreshSuruStringArg(peArg) {
+                                    let dr CodegenResult: eh.emitDropDyn(ctx, ar.name, "SuruString")
+                                    ctx: dr.ctx
+                                }
+                                return ctx
+                            }
                             ctx: emitPrintByType(ctx, ar.name, ar.suruType, "printerror")
                             return ctx
                         }
