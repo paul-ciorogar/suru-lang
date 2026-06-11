@@ -44,6 +44,8 @@ export {
     SuruString
     newSuruString
     suruStringFrom
+    suruStringFromI64
+    suruStringFromChar
     suruStringFromBuilder
 }
 
@@ -258,6 +260,29 @@ fn suruStringFrom(s String) SuruString {
     let sb StringBuilder: newStringBuilder()
     sb.append(s)
     let r SuruString: suruStringFromBuilder(sb)
+    drop(sb)
+    return r
+}
+
+// suruStringFromI64 — format a signed i64 as a decimal SuruString.
+// Delegates digit formatting to StringBuilder.appendI64 (overflow-safe at i64
+// min via non-positive digit extraction), then snapshots to an immutable
+// SuruString. The builder is dropped so only the returned string survives.
+fn suruStringFromI64(n i64) SuruString {
+    let sb StringBuilder: newStringBuilder()
+    sb.appendI64(n)
+    let r SuruString: sb.toString()
+    drop(sb)
+    return r
+}
+
+// suruStringFromChar — wrap a single char byte in a fresh one-character
+// SuruString. Uses StringBuilder.appendChar (which NUL-terminates), then
+// snapshots to an immutable SuruString and drops the builder.
+fn suruStringFromChar(c char) SuruString {
+    let sb StringBuilder: newStringBuilder()
+    sb.appendChar(c)
+    let r SuruString: sb.toString()
     drop(sb)
     return r
 }

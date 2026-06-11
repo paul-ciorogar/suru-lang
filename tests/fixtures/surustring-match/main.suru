@@ -1,0 +1,35 @@
+namespace Test.SuruStringMatch
+
+import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+
+// classify — exercises the match-EXPRESSION form (emitMatchExpr) on a SuruString scrutinee.
+// Each literal arm lowers to a vtable `s.equals(pattern)` call.
+fn classify(s SuruString) i64 {
+    let r i64: match s { "Monday": 1, "Friday": 5, _: 0 }
+    return r
+}
+
+fn main(args Array<String>) {
+    let mon SuruString: suruStringFrom("Monday")
+    let other SuruString: suruStringFrom("Sunday")
+    let empty SuruString: suruStringFrom("")
+    let fri SuruString: suruStringFrom("Friday")
+
+    // statement-form match (emitMatchExprAsStmt): hit a middle arm, hit first arm, fall to default.
+    match mon { "Monday": printLn("hit-monday"), "Friday": printLn("hit-friday"), _: printLn("default") }
+    match other { "Monday": printLn("hit-monday"), _: printLn("default") }
+
+    // empty-string scrutinee against an empty-string pattern.
+    match empty { "": printLn("empty-hit"), _: printLn("empty-miss") }
+
+    // expression-form via classify().
+    printLn(classify(mon).toString())     // 1
+    printLn(classify(fri).toString())     // 5
+    printLn(classify(other).toString())   // 0
+
+    drop(mon)
+    drop(other)
+    drop(empty)
+    drop(fri)
+    printLn("ok")
+}

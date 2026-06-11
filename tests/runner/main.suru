@@ -9,6 +9,7 @@ import { [sizeExprTests]: Test.Unit.Compiler.SizeExpr }
 import { [ptrLoadStoreTests]: Test.Unit.Compiler.PtrLoadStore }
 import { [suruStringOrderTests]: Test.Unit.Stdlib.String }
 import { [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum }
+import { [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv }
 import { [reportResults]: Test.Unit.Assert }
 
 // xfail marks a known-broken test that must NOT block the build: an xfail that
@@ -122,6 +123,7 @@ fn main(args Array<String>) {
         { name: "surustring-basic",                  source: "tests/fixtures/surustring-basic",                  args: "", expected: readFile("/work/tests/fixtures/surustring-basic/expected.txt"),                  xfail: false, compileError: false },
         { name: "surustring-print",                  source: "tests/fixtures/surustring-print",                  args: "", expected: readFile("/work/tests/fixtures/surustring-print/expected.txt"),                  xfail: false, compileError: false },
         { name: "stringbuilder-basic",               source: "tests/fixtures/stringbuilder-basic",               args: "", expected: readFile("/work/tests/fixtures/stringbuilder-basic/expected.txt"),               xfail: false, compileError: false },
+        { name: "surustring-match",                  source: "tests/fixtures/surustring-match",                  args: "", expected: readFile("/work/tests/fixtures/surustring-match/expected.txt"),                  xfail: false, compileError: false },
     ]
 
     let passed i64: 0
@@ -153,6 +155,8 @@ fn main(args Array<String>) {
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())
     failed: failed.add(sbNumFailed)
+    let strFromConvFailed i64: reportResults("string-from-conv", stringFromConvTests())
+    failed: failed.add(strFromConvFailed)
     printLn("")
 
     while i.lt(cases.len()) {

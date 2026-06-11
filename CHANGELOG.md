@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `match` on a `SuruString` scrutinee
+
+- **`match s { "foo": ... }` now works when `s` is a `SuruString`** (Blocker #5), not
+  just a built-in `String`. The semantic scrutinee allow-list (`semantic/exprs.suru`)
+  gained `SuruString`, and `emitPatternComparisons` (`codegen/irCodegen.suru`) keeps a
+  `SuruString` scrutinee as an object pointer (skipping the named-type i64 unbox) and
+  lowers each `"..."` literal arm to a vtable `scrutinee.equals(pattern)` call via the
+  new `emitSuruStringEqualsPattern` helper (returns `i1` directly). The literal pattern
+  stays a built-in `String`, so there is no per-arm `suruStringFrom`; `String`
+  scrutinees still use the existing `@strcmp` path. New fixture
+  `tests/fixtures/surustring-match/` covers matched/default arms, statement and
+  expression forms, and the empty-string case (valgrind clean). Codegen change —
+  bootstrap fixed point reconfirmed (C2 == C3).
+
 ### StringBuilder number appenders (`appendI64` / `appendF64`)
 
 - **`StringBuilder` can now format numbers directly into its buffer** so migrated

@@ -821,6 +821,35 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
     return { ctx: ctx, name: callR.name, llvmType: retLlvm, suruType: outSuru }
 }
 
+// emitSuruStringEqualsPattern — vtable-dispatch a `SuruString.equals(other String) bool` call given
+// the receiver object ptr (recvVal) and a built-in String pattern ptr (patVal).  Used by match
+// lowering (`emitPatternComparisons`) to test a SuruString scrutinee against each literal arm.
+// Mirrors emitObjectMethodCall's dispatch but is specialized to the fixed `(ptr this, ptr other) -> i1`
+// shape, so the caller needs no synthetic MethodCallNode.  Returns the i1 result directly.
+fn emitSuruStringEqualsPattern(ctx IrCodegenContext, recvVal String, patVal String) CodegenResult {
+    let decl TypeDecl: types.lookupType(ctx, "SuruString")
+    let mIdx i64: types.methodIndex(decl, "equals")
+    // $vtable slot (index 0 / offset 32 in the compact layout): GEP + load the vtable ptr.
+    let vtIdx i64: types.fieldIndex(decl, "$vtable")
+    let vtOff i64: irStruct.suruFieldOffset(decl, vtIdx)
+    let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
+    ctx.builder: slotR.builder
+    let vtR IrResult: ir.emitLoad(ctx.builder, "ptr", slotR.name)
+    ctx.builder: vtR.builder
+    // GEP to the method's slot in the vtable array, then load the fp.
+    let fpSlotR IrResult: ir.emitGEP(ctx.builder, "ptr", vtR.name, "i64 ".append(mIdx.toString()))
+    ctx.builder: fpSlotR.builder
+    let fpR IrResult: ir.emitLoad(ctx.builder, "ptr", fpSlotR.name)
+    ctx.builder: fpR.builder
+    // call i1 fp(ptr this, ptr other) — both args are already object/string pointers (no boxing).
+    let argParts Array<String>: []
+    argParts.add("ptr ".append(recvVal))
+    argParts.add("ptr ".append(patVal))
+    let callR IrResult: ir.emitIndirectCall(ctx.builder, "i1", fpR.name, argParts)
+    ctx.builder: callR.builder
+    return { ctx: ctx, name: callR.name, llvmType: "i1", suruType: "bool" }
+}
+
 // Emit a call to a SuruString's dataBuffer() method, returning the SSA name of
 // its borrowed NUL-terminated char buffer (a raw `ptr`). Used by the printLn /
 // printError special-case: a SuruString is a vtable object (type_tag 4), so the
@@ -1401,7 +1430,8 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
         rawCond: tr.name
     } else {
         // NamedType (non-variant) → unbox to i64 for comparison.
-        if not box.isScalarType(condSuruType) and not condSuruType.equals("String") {
+        // String and SuruString stay as object pointers (compared via strcmp / vtable equals).
+        if not box.isScalarType(condSuruType) and not condSuruType.equals("String") and not condSuruType.equals("SuruString") {
             let ur CodegenResult: box.unboxInt64(ctx, condVal)
             ctx: ur.ctx
             rawCond: ur.name
@@ -1446,6 +1476,15 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
                 ctx.builder: sr.builder
                 ctx.builder: ir.emit(ctx.builder, "  ".append(cmpTmp).append(" = icmp eq i32 ").append(sr.name).append(", 0\n"))
                 cmpVal: cmpTmp
+            } else if condSuruType.equals("SuruString") {
+                // SuruString scrutinee: each literal arm is a built-in String pattern.  Lower the
+                // arm to `scrutinee.equals(pattern)` via vtable dispatch (returns i1 directly), so
+                // the pre-allocated cmpTmp goes unused here.  rawCond is the SuruString object ptr.
+                let pr CodegenResult: emitValue(ctx, pat)
+                ctx: pr.ctx
+                let eqR CodegenResult: emitSuruStringEqualsPattern(ctx, rawCond, pr.name)
+                ctx: eqR.ctx
+                cmpVal: eqR.name
             } else {
                 let pr CodegenResult: emitValue(ctx, pat)
                 ctx: pr.ctx

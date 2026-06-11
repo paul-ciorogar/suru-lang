@@ -1,0 +1,58 @@
+// string_from_conv_test.suru — unit tests for the SuruString-producing
+// conversion helpers (Blocker #3b).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// stringFromConvTests() and reports the returned results. Covers
+// suruStringFromI64 (decimal i64 formatting: zero, positive, negative, i64 max
+// and i64 min boundary) and suruStringFromChar (single-char wrapping for
+// letters, digits, and punctuation).
+//
+// Each case builds the SuruString via the helper, then asserts the bytes equal
+// the expected text via SuruString.equals(String), and drops the snapshot to
+// keep valgrind clean.
+
+namespace Test.Unit.Stdlib.StringFromConv
+
+export { stringFromConvTests }
+
+import { [TestResult, assertTrue]: Test.Unit.Assert }
+import { [SuruString, suruStringFromI64, suruStringFromChar]: Suru.Stdlib.String }
+
+// checkI64 — assert that suruStringFromI64(n) produces want; drops the snapshot.
+fn checkI64(results Array<TestResult>, name String, n i64, want String) Array<TestResult> {
+    let s SuruString: suruStringFromI64(n)
+    results.add(assertTrue(name, s.equals(want)))
+    drop(s)
+    return results
+}
+
+// checkChar — assert that suruStringFromChar(c) produces want; drops the snapshot.
+fn checkChar(results Array<TestResult>, name String, c char, want String) Array<TestResult> {
+    let s SuruString: suruStringFromChar(c)
+    results.add(assertTrue(name, s.equals(want)))
+    drop(s)
+    return results
+}
+
+// stringFromConvTests — one TestResult per assertion.
+fn stringFromConvTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ── suruStringFromI64 ───────────────────────────────────────────────────
+    results: checkI64(results, "fromI64 zero",     0,                    "0")
+    results: checkI64(results, "fromI64 positive", 12345,                "12345")
+    results: checkI64(results, "fromI64 negative", 0.take(42),           "-42")
+    results: checkI64(results, "fromI64 single",   7,                    "7")
+    // i64 max
+    results: checkI64(results, "fromI64 max",      9223372036854775807,  "9223372036854775807")
+    // i64 min — cannot be negated; the non-positive-domain extraction handles it
+    let minVal i64: 0.take(9223372036854775807).take(1)
+    results: checkI64(results, "fromI64 min",      minVal,               "-9223372036854775808")
+
+    // ── suruStringFromChar ──────────────────────────────────────────────────
+    results: checkChar(results, "fromChar letter", 'A', "A")
+    results: checkChar(results, "fromChar digit",  '7', "7")
+    results: checkChar(results, "fromChar punct",  '!', "!")
+
+    return results
+}

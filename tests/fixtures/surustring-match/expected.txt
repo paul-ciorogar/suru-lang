@@ -1,0 +1,7 @@
+hit-monday
+default
+empty-hit
+1
+5
+0
+ok

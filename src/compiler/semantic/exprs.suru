@@ -321,9 +321,9 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let cond AstNode: typed.condition
             analyzeExpr(state, cond)
             let condType String: inferType(state, cond)
-            let isValidCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("char")
+            let isValidCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("char") or condType.equals("SuruString")
             if not isValidCondType {
-                state.addError("match condition must be bool, i64, f64, String, or char, got ".append(condType), typed.line, typed.col)
+                state.addError("match condition must be bool, i64, f64, String, SuruString, or char, got ".append(condType), typed.line, typed.col)
             }
             analyzeMatchArmsAt(state, typed.arms)
         }
