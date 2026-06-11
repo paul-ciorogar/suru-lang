@@ -213,6 +213,15 @@ void *suru_int64_to_string(int64_t v) {
     return out;
 }
 
+/* f64 -> i64 cast bridge (truncates toward zero). Suru has no fptosi primitive,
+ * so StringBuilder.appendF64 extracts a float's integer part via this FFI helper.
+ * Only finite, in-range magnitudes are well-defined (the formatter documents this). */
+int64_t suru_f64_to_i64(double d) { return (int64_t)d; }
+
+/* i64 -> f64 cast bridge (widening). Counterpart to suru_f64_to_i64, used to
+ * subtract a float's integer part back out when emitting fractional digits. */
+double suru_i64_to_f64(int64_t v) { return (double)v; }
+
 /* Parse a decimal String (e.g. "-2.5") into a raw double via strtod. */
 double suru_float64_from_string(void *sp) {
     SuruString *s = (SuruString *)sp;

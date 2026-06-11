@@ -1,0 +1,80 @@
+// string_builder_num_test.suru — unit tests for StringBuilder number appenders.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// stringBuilderNumTests() and reports the returned results. Covers
+// StringBuilder.appendI64 (decimal i64 formatting: zero, positive, negative,
+// i64 max and i64 min boundary) and StringBuilder.appendF64 (fixed 6-digit
+// fractional formatting, sign handling, and the NaN guard).
+//
+// Each case appends into a fresh builder, snapshots to a SuruString via
+// toString(), then asserts the bytes equal the expected text via
+// SuruString.equals(String).
+
+namespace Test.Unit.Stdlib.StringBuilderNum
+
+export { stringBuilderNumTests }
+
+import { [TestResult, assertTrue]: Test.Unit.Assert }
+import { [SuruString]: Suru.Stdlib.String }
+import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+
+// buildI64 — format n via a fresh StringBuilder and return the snapshot.
+fn buildI64(n i64) SuruString {
+    let b StringBuilder: newStringBuilder()
+    b.appendI64(n)
+    let s SuruString: b.toString()
+    drop(b)
+    return s
+}
+
+// buildF64 — format n via a fresh StringBuilder and return the snapshot.
+fn buildF64(n f64) SuruString {
+    let b StringBuilder: newStringBuilder()
+    b.appendF64(n)
+    let s SuruString: b.toString()
+    drop(b)
+    return s
+}
+
+// checkI64 — assert that appendI64(n) produces want; drops the snapshot.
+fn checkI64(results Array<TestResult>, name String, n i64, want String) Array<TestResult> {
+    let s SuruString: buildI64(n)
+    results.add(assertTrue(name, s.equals(want)))
+    drop(s)
+    return results
+}
+
+// checkF64 — assert that appendF64(n) produces want; drops the snapshot.
+fn checkF64(results Array<TestResult>, name String, n f64, want String) Array<TestResult> {
+    let s SuruString: buildF64(n)
+    results.add(assertTrue(name, s.equals(want)))
+    drop(s)
+    return results
+}
+
+// stringBuilderNumTests — one TestResult per assertion.
+fn stringBuilderNumTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ── appendI64 ───────────────────────────────────────────────────────────
+    results: checkI64(results, "appendI64 zero",      0,                    "0")
+    results: checkI64(results, "appendI64 positive",  12345,                "12345")
+    results: checkI64(results, "appendI64 negative",  0.take(42),           "-42")
+    results: checkI64(results, "appendI64 single",    7,                    "7")
+    // i64 max
+    results: checkI64(results, "appendI64 max",       9223372036854775807,  "9223372036854775807")
+    // i64 min — cannot be negated; the non-positive-domain extraction handles it
+    let minVal i64: 0.take(9223372036854775807).take(1)
+    results: checkI64(results, "appendI64 min",       minVal,               "-9223372036854775808")
+
+    // ── appendF64 ───────────────────────────────────────────────────────────
+    results: checkF64(results, "appendF64 zero",      0.0,                  "0.000000")
+    results: checkF64(results, "appendF64 positive",  3.5,                  "3.500000")
+    results: checkF64(results, "appendF64 negative",  0.0.take(1.25),       "-1.250000")
+    results: checkF64(results, "appendF64 integer",   42.0,                 "42.000000")
+    // NaN guard: 0.0 / 0.0 is NaN, formatted as "nan"
+    let nan f64: 0.0.split(0.0)
+    results: checkF64(results, "appendF64 nan",       nan,                  "nan")
+
+    return results
+}

@@ -40,6 +40,12 @@ extern fn malloc(n i64) ptr
 extern fn free(p ptr) void
 extern fn realloc(p ptr, n i64) ptr
 
+// f64 <-> i64 cast bridge (runtime/string.c). Suru has no fptosi/sitofp
+// primitive, so appendF64 uses these to split a float into its integer and
+// fractional parts. Only finite, in-i64-range magnitudes are well-defined.
+extern fn suru_f64_to_i64(d f64) i64
+extern fn suru_i64_to_f64(v i64) f64
+
 // StringBuilder: a resizable, mutable byte buffer with explicit clone/drop.
 // Declaring fn clone() and fn drop() sets hasCustomLifecycle = true, so the
 // compiler emits vtable-dispatch wrappers instead of auto-walking fields —
@@ -48,6 +54,8 @@ type StringBuilder: {
     fn append(other String) void
     fn appendChar(c char) void
     fn appendStr(other SuruString) void
+    fn appendI64(n i64) void
+    fn appendF64(n f64) void
     fn len() i64
     fn charAt(idx i64) char
     fn toString() SuruString
@@ -96,6 +104,84 @@ fn newStringBuilderCap(cap i64) StringBuilder {
             while i.lt(n) {
                 this.appendChar(other.charAt(i))
                 i: i.add(1)
+            }
+        }
+
+        // appendI64 — format a signed i64 as decimal digits directly into the
+        // buffer (no round-trip through built-in String). Pure Suru: there is no
+        // modulo operator, so each digit is m - (m/10)*10 using split (sdiv),
+        // multiply and take. Digits are converted to bytes via "0123456789".__at(d)
+        // (a static literal) to avoid char arithmetic.
+        //
+        // Overflow-safety: i64 min cannot be negated, so digit extraction runs in
+        // the NON-POSITIVE domain (m <= 0). For n >= 0, m is set to -n; for n < 0,
+        // m is n unchanged. Each remainder r = m - (m/10)*10 is in -9..0, and the
+        // digit value is -r in 0..9. Digits come out least-significant first, so
+        // they are collected into a local array and emitted in reverse.
+        fn appendI64(n i64) void {
+            let digits String: "0123456789"
+            if n.equals(0) {
+                this.appendChar(digits.__at(0))
+                return
+            }
+            let neg bool: n.lt(0)
+            let m i64: n
+            if not neg {
+                m: 0.take(n)
+            }
+            let rev Array<i64>: []
+            while m.lt(0) {
+                let q i64: m.split(10)
+                let r i64: m.take(q.multiply(10))
+                let d i64: 0.take(r)
+                rev.add(d)
+                m: q
+            }
+            if neg {
+                this.appendChar('-')
+            }
+            let i i64: rev.len()
+            while i.gt(0) {
+                i: i.take(1)
+                this.appendChar(digits.__at(rev.at(i)))
+            }
+            drop(rev)
+        }
+
+        // appendF64 — format an f64 as fixed-point decimal with exactly 6
+        // fractional digits (e.g. 1.5 -> "1.500000"). The formatting algorithm is
+        // pure Suru; only the f64<->i64 cast is delegated to the FFI bridge
+        // (suru_f64_to_i64 truncates toward zero, suru_i64_to_f64 widens back).
+        //
+        // NaN is detected via the self-inequality property (NaN != NaN) and printed
+        // as "nan". Only finite values within i64 magnitude are well-defined;
+        // infinities and huge magnitudes are out of scope (documented).
+        fn appendF64(n f64) void {
+            if not n.equals(n) {
+                this.append("nan")
+                return
+            }
+            let digits String: "0123456789"
+            let neg bool: n.lt(0.0)
+            let x f64: n
+            if neg {
+                x: 0.0.take(n)
+            }
+            let ip i64: suru_f64_to_i64(x)
+            let frac f64: x.take(suru_i64_to_f64(ip))
+            if neg {
+                this.appendChar('-')
+            }
+            this.appendI64(ip)
+            this.appendChar('.')
+            let k i64: 0
+            let scaled f64: frac
+            while k.lt(6) {
+                scaled: scaled.multiply(10.0)
+                let d i64: suru_f64_to_i64(scaled)
+                this.appendChar(digits.__at(d))
+                scaled: scaled.take(suru_i64_to_f64(d))
+                k: k.add(1)
             }
         }
 
