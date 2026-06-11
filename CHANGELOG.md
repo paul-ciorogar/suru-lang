@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### StringBuilder number appenders (`appendI64` / `appendF64`)
+
+- **`StringBuilder` can now format numbers directly into its buffer** so migrated
+  code can build strings from numbers without round-tripping through the built-in
+  `String`. Two methods were added in `src/stdlib/stringBuilder.suru`:
+  - `appendI64(n i64) void` — decimal `i64`. Pure Suru: digits are extracted with
+    `split` (sdiv) / `multiply` / `take` (no modulo operator exists) and converted
+    to bytes via `"0123456789".__at(d)`. Digit extraction runs in the non-positive
+    domain so it is correct at `i64` min (which cannot be negated).
+  - `appendF64(n f64) void` — fixed-point decimal with exactly 6 fractional digits
+    (e.g. `1.5` → `1.500000`); `NaN` → `"nan"`. The formatting algorithm is pure
+    Suru; only the `f64`↔`i64` cast is delegated to FFI.
+- **Runtime cast bridge** (`runtime/string.c`): `suru_f64_to_i64` (truncate toward
+  zero) and `suru_i64_to_f64` (widen). Suru has no `fptosi`/`sitofp` primitive, so
+  `appendF64` splits a float into integer/fractional parts through these. Declared
+  as `extern fn` in the stdlib — no codegen change, so no bootstrap is required.
+- Tests: `tests/unit/stdlib/string_builder_num_test.suru` (new), covering `0`,
+  positives, negatives, `i64` max/min, fixed-fraction floats, and the NaN guard.
+
 ### SuruString ordering (`compare` / `compareStr`)
 
 - **`SuruString` now supports three-way ordering** so migrated code can sort and
