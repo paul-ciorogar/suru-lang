@@ -63,6 +63,8 @@ type SuruString: {
     fn charAt(idx i64) char
     fn equals(other String) bool
     fn equalsStr(other SuruString) bool
+    fn compare(other String) i64
+    fn compareStr(other SuruString) i64
     fn slice(from i64, to i64) SuruString
     fn clone() SuruString
     fn drop() void
@@ -148,6 +150,53 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
                 i: i.add(1)
             }
             return true
+        }
+
+        // compare — three-way ordering against a built-in String, with strcmp
+        // sign semantics: returns a negative value when this sorts before other,
+        // 0 when equal, a positive value when this sorts after other (the exact
+        // magnitude is unspecified — only the sign is meaningful). Scans the
+        // common prefix (up to the shorter length) byte-by-byte; on the first
+        // differing byte the sign of that byte difference decides the order. If
+        // one string is a prefix of the other, the shorter one sorts first, so
+        // the lengths break the tie. Comparison is over signed byte values,
+        // which matches strcmp for ASCII (the intended use).
+        fn compare(other String) i64 {
+            let n2 i64: other.len()
+            let lim i64: this.count
+            if n2.lt(lim) { lim: n2 }
+            let i i64: 0
+            while i.lt(lim) {
+                let a char: this.data.load(i)
+                let b char: other.__at(i)
+                if a.lt(b) { return 0.take(1) }
+                if a.gt(b) { return 1 }
+                i: i.add(1)
+            }
+            if this.count.lt(n2) { return 0.take(1) }
+            if this.count.gt(n2) { return 1 }
+            return 0
+        }
+
+        // compareStr — three-way ordering against another SuruString, identical
+        // to compare() but reading the other side through its SuruString methods
+        // (len()/charAt()). Returns negative / 0 / positive (strcmp sign
+        // semantics); see compare() for the full description.
+        fn compareStr(other SuruString) i64 {
+            let n2 i64: other.len()
+            let lim i64: this.count
+            if n2.lt(lim) { lim: n2 }
+            let i i64: 0
+            while i.lt(lim) {
+                let a char: this.data.load(i)
+                let b char: other.charAt(i)
+                if a.lt(b) { return 0.take(1) }
+                if a.gt(b) { return 1 }
+                i: i.add(1)
+            }
+            if this.count.lt(n2) { return 0.take(1) }
+            if this.count.gt(n2) { return 1 }
+            return 0
         }
 
         // slice — return a new SuruString containing bytes [from, to).

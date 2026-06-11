@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### SuruString ordering (`compare` / `compareStr`)
+
+- **`SuruString` now supports three-way ordering** so migrated code can sort and
+  compare strings. Two methods were added in `src/stdlib/string.suru`:
+  - `compare(other String) i64` — order against a built-in `String`.
+  - `compareStr(other SuruString) i64` — order against another `SuruString`.
+- Both follow `strcmp` sign semantics: a negative result when the receiver sorts
+  first, `0` when equal, positive otherwise (only the sign is meaningful). They
+  scan the common prefix (up to the shorter length) byte-by-byte via `ptr.load`,
+  then break ties by length. Comparison is over signed byte values, which matches
+  `strcmp` for ASCII (the intended use). Stdlib-only — no codegen change.
+- Tests: `tests/unit/stdlib/string_test.suru` (new), covering less/equal/greater,
+  prefix tie-breaks, and empty strings for both methods.
+
 ### Collision-proof name mangling separators
 
 - **Mangled symbol names no longer use `__`, which users could collide with.** `_`

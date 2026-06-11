@@ -7,6 +7,7 @@ import { [ptrTests]: Test.Unit.Compiler.Ptr }
 import { [externTypeTests]: Test.Unit.Compiler.ExternType }
 import { [sizeExprTests]: Test.Unit.Compiler.SizeExpr }
 import { [ptrLoadStoreTests]: Test.Unit.Compiler.PtrLoadStore }
+import { [suruStringOrderTests]: Test.Unit.Stdlib.String }
 import { [reportResults]: Test.Unit.Assert }
 
 // xfail marks a known-broken test that must NOT block the build: an xfail that
@@ -147,6 +148,8 @@ fn main(args Array<String>) {
     failed: failed.add(sizeExprFailed)
     let ptrLoadStoreFailed i64: reportResults("ptr-load-store", ptrLoadStoreTests())
     failed: failed.add(ptrLoadStoreFailed)
+    let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
+    failed: failed.add(suruStrOrderFailed)
     printLn("")
 
     while i.lt(cases.len()) {

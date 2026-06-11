@@ -1,0 +1,71 @@
+// string_test.suru — unit tests for SuruString three-way ordering.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// suruStringOrderTests() and reports the returned results. Covers compare()
+// (against a built-in String) and compareStr() (against another SuruString):
+// less / equal / greater, prefix tie-breaks, and empty strings. Assertions
+// check the SIGN of the result (strcmp semantics), not its magnitude.
+
+namespace Test.Unit.Stdlib.String
+
+export { suruStringOrderTests }
+
+import { [TestResult, assertEqI64, assertTrue]: Test.Unit.Assert }
+import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+
+// suruStringOrderTests — one TestResult per assertion.
+fn suruStringOrderTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ── compareStr (SuruString vs SuruString) ───────────────────────────────
+    let abc SuruString: suruStringFrom("abc")
+    let abd SuruString: suruStringFrom("abd")
+    let abc2 SuruString: suruStringFrom("abc")
+    let ab SuruString: suruStringFrom("ab")
+    let empty SuruString: suruStringFrom("")
+    let empty2 SuruString: suruStringFrom("")
+    let a SuruString: suruStringFrom("a")
+
+    // equal strings → 0
+    results.add(assertEqI64("compareStr abc==abc", abc.compareStr(abc2), 0))
+    // first differing byte decides: 'c' < 'd' → negative, and the reverse
+    results.add(assertTrue("compareStr abc<abd", abc.compareStr(abd).lt(0)))
+    results.add(assertTrue("compareStr abd>abc", abd.compareStr(abc).gt(0)))
+    // prefix: shorter sorts first → "ab" < "abc", and the reverse
+    results.add(assertTrue("compareStr ab<abc", ab.compareStr(abc).lt(0)))
+    results.add(assertTrue("compareStr abc>ab", abc.compareStr(ab).gt(0)))
+    // empty strings: "" == "" → 0; "" < "a" → negative; "a" > "" → positive
+    results.add(assertEqI64("compareStr empty==empty", empty.compareStr(empty2), 0))
+    results.add(assertTrue("compareStr empty<a", empty.compareStr(a).lt(0)))
+    results.add(assertTrue("compareStr a>empty", a.compareStr(empty).gt(0)))
+
+    drop(abc)
+    drop(abd)
+    drop(abc2)
+    drop(ab)
+    drop(empty)
+    drop(empty2)
+    drop(a)
+
+    // ── compare (SuruString vs built-in String) ─────────────────────────────
+    let sAbc SuruString: suruStringFrom("abc")
+    let sAb SuruString: suruStringFrom("ab")
+    let sEmpty SuruString: suruStringFrom("")
+
+    results.add(assertEqI64("compare abc==abc", sAbc.compare("abc"), 0))
+    results.add(assertTrue("compare abc<abd", sAbc.compare("abd").lt(0)))
+    results.add(assertTrue("compare abc>abb", sAbc.compare("abb").gt(0)))
+    // prefix tie-breaks against a built-in String
+    results.add(assertTrue("compare ab<abc", sAb.compare("abc").lt(0)))
+    results.add(assertTrue("compare abc>ab", sAbc.compare("ab").gt(0)))
+    // empty cases
+    results.add(assertEqI64("compare empty==empty", sEmpty.compare(""), 0))
+    results.add(assertTrue("compare empty<a", sEmpty.compare("a").lt(0)))
+    results.add(assertTrue("compare abc>empty", sAbc.compare("").gt(0)))
+
+    drop(sAbc)
+    drop(sAb)
+    drop(sEmpty)
+
+    return results
+}
