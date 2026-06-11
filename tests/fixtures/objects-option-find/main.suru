@@ -10,9 +10,9 @@ export { main }
 //          untyped builtin method-call chain (.at() then .clone()). Before the
 //          fix, neither .at() nor .clone() received a resolvedType in pass 1,
 //          so monoInfer could not bind T and emitted an unmangled @some call.
-//   GAP 2: Option<Sig> appears only as the method's return type; the some__Sig
+//   GAP 2: Option<Sig> appears only as the method's return type; the some-Sig
 //          instantiation's substituted return type Option<Sig> must be
-//          transitively instantiated to Option__Sig.
+//          transitively instantiated to Option-Sig.
 //
 // Memory: .at() returns a BORROWED element pointer, so the found element is
 // cloned before being wrapped in Some; the returned Option therefore owns its

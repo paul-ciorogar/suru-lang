@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Collision-proof name mangling separators
+
+- **Mangled symbol names no longer use `__`, which users could collide with.** `_`
+  is a legal identifier character, so the old `__` separator risked clashing with
+  user-written names. Each mangling role now uses a separator the lexer rejects in
+  identifiers (and that is valid unquoted in LLVM IR):
+  - **Generics** use `-`: `Box<i64>` → `Box-i64`, `Pair<i64, String>` → `Pair-i64-String`.
+  - **Namespaces** keep their `.`: `Suru.Cli.fn` → symbol `@Suru.Cli.fn` (dots preserved
+    instead of being flattened to `__`).
+  - **Compiler-internal reserved names** use `$`: the synthetic vtable field is `$vtable`
+    and lifted object-literal methods are `$m_Type_method_0`.
+- The builtin intrinsic methods `__append` / `__at` are unchanged — they are written in
+  real `.suru` source and must remain lexable (the lexer rejects `$`).
+- Pure mangling change: no language-surface or behavior change. Producers and the
+  parse/split sites that read separators back (generic base-name detection in
+  `irRegisterPasses.suru`, variant-arm prefix match in `monoPass.suru`,
+  `isMethodOfMonoType` in `pipeline.suru`) were updated in lockstep; bootstrap
+  fixed point (C2 == C3) holds.
+
 ### Removed the "struct" concept; `ptr` now feels like an object
 
 - **There is no separate "struct" at the language level — only objects and object

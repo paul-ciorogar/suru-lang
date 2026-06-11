@@ -843,7 +843,7 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
         // Data fields and method definitions may interleave; methods are recognized by
         // a leading `fn` and carry their parsed body (statement list). The method
         // lambda-lift in pipeline.suru later rewrites method members into a single
-        // synthetic `__vtable` data field.
+        // synthetic `$vtable` data field.
         fn parsePrimaryObject() AstNode {
             let lbraceTok Token: this.currentToken()
             this.advance()

@@ -1085,7 +1085,7 @@ Example output:
 ```
 === AST after mono ===
 Module [mono]
-  TypeDecl Box__i64 { value i64 }
+  TypeDecl Box-i64 { value i64 }
   FnDecl main(args Array<String>) ...
 
 === Symbol Table after mono ===
@@ -1093,7 +1093,7 @@ Functions (3):
   main(Array<String>) → void
   ...
 Types (1):
-  Box__i64: { value i64 }
+  Box-i64: { value i64 }
 ...
 ```
 

@@ -2,7 +2,7 @@
 // via monomorphization.
 //
 // mangleGenericName builds the mangled name for a concrete instantiation
-// (e.g. "Pair__Int64__String").  instantiateType / instantiateFn deep-clone a
+// (e.g. "Pair-i64-String").  instantiateType / instantiateFn deep-clone a
 // generic AST node with all type-parameter names substituted with their concrete
 // counterparts and the definition name replaced by the mangled form.
 // instantiateAll orchestrates deduplication across a list of
@@ -49,16 +49,16 @@ type InstantiationRequest: { genericName String, concreteTypes Array<String> }
 // flattenTypeArg — convert a concrete type name to a flat identifier-safe form.
 // Handles the suru canonical form ("Array:X") and annotation form ("Array<X>",
 // "Option<i64>") recursively, so nested generics collapse correctly:
-//   "Array:i64"           → "Array__Int64"
-//   "Array<i64>"          → "Array__Int64"
-//   "Option<i64>"         → "Option__Int64"
-//   "Option<Array<i64>>"  → "Option__Array__Int64"
+//   "Array:i64"           → "Array-i64"
+//   "Array<i64>"          → "Array-i64"
+//   "Option<i64>"         → "Option-i64"
+//   "Option<Array<i64>>"  → "Option-Array-i64"
 // Plain names (no ':' prefix and no '<') are returned as a fresh clone.
 fn flattenTypeArg(typeName String) String {
     let len i64: typeName.len()
     if len.gt(5) {
         if typeName.slice(0, 6).equals("Array:") {
-            return "Array__".append(typeName.slice(6, len))
+            return "Array-".append(typeName.slice(6, len))
         }
     }
     let ltIdx i64: subst.indexOfLT(typeName)
@@ -70,7 +70,7 @@ fn flattenTypeArg(typeName String) String {
     let i i64: 0
     while i.lt(args.len()) {
         let flat String: flattenTypeArg(subst.trimLeft(args.at(i)))
-        let next String: acc.append("__").append(flat)
+        let next String: acc.append("-").append(flat)
         drop(flat)
         drop(acc)
         acc: next
@@ -79,15 +79,15 @@ fn flattenTypeArg(typeName String) String {
     return acc
 }
 
-// appendMangledTypes — append "__<flattenTypeArg(types[i])>" for each type in
+// appendMangledTypes — append "-<flattenTypeArg(types[i])>" for each type in
 // types to acc, returning the grown string.  Calls flattenTypeArg so that nested
-// generic names like "Array<i64>" are flattened to "Array__Int64" before
+// generic names like "Array<i64>" are flattened to "Array-i64" before
 // appending.  Drops each intermediate acc before replacing it.
 fn appendMangledTypes(acc String, types Array<String>) String {
     let i i64: 0
     while i.lt(types.len()) {
         let flat String: flattenTypeArg(types.at(i))
-        let next String: acc.append("__").append(flat)
+        let next String: acc.append("-").append(flat)
         drop(flat)
         drop(acc)
         acc: next
@@ -98,8 +98,8 @@ fn appendMangledTypes(acc String, types Array<String>) String {
 
 // mangleGenericName — produce the monomorphized identifier for a generic
 // definition instantiated with the given concrete types.
-//   mangleGenericName("Box",  ["i64"])          → "Box__Int64"
-//   mangleGenericName("Pair", ["i64","String"]) → "Pair__Int64__String"
+//   mangleGenericName("Box",  ["i64"])          → "Box-i64"
+//   mangleGenericName("Pair", ["i64","String"]) → "Pair-i64-String"
 // Always returns an owned heap String; the caller is responsible for dropping it.
 fn mangleGenericName(baseName String, concreteTypes Array<String>) String {
     let acc String: baseName.clone()
@@ -165,8 +165,8 @@ fn wrapFnDeclNode(fd FnDeclNode) AstNode {
 // mangled identifier.  Plain names are returned unchanged; generic applications
 // are flattened to the mangled form.
 //   "None"        → "None"
-//   "Some<i64>" → "Some__Int64"
-//   "Pair<i64,String>" → "Pair__Int64__String"
+//   "Some<i64>" → "Some-i64"
+//   "Pair<i64,String>" → "Pair-i64-String"
 fn mangleTypeExpr(typeExpr String) String {
     let ltIdx i64: subst.indexOfLT(typeExpr)
     // No '<': plain name — return as-is.
@@ -277,7 +277,7 @@ fn findInstFn(registry GenericRegistry, genericName String, concreteTypes Array<
 // arguments (e.g. "Some<T>"), substitute the type params and call findInstType
 // to produce the concrete variant struct TypeDeclNode.
 // This ensures that when Option<T> is instantiated, the variant structs like
-// Some<T> → Some__Int64 are also generated (needed for field access in match arms).
+// Some<T> → Some-i64 are also generated (needed for field access in match arms).
 // seen is the same deduplication set used by instantiateAll so variant
 // structs are not added twice when the same generic struct is also inferred
 // from a direct type annotation.
@@ -312,7 +312,7 @@ fn instantiateVariantTypes(registry GenericRegistry, rawVariants Array<String>, 
 // findInstSumType — walk registry.sumTypes; if the name matches, instantiate
 // and push the concrete SumTypeDeclNode into out then stop.
 // Also instantiates the concrete variant struct TypeDeclNodes (e.g. Some<T> →
-// Some__Int64) so that field access inside match arms works correctly.
+// Some-i64) so that field access inside match arms works correctly.
 // seen is the deduplication set from instantiateAll, shared to prevent
 // double-adding variant structs that were also directly inferred.
 fn findInstSumType(registry GenericRegistry, genericName String, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>) {
@@ -327,7 +327,7 @@ fn findInstSumType(registry GenericRegistry, genericName String, concreteTypes A
             concrete.variants: {}
             concrete.typeParams: {}
             drop(concrete)
-            // Instantiate the variant struct types (e.g. Some<T> → Some__Int64).
+            // Instantiate the variant struct types (e.g. Some<T> → Some-i64).
             instantiateVariantTypes(registry, def.node.variants, def.typeParams(), concreteTypes, out, seen)
             break
         }
@@ -339,9 +339,9 @@ fn findInstSumType(registry GenericRegistry, genericName String, concreteTypes A
 //
 // When a generic function is instantiated, its substituted type annotations may
 // themselves name generic applications that need their own instantiation.  For
-// example `some<T>` returns `Option<T>`; instantiating `some__Sig` substitutes
+// example `some<T>` returns `Option<T>`; instantiating `some-Sig` substitutes
 // the return type to `Option<Sig>`, which must in turn be instantiated to
-// `Option__Sig` (and its variant structs).  The original inference pass never
+// `Option-Sig` (and its variant structs).  The original inference pass never
 // sees these because it skips generic templates (monoInfer.suru ~419) and the
 // substituted type only exists after instantiation.  The helpers below re-scan
 // each freshly produced concrete FnDeclNode and feed any generic applications

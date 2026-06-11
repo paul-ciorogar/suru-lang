@@ -1,5 +1,5 @@
-Pair__i64__String
-Pair__i64__String
+Pair-i64-String
+Pair-i64-String
 i64
 String
 0

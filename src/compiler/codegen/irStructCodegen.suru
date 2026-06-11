@@ -120,9 +120,9 @@ fn cStructSize(decl TypeDecl) i64 {
 // ─── Compact Suru-struct layout ────────────────────────────────────────────────
 // Regular `type` structs keep the 32-byte runtime header but lay their fields out
 // with natural alignment (same primitive sizes as a cType) and reorder them into
-// three alignment buckets — 8-byte (i64/f64/ptr/heap/__vtable), then 4-byte (i32),
+// three alignment buckets — 8-byte (i64/f64/ptr/heap/$vtable), then 4-byte (i32),
 // then 1-byte (bool/char) — so padding is minimised. Ordering within each bucket
-// preserves declaration order (a stable partition), so `__vtable` (added first,
+// preserves declaration order (a stable partition), so `$vtable` (added first,
 // 8-byte) stays at index 0 / offset 32. Unlike a cType, fields ARE reordered and
 // every field still routes through the 32-byte header / clone-drop vtable.
 
@@ -130,7 +130,7 @@ fn cStructSize(decl TypeDecl) i64 {
 // Declaration order is preserved within each bucket.
 fn reorderSuruFields(fields Array<TypeFieldEntry>) Array<TypeFieldEntry> {
     let out Array<TypeFieldEntry>: []
-    // Bucket 1: 8-byte aligned (i64, f64, heap ptrs, named structs, __vtable).
+    // Bucket 1: 8-byte aligned (i64, f64, heap ptrs, named structs, $vtable).
     let i i64: 0
     while i.lt(fields.len()) {
         if cFieldAlign(fields.at(i).typeName).equals(8) { out.add(fields.at(i)) }

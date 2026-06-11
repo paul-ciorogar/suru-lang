@@ -206,7 +206,7 @@ type MethodSig:      { name String, params Array<Param>, returnType String }
 // Method def:  isMethod=true, `name`/`methodParams`/`methodRet`/`methodBody`
 //   hold the supplied implementation; `value` is unused until the method
 //   lambda-lift (pipeline.suru) rewrites the whole member into a single
-//   synthetic `__vtable` data field whose `value` is a VtableRefNode.
+//   synthetic `$vtable` data field whose `value` is a VtableRefNode.
 // Private member: isPrivate=true means the member is declared with `_ name ...`
 //   syntax; it is inaccessible outside the object literal's own method bodies.
 //   privateTypeName holds the mandatory type annotation for private data fields
@@ -301,7 +301,7 @@ type BinaryNode:      { op i64, left AstNode, right AstNode, resolvedType String
 type CharLitNode:     { text String, resolvedType String }
 // VtableRefNode: a reference to a module-level vtable constant. Produced only
 // by the method lambda-lift (pipeline.suru) as the value of the synthetic
-// `__vtable` struct field. `sym` is the LLVM global name (e.g.
+// `$vtable` struct field. `sym` is the LLVM global name (e.g.
 // "@vtable.Greeter.0"); `entries` are the mangled lifted-method symbols in the
 // type's declared-method order. Codegen emits
 // `<sym> = constant [N x ptr] [ptr <e0>, ...]` and stores

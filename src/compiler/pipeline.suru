@@ -542,7 +542,7 @@ fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
 //     implicit leading `this` param, body = the per-instance method body;
 //   • builds a constant vtable reference listing those functions in the type's
 //     declared-method order;
-//   • rewrites the literal's members to a single leading `__vtable` data field
+//   • rewrites the literal's members to a single leading `$vtable` data field
 //     (value = VtableRefNode) followed by the original data fields.
 // Synthetic FnDeclNodes are appended to the module statement list so the normal
 // codegen function loop emits them.
@@ -602,15 +602,15 @@ fn lookupSrcPathNs(nsEntries Array<SrcNsEntry>, srcPath String) String {
     return ""
 }
 
-// nsToPrefix — converts a namespace string to a flat symbol prefix by replacing
-// dots with double-underscores (e.g. "Suru.Cli" → "Suru__Cli").
-// Used for vtable global symbol names.
+// nsToPrefix — converts a namespace string to a symbol prefix, keeping the dots
+// ('.' is a valid unquoted LLVM symbol char users cannot write; e.g. "Suru.Cli"
+// → "Suru.Cli"). Used for vtable global symbol names.
 fn nsToPrefix(ns String) String {
     let out String: ""
     let i i64: 0
     while i.lt(ns.len()) {
         let ch String: ns.at(i)
-        if ch.equals(".") { out: out.append("__") } else { out: out.append(ch) }
+        if ch.equals(".") { out: out.append(".") } else { out: out.append(ch) }
         i: i.add(1)
     }
     return out
@@ -797,7 +797,7 @@ fn lowerObjectsObjectLit(state AnalyzerState, lit ObjectLitNode, newDecls Array<
             j: j.add(1)
         }
         if not member.name.equals("") {
-            let synth String: "__m_".append(typeName).append("_").append(m.name).append("_").append(siteStr)
+            let synth String: "$m_".append(typeName).append("_").append(m.name).append("_").append(siteStr)
             let params Array<Param>: []
             params.add(nodes.newParam("this", typeName))
             let mp Array<Param>: member.methodParams
@@ -833,7 +833,7 @@ fn lowerObjectsObjectLit(state AnalyzerState, lit ObjectLitNode, newDecls Array<
     let vr VtableRefNode: { sym: vtsym, entries: entrySyms, resolvedType: typeName }
     let noP Array<Param>: []
     let noB Array<AstNode>: []
-    newFields.add(nodes.newObjectFieldNode("__vtable", vr, false, false, "", noP, "", noB))
+    newFields.add(nodes.newObjectFieldNode("$vtable", vr, false, false, "", noP, "", noB))
     let d i64: 0
     while d.lt(fields.len()) {
         let f ObjectFieldNode: fields.at(d)
@@ -857,7 +857,7 @@ fn lowerObjectsObjectLit(state AnalyzerState, lit ObjectLitNode, newDecls Array<
 fn augPrivAddField(stmts Array<AstNode>, typeName String, fieldName String, fieldTypeName String) {
     // After monomorphization, the object literal's return/let type annotation may
     // still use the generic-application form ("DynArray<i64>") while the TypeDeclNode
-    // uses the mangled form ("DynArray__i64"). Normalize so both forms match.
+    // uses the mangled form ("DynArray-i64"). Normalize so both forms match.
     let mangledTypeName String: passes.normalizeGenericTypeName(typeName)
     let i i64: 0
     while i.lt(stmts.len()) {
@@ -1224,7 +1224,7 @@ fn compileOneFileWithRequests(sourcePath String, outDir String, reg NamespaceReg
     // Lower object literals to vtable + synthetic method FnDeclNodes.
     let preLowerLen i64: stmts.len()
     lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
-    // Synthetic methods for concrete types (e.g. __m_DynArray__i64_add_0) need
+    // Synthetic methods for concrete types (e.g. $m_DynArray-i64_add_0) need
     // define bodies in __mono.ll.  Register them in monoFnNames so irCodegen
     // emits define (rootPath="" means srcPath match is never true).
     let li i64: preLowerLen
@@ -1305,13 +1305,13 @@ fn buildModuleImportRegistry(modules Array<Module>) Array<SrcModImports> {
 }
 
 // isMethodOfMonoType — true when methodName is an object-literal method body
-// (starts with "__m_") produced by lowerObjects from a mono-instantiated type.
+// (starts with "$m_") produced by lowerObjects from a mono-instantiated type.
 // Checks whether any name in monoTypeNames is a prefix of the method's type segment.
-// Example: "__m_DynArray__i64_add_0" matches "DynArray__i64" in monoTypeNames.
+// Example: "$m_DynArray-i64_add_0" matches "DynArray-i64" in monoTypeNames.
 fn isMethodOfMonoType(methodName String, monoTypeNames Array<String>) bool {
-    if methodName.len().lt(5) { return false }
-    if not methodName.slice(0, 4).equals("__m_") { return false }
-    let withoutPrefix String: methodName.slice(4, methodName.len())
+    if methodName.len().lt(4) { return false }
+    if not methodName.slice(0, 3).equals("$m_") { return false }
+    let withoutPrefix String: methodName.slice(3, methodName.len())
     let ti i64: 0
     while ti.lt(monoTypeNames.len()) {
         let tname String: monoTypeNames.at(ti)
@@ -1446,7 +1446,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     // resolvedTypes are populated on all arg expressions.
     stmts: monoPass.rewriteCallSites(stmts, registry)
     // Rewrite match-arm pattern names from unmangled base names (e.g. "Some")
-    // to the concrete mangled variant names (e.g. "Some__Int64") so the codegen
+    // to the concrete mangled variant names (e.g. "Some-i64") so the codegen
     // can resolve the correct variant index for generic sum types.
     stmts: monoPass.rewriteVariantArms(stmts)
     // ─────────────────────────────────────────────────────────────────────────

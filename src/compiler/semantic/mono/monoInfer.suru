@@ -140,7 +140,7 @@ fn resolvedTypeOf(node AstNode) String {
 // annotation form "Array<X>" so that monoInfer produces requests that match
 // what inferFromAnnotation generates from explicit type annotations.
 // Non-array types pass through unchanged (they're already in annotation form
-// or are plain mangled names like "Option__Int64").
+// or are plain mangled names like "Option-i64").
 fn suruCanonToAnnotation(t String) String {
     let len i64: t.len()
     if len.gt(5) {
@@ -512,7 +512,7 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
             let fd FnDeclNode: stmt
             // Skip generic function templates: walking their annotations/bodies
             // produces garbage requests like {genericName:"Some", concreteTypes:["T"]}
-            // that instantiate dead "Some__T" / "Option__T" types.  Concrete
+            // that instantiate dead "Some-T" / "Option-T" types.  Concrete
             // requests are generated from the call sites and annotations in
             // user code instead.
             let isGeneric bool: fd.typeParams.len().gt(0)
@@ -583,7 +583,7 @@ fn keyAlreadySeen(seen Array<String>, key String) bool {
 }
 
 // deduplicateRequests — remove duplicate InstantiationRequests from raw,
-// keyed by mangled name (e.g. "Box__Int64").  Preserves first occurrence order.
+// keyed by mangled name (e.g. "Box-i64").  Preserves first occurrence order.
 fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationRequest> {
     let seen Array<String>: []
     let out Array<InstantiationRequest>: []

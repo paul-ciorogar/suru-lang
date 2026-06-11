@@ -74,7 +74,7 @@ fn extractElemType(typeName String) String {
 }
 
 // ─── User-defined generic type-name mangling ─────────────────────────────────
-// Map annotations like "Box<i64>" to their mangled suruType "Box__Int64" so
+// Map annotations like "Box<i64>" to their mangled suruType "Box-i64" so
 // that codegen's type-registry lookup finds the concrete TypeDeclNode injected
 // by the mono pass.  (These helpers duplicate the equivalent logic in passes.suru
 // because irCodegenTypeHelpers.suru is a leaf with no semantic includes.)
@@ -102,9 +102,9 @@ fn ltrimCG(s String) String {
 // flattenCGTypeArg — recursively flatten a type-name string to an
 // identifier-safe form, using the same conventions as monoInstantiate's
 // flattenTypeArg (duplicated here because irCodegenTypeHelpers.suru is a leaf).
-//   "Array<i64>"          → "Array__Int64"
-//   "Option<i64>"         → "Option__Int64"
-//   "Option<Array<i64>>"  → "Option__Array__Int64"
+//   "Array<i64>"          → "Array-i64"
+//   "Option<i64>"         → "Option-i64"
+//   "Option<Array<i64>>"  → "Option-Array-i64"
 //   plain names             → trimmed clone
 fn flattenCGTypeArg(typeName String) String {
     let trimmed String: ltrimCG(typeName)
@@ -118,7 +118,7 @@ fn flattenCGTypeArg(typeName String) String {
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenCGTypeArg(inner.slice(start, i))
-            let next String: acc.append("__").append(seg)
+            let next String: acc.append("-").append(seg)
             drop(seg)
             drop(acc)
             acc: next
@@ -129,21 +129,21 @@ fn flattenCGTypeArg(typeName String) String {
         }
     }
     let seg String: flattenCGTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("__").append(seg)
+    let result String: acc.append("-").append(seg)
     drop(seg)
     drop(acc)
     return result
 }
 
 // appendMangledCGAt — scan inner[i..] for comma-separated type args and append
-// "__<flattenCGTypeArg(arg)>" for each to acc, so nested generic names like
-// "Array<i64>" are flattened to "Array__Int64" in the resulting identifier.
+// "-<flattenCGTypeArg(arg)>" for each to acc, so nested generic names like
+// "Array<i64>" are flattened to "Array-i64" in the resulting identifier.
 fn appendMangledCGAt(inner String, start i64, acc String) String {
     let i i64: start
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenCGTypeArg(inner.slice(start, i))
-            let next String: acc.append("__").append(seg)
+            let next String: acc.append("-").append(seg)
             drop(seg)
             drop(acc)
             acc: next
@@ -154,7 +154,7 @@ fn appendMangledCGAt(inner String, start i64, acc String) String {
         }
     }
     let seg String: flattenCGTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("__").append(seg)
+    let result String: acc.append("-").append(seg)
     drop(seg)
     drop(acc)
     return result
@@ -172,7 +172,7 @@ fn isUserGenericTypeName(typeName String) bool {
     return false
 }
 
-// mangleGenericAnnotation — "Box<i64>" → "Box__Int64".
+// mangleGenericAnnotation — "Box<i64>" → "Box-i64".
 fn mangleGenericAnnotation(typeName String) String {
     let ltIdx i64: indexOfAngleCG(typeName)
     let base String: typeName.slice(0, ltIdx)
@@ -187,7 +187,7 @@ fn normalizeTypeName(name String) String {
 }
 
 // Convert a Suru type annotation name to the suruType encoding used in VarEntry.
-// "Array<i64>" → "Array:i64"; user-defined generics "Box<i64>" → "Box__i64";
+// "Array<i64>" → "Array:i64"; user-defined generics "Box<i64>" → "Box-i64";
 // all other types pass through unchanged.
 fn makeSuruType(typeName String) String {
     if isArrayTypeName(typeName) { return "Array:".append(extractElemType(typeName)) }

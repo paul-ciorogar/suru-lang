@@ -364,7 +364,7 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
             let newRec AstNode: rewriteCallsInExpr(mcn.receiver, registry)
             let newArgs Array<AstNode>: rewriteCallsInExprs(mcn.args, registry)
             // Rewrite method name for namespace-qualified generic calls
-            // (e.g. opt.some(42) → opt.some__Int64(42)).  Only applies when
+            // (e.g. opt.some(42) → opt.some-i64(42)).  Only applies when
             // the receiver has no resolvedType, meaning it is a namespace prefix
             // rather than a typed local variable.
             let recvType String: infer.resolvedTypeOf(mcn.receiver)
@@ -527,7 +527,7 @@ fn rewriteCallSites(stmts Array<AstNode>, registry GenericRegistry) Array<AstNod
 // After pass 2 and rewriteCallSites, match arm patterns still use the
 // unmangled base names (e.g. "Some", "None") as written by the programmer.
 // rewriteVariantArms resolves each arm pattern to the mangled variant name
-// stored in the concrete SumTypeDeclNode (e.g. "Some" → "Some__Int64") by
+// stored in the concrete SumTypeDeclNode (e.g. "Some" → "Some-i64") by
 // looking up the matched expression's resolvedType.
 
 // collectConcreteSumTypesAt — append every concrete SumTypeDeclNode in
@@ -555,14 +555,14 @@ fn getVariantsForAt(sumTypes Array<SumTypeDeclNode>, name String, i i64) Array<S
 }
 
 // resolveVariantNameAt — scan variants[i..] for one that equals armName (exact)
-// or starts with "armName__" (prefix).  Returns armName unchanged if not found.
+// or starts with "armName-" (prefix).  Returns armName unchanged if not found.
 fn resolveVariantNameAt(armName String, variants Array<String>, i i64) String {
     if not i.lt(variants.len()) { return armName }
     let v String: variants.at(i)
-    // Exact match (e.g. "None" in ["Some__Int64","None"]).
+    // Exact match (e.g. "None" in ["Some-i64","None"]).
     if v.equals(armName) { return v }
-    // Prefix match: variant starts with "armName__".
-    let prefix String: armName.append("__")
+    // Prefix match: variant starts with "armName-".
+    let prefix String: armName.append("-")
     let prefixLen i64: prefix.len()
     if prefixLen.lt(v.len().add(1)) {
         if v.slice(0, prefixLen).equals(prefix) { return v }

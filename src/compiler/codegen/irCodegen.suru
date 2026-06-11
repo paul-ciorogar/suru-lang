@@ -602,7 +602,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
         VtableRefNode: {
             // Emit the module-level vtable constant (once; addDecl dedups) and
             // yield its global symbol. emitObjectLit's structFieldToI64 will
-            // ptrtoint it into the object's `__vtable` slot.
+            // ptrtoint it into the object's `$vtable` slot.
             let vr VtableRefNode: expr
             let ents Array<String>: vr.entries
             let n i64: ents.len()
@@ -615,7 +615,7 @@ fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
             }
             let line String: vr.sym.append(" = private constant [").append(n.toString()).append(" x ptr] [").append(body).append("]\n")
             ctx: types.addDecl(ctx, line)
-            return { ctx: ctx, name: vr.sym, llvmType: "ptr", suruType: "__vtable" }
+            return { ctx: ctx, name: vr.sym, llvmType: "ptr", suruType: "$vtable" }
         }
         CallNode: {
             match expr.name.equals("readFile") {
@@ -776,9 +776,9 @@ fn peekTypeNode(ctx IrCodegenContext, expr AstNode) CodegenResult {
 // the method's vtable index (== declared-method order).
 fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal String, decl TypeDecl, method String, mIdx i64) CodegenResult {
     let me TypeMethodEntry: types.methodEntry(decl, method)
-    // __vtable is an 8-byte ptr field (compact layout keeps it at index 0 / offset
+    // $vtable is an 8-byte ptr field (compact layout keeps it at index 0 / offset
     // 32): GEP its slot and load the vtable pointer natively.
-    let vtIdx i64: types.fieldIndex(decl, "__vtable")
+    let vtIdx i64: types.fieldIndex(decl, "$vtable")
     let vtOff i64: irStruct.suruFieldOffset(decl, vtIdx)
     let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
     ctx.builder: slotR.builder
@@ -830,7 +830,7 @@ fn emitObjectMethodCall(ctx IrCodegenContext, expr MethodCallNode, recvVal Strin
 fn emitSuruStringBuffer(ctx IrCodegenContext, recvVal String) CodegenResult {
     let decl TypeDecl: types.lookupType(ctx, "SuruString")
     let mIdx i64: types.methodIndex(decl, "dataBuffer")
-    let vtIdx i64: types.fieldIndex(decl, "__vtable")
+    let vtIdx i64: types.fieldIndex(decl, "$vtable")
     let vtOff i64: irStruct.suruFieldOffset(decl, vtIdx)
     let slotR IrResult: ir.emitGEP(ctx.builder, "i8", recvVal, "i64 ".append(vtOff.toString()))
     ctx.builder: slotR.builder
@@ -960,7 +960,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let recvSuruType String: rr.suruType
 
     // User-defined object method: receiver type declares this method → dispatch
-    // through the per-instance vtable pointer in the object's `__vtable` slot.
+    // through the per-instance vtable pointer in the object's `$vtable` slot.
     let objDecl TypeDecl: types.lookupType(ctx, recvSuruType)
     let omi i64: types.methodIndex(objDecl, method)
     if not omi.lt(0) { return emitObjectMethodCall(ctx, expr, recvVal, objDecl, method, omi) }
@@ -1847,7 +1847,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                 }
                 ObjectLitNode: {
                     // Use annSuruType (mangled) so user-defined generic annotations like
-                    // "Box<i64>" are resolved to "Box__Int64" before the type-registry
+                    // "Box<i64>" are resolved to "Box-i64" before the type-registry
                     // lookup inside emitObjectLit and before the variable is registered.
                     let sr CodegenResult: emitObjectLit(ctx, letValueNode.fields, annSuruType)
                     ctx: sr.ctx
@@ -2127,7 +2127,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // compiled as root (by source path) OR its name is in ownFnNames.
     // The second condition handles concrete monomorphic instantiations: a
     // generic template from an included file (e.g. opt.some<T>) produces a
-    // concrete copy (some__Int64) whose srcPath still points to the included
+    // concrete copy (some-i64) whose srcPath still points to the included
     // file, but the instantiation belongs to the root's compilation unit.
     let isOwn bool: fnDecl.srcPath.equals(ctx.rootPath)
     if not isOwn { isOwn: types.isMonoFn(ctx, fnDecl.name) }

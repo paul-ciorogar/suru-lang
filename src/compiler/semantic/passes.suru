@@ -89,7 +89,7 @@ fn typeNameExistsAt(typeNames Array<String>, name String) bool {
 
 // ─── Generic type-annotation mangling ────────────────────────────────────────
 // These helpers let resolveTypeName recognise user-defined generic annotations
-// like "Box<i64>" by looking up their mangled form "Box__Int64" in typeNames.
+// like "Box<i64>" by looking up their mangled form "Box-i64" in typeNames.
 
 // indexOfAngle — index of the first '<' in s, or s.len() when absent.
 fn indexOfAngle(s String) i64 {
@@ -114,9 +114,9 @@ fn ltrimStr(s String) String {
 // flattenPassTypeArg — recursively flatten a type-name string to an
 // identifier-safe form (duplicated from monoInstantiate because passes.suru
 // is a separate include chain).
-//   "Array<i64>"          → "Array__Int64"
-//   "Option<i64>"         → "Option__Int64"
-//   "Option<Array<i64>>"  → "Option__Array__Int64"
+//   "Array<i64>"          → "Array-i64"
+//   "Option<i64>"         → "Option-i64"
+//   "Option<Array<i64>>"  → "Option-Array-i64"
 //   plain names             → trimmed clone
 fn flattenPassTypeArg(typeName String) String {
     let trimmed String: ltrimStr(typeName)
@@ -130,7 +130,7 @@ fn flattenPassTypeArg(typeName String) String {
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenPassTypeArg(inner.slice(start, i))
-            let next String: acc.append("__").append(seg)
+            let next String: acc.append("-").append(seg)
             drop(seg)
             drop(acc)
             acc: next
@@ -141,22 +141,22 @@ fn flattenPassTypeArg(typeName String) String {
         }
     }
     let seg String: flattenPassTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("__").append(seg)
+    let result String: acc.append("-").append(seg)
     drop(seg)
     drop(acc)
     return result
 }
 
 // appendMangledArgsAt — scan inner for comma-separated type arguments and
-// append "__<flattenPassTypeArg(arg)>" for each to acc.  Used by mangleAnnotation.
+// append "-<flattenPassTypeArg(arg)>" for each to acc.  Used by mangleAnnotation.
 // Calls flattenPassTypeArg so nested generics like "Array<i64>" become
-// "Array__Int64" in the resulting identifier rather than the raw annotation string.
+// "Array-i64" in the resulting identifier rather than the raw annotation string.
 fn appendMangledArgsAt(inner String, start i64, acc String) String {
     let i i64: start
     while i.lt(inner.len()) {
         if inner.at(i).equals(",") {
             let seg String: flattenPassTypeArg(inner.slice(start, i))
-            let next String: acc.append("__").append(seg)
+            let next String: acc.append("-").append(seg)
             drop(seg)
             drop(acc)
             acc: next
@@ -167,14 +167,14 @@ fn appendMangledArgsAt(inner String, start i64, acc String) String {
         }
     }
     let seg String: flattenPassTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("__").append(seg)
+    let result String: acc.append("-").append(seg)
     drop(seg)
     drop(acc)
     return result
 }
 
 // mangleAnnotation — convert a generic type annotation string to its mangled
-// form.  "Box<i64>" → "Box__Int64", "Pair<i64, String>" → "Pair__Int64__String".
+// form.  "Box<i64>" → "Box-i64", "Pair<i64, String>" → "Pair-i64-String".
 fn mangleAnnotation(name String) String {
     let ltIdx i64: indexOfAngle(name)
     let base String: name.slice(0, ltIdx)
@@ -195,7 +195,7 @@ fn isUserGenericAnnotation(name String) bool {
 // Passes state.typeNames as a typed argument; the callee's Array<String> annotation
 // ensures correct dispatch inside typeNameExistsAt.
 // Also accepts user-defined generic annotations like "Box<i64>" by looking up
-// the mangled form "Box__Int64" in typeNames (injected by the mono pass).
+// the mangled form "Box-i64" in typeNames (injected by the mono pass).
 // Note: uses explicit match rather than `and` to guard the mangleAnnotation call
 // because Suru's boolean `and` is not short-circuit (both sides are always evaluated).
 fn resolveTypeName(state AnalyzerState, name String) bool {
@@ -253,7 +253,7 @@ fn isCAbiPrimitive(typeName String) bool {
 }
 
 // normalizeGenericTypeName — convert a generic-application return type like
-// "DynArray<i64>" to its mangled form "DynArray__i64" for hasCustomLifecycle
+// "DynArray<i64>" to its mangled form "DynArray-i64" for hasCustomLifecycle
 // comparison.  Handles single-level generics only (all clone() return types
 // are necessarily single-level — a type clones itself, not a nested wrapper).
 // Plain types without '<' are returned unchanged.
@@ -264,7 +264,7 @@ fn normalizeGenericTypeName(typeName String) String {
         if typeName.at(i).equals("<") {
             let base String: typeName.slice(0, i)
             let inner String: typeName.slice(i.add(1), len.take(1))
-            return base.append("__").append(inner)
+            return base.append("-").append(inner)
         }
         i: i.add(1)
     }
@@ -311,7 +311,7 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
     // same type and drop() returning void. Enables ptr/extern-type private fields.
     // For monomorphized generic types, clone() return types may arrive as the
     // generic-application form ("DynArray<i64>") rather than the mangled form
-    // ("DynArray__i64"); normalizeGenericTypeName handles the comparison in both forms.
+    // ("DynArray-i64"); normalizeGenericTypeName handles the comparison in both forms.
     let hasClone bool: false
     let hasDrop bool: false
     let lci i64: 0

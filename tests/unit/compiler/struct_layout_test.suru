@@ -8,7 +8,7 @@
 //
 // Unlike a cType (header-less, order-preserving), a regular struct reorders its
 // fields and keeps the 32-byte runtime header, so field 0 starts at offset 32 and
-// the synthetic `__vtable` (an 8-byte ptr, added first) stays at index 0 / offset 32.
+// the synthetic `$vtable` (an 8-byte ptr, added first) stays at index 0 / offset 32.
 
 namespace Test.Unit.Compiler.StructLayout
 
@@ -61,12 +61,12 @@ fn structLayoutTests() Array<TestResult> {
     results.add(assertEqI64("Mixed offset a", suruFieldOffset(mixed, 2), 44))
     results.add(assertEqI64("Mixed size", suruStructSize(mixed), 48))
 
-    // Object {__vtable, x i32, y String} → reordered [__vtable, y, x]
-    // (__vtable and y are 8-byte; x is 4-byte). __vtable stays at offset 32.
-    //   __vtable @32, y @40, x @48; size = alignUp(52, 8) = 56.
-    let obj TypeDecl: mkType("Obj", ["__vtable", "x", "y"], ["__vtable", "i32", "String"])
-    results.add(assertEqStr("Obj field0", obj.fields.at(0).name, "__vtable"))
-    results.add(assertEqI64("Obj offset __vtable", suruFieldOffset(obj, 0), 32))
+    // Object {$vtable, x i32, y String} → reordered [$vtable, y, x]
+    // ($vtable and y are 8-byte; x is 4-byte). $vtable stays at offset 32.
+    //   $vtable @32, y @40, x @48; size = alignUp(52, 8) = 56.
+    let obj TypeDecl: mkType("Obj", ["$vtable", "x", "y"], ["$vtable", "i32", "String"])
+    results.add(assertEqStr("Obj field0", obj.fields.at(0).name, "$vtable"))
+    results.add(assertEqI64("Obj offset $vtable", suruFieldOffset(obj, 0), 32))
     results.add(assertEqI64("Obj offset y", suruFieldOffset(obj, 1), 40))
     results.add(assertEqI64("Obj offset x", suruFieldOffset(obj, 2), 48))
     results.add(assertEqI64("Obj size", suruStructSize(obj), 56))

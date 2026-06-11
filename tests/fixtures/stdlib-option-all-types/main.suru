@@ -94,7 +94,7 @@ fn main(args Array<String>) {
 
     // ── Point (user-defined struct) ───────────────────────────────────────────────
     // Use a named pt variable so resolveTypes sets resolvedType="Point" on the
-    // arg, allowing monoInfer to bind T=Point for some__Point.
+    // arg, allowing monoInfer to bind T=Point for some-Point.
     let pt Point: { x: 3, y: 4 }
     let p Option<Point>: opt.some(pt)
     let pn None: {}

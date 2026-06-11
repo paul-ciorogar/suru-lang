@@ -165,9 +165,9 @@ fn dropHeapField(byteOffset i64, cgTmp i64) CgTextResult {
 // cgTmp is the shared counter threaded across all types — callers must use the
 // returned cgTmp for subsequent types so names stay globally unique.
 // A field needs no deep clone / drop when it is a scalar OR the synthetic
-// `__vtable` slot (a static constant pointer, not heap-owned).
+// `$vtable` slot (a static constant pointer, not heap-owned).
 fn cdNonOwnedField(ann String, st String) bool {
-    return tyh.isScalarSuruType(st) or ann.equals("__vtable")
+    return tyh.isScalarSuruType(st) or ann.equals("$vtable")
 }
 
 fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDropResult {
@@ -187,7 +187,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
     while chi.lt(fc) {
         let ann String: decl.fields.at(chi).typeName
         let st  String: tyh.makeSuruType(ann)
-        // The synthetic `__vtable` slot holds a static constant pointer — it is
+        // The synthetic `$vtable` slot holds a static constant pointer — it is
         // NOT heap-owned: shallow-copy on clone, never drop.
         if not cdNonOwnedField(ann, st) { hasHeapField: true }
         chi: chi.add(1)
@@ -226,7 +226,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
         if cdNonOwnedField(ann, st) {
-            // Scalar / __vtable: copy at the field's natural width so a narrow
+            // Scalar / $vtable: copy at the field's natural width so a narrow
             // field (i32/bool/char) doesn't over-read or clobber its neighbours.
             let llvm String: tyh.irLlvmTypeOf(st)
             let rx CgTextResult: copyScalarField(mallocName, off, llvm, cgTmp)
@@ -278,7 +278,7 @@ fn emitExternalCloneDropDeclare(ctx IrCodegenContext, typeName String) IrCodegen
 // Emit @suru_clone_T and @suru_drop_T as vtable-dispatch wrappers for types that
 // declare both clone() and drop() in their interface (hasCustomLifecycle = true).
 // Instead of the normal field-walking body, these functions load the vtable pointer
-// from offset 32 (__vtable field), index into it at the clone/drop method slots, and
+// from offset 32 ($vtable field), index into it at the clone/drop method slots, and
 // call the user-supplied implementation. The cgTmp counter is not consumed because
 // the wrappers use fixed SSA names (each lives in its own function scope).
 fn emitCustomLifecycleCloneDrop(ctx IrCodegenContext, decl TypeDecl, cgTmp i64) CloneDropResult {
