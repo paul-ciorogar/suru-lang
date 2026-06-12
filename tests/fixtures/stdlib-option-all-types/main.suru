@@ -1,5 +1,7 @@
 namespace Test.StdlibOptionAllTypes
 
+import { opt: Suru.Stdlib.Option }
+
 export { main }
 
 // stdlib-option-all-types — exercises Option<T> with every major type category:
@@ -12,8 +14,6 @@ type Point: { x i64, y i64 }
 // argument's resolvedType.  Using a sum-type variant like Red would cause
 // monoInfer to bind T=Red (bottom-up from the arg) instead of T=Color.
 type Color: { r i64, g i64, b i64 }
-
-import { opt: Suru.Stdlib.Option }
 
 fn checkInt64(x Option<i64>) {
     match x {

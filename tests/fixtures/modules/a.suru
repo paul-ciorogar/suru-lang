@@ -1,7 +1,7 @@
 namespace Test.Modules.A
 
-export { theFunction }
-
 import { b: Test.Modules.B }
+
+export { theFunction }
 
 fn theFunction() {}

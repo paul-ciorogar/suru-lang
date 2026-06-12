@@ -1,5 +1,10 @@
 namespace Suru.Compiler.Lexer
 
+import {
+    [extractSourceLine, buildSpaces]: Suru.Compiler.DiagUtils
+    [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex
+}
+
 export {
     Token
     Lexer
@@ -60,10 +65,7 @@ export {
     newLexer
 }
 
-import { [extractSourceLine, buildSpaces]: Suru.Compiler.DiagUtils }
-import { [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex }
-
-// Token kind constants — values must be unique; after any addition or removal run bootstrap twice.
+// Token kind constants — values must be unique; after any addition or removal run bootstrap.
 let TOK_EOF      i64: 0
 let TOK_IDENT    i64: 1
 let TOK_TRUE     i64: 2

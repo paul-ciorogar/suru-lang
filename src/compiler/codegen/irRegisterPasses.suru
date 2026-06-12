@@ -10,18 +10,20 @@
 
 namespace Suru.Compiler.Codegen.RegisterPasses
 
+import {
+    ast: Suru.Compiler.Parser.Ast
+    types: Suru.Compiler.Codegen.Types
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    box: Suru.Compiler.Codegen.Box
+    irStruct: Suru.Compiler.Codegen.Struct
+}
+
 export {
     registerTypes
     registerFunctions
     registerConstants
     emitGlobalConstants
 }
-
-import { ast: Suru.Compiler.Parser.Ast }
-import { types: Suru.Compiler.Codegen.Types }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { box: Suru.Compiler.Codegen.Box }
-import { irStruct: Suru.Compiler.Codegen.Struct }
 
 // cloneReturnMatchesType — true when returnType refers to the same (possibly
 // generic) type as typeName.  Handles two forms:

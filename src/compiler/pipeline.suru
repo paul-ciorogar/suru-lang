@@ -13,6 +13,28 @@
 
 namespace Suru.Compiler.Pipeline
 
+import {
+    lex: Suru.Compiler.Lexer
+    parser: Suru.Compiler.Parser
+    nodes: Suru.Compiler.Parser.Nodes
+    irCodegen: Suru.Compiler.Codegen
+    semantic: Suru.Compiler.Semantic
+    passes: Suru.Compiler.Semantic.Passes
+    semstmts: Suru.Compiler.Semantic.Stmts
+    fns: Suru.Compiler.Semantic.Fns
+    semresolve: Suru.Compiler.Semantic.ResolveTypes
+    monoPass: Suru.Compiler.Semantic.Mono
+    collect: Suru.Compiler.Semantic.Mono.Collect
+    infer: Suru.Compiler.Semantic.Mono.Infer
+    inst: Suru.Compiler.Semantic.Mono.Instantiate
+    nsPass: Suru.Compiler.Semantic.NamespacePass
+    exportPass: Suru.Compiler.Semantic.ExportPass
+    importPass: Suru.Compiler.Semantic.ImportPass
+    qualNamePass: Suru.Compiler.Semantic.QualNamePass
+    nsReg: Suru.Compiler.Semantic.NsRegistry
+    Suru.Compiler.PathUtils
+}
+
 export {
     Module
     ResolveState
@@ -64,26 +86,6 @@ export {
     runBuildDriver
     compilePipeline
 }
-
-import { lex: Suru.Compiler.Lexer }
-import { parser: Suru.Compiler.Parser }
-import { nodes: Suru.Compiler.Parser.Nodes }
-import { irCodegen: Suru.Compiler.Codegen }
-import { semantic: Suru.Compiler.Semantic }
-import { passes: Suru.Compiler.Semantic.Passes }
-import { semstmts: Suru.Compiler.Semantic.Stmts }
-import { fns: Suru.Compiler.Semantic.Fns }
-import { semresolve: Suru.Compiler.Semantic.ResolveTypes }
-import { monoPass: Suru.Compiler.Semantic.Mono }
-import { collect: Suru.Compiler.Semantic.Mono.Collect }
-import { infer: Suru.Compiler.Semantic.Mono.Infer }
-import { inst: Suru.Compiler.Semantic.Mono.Instantiate }
-import { nsPass: Suru.Compiler.Semantic.NamespacePass }
-import { exportPass: Suru.Compiler.Semantic.ExportPass }
-import { importPass: Suru.Compiler.Semantic.ImportPass }
-import { qualNamePass: Suru.Compiler.Semantic.QualNamePass }
-import { nsReg: Suru.Compiler.Semantic.NsRegistry }
-import { Suru.Compiler.PathUtils }
 
 
 // ─── Project file discovery ────────────────────────────────────────────────────

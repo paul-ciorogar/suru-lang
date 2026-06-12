@@ -14,12 +14,14 @@
 
 namespace Suru.Compiler.Semantic.NamespacePass
 
+import {
+    semantic: Suru.Compiler.Semantic
+    ast: Suru.Compiler.Parser.Ast
+}
+
 export {
     validateNamespaceDecl
 }
-
-import { semantic: Suru.Compiler.Semantic }
-import { ast: Suru.Compiler.Parser.Ast }
 
 // validateNamespaceDecl — walk ownStmts, apply namespace structural rules,
 // and store the resolved namespace string in state.namespace.

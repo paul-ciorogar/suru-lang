@@ -1,5 +1,11 @@
 namespace Test.GenericsMonoinferUnit
 
+import {
+    collect: Suru.Compiler.Semantic.Mono.Collect
+    mono: Suru.Compiler.Semantic.Mono.Infer
+    nodes: Suru.Compiler.Parser.Nodes
+}
+
 export { main }
 
 // Unit test for monoInfer.suru.
@@ -13,11 +19,6 @@ export { main }
 //
 // Also verifies that a duplicate annotation produces only one request
 // (deduplication), and that inferFromAnnotation alone works correctly.
-
-import { collect: Suru.Compiler.Semantic.Mono.Collect }
-import { mono: Suru.Compiler.Semantic.Mono.Infer }
-import { nodes: Suru.Compiler.Parser.Nodes }
-
 fn main() {
     // ── Build a GenericRegistry with Pair<T, U> ──────────────────────────────
 

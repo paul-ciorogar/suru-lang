@@ -21,12 +21,12 @@
 
 namespace Suru.Compiler.Semantic.QualNamePass
 
+import { importPass: Suru.Compiler.Semantic.ImportPass }
+
 export {
     collectQualNsPrefixes
     rewriteQualifiedCalls
 }
-
-import { importPass: Suru.Compiler.Semantic.ImportPass }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -1,16 +1,18 @@
 namespace Suru.Tests.Runner
 
-import { [lexerTests]: Test.Unit.Compiler.Lexer }
-import { [ctypeLayoutTests]: Test.Unit.Compiler.CTypeLayout }
-import { [structLayoutTests]: Test.Unit.Compiler.StructLayout }
-import { [ptrTests]: Test.Unit.Compiler.Ptr }
-import { [externTypeTests]: Test.Unit.Compiler.ExternType }
-import { [sizeExprTests]: Test.Unit.Compiler.SizeExpr }
-import { [ptrLoadStoreTests]: Test.Unit.Compiler.PtrLoadStore }
-import { [suruStringOrderTests]: Test.Unit.Stdlib.String }
-import { [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum }
-import { [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv }
-import { [reportResults]: Test.Unit.Assert }
+import {
+    [lexerTests]: Test.Unit.Compiler.Lexer
+    [ctypeLayoutTests]: Test.Unit.Compiler.CTypeLayout
+    [structLayoutTests]: Test.Unit.Compiler.StructLayout
+    [ptrTests]: Test.Unit.Compiler.Ptr
+    [externTypeTests]: Test.Unit.Compiler.ExternType
+    [sizeExprTests]: Test.Unit.Compiler.SizeExpr
+    [ptrLoadStoreTests]: Test.Unit.Compiler.PtrLoadStore
+    [suruStringOrderTests]: Test.Unit.Stdlib.String
+    [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
+    [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
+    [reportResults]: Test.Unit.Assert
+}
 
 // xfail marks a known-broken test that must NOT block the build: an xfail that
 // fails prints XFAIL (not counted as a failure); an xfail that unexpectedly
@@ -101,6 +103,8 @@ fn main(args Array<String>) {
         { name: "namespace-error-invalid",   source: "tests/fixtures/namespace-error-invalid",   args: "", expected: readFile("/work/tests/fixtures/namespace-error-invalid/expected.txt"),   xfail: false, compileError: true },
         { name: "namespace-error-duplicate", source: "tests/fixtures/namespace-error-duplicate", args: "", expected: readFile("/work/tests/fixtures/namespace-error-duplicate/expected.txt"), xfail: false, compileError: true },
         { name: "namespace-error-not-first", source: "tests/fixtures/namespace-error-not-first", args: "", expected: readFile("/work/tests/fixtures/namespace-error-not-first/expected.txt"), xfail: false, compileError: true },
+        { name: "import-after-export-error", source: "tests/fixtures/import-after-export-error", args: "", expected: readFile("/work/tests/fixtures/import-after-export-error/expected.txt"), xfail: false, compileError: true },
+        { name: "multiple-import-error",     source: "tests/fixtures/multiple-import-error",     args: "", expected: readFile("/work/tests/fixtures/multiple-import-error/expected.txt"),     xfail: false, compileError: true },
         { name: "namespace-export-error",    source: "tests/fixtures/namespace-export-error",    args: "", expected: readFile("/work/tests/fixtures/namespace-export-error/expected.txt"),    xfail: false, compileError: true },
         { name: "namespace-import-error",    source: "tests/fixtures/namespace-import-error",    args: "", expected: readFile("/work/tests/fixtures/namespace-import-error/expected.txt"),    xfail: false, compileError: true },
         { name: "namespace-import-conflict", source: "tests/fixtures/namespace-import-conflict", args: "", expected: readFile("/work/tests/fixtures/namespace-import-conflict/expected.txt"), xfail: false, compileError: true },

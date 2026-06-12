@@ -16,6 +16,13 @@
 
 namespace Suru.Compiler.Semantic.Mono
 
+import {
+    collect: Suru.Compiler.Semantic.Mono.Collect
+    infer: Suru.Compiler.Semantic.Mono.Infer
+    inst: Suru.Compiler.Semantic.Mono.Instantiate
+    nodes: Suru.Compiler.Parser.Nodes
+}
+
 export {
     MonoResult
     extractFnNames
@@ -48,11 +55,6 @@ export {
     rewriteVariantArmsInStmtsAt
     rewriteVariantArms
 }
-
-import { collect: Suru.Compiler.Semantic.Mono.Collect }
-import { infer: Suru.Compiler.Semantic.Mono.Infer }
-import { inst: Suru.Compiler.Semantic.Mono.Instantiate }
-import { nodes: Suru.Compiler.Parser.Nodes }
 
 // ─── Result type ─────────────────────────────────────────────────────────────
 

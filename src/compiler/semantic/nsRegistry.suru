@@ -15,6 +15,11 @@
 
 namespace Suru.Compiler.Semantic.NsRegistry
 
+import {
+    lex: Suru.Compiler.Lexer
+    parser: Suru.Compiler.Parser
+}
+
 export {
     NamespaceRegistry
     nsRegistryLookup
@@ -24,9 +29,6 @@ export {
     buildNamespaceRegistry
     buildNamespaceRegistryMulti
 }
-
-import { lex: Suru.Compiler.Lexer }
-import { parser: Suru.Compiler.Parser }
 
 // ─── Registry type ─────────────────────────────────────────────────────────────
 

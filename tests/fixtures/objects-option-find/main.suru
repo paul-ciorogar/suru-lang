@@ -1,5 +1,7 @@
 namespace Test.ObjectsOptionFind
 
+import { [Option, Some, None, some, none]: Suru.Stdlib.Option }
+
 export { main }
 
 // objects-option-find — a registry object whose method returns Option<Sig>,
@@ -17,9 +19,6 @@ export { main }
 // Memory: .at() returns a BORROWED element pointer, so the found element is
 // cloned before being wrapped in Some; the returned Option therefore owns its
 // payload and can be dropped independently of the Registry's items array.
-
-import { [Option, Some, None, some, none]: Suru.Stdlib.Option }
-
 type Sig: { name String }
 
 type Registry: { items Array<Sig>, fn find(name String) Option<Sig> }

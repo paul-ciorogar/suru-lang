@@ -35,6 +35,13 @@
 
 namespace Suru.Compiler.Semantic.ResolveTypes
 
+import {
+    sem: Suru.Compiler.Semantic
+    passes: Suru.Compiler.Semantic.Passes
+    exprs: Suru.Compiler.Semantic.Exprs
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+}
+
 export {
     rtLookupTypeEntry
     rtLookupFieldType
@@ -58,11 +65,6 @@ export {
     rtResolveFnDecl
     resolveModuleTypes
 }
-
-import { sem: Suru.Compiler.Semantic }
-import { passes: Suru.Compiler.Semantic.Passes }
-import { exprs: Suru.Compiler.Semantic.Exprs }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 
 // ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
 

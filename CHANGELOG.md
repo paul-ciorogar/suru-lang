@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed module-header order: `namespace` → `import` → `export` → declarations
+
+- The parser now enforces a single, fixed order for the module header. A module may
+  declare **at most one `import` block**, and it must appear **before** the `export`
+  block. New compile errors (file:line:col + caret, emitted from `parse()` in
+  `src/compiler/parser/parser.suru`):
+  - a second `import` block → `a module may declare at most one import block`
+  - an `import` after the `export` block → `import block must appear before the export block`
+  - an `export` after a declaration → `export block must appear before declarations`
+- A single `import` block may list any number of entries (one per line or
+  comma-separated), so multi-import modules consolidate into one block.
+- All existing `.suru` sources (compiler, stdlib, tests, fixtures) were reordered to
+  conform; bootstrap re-reached its C2 == C3 fixed point.
+- New `compileError` fixtures: `tests/fixtures/multiple-import-error`,
+  `tests/fixtures/import-after-export-error`.
+
 ### `Str` borrowed-string type introduced (String-split B1)
 
 - **New builtin type `Str`** — the borrowed, static string-literal type, the first

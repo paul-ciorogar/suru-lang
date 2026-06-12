@@ -9,7 +9,9 @@
 //   _ count i64  — number of live elements
 //   _ cap   i64  — buffer capacity in elements
 //
-// Growth policy: initial capacity 8; doubles when full.
+// Growth policy: initial capacity 8; on overflow, double while small
+// (cap < 1024) then grow by 1.5x once large — geometric throughout, so
+// append stays amortized O(1) while bounding wasted memory (see computeGrowth).
 // The struct header is freed by the vtable wrapper after drop() returns;
 // drop() itself only frees `this.buf` (and drops each heap element).
 //
@@ -57,9 +59,21 @@ fn newList<T>() List<T> {
         _ cap   i64: initCap
 
         // add — append val to the end; grows the buffer if needed.
+        //
+        // Growth is geometric but the factor shrinks as the buffer gets large:
+        // double while small (cap < 1024, where the absolute over-allocation is
+        // negligible), then grow by 1.5x once large (cap + cap/2), which caps
+        // wasted memory at ~50% instead of compounding to a full 2x. It stays
+        // geometric on purpose — append must remain amortized O(1); switching to
+        // linear growth here would make filling the list O(n^2). Mirrors Go's
+        // slice-growth strategy. (Inlined rather than a private helper: private
+        // methods called via `this.` are not supported by codegen.)
         fn add(val T) void {
             if this.count.equals(this.cap) {
                 let newCap i64: this.cap.multiply(2)
+                if not this.cap.lt(1024) {
+                    newCap: this.cap.add(this.cap.split(2))
+                }
                 this.buf: realloc(this.buf, newCap.multiply(typeSize(T)))
                 this.cap: newCap
             }

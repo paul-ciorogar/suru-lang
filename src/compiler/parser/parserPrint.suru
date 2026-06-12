@@ -6,6 +6,10 @@
 
 namespace Suru.Compiler.Parser.Print
 
+import {
+    Suru.Compiler.Parser.Ast
+}
+
 export {
     printModule
     printStmt
@@ -37,10 +41,6 @@ export {
     printExprBinary
     matchPatternLabel
     matchPatternLabelInner
-}
-
-import {
-    Suru.Compiler.Parser.Ast
 }
 
 fn makeIndent(indent String) String {

@@ -1,0 +1,3 @@
+/work/tests/fixtures/multiple-import-error/main.suru:5:1: error: a module may declare at most one import block
+  5 | import { b: Second.Lib }
+      ^

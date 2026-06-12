@@ -1,0 +1,7 @@
+namespace Test.ImportAfterExportError
+
+export { main }
+
+import { a: Some.Lib }
+
+fn main() {}

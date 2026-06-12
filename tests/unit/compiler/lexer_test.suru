@@ -7,11 +7,13 @@
 
 namespace Test.Unit.Compiler.Lexer
 
-export { lexerTests }
+import {
+    [TestResult, assertEqI64, assertTrue, assertEqStr]: Test.Unit.Assert
+    [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex
+    [toString]: Suru.Compiler.Lexer
+}
 
-import { [TestResult, assertEqI64, assertTrue, assertEqStr]: Test.Unit.Assert }
-import { [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex }
-import { [toString]: Suru.Compiler.Lexer }
+export { lexerTests }
 
 // lexerTests — one TestResult per assertion.
 fn lexerTests() Array<TestResult> {

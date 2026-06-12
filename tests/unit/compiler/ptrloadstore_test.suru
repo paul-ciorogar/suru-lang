@@ -13,10 +13,12 @@
 
 namespace Test.Unit.Compiler.PtrLoadStore
 
-export { ptrLoadStoreTests }
+import {
+    [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert
+    [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers
+}
 
-import { [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert }
-import { [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers }
+export { ptrLoadStoreTests }
 
 fn ptrLoadStoreTests() Array<TestResult> {
     let results Array<TestResult>: []

@@ -8,14 +8,14 @@
 
 namespace Suru.Compiler.Codegen.StrIntern
 
+import { types: Suru.Compiler.Codegen.Types }
+
 export {
     irEscapeStr
     internString
     lookupStrGlobal
     lookupStrHdrGlobal
 }
-
-import { types: Suru.Compiler.Codegen.Types }
 
 // Map a nibble (0–15) to its uppercase hex character.
 fn _hexDigit(n i64) String {

@@ -8,6 +8,8 @@
 
 namespace Suru.Compiler.Semantic.Mono.Collect
 
+import { ast: Suru.Compiler.Parser.Ast }
+
 export {
     GenericFnDef
     GenericTypeDef
@@ -19,8 +21,6 @@ export {
     newGenericRegistry
     collectGenericDefs
 }
-
-import { ast: Suru.Compiler.Parser.Ast }
 
 // ─── Registry types ───────────────────────────────────────────────────────────
 

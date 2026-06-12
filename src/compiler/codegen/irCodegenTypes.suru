@@ -16,6 +16,8 @@
 
 namespace Suru.Compiler.Codegen.Types
 
+import { ir: Suru.Compiler.Codegen.Builder }
+
 export {
     VarEntry
     FnEntry
@@ -54,8 +56,6 @@ export {
     mangleNsSym
     lookupSrcNs
 }
-
-import { ir: Suru.Compiler.Codegen.Builder }
 
 // ─── Per-variable entry ───────────────────────────────────────────────────────
 

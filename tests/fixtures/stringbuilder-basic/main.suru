@@ -1,7 +1,9 @@
 namespace Test.StringBuilderBasic
 
-import { [SuruString]: Suru.Stdlib.String }
-import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+import {
+    [SuruString]: Suru.Stdlib.String
+    [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder
+}
 
 fn main(args Array<String>) {
     // --- builder: appendChar one at a time ---

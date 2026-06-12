@@ -12,11 +12,13 @@
 
 namespace Test.Unit.Compiler.StructLayout
 
-export { structLayoutTests }
+import {
+    [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert
+    [reorderSuruFields, suruFieldOffset, suruStructSize]: Suru.Compiler.Codegen.Struct
+    [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types
+}
 
-import { [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert }
-import { [reorderSuruFields, suruFieldOffset, suruStructSize]: Suru.Compiler.Codegen.Struct }
-import { [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types }
+export { structLayoutTests }
 
 // mkFields — build a parallel name/type list into an Array<TypeFieldEntry>.
 fn mkFields(fieldNames Array<String>, fieldTypes Array<String>) Array<TypeFieldEntry> {

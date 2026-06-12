@@ -22,6 +22,11 @@
 
 namespace Suru.Compiler.Semantic.ImportPass
 
+import {
+    semantic: Suru.Compiler.Semantic
+    ast: Suru.Compiler.Parser.Ast
+}
+
 export {
     NsExportEntry
     SubstEntry
@@ -51,9 +56,6 @@ export {
     desugarImports
     rewriteCodegenStmts
 }
-
-import { semantic: Suru.Compiler.Semantic }
-import { ast: Suru.Compiler.Parser.Ast }
 
 // ─── Registry types ───────────────────────────────────────────────────────────
 

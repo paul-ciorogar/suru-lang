@@ -7,10 +7,12 @@
 
 namespace Test.Unit.Compiler.SizeExpr
 
-export { sizeExprTests }
+import {
+    [TestResult, assertEqI64]: Test.Unit.Assert
+    [elemSizeBytes]: Suru.Compiler.Codegen.Array
+}
 
-import { [TestResult, assertEqI64]: Test.Unit.Assert }
-import { [elemSizeBytes]: Suru.Compiler.Codegen.Array }
+export { sizeExprTests }
 
 fn sizeExprTests() Array<TestResult> {
     let results Array<TestResult>: []

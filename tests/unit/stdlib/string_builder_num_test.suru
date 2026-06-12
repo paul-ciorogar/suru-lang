@@ -12,11 +12,13 @@
 
 namespace Test.Unit.Stdlib.StringBuilderNum
 
-export { stringBuilderNumTests }
+import {
+    [TestResult, assertTrue]: Test.Unit.Assert
+    [SuruString]: Suru.Stdlib.String
+    [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder
+}
 
-import { [TestResult, assertTrue]: Test.Unit.Assert }
-import { [SuruString]: Suru.Stdlib.String }
-import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+export { stringBuilderNumTests }
 
 // buildI64 — format n via a fresh StringBuilder and return the snapshot.
 fn buildI64(n i64) SuruString {

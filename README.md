@@ -569,8 +569,11 @@ The stdlib provides `Option<T>`, `Result<T, E>`, and `List<T>` in `src/stdlib/`:
 
 ```suru
 namespace My.App
-import { [some, none]: Suru.Stdlib.Option }
-import { [ok, err]:    Suru.Stdlib.Result }
+
+import {
+    [some, none]: Suru.Stdlib.Option
+    [ok, err]:    Suru.Stdlib.Result
+}
 
 fn main(args Array<String>) {
     let s Option<i64>: some(42)
@@ -712,8 +715,11 @@ To build a string incrementally, use `StringBuilder` (from `Suru.Stdlib.StringBu
 
 ```suru
 namespace My.App
-import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
-import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
+
+import {
+    [SuruString, suruStringFrom]:        Suru.Stdlib.String
+    [StringBuilder, newStringBuilder]:   Suru.Stdlib.StringBuilder
+}
 
 fn main(args Array<String>) {
     // Immutable string built from a built-in String literal
@@ -942,16 +948,20 @@ fn main(args Array<String>) {
 }
 ```
 
-`import` is a convenience that lets you use a shorter local name instead of the full qualified path. Four import forms are supported:
+`import` is a convenience that lets you use a shorter local name instead of the full qualified path. Four import forms are supported; a module has **at most one `import` block**, which may hold one or more entries (one per line, or comma-separated):
 
 ```suru
-import { My.Lib }                              // FullNs — injects all exports: double() works directly
-import { lib: My.Lib }                         // AliasNs — qualify calls as lib.double()
-import { [double, triple]: My.Lib }            // SelectiveNames — call double() unqualified
-import { [dbl]: double }: My.Lib }             // SelectiveAliased — call as dbl()
+import {
+    My.Lib                              // FullNs — injects all exports: double() works directly
+    lib: My.Lib                         // AliasNs — qualify calls as lib.double()
+    [double, triple]: My.Lib            // SelectiveNames — call double() unqualified
+    {dbl: double}: My.Lib               // SelectiveAliased — call as dbl()
+}
 ```
 
 Exported names are declared with `export { name1, name2 }`. Only exported names are visible to importers; unexported names are private to their module.
+
+**Module-header order is fixed**: `namespace`, then the (single) `import` block, then the `export` block, then declarations. A second `import` block, an `import` after the `export` block, or an `export` after a declaration is a compile error.
 
 A `.suruproject` file at the project root lists source root directories (one per line, relative paths, `#` comments allowed). The compiler scans those directories to build the namespace registry so imports resolve without explicit file paths.
 

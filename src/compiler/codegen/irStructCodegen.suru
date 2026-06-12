@@ -35,6 +35,13 @@
 
 namespace Suru.Compiler.Codegen.Struct
 
+import {
+    types: Suru.Compiler.Codegen.Types
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    ir: Suru.Compiler.Codegen.Builder
+    box: Suru.Compiler.Codegen.Box
+}
+
 export {
     reorderSuruFields
     suruFieldOffset
@@ -54,11 +61,6 @@ export {
     emitStructDrop
     emitStructMethod
 }
-
-import { types: Suru.Compiler.Codegen.Types }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { ir: Suru.Compiler.Codegen.Builder }
-import { box: Suru.Compiler.Codegen.Box }
 
 // ─── C ABI layout (cType) ──────────────────────────────────────────────────────
 // A cType has NO 32-byte header: field 0 starts at offset 0, each field sits at

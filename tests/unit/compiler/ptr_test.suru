@@ -12,11 +12,13 @@
 
 namespace Test.Unit.Compiler.Ptr
 
-export { ptrTests }
+import {
+    [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert
+    [isBuiltinType]: Suru.Compiler.Semantic.Passes
+    [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers
+}
 
-import { [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert }
-import { [isBuiltinType]: Suru.Compiler.Semantic.Passes }
-import { [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers }
+export { ptrTests }
 
 fn ptrTests() Array<TestResult> {
     let results Array<TestResult>: []

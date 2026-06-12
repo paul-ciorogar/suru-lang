@@ -13,10 +13,12 @@
 
 namespace Test.Unit.Stdlib.StringFromConv
 
-export { stringFromConvTests }
+import {
+    [TestResult, assertTrue]: Test.Unit.Assert
+    [SuruString, suruStringFromI64, suruStringFromChar]: Suru.Stdlib.String
+}
 
-import { [TestResult, assertTrue]: Test.Unit.Assert }
-import { [SuruString, suruStringFromI64, suruStringFromChar]: Suru.Stdlib.String }
+export { stringFromConvTests }
 
 // checkI64 — assert that suruStringFromI64(n) produces want; drops the snapshot.
 fn checkI64(results Array<TestResult>, name String, n i64, want String) Array<TestResult> {

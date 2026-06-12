@@ -1,8 +1,8 @@
 namespace Test.ObjectsModules
 
-export { main }
-
 import { gmod: Test.ObjectsModules.Greeter }
+
+export { main }
 
 // Root file ALSO declares its own Greeter literal. With the per-file vtable
 // symbol fix, main.ll and greeter.ll emit distinct vtable globals

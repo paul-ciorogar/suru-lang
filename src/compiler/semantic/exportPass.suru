@@ -15,14 +15,16 @@
 
 namespace Suru.Compiler.Semantic.ExportPass
 
+import {
+    semantic: Suru.Compiler.Semantic
+    ast: Suru.Compiler.Parser.Ast
+}
+
 export {
     collectOwnDefinedNames
     containsName
     validateExports
 }
-
-import { semantic: Suru.Compiler.Semantic }
-import { ast: Suru.Compiler.Parser.Ast }
 
 // collectOwnDefinedNames — walk ownStmts and return the names of all
 // locally-defined functions, types, and top-level constants.

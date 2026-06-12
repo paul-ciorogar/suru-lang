@@ -9,11 +9,13 @@
 
 namespace Test.Unit.Compiler.CTypeLayout
 
-export { ctypeLayoutTests }
+import {
+    [TestResult, assertEqI64]: Test.Unit.Assert
+    [cFieldSize, cFieldAlign, cAlignUp, cFieldOffset, cStructSize]: Suru.Compiler.Codegen.Struct
+    [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types
+}
 
-import { [TestResult, assertEqI64]: Test.Unit.Assert }
-import { [cFieldSize, cFieldAlign, cAlignUp, cFieldOffset, cStructSize]: Suru.Compiler.Codegen.Struct }
-import { [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types }
+export { ctypeLayoutTests }
 
 // mkCType — build a cType TypeDecl from parallel name/type lists (data-only).
 fn mkCType(name String, fieldNames Array<String>, fieldTypes Array<String>) TypeDecl {

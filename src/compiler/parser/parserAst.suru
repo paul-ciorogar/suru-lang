@@ -44,6 +44,10 @@
 
 namespace Suru.Compiler.Parser.Ast
 
+import {
+    Suru.Compiler.Lexer
+}
+
 export {
     OP_NOT
     OP_AND
@@ -100,10 +104,6 @@ export {
     SizeNode
     AstNode
     AstModule
-}
-
-import {
-    Suru.Compiler.Lexer
 }
 
 // Operator constants for UnaryNode.op and BinaryNode.op.

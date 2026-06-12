@@ -9,12 +9,14 @@
 
 namespace Suru.Cli
 
-import { pipeline:   Suru.Compiler.Pipeline }
-import { pathUtils:  Suru.Compiler.PathUtils }
-import { lex:        Suru.Compiler.Lexer }
-import { parser:     Suru.Compiler.Parser }
-import { pprint:     Suru.Compiler.Parser.Print }
-import { debugPrint: Suru.Compiler.Debug.Print }
+import {
+    pipeline:   Suru.Compiler.Pipeline
+    pathUtils:  Suru.Compiler.PathUtils
+    lex:        Suru.Compiler.Lexer
+    parser:     Suru.Compiler.Parser
+    pprint:     Suru.Compiler.Parser.Print
+    debugPrint: Suru.Compiler.Debug.Print
+}
 
 // ─── Lex command ───────────────────────────────────────────────────────────────
 

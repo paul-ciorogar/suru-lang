@@ -25,6 +25,11 @@
 
 namespace Suru.Compiler.Semantic.Passes
 
+import {
+    sem: Suru.Compiler.Semantic
+    parser: Suru.Compiler.Parser
+}
+
 export {
     isArrayGeneric
     isBuiltinType
@@ -47,9 +52,6 @@ export {
     runPrePasses
     normalizeGenericTypeName
 }
-
-import { sem: Suru.Compiler.Semantic }
-import { parser: Suru.Compiler.Parser }
 
 // ─── Type resolution ──────────────────────────────────────────────────────────
 

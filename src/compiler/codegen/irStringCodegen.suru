@@ -26,6 +26,14 @@
 
 namespace Suru.Compiler.Codegen.String
 
+import {
+    types: Suru.Compiler.Codegen.Types
+    strIntern: Suru.Compiler.Codegen.StrIntern
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    ir: Suru.Compiler.Codegen.Builder
+    box: Suru.Compiler.Codegen.Box
+}
+
 export {
     emitExtractStringData
     emitExtractStringLen
@@ -51,12 +59,6 @@ export {
     emitFloat64LlvmHex
     emitStringMethod
 }
-
-import { types: Suru.Compiler.Codegen.Types }
-import { strIntern: Suru.Compiler.Codegen.StrIntern }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { ir: Suru.Compiler.Codegen.Builder }
-import { box: Suru.Compiler.Codegen.Box }
 
 // ─── Low-level %suru.String field extractors ──────────────────────────────────
 // %suru.String layout: { type_tag@0(i64), len@1(i64), data@2(ptr) }

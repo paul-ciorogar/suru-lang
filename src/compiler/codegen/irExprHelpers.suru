@@ -10,6 +10,14 @@
 
 namespace Suru.Compiler.Codegen.ExprHelpers
 
+import {
+    ir: Suru.Compiler.Codegen.Builder
+    types: Suru.Compiler.Codegen.Types
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    box: Suru.Compiler.Codegen.Box
+    irArr: Suru.Compiler.Codegen.Array
+}
+
 export {
     emitVarLoad
     effectiveSuruType
@@ -23,12 +31,6 @@ export {
     emitBoolNot
     emitBinaryExpr
 }
-
-import { ir: Suru.Compiler.Codegen.Builder }
-import { types: Suru.Compiler.Codegen.Types }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { box: Suru.Compiler.Codegen.Box }
-import { irArr: Suru.Compiler.Codegen.Array }
 
 // Load from a local alloca or module-level constant global.
 fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {

@@ -6,12 +6,14 @@
 
 namespace Suru.Compiler.Debug.Print
 
+import {
+    pprint: Suru.Compiler.Parser.Print
+    Suru.Compiler.Semantic
+}
+
 export {
     printDebugOutput
 }
-
-import { pprint: Suru.Compiler.Parser.Print }
-import { Suru.Compiler.Semantic }
 
 // ─── Function registry ────────────────────────────────────────────────────────
 

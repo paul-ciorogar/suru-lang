@@ -21,6 +21,12 @@
 
 namespace Suru.Compiler.Semantic.Stmts
 
+import {
+    semantic: Suru.Compiler.Semantic
+    passes: Suru.Compiler.Semantic.Passes
+    exprs: Suru.Compiler.Semantic.Exprs
+}
+
 export {
     isConstant
     addConstant
@@ -37,10 +43,6 @@ export {
     analyzeIfStatement
     analyzeStatement
 }
-
-import { semantic: Suru.Compiler.Semantic }
-import { passes: Suru.Compiler.Semantic.Passes }
-import { exprs: Suru.Compiler.Semantic.Exprs }
 
 // ─── Constants array helpers ──────────────────────────────────────────────────
 

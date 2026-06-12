@@ -12,6 +12,21 @@
 
 namespace Suru.Compiler.Codegen
 
+import {
+    ast: Suru.Compiler.Parser.Ast
+    ir: Suru.Compiler.Codegen.Builder
+    types: Suru.Compiler.Codegen.Types
+    strIntern: Suru.Compiler.Codegen.StrIntern
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    box: Suru.Compiler.Codegen.Box
+    irStr: Suru.Compiler.Codegen.String
+    irArr: Suru.Compiler.Codegen.Array
+    irStruct: Suru.Compiler.Codegen.Struct
+    irCD: Suru.Compiler.Codegen.CloneDrop
+    passes: Suru.Compiler.Codegen.RegisterPasses
+    eh: Suru.Compiler.Codegen.ExprHelpers
+}
+
 export {
     emitInt64Static
     emitFloat64Static
@@ -52,19 +67,6 @@ export {
     sortStrings
     generate
 }
-
-import { ast: Suru.Compiler.Parser.Ast }
-import { ir: Suru.Compiler.Codegen.Builder }
-import { types: Suru.Compiler.Codegen.Types }
-import { strIntern: Suru.Compiler.Codegen.StrIntern }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { box: Suru.Compiler.Codegen.Box }
-import { irStr: Suru.Compiler.Codegen.String }
-import { irArr: Suru.Compiler.Codegen.Array }
-import { irStruct: Suru.Compiler.Codegen.Struct }
-import { irCD: Suru.Compiler.Codegen.CloneDrop }
-import { passes: Suru.Compiler.Codegen.RegisterPasses }
-import { eh: Suru.Compiler.Codegen.ExprHelpers }
 
 // Module-level pre-passes (registerTypes/registerFunctions/registerConstants/
 // emitGlobalConstants) live in irRegisterPasses.suru. Low-level expression

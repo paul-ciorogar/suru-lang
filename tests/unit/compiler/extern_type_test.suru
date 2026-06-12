@@ -12,10 +12,12 @@
 
 namespace Test.Unit.Compiler.ExternType
 
-export { externTypeTests }
+import {
+    [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert
+    [irLlvmTypeOf, isScalarSuruType, makeSuruType]: Suru.Compiler.Codegen.TypeHelpers
+}
 
-import { [TestResult, assertEqStr, assertTrue]: Test.Unit.Assert }
-import { [irLlvmTypeOf, isScalarSuruType, makeSuruType]: Suru.Compiler.Codegen.TypeHelpers }
+export { externTypeTests }
 
 fn externTypeTests() Array<TestResult> {
     let results Array<TestResult>: []

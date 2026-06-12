@@ -28,6 +28,13 @@
 
 namespace Suru.Compiler.Codegen.CloneDrop
 
+import {
+    types: Suru.Compiler.Codegen.Types
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    irStruct: Suru.Compiler.Codegen.Struct
+    irArr: Suru.Compiler.Codegen.Array
+}
+
 export {
     CgTextResult
     CloneDropResult
@@ -43,11 +50,6 @@ export {
     emitExternalCloneDropDeclare
     emitAllTypeCloneDrop
 }
-
-import { types: Suru.Compiler.Codegen.Types }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { irStruct: Suru.Compiler.Codegen.Struct }
-import { irArr: Suru.Compiler.Codegen.Array }
 
 // ─── Helper types ─────────────────────────────────────────────────────────────
 

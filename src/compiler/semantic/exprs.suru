@@ -23,6 +23,11 @@
 
 namespace Suru.Compiler.Semantic.Exprs
 
+import {
+    semantic: Suru.Compiler.Semantic
+    passes: Suru.Compiler.Semantic.Passes
+}
+
 export {
     inferTypeFromMethod
     inferTypeFromFirstArm
@@ -35,9 +40,6 @@ export {
     isStringFamilyName
     analyzeExpr
 }
-
-import { semantic: Suru.Compiler.Semantic }
-import { passes: Suru.Compiler.Semantic.Passes }
 
 // ─── Type inference ───────────────────────────────────────────────────────────
 

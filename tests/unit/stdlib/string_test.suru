@@ -8,10 +8,12 @@
 
 namespace Test.Unit.Stdlib.String
 
-export { suruStringOrderTests }
+import {
+    [TestResult, assertEqI64, assertTrue]: Test.Unit.Assert
+    [SuruString, suruStringFrom]: Suru.Stdlib.String
+}
 
-import { [TestResult, assertEqI64, assertTrue]: Test.Unit.Assert }
-import { [SuruString, suruStringFrom]: Suru.Stdlib.String }
+export { suruStringOrderTests }
 
 // suruStringOrderTests — one TestResult per assertion.
 fn suruStringOrderTests() Array<TestResult> {

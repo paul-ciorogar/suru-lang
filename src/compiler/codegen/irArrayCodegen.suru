@@ -35,6 +35,13 @@
 
 namespace Suru.Compiler.Codegen.Array
 
+import {
+    types: Suru.Compiler.Codegen.Types
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+    ir: Suru.Compiler.Codegen.Builder
+    box: Suru.Compiler.Codegen.Box
+}
+
 export {
     elemStorageLlvmType
     elemSizeBytes
@@ -53,11 +60,6 @@ export {
     emitArrayLiteralElements
     emitArrayMethod
 }
-
-import { types: Suru.Compiler.Codegen.Types }
-import { tyh: Suru.Compiler.Codegen.TypeHelpers }
-import { ir: Suru.Compiler.Codegen.Builder }
-import { box: Suru.Compiler.Codegen.Box }
 
 // ─── Element storage type ─────────────────────────────────────────────────────
 

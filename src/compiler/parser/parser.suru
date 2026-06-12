@@ -10,31 +10,43 @@
 
 namespace Suru.Compiler.Parser
 
-export {
-    parse
-    newParser
-}
-
 import {
     Suru.Compiler.Parser.Ast
     Suru.Compiler.Parser.Print
     Suru.Compiler.Parser.Nodes
 }
 
+export {
+    parse
+    newParser
+}
+
 fn parse(tokens Array<Token>, srcPath String) AstModule {
     let p Parser: newParser(move(tokens), srcPath)
     let stmts Array<AstNode>: []
-    // Module header: optional namespace declaration then zero or more export blocks.
+    // Module header order is fixed: optional namespace declaration, then at most
+    // one import block, then zero or more export blocks, then declarations.
+    // A second import block, an import after the export block, or an export after
+    // a declaration is a compile error.
     if p.currentTokenIs(TOK_NAMESPACE) {
         stmts.add(p.parseNamespaceDecl())
+    }
+    if p.currentTokenIs(TOK_IMPORT) {
+        stmts.add(p.parseImportBlock())
+    }
+    if p.currentTokenIs(TOK_IMPORT) {
+        p.error("a module may declare at most one import block")
     }
     while p.currentTokenIs(TOK_EXPORT) {
         stmts.add(p.parseExportBlock())
     }
-    while p.currentTokenIs(TOK_IMPORT) {
-        stmts.add(p.parseImportBlock())
-    }
     while not p.currentTokenIs(TOK_EOF) {
+        if p.currentTokenIs(TOK_IMPORT) {
+            p.error("import block must appear before the export block")
+        }
+        if p.currentTokenIs(TOK_EXPORT) {
+            p.error("export block must appear before declarations")
+        }
         stmts.add(p.parseStatement())
     }
     return { stmts: stmts }

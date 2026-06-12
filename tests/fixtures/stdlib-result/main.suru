@@ -1,8 +1,8 @@
 namespace Test.StdlibResult
 
-export { main }
-
 import { res: Suru.Stdlib.Result }
+
+export { main }
 
 fn describeResult(x Result<i64, String>) {
     match x {

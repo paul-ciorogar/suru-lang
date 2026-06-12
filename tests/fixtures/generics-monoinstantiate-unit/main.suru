@@ -1,5 +1,11 @@
 namespace Test.GenericsMonoinstantiateUnit
 
+import {
+    collect: Suru.Compiler.Semantic.Mono.Collect
+    mono: Suru.Compiler.Semantic.Mono.Instantiate
+    nodes: Suru.Compiler.Parser.Nodes
+}
+
 export { main }
 
 // Unit test for monoInstantiate.suru.
@@ -8,11 +14,6 @@ export { main }
 //   - mangleGenericName produces the correct mangled identifier
 //   - instantiateType clones fields with substituted type names and clears typeParams
 //   - instantiateAll deduplicates repeated requests for the same instantiation
-
-import { collect: Suru.Compiler.Semantic.Mono.Collect }
-import { mono: Suru.Compiler.Semantic.Mono.Instantiate }
-import { nodes: Suru.Compiler.Parser.Nodes }
-
 fn main() {
     // Build the fields: first T, second U
     let f1 Param: nodes.newParam("first",  "T")

@@ -13,6 +13,10 @@
 
 namespace Suru.Compiler.Parser.Nodes
 
+import {
+    Suru.Compiler.Parser.Ast
+}
+
 export {
     newParam
     newMethodSig
@@ -20,10 +24,6 @@ export {
     newMatchArm
     newMatchStmtArm
     newBlockNode
-}
-
-import {
-    Suru.Compiler.Parser.Ast
 }
 
 fn newParam(name String, typeName String) Param {

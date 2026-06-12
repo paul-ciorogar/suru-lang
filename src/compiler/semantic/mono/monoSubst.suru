@@ -12,6 +12,11 @@
 
 namespace Suru.Compiler.Semantic.Mono.Subst
 
+import {
+    ast: Suru.Compiler.Parser.Ast
+    nodes: Suru.Compiler.Parser.Nodes
+}
+
 export {
     indexOfLT
     trimLeft
@@ -34,9 +39,6 @@ export {
     substStmt
     substExpr
 }
-
-import { ast: Suru.Compiler.Parser.Ast }
-import { nodes: Suru.Compiler.Parser.Nodes }
 
 // ─── String helpers ───────────────────────────────────────────────────────────
 

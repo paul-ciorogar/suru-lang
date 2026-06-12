@@ -13,6 +13,11 @@
 
 namespace Suru.Compiler.Semantic.Mono.Instantiate
 
+import {
+    collect: Suru.Compiler.Semantic.Mono.Collect
+    subst: Suru.Compiler.Semantic.Mono.Subst
+}
+
 export {
     InstantiationRequest
     flattenTypeArg
@@ -33,9 +38,6 @@ export {
     findInstSumType
     instantiateAll
 }
-
-import { collect: Suru.Compiler.Semantic.Mono.Collect }
-import { subst: Suru.Compiler.Semantic.Mono.Subst }
 
 // ─── InstantiationRequest ─────────────────────────────────────────────────────
 

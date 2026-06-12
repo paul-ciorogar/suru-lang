@@ -12,6 +12,12 @@
 
 namespace Suru.Compiler.Semantic.Mono.Infer
 
+import {
+    inst: Suru.Compiler.Semantic.Mono.Instantiate
+    subst: Suru.Compiler.Semantic.Mono.Subst
+    collect: Suru.Compiler.Semantic.Mono.Collect
+}
+
 export {
     extractBaseTypeName
     collectTrimmedArgs
@@ -42,10 +48,6 @@ export {
     inferZeroArgFnFromAnnotation
     inferZeroArgFnsFromAnnotation
 }
-
-import { inst: Suru.Compiler.Semantic.Mono.Instantiate }
-import { subst: Suru.Compiler.Semantic.Mono.Subst }
-import { collect: Suru.Compiler.Semantic.Mono.Collect }
 
 // ─── Type-name string helpers ─────────────────────────────────────────────────
 

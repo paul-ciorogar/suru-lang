@@ -1,0 +1,7 @@
+namespace Test.MultipleImportError
+
+import { a: First.Lib }
+
+import { b: Second.Lib }
+
+fn main() {}
