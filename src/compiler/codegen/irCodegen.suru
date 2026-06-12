@@ -509,7 +509,7 @@ fn isOwnedStringTemp(ctx IrCodegenContext, node AstNode) bool {
                         let recvName String: nodeRecv.name
                         let entry VarEntry: types.lookupVar(ctx, recvName)
                         let recvType String: entry.suruType
-                        if recvType.equals("String") { return true }
+                        if tyh.isStringType(recvType) { return true }
                     }
                     _: {}
                 }
@@ -906,11 +906,38 @@ fn emitRawIndex(ctx IrCodegenContext, argNode AstNode) CodegenResult {
 }
 
 
-// Emit a typed println/printerror call for the scalar arms (bool/i32/i64/f64)
-// and the dynamic fallback (`ptr`). `suffix` is "println" or "printerror".
+// Emit a print of a NUL-terminated C string pointer for the given suffix:
+// "println" uses puts (appends a newline); "printerror" uses suru_printerror_lit
+// (fputs + newline). Used by the String and aggregate-placeholder print arms.
+fn emitPrintCStr(ctx IrCodegenContext, ptrName String, suffix String) IrCodegenContext {
+    let args Array<String>: []
+    args.add("ptr ".append(ptrName))
+    match suffix.equals("println") {
+        true: {
+            ctx: types.addDecl(ctx, "declare i32 @puts(ptr)\n")
+            ctx.builder: ir.emitCallDiscard(ctx.builder, "i32", "puts", args)
+        }
+        _: {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_printerror_lit(ptr)\n")
+            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_printerror_lit", args)
+        }
+    }
+    return ctx
+}
+
+// Emit a typed println/printerror call. `suffix` is "println" or "printerror".
+// Scalars use the typed runtime variants; String loads its data buffer and prints
+// it directly; any other heap aggregate prints a fixed "<struct>"/"<array>"
+// placeholder. No path reads a runtime type_tag.
 // The String-temp drop policy for printLn is layered on by the caller.
 fn emitPrintByType(ctx IrCodegenContext, valueName String, suruType String, suffix String) IrCodegenContext {
     let args Array<String>: []
+    // String family (owned `String` / borrowed `Str`): print the data buffer.
+    if tyh.isStringType(suruType) {
+        let dr CodegenResult: irStr.emitExtractStringData(ctx, valueName)
+        ctx: dr.ctx
+        return emitPrintCStr(ctx, dr.name, suffix)
+    }
     match suruType {
         "bool": {
             ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("_bool(i1)\n"))
@@ -932,10 +959,18 @@ fn emitPrintByType(ctx IrCodegenContext, valueName String, suruType String, suff
             args.add("double ".append(valueName))
             ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix).append("_f64"), args)
         }
+        "String": {
+            let dr CodegenResult: irStr.emitExtractStringData(ctx, valueName)
+            ctx: dr.ctx
+            ctx: emitPrintCStr(ctx, dr.name, suffix)
+        }
         _: {
-            ctx: types.addSuruDecl(ctx, "declare void @suru_".append(suffix).append("(ptr)\n"))
-            args.add("ptr ".append(valueName))
-            ctx.builder: ir.emitVoidCall(ctx.builder, "suru_".append(suffix), args)
+            // struct / array / other heap aggregate — preserve the historical
+            // "<struct>" / "<array>" output via an interned C-string placeholder.
+            let placeholder String: match tyh.isArraySuruType(suruType) { true: "<array>", _: "<struct>" }
+            ctx: strIntern.internString(ctx, placeholder)
+            let g String: strIntern.lookupStrGlobal(ctx, placeholder)
+            ctx: emitPrintCStr(ctx, g, suffix)
         }
     }
     return ctx
@@ -1051,7 +1086,7 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
         let elemST String: tyh.elemSuruType(recvSuruType)
         if method.equals("len")   { return irArr.emitArrayLen(ctx, recvVal) }
         if method.equals("clone") { return irArr.emitArrayClone(ctx, recvVal, elemST) }
-        if method.equals("drop")  { return irArr.emitArrayDrop(ctx, recvVal) }
+        if method.equals("drop")  { return irArr.emitArrayDrop(ctx, recvVal, elemST) }
         if method.equals("at") {
             let idxR CodegenResult: emitRawIndex(ctx, expr.args.at(0))
             ctx: idxR.ctx
@@ -1084,8 +1119,8 @@ fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
         }
     }
 
-    // String instance methods.
-    if recvSuruType.equals("String") {
+    // String instance methods (owned `String` and borrowed `Str` share these).
+    if tyh.isStringType(recvSuruType) {
         if method.equals("len") {
             let result CodegenResult: irStr.emitStringLen(ctx, recvVal)
             ctx: result.ctx
@@ -1431,7 +1466,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
     } else {
         // NamedType (non-variant) → unbox to i64 for comparison.
         // String and SuruString stay as object pointers (compared via strcmp / vtable equals).
-        if not box.isScalarType(condSuruType) and not condSuruType.equals("String") and not condSuruType.equals("SuruString") {
+        if not box.isScalarType(condSuruType) and not tyh.isStringType(condSuruType) and not condSuruType.equals("SuruString") {
             let ur CodegenResult: box.unboxInt64(ctx, condVal)
             ctx: ur.ctx
             rawCond: ur.name
@@ -1461,7 +1496,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
                 cmpVal: cmpTmp
             } _: {} }
         } else {
-            if condSuruType.equals("String") {
+            if tyh.isStringType(condSuruType) {
                 ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
                 let pr CodegenResult: emitValue(ctx, pat)
                 ctx: pr.ctx
@@ -1856,7 +1891,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                 let argsEntry VarEntry: types.lookupVar(ctx, "args")
                 let argsLoadR IrResult: ir.emitLoad(ctx.builder, "ptr", argsEntry.allocaName)
                 ctx.builder: argsLoadR.builder
-                let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name)
+                let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name, "String")
                 ctx: dropR.ctx
             }
             ctx.builder: ir.emitRet(ctx.builder, ctx.currentReturnLlvmType, retVal)
@@ -2236,7 +2271,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
             let argsEntry VarEntry: types.lookupVar(ctx, "args")
             let argsLoadR IrResult: ir.emitLoad(ctx.builder, "ptr", argsEntry.allocaName)
             ctx.builder: argsLoadR.builder
-            let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name)
+            let dropR CodegenResult: irArr.emitArrayDrop(ctx, argsLoadR.name, "String")
             ctx: dropR.ctx
             ctx.builder: ir.emitRet(ctx.builder, "i64", "0")
         } else {

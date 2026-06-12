@@ -467,27 +467,30 @@ fn emitFieldAssignment(ctx IrCodegenContext, recv String, recvSuruType String, f
 }
 
 // ─── Clone / Drop ─────────────────────────────────────────────────────────────
-// Explicit clone(x)/drop(x) route through suru_clone_dyn/suru_drop_dyn, which
-// read the vtable at offsets 16/24.  Per-type @suru_clone_T/@suru_drop_T bodies
-// are emitted into ctx.helpers by ir-type-clone-drop-codegen.suru.
+// A struct/variant value is cloned/dropped through the null-safe vtable
+// trampoline (suru_clone_via_vtable/suru_drop_via_vtable), which dispatches via
+// the value's own clone_fn/drop_fn pointer with NO type-tag read. Per-type
+// @suru_clone_T/@suru_drop_T bodies are emitted into ctx.helpers by
+// ir-type-clone-drop-codegen.suru and pointed to by each value's header.
 
-// clone(x) → deep copy via suru_clone_dyn (vtable dispatch for tag=4/7).
+// clone(x) → deep copy via the vtable trampoline (the concrete arm of a variant
+// is only known per-value, so dispatch goes through the stored clone_fn).
 fn emitStructClone(ctx IrCodegenContext, recv String, recvSuruType String) CodegenResult {
-    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_dyn(ptr)\n")
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_via_vtable(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
-    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_clone_dyn", args)
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_clone_via_vtable", args)
     ctx.builder: r.builder
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: recvSuruType }
 }
 
-// drop(x): deallocate via suru_drop_dyn (vtable dispatch for tag=4/7).
+// drop(x): deallocate via the vtable trampoline.
 // Returns a null placeholder — drop is always used as a statement, result discarded.
 fn emitStructDrop(ctx IrCodegenContext, recv String) CodegenResult {
-    ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
+    ctx: types.addSuruDecl(ctx, "declare void @suru_drop_via_vtable(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
-    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_drop_dyn", args)
+    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_drop_via_vtable", args)
     return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
 }
 

@@ -1,0 +1,43 @@
+namespace Test.StrType
+
+export { main }
+
+// `Str` is the borrowed static-string type (string literals). It shares the
+// %suru.String layout and all read-only operations with the owned heap `String`;
+// it differs only in ownership (drop is a no-op) and is assignable to a `String`
+// parameter/return (the boundary materializes an owned copy).
+
+fn takesString(s String) i64 {
+    return s.len()
+}
+
+fn firstChar(s Str) char {
+    return s.__at(0)
+}
+
+fn main(args Array<String>) {
+    let s Str: "hello"
+    printLn(s)               // hello
+    printLn(s.len())         // 5
+    printLn(s.__at(0).ord()) // 104 (h)
+
+    // Str is assignable where a String parameter is expected.
+    printLn(takesString(s))  // 5
+
+    // Str parameter.
+    printLn(firstChar(s).ord())  // 104
+
+    // match on a Str scrutinee (strcmp path, same as String).
+    match s {
+        "hello": { printLn("matched hello") }
+        _:       { printLn("no match") }
+    }
+
+    // slice of a Str produces an owned String temp.
+    let sub String: s.slice(1, 4)
+    printLn(sub)             // ell
+    drop(sub)
+
+    drop(s)                  // no-op (borrowed static)
+    printLn("done")
+}

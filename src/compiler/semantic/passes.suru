@@ -72,6 +72,7 @@ fn isBuiltinType(name String) bool {
         or name.equals("f64")
         or name.equals("char")
         or name.equals("String")
+        or name.equals("Str")
         or name.equals("ptr")
         or name.equals("Array")
         or isArrayGeneric(name)

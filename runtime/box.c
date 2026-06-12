@@ -1,15 +1,16 @@
 /* box.c — Suru box runtime. Replaces box.ll.
  *
  * %suru.Box wraps a scalar so every Suru value is a `ptr` carrying its type_tag
- * at offset 0. The dispatch printers (suru_println / suru_printerror) and
- * suru_dyn_len read that tag to handle any heap value uniformly.
+ * at offset 0. Printing is now statically dispatched by the codegen (typed
+ * variants below); the old type-tag-reading dispatchers (suru_println /
+ * suru_printerror / suru_dyn_len) have been removed.
  *
  * type_tag: 0=Bool 1=Int32 2=Int64 3=Float64 4=Struct 5=Array 6=String 7=SumType 8=StaticString
  *
  * Output formats are kept byte-for-byte identical to the prior IR: integers via
- * printf("%lld\n"/"%d\n"), floats via "%g\n", bools/struct/array via puts() of a
- * literal (puts appends the newline). The stderr variants emit the body then a
- * separate "\n", matching the IR which did not fold the newline into the format.
+ * printf("%lld\n"/"%d\n"), floats via "%g\n", bools via puts() of a literal
+ * (puts appends the newline). The stderr variants emit the body then a separate
+ * "\n", matching the IR which did not fold the newline into the format.
  */
 #include "suru_runtime.h"
 
@@ -77,80 +78,6 @@ void *suru_box_clone(void *src) {
     return b;
 }
 
-/* ── dynamic printers ───────────────────────────────────────────────────── */
-
-/* Print any Suru value to stdout followed by a newline; dispatch on type_tag. */
-void suru_println(void *v) {
-    int64_t tag = ((SuruBox *)v)->type_tag;
-    switch (tag) {
-    case 0: /* Bool */
-        puts((((SuruBox *)v)->value & 1) ? "true" : "false");
-        break;
-    case 1: /* Int32 */
-        printf("%d\n", (int)(int32_t)((SuruBox *)v)->value);
-        break;
-    case 2: /* Int64 */
-        printf("%lld\n", (long long)((SuruBox *)v)->value);
-        break;
-    case 3: { /* Float64 */
-        double d;
-        memcpy(&d, &((SuruBox *)v)->value, sizeof(double));
-        printf("%g\n", d);
-        break;
-    }
-    case 4: /* Struct */
-        puts("<struct>");
-        break;
-    case 5: /* Array */
-        puts("<array>");
-        break;
-    case 6: /* String */
-    case 8: /* StaticString */
-        puts(((SuruString *)v)->data);
-        break;
-    default:
-        break; /* unknown tag: no-op */
-    }
-}
-
-/* Same dispatch as suru_println but to stderr. */
-void suru_printerror(void *v) {
-    int64_t tag = ((SuruBox *)v)->type_tag;
-    switch (tag) {
-    case 0: /* Bool */
-        fputs((((SuruBox *)v)->value & 1) ? "true" : "false", stderr);
-        fputs("\n", stderr);
-        break;
-    case 1: /* Int32 */
-        fprintf(stderr, "%d\n", (int)(int32_t)((SuruBox *)v)->value);
-        break;
-    case 2: /* Int64 */
-        fprintf(stderr, "%lld\n", (long long)((SuruBox *)v)->value);
-        break;
-    case 3: { /* Float64 */
-        double d;
-        memcpy(&d, &((SuruBox *)v)->value, sizeof(double));
-        fprintf(stderr, "%g\n", d);
-        break;
-    }
-    case 4: /* Struct */
-        fputs("<struct>", stderr);
-        fputs("\n", stderr);
-        break;
-    case 5: /* Array */
-        fputs("<array>", stderr);
-        fputs("\n", stderr);
-        break;
-    case 6: /* String */
-    case 8: /* StaticString */
-        fputs(((SuruString *)v)->data, stderr);
-        fputs("\n", stderr);
-        break;
-    default:
-        break;
-    }
-}
-
 /* ── scalar fast-path printers (no heap allocation) ─────────────────────── */
 
 void suru_println_bool(bool v) { puts(v ? "true" : "false"); }
@@ -170,23 +97,4 @@ void suru_printerror_f64(double v) { fprintf(stderr, "%g\n", v); }
 void suru_printerror_lit(char *data) {
     fputs(data, stderr);
     fputs("\n", stderr);
-}
-
-/* ── length ─────────────────────────────────────────────────────────────── */
-
-/* Length of any String or Array; 0 for null or any other tag. */
-int64_t suru_dyn_len(void *v) {
-    if (v == NULL) {
-        return 0;
-    }
-    int64_t tag = ((SuruBox *)v)->type_tag;
-    switch (tag) {
-    case 5: /* Array */
-        return ((SuruArray *)v)->len;
-    case 6: /* String */
-    case 8: /* StaticString */
-        return ((SuruString *)v)->len;
-    default:
-        return 0;
-    }
 }

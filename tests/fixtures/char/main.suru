@@ -42,4 +42,16 @@ fn main(args Array<String>) {
         'a': { printLn("matched a") }
         _:   { printLn("not a") }
     }
+
+    // Array<char>: clone + drop. char is a 1-byte scalar element, so clone is a
+    // bitcopy (no per-element dispatch); exercises the static-dispatch array path.
+    let chars Array<char>: ['h', 'i', '!']
+    printLn(chars.len())          // 3
+    printLn(chars.at(0).ord())    // 104
+    let charsCopy Array<char>: clone(chars)
+    charsCopy.set('X', 0)
+    printLn(charsCopy.at(0).ord())  // 88  (clone is independent)
+    printLn(chars.at(0).ord())      // 104 (original unchanged)
+    drop(charsCopy)
+    drop(chars)
 }

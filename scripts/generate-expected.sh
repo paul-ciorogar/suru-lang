@@ -48,6 +48,7 @@ capture sum-types
 capture comparisons
 capture arrays
 capture types
+capture str-type
 capture file_io /work/tests/fixtures/file_io/input.txt
 
 # New fixtures

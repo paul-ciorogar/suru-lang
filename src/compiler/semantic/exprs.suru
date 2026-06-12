@@ -32,6 +32,7 @@ export {
     analyzeObjectFieldsAt
     checkCallArgTypesAt
     isBuiltinTypeName
+    isStringFamilyName
     analyzeExpr
 }
 
@@ -183,7 +184,11 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
         let argType String: inferType(state, args.at(i))
-        let assignable bool: argType.equals(expected) or state.isSumVariant(expected, argType)
+        // String family: `Str` (borrowed static literal) is assignable to a
+        // `String` (owned) parameter and vice-versa; codegen materializes a heap
+        // copy at the boundary when an owned String is required.
+        let strInterop bool: isStringFamilyName(expected) and isStringFamilyName(argType)
+        let assignable bool: argType.equals(expected) or state.isSumVariant(expected, argType) or strInterop
         if not expected.equals("") and not argType.equals("") and not assignable {
             state.addError("argument type mismatch: expected ".append(expected).append(", got ").append(argType), callLine, callCol)
         }
@@ -196,6 +201,11 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
 
 // isBuiltinTypeName — true for the static type-receiver names that appear as
 // VarRefNode without being declared in scope (e.g. i64.from, bool.toString).
+// True for the string family: owned heap `String` or borrowed static `Str`.
+fn isStringFamilyName(name String) bool {
+    return name.equals("String") or name.equals("Str")
+}
+
 fn isBuiltinTypeName(name String) bool {
     return name.equals("i32")
         or name.equals("i64")
@@ -203,6 +213,7 @@ fn isBuiltinTypeName(name String) bool {
         or name.equals("bool")
         or name.equals("char")
         or name.equals("String")
+        or name.equals("Str")
         or name.equals("Array")
 }
 
@@ -321,7 +332,7 @@ fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let cond AstNode: typed.condition
             analyzeExpr(state, cond)
             let condType String: inferType(state, cond)
-            let isValidCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("char") or condType.equals("SuruString")
+            let isValidCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("Str") or condType.equals("char") or condType.equals("SuruString")
             if not isValidCondType {
                 state.addError("match condition must be bool, i64, f64, String, SuruString, or char, got ".append(condType), typed.line, typed.col)
             }

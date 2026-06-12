@@ -18,12 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Cross-module dynamic dispatch for per-element clone/drop. Defined in
- * struct.c (suru_clone_dyn / suru_drop_dyn dispatch all heap type_tags via the
- * vtable for structs/variants, and forward strings/arrays/scalars). */
-extern void *suru_clone_dyn(void *);
-extern void  suru_drop_dyn(void *);
-
 /* ── element sizing ─────────────────────────────────────────────────────────
  *
  * Byte size of one element for a given elem_tag.
@@ -129,52 +123,72 @@ void *suru_array_slice(SuruArray *arr, int64_t from, int64_t to) {
     return nh;
 }
 
-/* ── clone ───────────────────────────────────────────────────────────────────
+/* ── clone / drop (static-dispatch ABI) ──────────────────────────────────────
  *
- * Deep-clone an array. Scalar element types (elem_tag < 4) bitcopy the data
- * buffer directly. Heap types (elem_tag >= 4) clone each element through
- * suru_clone_dyn — the slot holds the element ptr reinterpreted as int64, so we
- * cast back to a pointer, clone, and store the clone's pointer the same way. */
-void *suru_array_clone_dyn(SuruArray *arr) {
-    int64_t etag = arr->elem_tag;
-    int64_t len = arr->len;
-    int64_t esz = suru_array_elem_size(etag);
-    int64_t nbytes = len * esz;
+ * The codegen knows every array's element type statically and emits a per-
+ * element-type wrapper (@suru_array_clone_<E> / @suru_array_drop_<E>) that calls
+ * one of these four helpers. NONE of these read a type_tag/elem_tag to decide
+ * what to do: the scalar element width is passed in (esz), and the per-element
+ * clone/drop routine is passed as a function pointer chosen at compile time.
+ * (type_tag/elem_tag are still *copied* into the cloned header while the 32-byte
+ * layout is frozen; they go away when the header shrinks.) */
 
-    void *nd = malloc((size_t)nbytes);
-    if (etag < 4) {
-        memcpy(nd, arr->data, (size_t)nbytes);
-    } else {
-        int64_t *src = (int64_t *)arr->data;
-        int64_t *dst = (int64_t *)nd;
-        for (int64_t i = 0; i < len; i++) {
-            void *cloned = suru_clone_dyn((void *)(intptr_t)src[i]);
-            dst[i] = (int64_t)(intptr_t)cloned;
-        }
+void *suru_array_clone_scalar(SuruArray *arr, int64_t esz) {
+    if (arr == NULL) {
+        return NULL;
     }
+    int64_t len = arr->len;
+    int64_t nbytes = len * esz;
+    void *nd = malloc((size_t)nbytes);
+    memcpy(nd, arr->data, (size_t)nbytes);
 
     SuruArray *nh = malloc(sizeof(SuruArray));
     nh->type_tag = arr->type_tag;
-    nh->elem_tag = etag;
+    nh->elem_tag = arr->elem_tag;
     nh->len = len;
     nh->cap = len;
     nh->data = nd;
     return nh;
 }
 
-/* ── drop ────────────────────────────────────────────────────────────────────
- *
- * Free an array. Scalar element types (elem_tag < 4) just free the buffer; heap
- * types (elem_tag >= 4) drop each element through suru_drop_dyn first. Then free
- * the data buffer and the header. */
-void suru_array_drop_dyn(SuruArray *arr) {
-    int64_t etag = arr->elem_tag;
-    if (etag >= 4) {
-        int64_t len = arr->len;
-        int64_t *data = (int64_t *)arr->data;
-        for (int64_t i = 0; i < len; i++) {
-            suru_drop_dyn((void *)(intptr_t)data[i]);
-        }
+void *suru_array_clone_heap(SuruArray *arr, void *(*clone_fn)(void *)) {
+    if (arr == NULL) {
+        return NULL;
+    }
+    int64_t len = arr->len;
+    void *nd = malloc((size_t)(len * 8));
+    int64_t *src = (int64_t *)arr->data;
+    int64_t *dst = (int64_t *)nd;
+    for (int64_t i = 0; i < len; i++) {
+        void *cloned = clone_fn((void *)(intptr_t)src[i]);
+        dst[i] = (int64_t)(intptr_t)cloned;
+    }
+
+    SuruArray *nh = malloc(sizeof(SuruArray));
+    nh->type_tag = arr->type_tag;
+    nh->elem_tag = arr->elem_tag;
+    nh->len = len;
+    nh->cap = len;
+    nh->data = nd;
+    return nh;
+}
+
+void suru_array_drop_scalar(SuruArray *arr) {
+    if (arr == NULL) {
+        return;
+    }
+    free(arr->data);
+    free(arr);
+}
+
+void suru_array_drop_heap(SuruArray *arr, void (*drop_fn)(void *)) {
+    if (arr == NULL) {
+        return;
+    }
+    int64_t len = arr->len;
+    int64_t *data = (int64_t *)arr->data;
+    for (int64_t i = 0; i < len; i++) {
+        drop_fn((void *)(intptr_t)data[i]);
     }
     free(arr->data);
     free(arr);

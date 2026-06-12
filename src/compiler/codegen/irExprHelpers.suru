@@ -28,6 +28,7 @@ import { ir: Suru.Compiler.Codegen.Builder }
 import { types: Suru.Compiler.Codegen.Types }
 import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 import { box: Suru.Compiler.Codegen.Box }
+import { irArr: Suru.Compiler.Codegen.Array }
 
 // Load from a local alloca or module-level constant global.
 fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
@@ -48,7 +49,7 @@ fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
 // For arithmetic/comparison, NamedType (struct field) is treated as i64 at runtime.
 fn effectiveSuruType(suruType String) String {
     if box.isScalarType(suruType)      { return suruType }
-    if suruType.equals("String")       { return "String" }
+    if tyh.isStringType(suruType)      { return "String" }
     if tyh.isArraySuruType(suruType)   { return suruType }
     return "i64"
 }
@@ -132,26 +133,46 @@ fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     return { ctx: ctx, name: res.name, llvmType: box.rawLlvmTypeOf(eff), suruType: eff }
 }
 
+// clone(x) builtin — static dispatch by the value's known type. Scalars are
+// returned as-is; String/Array/struct/variant route to their null-safe clone
+// symbol (heapCloneSym). No runtime type-tag read.
 fn emitCloneDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: val, llvmType: box.llvmTypeOf(suruType), suruType: suruType }
     }
-    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_dyn(ptr)\n")
+    if tyh.isArraySuruType(suruType) {
+        ctx: irArr.ensureArrayHelper(ctx, tyh.elemSuruType(suruType))
+    } else {
+        if tyh.isStringType(suruType) {
+            ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_clone(ptr)\n")
+        } else {
+            ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_via_vtable(ptr)\n")
+        }
+    }
     let args Array<String>: []
     args.add("ptr ".append(val))
-    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_clone_dyn", args)
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", tyh.heapCloneSym(suruType), args)
     ctx.builder: r.builder
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: suruType }
 }
 
+// drop(x) builtin — static dispatch by the value's known type (see emitCloneDyn).
 fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
     }
-    ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
+    if tyh.isArraySuruType(suruType) {
+        ctx: irArr.ensureArrayHelper(ctx, tyh.elemSuruType(suruType))
+    } else {
+        if tyh.isStringType(suruType) {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_string_drop(ptr)\n")
+        } else {
+            ctx: types.addSuruDecl(ctx, "declare void @suru_drop_via_vtable(ptr)\n")
+        }
+    }
     let args Array<String>: []
     args.add("ptr ".append(val))
-    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_drop_dyn", args)
+    ctx.builder: ir.emitVoidCall(ctx.builder, tyh.heapDropSym(suruType), args)
     return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
 }
 

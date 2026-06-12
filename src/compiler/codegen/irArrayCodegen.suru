@@ -48,6 +48,7 @@ export {
     emitArraySet
     emitArrayClone
     emitArrayDrop
+    ensureArrayHelper
     emitArrayLiteralAlloc
     emitArrayLiteralElements
     emitArrayMethod
@@ -257,24 +258,89 @@ fn emitArraySet(ctx IrCodegenContext, recv String, val String, valSuruType Strin
     return ctx
 }
 
-// clone(arr) → Array: deep copy via suru_array_clone_dyn (dispatches per element).
-// elemSuruType used to reconstruct the correct "Array:T" suruType for the result.
+// ensureArrayHelper — emit the per-element-type clone/drop wrappers into
+// ctx.helpers, once per distinct element type. Element type is statically known,
+// so dispatch is resolved at compile time (no runtime type-tag read):
+//   @suru_array_clone_<flat>(ptr) → calls @suru_array_clone_scalar/heap
+//   @suru_array_drop_<flat>(ptr)  → calls @suru_array_drop_scalar/heap
+// Scalar elements bitcopy; heap elements walk the buffer, applying the element's
+// own clone/drop symbol (recursively ensured for nested arrays).
+fn ensureArrayHelper(ctx IrCodegenContext, elemSuru String) IrCodegenContext {
+    let flat String: tyh.flatSuruName(elemSuru)
+    let sentinel String: "@@arrhelp:".append(flat)
+    let i i64: 0
+    while i.lt(ctx.declares.len()) {
+        if ctx.declares.at(i).equals(sentinel) { return ctx }
+        i: i.add(1)
+    }
+    ctx.declares.add(sentinel)
+
+    let cloneName String: "suru_array_clone_".append(flat)
+    let dropName  String: "suru_array_drop_".append(flat)
+
+    if tyh.isScalarSuruType(elemSuru) {
+        ctx: types.addSuruDecl(ctx, "declare ptr  @suru_array_clone_scalar(ptr, i64)\n")
+        ctx: types.addSuruDecl(ctx, "declare void @suru_array_drop_scalar(ptr)\n")
+        let esz String: elemSizeBytes(elemSuru).toString()
+        // linkonce_odr: these monomorphized wrappers may be emitted in several
+        // per-module .ll files; the linker folds the duplicate definitions.
+        let hc String: "define linkonce_odr ptr @".append(cloneName).append("(ptr %a) {\nentry:\n")
+        hc: hc.append("  %r = call ptr @suru_array_clone_scalar(ptr %a, i64 ").append(esz).append(")\n")
+        hc: hc.append("  ret ptr %r\n}\n\n")
+        hc: hc.append("define linkonce_odr void @".append(dropName).append("(ptr %a) {\nentry:\n"))
+        hc: hc.append("  call void @suru_array_drop_scalar(ptr %a)\n  ret void\n}\n\n")
+        ctx.helpers: ctx.helpers.append(hc)
+        return ctx
+    }
+
+    // Heap element: make the element's own clone/drop symbol reachable.
+    if tyh.isArraySuruType(elemSuru) {
+        ctx: ensureArrayHelper(ctx, tyh.elemSuruType(elemSuru))
+    } else {
+        if tyh.isStringType(elemSuru) {
+            ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_clone(ptr)\n")
+            ctx: types.addSuruDecl(ctx, "declare void @suru_string_drop(ptr)\n")
+        } else {
+            // struct / variant element — cloned via the null-safe vtable trampoline.
+            ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_via_vtable(ptr)\n")
+            ctx: types.addSuruDecl(ctx, "declare void @suru_drop_via_vtable(ptr)\n")
+        }
+    }
+    let elemClone String: tyh.heapCloneSym(elemSuru)
+    let elemDrop  String: tyh.heapDropSym(elemSuru)
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_array_clone_heap(ptr, ptr)\n")
+    ctx: types.addSuruDecl(ctx, "declare void @suru_array_drop_heap(ptr, ptr)\n")
+    // linkonce_odr: see the scalar branch above.
+    let hc String: "define linkonce_odr ptr @".append(cloneName).append("(ptr %a) {\nentry:\n")
+    hc: hc.append("  %r = call ptr @suru_array_clone_heap(ptr %a, ptr @").append(elemClone).append(")\n")
+    hc: hc.append("  ret ptr %r\n}\n\n")
+    hc: hc.append("define linkonce_odr void @".append(dropName).append("(ptr %a) {\nentry:\n"))
+    hc: hc.append("  call void @suru_array_drop_heap(ptr %a, ptr @").append(elemDrop).append(")\n")
+    hc: hc.append("  ret void\n}\n\n")
+    ctx.helpers: ctx.helpers.append(hc)
+    return ctx
+}
+
+// clone(arr) → Array: deep copy via the statically-dispatched per-element-type
+// wrapper. elemSuruType reconstructs the correct "Array:T" suruType for the result.
 fn emitArrayClone(ctx IrCodegenContext, recv String, elemSuruType String) CodegenResult {
-    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_array_clone_dyn(ptr)\n")
+    ctx: ensureArrayHelper(ctx, elemSuruType)
+    let sym String: "suru_array_clone_".append(tyh.flatSuruName(elemSuruType))
     let args Array<String>: []
     args.add("ptr ".append(recv))
-    let r IrResult: ir.emitCall(ctx.builder, "ptr", "suru_array_clone_dyn", args)
+    let r IrResult: ir.emitCall(ctx.builder, "ptr", sym, args)
     ctx.builder: r.builder
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "Array:".append(elemSuruType) }
 }
 
-// drop(arr): deallocate array elements and header via suru_array_drop_dyn.
+// drop(arr): deallocate array elements and header via the per-element-type wrapper.
 // Returns a null placeholder — drop is always used as a statement, result discarded.
-fn emitArrayDrop(ctx IrCodegenContext, recv String) CodegenResult {
-    ctx: types.addSuruDecl(ctx, "declare void @suru_array_drop_dyn(ptr)\n")
+fn emitArrayDrop(ctx IrCodegenContext, recv String, elemSuruType String) CodegenResult {
+    ctx: ensureArrayHelper(ctx, elemSuruType)
+    let sym String: "suru_array_drop_".append(tyh.flatSuruName(elemSuruType))
     let args Array<String>: []
     args.add("ptr ".append(recv))
-    ctx.builder: ir.emitVoidCall(ctx.builder, "suru_array_drop_dyn", args)
+    ctx.builder: ir.emitVoidCall(ctx.builder, sym, args)
     return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
 }
 
@@ -382,7 +448,7 @@ fn emitArrayMethod(ctx IrCodegenContext, method String, recv String, args Array<
             return emitArrayClone(ctx, recv, elemSuruType)
         }
         "drop": {
-            return emitArrayDrop(ctx, recv)
+            return emitArrayDrop(ctx, recv, elemSuruType)
         }
         _: {
             return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }

@@ -47,6 +47,7 @@ export {
 import { types: Suru.Compiler.Codegen.Types }
 import { tyh: Suru.Compiler.Codegen.TypeHelpers }
 import { irStruct: Suru.Compiler.Codegen.Struct }
+import { irArr: Suru.Compiler.Codegen.Array }
 
 // ─── Helper types ─────────────────────────────────────────────────────────────
 
@@ -118,13 +119,15 @@ fn copyPtrField(dst String, byteOffset i64, cgTmp i64) CgTextResult {
     return { text: r, cgTmp: cgTmp.add(3) }
 }
 
-// Emit recursive clone of one heap field: load i64 slot → inttoptr → suru_clone_dyn
-// → ptrtoint → store back into dst at byteOffset.
+// Emit recursive clone of one heap field: load i64 slot → inttoptr → call the
+// field type's static clone symbol → ptrtoint → store back into dst at byteOffset.
+// cloneSym is the bare symbol name (no '@') for the field's static type, computed
+// by the caller via tyh.heapCloneSym.
 //
 // Counter pre-allocation order is fixed: raw/ptr/cloned/i64 first, then sgep/dgep,
 // even though fsgep is emitted first in the IR text.
 // Consumes 6 counter slots.
-fn cloneHeapField(dst String, byteOffset i64, cgTmp i64) CgTextResult {
+fn cloneHeapField(dst String, byteOffset i64, cloneSym String, cgTmp i64) CgTextResult {
     let fraw    String: cgName("fraw",    cgTmp)
     let fptr    String: cgName("fptr",    cgTmp.add(1))
     let fcloned String: cgName("fcloned", cgTmp.add(2))
@@ -135,17 +138,18 @@ fn cloneHeapField(dst String, byteOffset i64, cgTmp i64) CgTextResult {
     let r String: "  ".append(fsgep).append(" = getelementptr i8, ptr %s, i64 ").append(o).append("\n")
     r: r.append("  ").append(fraw).append("  = load i64, ptr ").append(fsgep).append("\n")
     r: r.append("  ").append(fptr).append("   = inttoptr i64 ").append(fraw).append(" to ptr\n")
-    r: r.append("  ").append(fcloned).append("   = call ptr @suru_clone_dyn(ptr ").append(fptr).append(")\n")
+    r: r.append("  ").append(fcloned).append("   = call ptr @").append(cloneSym).append("(ptr ").append(fptr).append(")\n")
     r: r.append("  ").append(fi64).append("   = ptrtoint ptr ").append(fcloned).append(" to i64\n")
     r: r.append("  ").append(fdgep).append(" = getelementptr i8, ptr ").append(dst).append(", i64 ").append(o).append("\n")
     r: r.append("  store i64 ").append(fi64).append(", ptr ").append(fdgep).append("\n")
     return { text: r, cgTmp: cgTmp.add(6) }
 }
 
-// Emit recursive drop of one heap field: load i64 slot → inttoptr → suru_drop_dyn.
+// Emit recursive drop of one heap field: load i64 slot → inttoptr → call the
+// field type's static drop symbol. dropSym is the bare symbol name (no '@').
 // Counter pre-allocation order: fraw/fptr/fgep; fgep is emitted first in IR text.
 // Consumes 3 counter slots.
-fn dropHeapField(byteOffset i64, cgTmp i64) CgTextResult {
+fn dropHeapField(byteOffset i64, dropSym String, cgTmp i64) CgTextResult {
     let fraw String: cgName("fraw", cgTmp)
     let fptr String: cgName("fptr", cgTmp.add(1))
     let fgep String: cgName("fgep", cgTmp.add(2))
@@ -153,8 +157,26 @@ fn dropHeapField(byteOffset i64, cgTmp i64) CgTextResult {
     let r String: "  ".append(fgep).append(" = getelementptr i8, ptr %s, i64 ").append(o).append("\n")
     r: r.append("  ").append(fraw).append("  = load i64, ptr ").append(fgep).append("\n")
     r: r.append("  ").append(fptr).append("   = inttoptr i64 ").append(fraw).append(" to ptr\n")
-    r: r.append("  call void @suru_drop_dyn(ptr ").append(fptr).append(")\n")
+    r: r.append("  call void @").append(dropSym).append("(ptr ").append(fptr).append(")\n")
     return { text: r, cgTmp: cgTmp.add(3) }
+}
+
+// Ensure the clone/drop targets for a heap field of static type `st` are
+// reachable from this module: emit array wrappers for array fields, declare the
+// String runtime entry points for String fields, and declare the vtable
+// trampolines for struct/variant fields. Idempotent.
+fn ensureFieldTargets(ctx IrCodegenContext, st String) IrCodegenContext {
+    if tyh.isArraySuruType(st) {
+        return irArr.ensureArrayHelper(ctx, tyh.elemSuruType(st))
+    }
+    if tyh.isStringType(st) {
+        ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_clone(ptr)\n")
+        ctx: types.addSuruDecl(ctx, "declare void @suru_string_drop(ptr)\n")
+        return ctx
+    }
+    ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_via_vtable(ptr)\n")
+    ctx: types.addSuruDecl(ctx, "declare void @suru_drop_via_vtable(ptr)\n")
+    return ctx
 }
 
 // ─── Per-type clone/drop emission ─────────────────────────────────────────────
@@ -180,21 +202,20 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     ctx: types.addDecl(ctx, "declare void @free(ptr)\n")
 
-    // If any field is a heap type, we need suru_clone_dyn / suru_drop_dyn.
-    // Scalar fields are copied directly; heap fields go through dynamic dispatch.
-    let hasHeapField bool: false
+    // Heap fields are cloned/dropped via their static per-type symbol; scalar
+    // fields are copied directly. Pre-pass: make every heap field's clone/drop
+    // target reachable (array wrappers, String runtime decls, external struct
+    // clone/drop decls). The symbols themselves are computed per field below.
     let chi i64: 0
     while chi.lt(fc) {
         let ann String: decl.fields.at(chi).typeName
         let st  String: tyh.makeSuruType(ann)
         // The synthetic `$vtable` slot holds a static constant pointer — it is
         // NOT heap-owned: shallow-copy on clone, never drop.
-        if not cdNonOwnedField(ann, st) { hasHeapField: true }
+        if not cdNonOwnedField(ann, st) {
+            ctx: ensureFieldTargets(ctx, st)
+        }
         chi: chi.add(1)
-    }
-    if hasHeapField {
-        ctx: types.addSuruDecl(ctx, "declare ptr  @suru_clone_dyn(ptr)\n")
-        ctx: types.addSuruDecl(ctx, "declare void @suru_drop_dyn(ptr)\n")
     }
 
     // ── @suru_clone_{typeName} ─────────────────────────────────────────────────
@@ -233,8 +254,9 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
             h: h.append(rx.text)
             cgTmp: rx.cgTmp
         } else {
-            // Heap field (always an 8-byte ptr) — recursive deep clone.
-            let rx CgTextResult: cloneHeapField(mallocName, off, cgTmp)
+            // Heap field (always an 8-byte ptr) — recursive deep clone via the
+            // field type's static clone symbol.
+            let rx CgTextResult: cloneHeapField(mallocName, off, tyh.heapCloneSym(st), cgTmp)
             h: h.append(rx.text)
             cgTmp: rx.cgTmp
         }
@@ -251,7 +273,7 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
         let ann  String: decl.fields.at(fi).typeName
         let st   String: tyh.makeSuruType(ann)
         if not cdNonOwnedField(ann, st) {
-            let rx CgTextResult: dropHeapField(off, cgTmp)
+            let rx CgTextResult: dropHeapField(off, tyh.heapDropSym(st), cgTmp)
             h: h.append(rx.text)
             cgTmp: rx.cgTmp
         }

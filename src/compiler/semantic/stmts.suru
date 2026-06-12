@@ -155,7 +155,8 @@ fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
         let retType String: exprs.inferType(state, val)
         let expected String: state.currentReturnType
         let typesKnown bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-        let assignable bool: retType.equals(expected) or state.isSumVariant(expected, retType)
+        let strInterop bool: exprs.isStringFamilyName(expected) and exprs.isStringFamilyName(retType)
+        let assignable bool: retType.equals(expected) or state.isSumVariant(expected, retType) or strInterop
         if typesKnown and not assignable {
             state.addError("return type mismatch: expected ".append(expected).append(", got ").append(retType), stmt.line, stmt.col)
         }

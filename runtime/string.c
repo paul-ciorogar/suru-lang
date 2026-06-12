@@ -32,6 +32,9 @@ void *suru_string_create(char *data, int64_t len) {
 /* Deep-copy a String: duplicate the data buffer (including its NUL terminator)
  * into a fresh tag-6 header. */
 void *suru_string_clone(void *sp) {
+    if (sp == NULL) {
+        return NULL; /* null heap field (e.g. the `{}` release idiom) clones to null */
+    }
     SuruString *s = (SuruString *)sp;
     int64_t len = s->len;
     char *buf = malloc((size_t)(len + 1));
@@ -47,6 +50,9 @@ void *suru_string_clone(void *sp) {
 /* Free a String. Static literals (type_tag = 8) live in .rodata — skip entirely;
  * freeing them would corrupt the heap. */
 void suru_string_drop(void *sp) {
+    if (sp == NULL) {
+        return; /* null heap field (e.g. the `{}` release idiom) — nothing to free */
+    }
     SuruString *s = (SuruString *)sp;
     if (s->type_tag == 8) {
         return;
