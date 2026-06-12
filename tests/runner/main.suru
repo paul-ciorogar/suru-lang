@@ -81,6 +81,7 @@ fn main(args Array<String>) {
         { name: "extern-fn-fileio",       source: "tests/fixtures/extern-fn-fileio",       args: "", expected: readFile("/work/tests/fixtures/extern-fn-fileio/expected.txt"),  xfail: false, compileError: false },
         { name: "ctype-struct",           source: "tests/fixtures/ctype-struct",           args: "", expected: readFile("/work/tests/fixtures/ctype-struct/expected.txt"), xfail: false, compileError: false },
         { name: "private-fields",          source: "tests/fixtures/private-fields",          args: "", expected: readFile("/work/tests/fixtures/private-fields/expected.txt"), xfail: false, compileError: false },
+        { name: "private-method",          source: "tests/fixtures/private-method",          args: "", expected: readFile("/work/tests/fixtures/private-method/expected.txt"), xfail: false, compileError: false },
         { name: "private-fields-error",    source: "tests/fixtures/private-fields-error",    args: "", expected: readFile("/work/tests/fixtures/private-fields-error/expected.txt"), xfail: false, compileError: true },
         { name: "move-valid",              source: "tests/fixtures/move-valid",              args: "", expected: readFile("/work/tests/fixtures/move-valid/expected.txt"), xfail: false, compileError: false },
         { name: "move-error",              source: "tests/fixtures/move-error",              args: "", expected: readFile("/work/tests/fixtures/move-error/expected.txt"), xfail: false, compileError: true },

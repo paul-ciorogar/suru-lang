@@ -40,8 +40,23 @@ fn main(args Array<String>) {
     printLn(big.len().toString())      // 16
     printLn(big.at(15).toString())     // 15
 
+    // --- growth past the 1024 doubling/1.5x threshold ---
+    // Exercises the 1.5x branch and verifies realloc preserves earlier data.
+    let huge List<i64>: newList()
+    let j i64: 0
+    while j.lt(2000) {
+        huge.add(j.multiply(2))
+        j: j.add(1)
+    }
+    printLn(huge.len().toString())     // 2000
+    printLn(huge.at(0).toString())     // 0
+    printLn(huge.at(1023).toString())  // 2046
+    printLn(huge.at(1024).toString())  // 2048
+    printLn(huge.at(1999).toString())  // 3998
+
     drop(arr)
     drop(copy)
     drop(sl)
     drop(big)
+    drop(huge)
 }

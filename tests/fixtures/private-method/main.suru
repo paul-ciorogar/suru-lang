@@ -1,0 +1,22 @@
+namespace Test.PrivateMethod
+
+export { main }
+
+// Counter declares only the public method `bump` in its interface. The object
+// literal adds two PRIVATE methods (`_ fn`) and one PRIVATE field (`_ base`).
+// This exercises private-method dispatch via `this.`:
+//   - a public method calling a private one      (bump  -> combined)
+//   - a private method calling another private one (combined -> half)
+//   - a private method reading a private field     (combined/half read this.base)
+type Counter: { fn bump() i64 }
+
+fn main() {
+    let c Counter: {
+        _ base i64: 10,
+        fn bump() i64 { return this.combined() }
+        _ fn combined() i64 { return this.base.add(this.half()) }
+        _ fn half() i64 { return this.base.split(2) }
+    }
+    printLn(c.bump())   // 10 + (10/2) = 15
+    drop(c)
+}

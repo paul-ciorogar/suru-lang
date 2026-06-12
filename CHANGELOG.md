@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Private object methods (`_ fn`) are now callable via `this.method()`
+
+- A private method (`_ fn name(...) Ret { ... }`) declared in an object literal can
+  now be invoked via `this.name(...)` from sibling method bodies. Previously the call
+  silently lowered to `suru_unbox_int64(null)` and segfaulted, because private methods
+  lived only as literal fields and never entered the method lists that drive the
+  lambda-lift + vtable dispatch.
+- The fix mirrors the existing private-*field* handling: the semantic layer
+  (`rtAugmentPrivateFields`, `src/compiler/semantic/resolveTypes.suru`) now injects each
+  private method's signature into `SemTypeEntry.methods`, and the codegen layer
+  (`augPrivAddMethod`, `src/compiler/pipeline.suru`) injects it into
+  `TypeDeclNode.methods`. So `registerTypes` builds a vtable slot and `methodIndex`
+  resolves it. Privacy is unchanged — `privateMethodNames` still rejects external calls.
+- Public→private, private→private, and private-method-reads-private-field all work.
+- New fixture `tests/fixtures/private-method` covers all three call shapes.
+- **Codegen change** — bootstrap fixed point (C2 == C3) re-verified.
+
+### `List<T>` growth: shrinking geometric factor (Go-style)
+
+- `List<T>.add` (`src/stdlib/list.suru`) no longer doubles capacity unconditionally.
+  It now doubles while small (`cap < 1024`, where the absolute over-allocation is
+  negligible) and grows by 1.5x (`cap + cap/2`) once large. Growth stays **geometric**
+  throughout, so append remains amortized O(1); the smaller large-array factor bounds
+  wasted memory at ~50% instead of compounding to a full 2x. Mirrors Go's slice-growth
+  strategy. (A switch to *linear* growth was considered and rejected — it would make
+  filling a list O(n²).)
+- The growth math lives in a private helper `_ fn computeGrowth(currentCap)` called
+  from `add` (now that private methods are callable via `this.` — see above).
+- `tests/fixtures/list-basic` extended to grow a list past 2000 elements, exercising
+  the 1.5x branch and verifying (under valgrind) that `realloc` preserves earlier data
+  across the threshold.
+
 ### Fixed module-header order: `namespace` → `import` → `export` → declarations
 
 - The parser now enforces a single, fixed order for the module header. A module may

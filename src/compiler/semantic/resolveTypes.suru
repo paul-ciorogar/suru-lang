@@ -184,6 +184,18 @@ fn rtHasField(fields Array<SemFieldEntry>, name String) bool {
     return false
 }
 
+// rtHasMethod — true if the SemMethodEntry list already contains a method named
+// `name`. Used to avoid double-adding a private method's signature across the
+// pass-1 / pass-2 re-resolution of the same literal.
+fn rtHasMethod(methods Array<SemMethodEntry>, name String) bool {
+    let i i64: 0
+    while i.lt(methods.len()) {
+        if methods.at(i).name.equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
 // rtAugmentPrivateFields — walks the object literal's field list, adding each
 // isPrivate data field to the SemTypeEntry for `typeName` if not already present.
 // Also records its name in privateFieldNames (data) or privateMethodNames (methods).
@@ -203,6 +215,21 @@ fn rtAugmentPrivateFields(state AnalyzerState, typeName String, litFields Array<
                         let privMethods Array<String>: entry.privateMethodNames
                         if not isPrivateName(privMethods, f.name) {
                             privMethods.add(f.name)
+                        }
+                        // Inject the signature into entry.methods so lowerObjects lifts
+                        // the body + adds a vtable entry, and rtLookupMethodReturn can
+                        // resolve `this.priv()` calls. Privacy stays enforced via
+                        // privateMethodNames above; this only enables dispatch.
+                        let semMethods Array<SemMethodEntry>: entry.methods
+                        if not rtHasMethod(semMethods, f.name) {
+                            let ptys Array<String>: []
+                            let mps Array<Param>: f.methodParams
+                            let mk i64: 0
+                            while mk.lt(mps.len()) {
+                                ptys.add(mps.at(mk).typeName)
+                                mk: mk.add(1)
+                            }
+                            semMethods.add({ name: f.name, paramTypes: ptys, returnType: f.methodRet })
                         }
                     } else {
                         // ptr/extern-type private fields require the type to declare

@@ -884,14 +884,49 @@ fn augPrivAddField(stmts Array<AstNode>, typeName String, fieldName String, fiel
     drop(mangledTypeName)
 }
 
+// augPrivAddMethod — finds the TypeDeclNode for `typeName` in stmts and appends
+// the private method signature (name, params, returnType) if not already present.
+// Mirrors augPrivAddField: this injects the method into TypeDeclNode.methods so
+// codegen's registerTypes builds a TypeMethodEntry for it and methodIndex finds
+// it (→ proper vtable dispatch instead of the -1 fall-through that segfaults).
+fn augPrivAddMethod(stmts Array<AstNode>, typeName String, name String, params Array<Param>, returnType String) {
+    let mangledTypeName String: passes.normalizeGenericTypeName(typeName)
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        match stmts.at(i) {
+            TypeDeclNode: {
+                let td TypeDeclNode: stmts.at(i)
+                if td.name.equals(typeName) or td.name.equals(mangledTypeName) {
+                    let methods Array<MethodSig>: td.methods
+                    let alreadyHas bool: false
+                    let k i64: 0
+                    while k.lt(methods.len()) {
+                        if methods.at(k).name.equals(name) { alreadyHas: true }
+                        k: k.add(1)
+                    }
+                    if not alreadyHas { methods.add(nodes.newMethodSig(name, params, returnType)) }
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    drop(mangledTypeName)
+}
+
 // augPrivFromLitFields — iterates a object literal's fields; for each private
-// data field, calls augPrivAddField to update the TypeDeclNode.
+// data field, calls augPrivAddField; for each private method, calls
+// augPrivAddMethod to update the TypeDeclNode.
 fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<ObjectFieldNode>) {
     let i i64: 0
     while i.lt(litFields.len()) {
         let f ObjectFieldNode: litFields.at(i)
-        if f.isPrivate and not f.isMethod {
-            augPrivAddField(stmts, typeName, f.name, f.privateTypeName)
+        if f.isPrivate {
+            if f.isMethod {
+                augPrivAddMethod(stmts, typeName, f.name, f.methodParams, f.methodRet)
+            } else {
+                augPrivAddField(stmts, typeName, f.name, f.privateTypeName)
+            }
         }
         i: i.add(1)
     }
