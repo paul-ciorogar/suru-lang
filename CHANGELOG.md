@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `Str` borrowed-string type introduced (String-split B1)
+
+- **New builtin type `Str`** — the borrowed, static string-literal type, the first
+  step of splitting Suru's single `String` into `Str` (borrowed, `.rodata`, drop is a
+  no-op) vs `String` (owned heap). In B1, `Str` is recognized everywhere `String` is and
+  shares the `%suru.String` layout and all read-only operations (`len`, `at`, `__at`,
+  `slice`, `compare`, `equals`, match scrutinee, `printLn`). A `Str` value is assignable
+  to a `String` parameter/return (and vice-versa) via a new string-family interop rule in
+  the type checker. String literals are **still typed `String`** in B1 (the literal-typing
+  flip + clone-on-transfer materialization is B2); `suru_string_drop`'s tag-8 static-literal
+  check stays as a safety net through B1/B2.
+- Central helper **`isStringType`** (`codegen/irCodegenTypeHelpers.suru`) and
+  `isStringFamilyName` (`semantic/exprs.suru`) consolidate the ~15 previously-scattered
+  `.equals("String")` checks so the two string types stay in sync. `suruTypeTag("Str")`=8,
+  and `Str` is added to the builtin-type allow-lists (`passes.suru`, `exprs.suru`) and the
+  match-scrutinee allow-list.
+- New fixture `tests/fixtures/str-type/` exercises `Str` end-to-end (declaration, print,
+  `len`/`__at`/`slice`, `Str`→`String` argument interop, `Str` parameter, match scrutinee,
+  no-op drop) — valgrind clean. Codegen change — bootstrap fixed point reconfirmed
+  (C2 == C3), full suite 99 passed.
+
+### Static clone/drop/print dispatch — the runtime `type_tag` is no longer read (Step 1)
+
+- **All clone/drop/print dispatch is now resolved at compile time from the static
+  type, not from the runtime `type_tag` header word.** After monomorphization every
+  type is statically known, so the codegen emits direct calls instead of routing
+  through the type-erased `suru_clone_dyn`/`suru_drop_dyn`/`suru_println` dispatchers
+  (which switched on `type_tag`). This is Step 1 of removing `type_tag` entirely — the
+  32-byte header layout is unchanged (the tag is still written, just never read), so
+  the change is bootstrap-safe.
+- **How each kind dispatches now** (`heapCloneSym`/`heapDropSym` in
+  `codegen/irCodegenTypeHelpers.suru`):
+  - **struct / variant** → null-safe vtable trampolines `suru_clone_via_vtable` /
+    `suru_drop_via_vtable` (`runtime/struct.c`): the struct/variant arm of the old
+    dispatchers with the `type_tag` switch removed — they dispatch straight through
+    the value's own `clone_fn`/`drop_fn` pointer, which is uniform for plain structs
+    and variant arms (the concrete arm is only known per value).
+  - **String** → `suru_string_clone` / `suru_string_drop` directly (now null-safe).
+  - **Array<T>** → a per-element-type wrapper `@suru_array_clone_<T>` /
+    `@suru_array_drop_<T>` (`linkonce_odr`, monomorphized like a C++ template) that
+    calls the new `suru_array_clone_scalar`/`_heap` / `suru_array_drop_scalar`/`_heap`
+    helpers (`runtime/array.c`). The element size / element clone-drop symbol is
+    passed from the static call site, so the runtime no longer reads `elem_tag` to
+    decide scalar-vs-heap. Nested `Array<Array<T>>` is handled by recursive wrapper
+    emission.
+  - **scalars** → bitcopy / no-op (unchanged).
+- **`printLn`/`printError`** lower `String` to a direct `data`-buffer `puts` /
+  `suru_printerror_lit`, and struct/array aggregates to a fixed `"<struct>"`/`"<array>"`
+  placeholder — no `suru_println` (which read the tag). `suru_dyn_len` was already
+  unreferenced (`.len()` dispatches statically).
+- **Incidental fix:** `Array<char>` now clones correctly as a 1-byte scalar bitcopy
+  (previously `char`'s `elem_tag` of 9 mis-routed it through the heap-element path).
+  Also fixed `makeSuruType`/`extractElemType` for nested generic arrays
+  (`Array<Array<i64>>` now canonicalizes to `Array:Array:i64`, previously the
+  malformed `Array:i64>`). The `char` fixture gained `Array<char>` clone/drop coverage.
+- The type-erased runtime functions (`suru_clone_dyn`, `suru_drop_dyn`,
+  `suru_array_*_dyn`, `suru_println`, `suru_printerror`, `suru_dyn_len`) are kept
+  defined for now so the transitional bootstrap binary still links; they are dead from
+  the new codegen and will be deleted in Step 1b. Codegen change — bootstrap fixed
+  point reconfirmed (C2 == C3), full suite + valgrind clean.
+
 ### `match` on a `SuruString` scrutinee
 
 - **`match s { "foo": ... }` now works when `s` is a `SuruString`** (Blocker #5), not
