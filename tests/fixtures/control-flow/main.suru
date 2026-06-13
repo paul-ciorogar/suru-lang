@@ -1,7 +1,5 @@
 namespace Test.ControlFlow
 
-export { main }
-
 let CONST_MONDAY i64: 1
 let CONST_FRIDAY i64: 5
 

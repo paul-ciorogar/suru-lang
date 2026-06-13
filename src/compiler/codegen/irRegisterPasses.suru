@@ -18,13 +18,6 @@ import {
     irStruct: Suru.Compiler.Codegen.Struct
 }
 
-export {
-    registerTypes
-    registerFunctions
-    registerConstants
-    emitGlobalConstants
-}
-
 // cloneReturnMatchesType — true when returnType refers to the same (possibly
 // generic) type as typeName.  Handles two forms:
 //   1. Exact string match:            "MyType"      == "MyType"
@@ -60,7 +53,7 @@ fn cloneReturnMatchesType(returnType String, typeName String) bool {
 }
 
 // Pre-pass 0: register TypeDecl/SumTypeDecl into context registries.
-fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+export fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
@@ -132,7 +125,7 @@ fn registerTypes(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 // Pre-pass 1: register same-file function signatures into ctx.functions.
 // Only functions whose names are in ctx.ownFnNames get registered — external
 // (included) functions are excluded here; they may be added by the caller.
-fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+export fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
@@ -162,7 +155,7 @@ fn registerFunctions(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
 }
 
 // Pre-pass 2: register module-level scalar constant names in ctx.globalVars.
-fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+export fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
@@ -198,7 +191,7 @@ fn registerConstants(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
 // Emit LLVM global constant declarations for all registered module-level scalars.
 // Called during assembly in generate() — reads ctx.globalVars, matches back to stmts
 // to get the literal text.
-fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
+export fn emitGlobalConstants(ctx IrCodegenContext, stmts Array<AstNode>) String {
     let out String: ""
     let i i64: 0
     while i.lt(stmts.len()) {

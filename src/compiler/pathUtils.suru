@@ -6,16 +6,9 @@
 
 namespace Suru.Compiler.PathUtils
 
-export {
-    dirName
-    baseName
-    normalizePath
-    fileNameStem
-}
-
 // Return the directory prefix of an absolute path (everything up to and
 // including the last '/').  Used to resolve relative include paths.
-fn dirName(path String) String {
+export fn dirName(path String) String {
     let i i64: path.len().take(1)
     while i.gte(0) {
         if path.at(i).equals("/") { return path.slice(0, i.add(1)) }
@@ -25,7 +18,7 @@ fn dirName(path String) String {
 }
 
 // Return the filename component of a path (everything after the last '/').
-fn baseName(path String) String {
+export fn baseName(path String) String {
     let i i64: path.len().take(1)
     while i.gte(0) {
         if path.at(i).equals("/") { return path.slice(i.add(1), path.len()) }
@@ -36,7 +29,7 @@ fn baseName(path String) String {
 
 // Normalize an absolute path by resolving all "/../" segments.
 // Splits on "/" into a segment stack: pushes normal segments, pops on "..".
-fn normalizePath(path String) String {
+export fn normalizePath(path String) String {
     let parts Array<String>: []
     let i i64: 0
     let segStart i64: 0
@@ -77,7 +70,7 @@ fn normalizePath(path String) String {
 
 // Strip the extension from a filename component (e.g. "lexer.suru" → "lexer").
 // Scans backwards for the last '.'; if none found, returns the name unchanged.
-fn fileNameStem(path String) String {
+export fn fileNameStem(path String) String {
     let name String: baseName(path)
     let i i64: name.len().take(1)
     while i.gte(0) {

@@ -5,117 +5,57 @@ import {
     [isHexDigit, hexCharToVal, hexDigitsToI64]: Suru.Compiler.Lexer.Hex
 }
 
-export {
-    Token
-    Lexer
-    TOK_EOF
-    TOK_IDENT
-    TOK_TRUE
-    TOK_FALSE
-    TOK_INT
-    TOK_FLOAT
-    TOK_STRING
-    TOK_LPAREN
-    TOK_RPAREN
-    TOK_LBRACE
-    TOK_RBRACE
-    TOK_LBRACKET
-    TOK_RBRACKET
-    TOK_COMMA
-    TOK_DOT
-    TOK_COLON
-    TOK_MINUS
-    TOK_LT
-    TOK_GT
-    TOK_LET
-    TOK_NOT
-    TOK_AND
-    TOK_OR
-    TOK_MATCH
-    TOK_WILDCARD
-    TOK_FN
-    TOK_RETURN
-    TOK_VOID
-    TOK_WHILE
-    TOK_TYPE
-    TOK_AS
-    TOK_IF
-    TOK_ELSE
-    TOK_CHAR
-    TOK_THIS
-    TOK_EXTERN
-    TOK_BREAK
-    TOK_CONTINUE
-    TOK_NAMESPACE
-    TOK_IMPORT
-    TOK_EXPORT
-    TOK_CTYPE
-    TOK_SIZE
-    isDigit
-    isLetter
-    isLetterDigitUnderscore
-    isWhitespace
-    makeToken
-    keywordKind
-    escapeChar
-    singleCharKind
-    tokenKindName
-    toString
-    tokenize
-    newLexer
-}
-
 // Token kind constants — values must be unique; after any addition or removal run bootstrap.
-let TOK_EOF      i64: 0
-let TOK_IDENT    i64: 1
-let TOK_TRUE     i64: 2
-let TOK_FALSE    i64: 3
-let TOK_INT      i64: 4
-let TOK_FLOAT    i64: 5
-let TOK_STRING   i64: 6
-let TOK_LPAREN   i64: 7
-let TOK_RPAREN   i64: 8
-let TOK_LBRACE   i64: 9
-let TOK_RBRACE   i64: 10
-let TOK_LBRACKET i64: 11
-let TOK_RBRACKET i64: 12
-let TOK_COMMA    i64: 13
-let TOK_DOT      i64: 14
-let TOK_COLON    i64: 15
-let TOK_MINUS    i64: 16
-let TOK_LT       i64: 17
-let TOK_GT       i64: 18
-let TOK_LET      i64: 19
-let TOK_NOT      i64: 20
-let TOK_AND      i64: 21
-let TOK_OR       i64: 22
-let TOK_MATCH    i64: 23
-let TOK_WILDCARD i64: 24
-let TOK_FN       i64: 25
-let TOK_RETURN   i64: 26
-let TOK_VOID     i64: 27
-let TOK_WHILE    i64: 28
-let TOK_TYPE     i64: 29
+export let TOK_EOF      i64: 0
+export let TOK_IDENT    i64: 1
+export let TOK_TRUE     i64: 2
+export let TOK_FALSE    i64: 3
+export let TOK_INT      i64: 4
+export let TOK_FLOAT    i64: 5
+export let TOK_STRING   i64: 6
+export let TOK_LPAREN   i64: 7
+export let TOK_RPAREN   i64: 8
+export let TOK_LBRACE   i64: 9
+export let TOK_RBRACE   i64: 10
+export let TOK_LBRACKET i64: 11
+export let TOK_RBRACKET i64: 12
+export let TOK_COMMA    i64: 13
+export let TOK_DOT      i64: 14
+export let TOK_COLON    i64: 15
+export let TOK_MINUS    i64: 16
+export let TOK_LT       i64: 17
+export let TOK_GT       i64: 18
+export let TOK_LET      i64: 19
+export let TOK_NOT      i64: 20
+export let TOK_AND      i64: 21
+export let TOK_OR       i64: 22
+export let TOK_MATCH    i64: 23
+export let TOK_WILDCARD i64: 24
+export let TOK_FN       i64: 25
+export let TOK_RETURN   i64: 26
+export let TOK_VOID     i64: 27
+export let TOK_WHILE    i64: 28
+export let TOK_TYPE     i64: 29
 let TOK_AS       i64: 30
-let TOK_IF       i64: 32
-let TOK_ELSE     i64: 33
-let TOK_CHAR     i64: 34
-let TOK_THIS     i64: 35
-let TOK_EXTERN   i64: 36
-let TOK_BREAK    i64: 37
-let TOK_CONTINUE  i64: 38
-let TOK_NAMESPACE i64: 39
-let TOK_IMPORT    i64: 40
-let TOK_EXPORT    i64: 41
-let TOK_CTYPE     i64: 42
+export let TOK_IF       i64: 32
+export let TOK_ELSE     i64: 33
+export let TOK_CHAR     i64: 34
+export let TOK_THIS     i64: 35
+export let TOK_EXTERN   i64: 36
+export let TOK_BREAK    i64: 37
+export let TOK_CONTINUE  i64: 38
+export let TOK_NAMESPACE i64: 39
+export let TOK_IMPORT    i64: 40
+export let TOK_EXPORT    i64: 41
+export let TOK_CTYPE     i64: 42
 let TOK_SIZE      i64: 43 // TODO remove this
 
-type Token: { kind i64, text String, line i64, col i64 }
+export type Token: { kind i64, text String, line i64, col i64 }
 
 
 // Mutable lexer state. Methods mutate fields in place — Suru structs are
 // heap-allocated, so field assignment mutates the shared allocation.
-type Lexer: {
+export type Lexer: {
     source String
     pos i64
     line i64
@@ -287,7 +227,7 @@ fn tokenKindName(kind i64) String {
 }
 
 // Tokenize source and format all non-EOF tokens as "KIND text line:col\n" lines.
-fn toString(source String) String {
+export fn toString(source String) String {
     let tokens Array<Token>: tokenize(move(source), "")
     let result String: ""
     let i i64: 0
@@ -310,7 +250,7 @@ fn toString(source String) String {
     return result
 }
 
-fn tokenize(source String, srcPath String) Array<Token> {
+export fn tokenize(source String, srcPath String) Array<Token> {
     let lx Lexer: newLexer(source, srcPath)
 
     while lx.notEOF() {

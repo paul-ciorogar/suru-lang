@@ -13,10 +13,8 @@ import {
     [SuruString, suruStringFrom]: Suru.Stdlib.String
 }
 
-export { suruStringOrderTests }
-
 // suruStringOrderTests — one TestResult per assertion.
-fn suruStringOrderTests() Array<TestResult> {
+export fn suruStringOrderTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // ── compareStr (SuruString vs SuruString) ───────────────────────────────

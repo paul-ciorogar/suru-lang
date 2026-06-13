@@ -18,52 +18,13 @@ namespace Suru.Compiler.Codegen.Types
 
 import { ir: Suru.Compiler.Codegen.Builder }
 
-export {
-    VarEntry
-    FnEntry
-    GlobalVar
-    StrIndexEntry
-    TypeFieldEntry
-    TypeMethodEntry
-    TypeDecl
-    SumTypeDecl
-    IrCodegenContext
-    CodegenResult
-    makeIrContext
-    addDecl
-    addSuruDecl
-    addExtCloneDropDecl
-    lookupVar
-    addVar
-    updateVar
-    lookupFn
-    addFn
-    lookupGlobal
-    lookupType
-    methodIndex
-    methodEntry
-    addType
-    lookupSumType
-    addSumType
-    variantIdx
-    isVariant
-    findParentSumType
-    isSumTypeName
-    fieldIndex
-    isMonoFn
-    isOwnFn
-    isOwnType
-    mangleNsSym
-    lookupSrcNs
-}
-
 // ─── Per-variable entry ───────────────────────────────────────────────────────
 
 // One slot in the per-function variable table.
 // allocaName is the LLVM SSA alloca pointer (e.g. "%x.0").
 // suruType encodes the Suru-level type so method dispatch can route without
 // re-parsing the LLVM type (all heap types share LLVM type "ptr").
-type VarEntry: { name String, allocaName String, suruType String }
+export type VarEntry: { name String, allocaName String, suruType String }
 
 // ─── Function entry ───────────────────────────────────────────────────────────
 
@@ -71,7 +32,7 @@ type VarEntry: { name String, allocaName String, suruType String }
 // and to emit correct `define`/`declare` headers.
 // paramSuruTypes: list of Suru type names for each parameter (needed by
 // emitFunction to emit the LLVM parameter list and by emitMainWrapper).
-type FnEntry: {
+export type FnEntry: {
     name           String
     returnLlvmType String
     returnSuruType String
@@ -82,26 +43,26 @@ type FnEntry: {
 
 // One entry in the module-level constant (global variable) table.
 // suruName is the Suru identifier; globalName is the LLVM global (e.g. "@MY_CONST").
-type GlobalVar: { suruName String, globalName String, suruType String }
+export type GlobalVar: { suruName String, globalName String, suruType String }
 
 // ─── String literal entry ─────────────────────────────────────────────────────
 
 // Maps an interned string literal text to the LLVM global name assigned to it
 // (e.g. "@.str_0") and the byte length (including null terminator).
 // Populated by internString; consumed by emitStringLiteralValue in ir-string-codegen.
-type StrIndexEntry: { text String, globalName String, byteLen i64 }
+export type StrIndexEntry: { text String, globalName String, byteLen i64 }
 
 // ─── Type registry entries ────────────────────────────────────────────────────
 
 // One field in a struct type declaration.
 // typeName is the raw Suru annotation string (e.g. "i64", "Array<Token>").
-type TypeFieldEntry: { name String, typeName String }
+export type TypeFieldEntry: { name String, typeName String }
 
 // Compiled view of a declared method signature on an object type.
 // paramTypes/returnType are raw Suru annotation strings (the implicit `this`
 // receiver is NOT listed). Method order is the declaration order and equals
 // the vtable index used at call sites.
-type TypeMethodEntry: { name String, paramTypes Array<String>, returnType String }
+export type TypeMethodEntry: { name String, paramTypes Array<String>, returnType String }
 
 // Compiled view of a TypeDeclaration / TypeDeclNode.
 // Populated from the pre-pass; provides field-index lookup for struct codegen.
@@ -111,11 +72,11 @@ type TypeMethodEntry: { name String, paramTypes Array<String>, returnType String
 // `hasCustomLifecycle` mirrors the semantic flag: true when the interface declares
 // both clone() and drop(), causing vtable-dispatch wrappers to be emitted instead
 // of the auto-generated field-walking clone/drop bodies.
-type TypeDecl: { name String, fields Array<TypeFieldEntry>, methods Array<TypeMethodEntry>, isCType bool, hasCustomLifecycle bool }
+export type TypeDecl: { name String, fields Array<TypeFieldEntry>, methods Array<TypeMethodEntry>, isCType bool, hasCustomLifecycle bool }
 
 // Compiled view of a SumTypeDeclaration / SumTypeDeclNode.
 // Populated from the pre-pass; provides variant-index lookup for match dispatch.
-type SumTypeDecl: { name String, variants Array<String> }
+export type SumTypeDecl: { name String, variants Array<String> }
 
 // ─── Main context ─────────────────────────────────────────────────────────────
 
@@ -148,7 +109,7 @@ type SumTypeDecl: { name String, variants Array<String> }
 //   counters (tmpCount, labelCount, whileCount) from ir-builder.suru.
 //   Module-level IR (declares, globals) is accumulated in the string fields above
 //   and NOT in builder.output — builder is only for the active function body.
-type IrCodegenContext: {
+export type IrCodegenContext: {
     fns               String
     helpers           String
     strGlobals        String
@@ -195,13 +156,13 @@ type IrCodegenContext: {
 // name     — the SSA value or immediate constant string (e.g. "%t3", "42")
 // llvmType — the LLVM type of name (e.g. "i64", "ptr", "i1")
 // suruType — the Suru-level type encoding (e.g. "i64", "String", "Token")
-type CodegenResult: { ctx IrCodegenContext, name String, llvmType String, suruType String }
+export type CodegenResult: { ctx IrCodegenContext, name String, llvmType String, suruType String }
 
 // ─── Constructor ──────────────────────────────────────────────────────────────
 
 // Zero-initialise all IrCodegenContext fields.  Module-level and per-function
 // state are both empty; the builder starts fresh with all counters at 0.
-fn makeIrContext() IrCodegenContext {
+export fn makeIrContext() IrCodegenContext {
     let functions   Array<FnEntry>:      []
     let globalVars  Array<GlobalVar>:    []
     let typeDecls   Array<TypeDecl>:     []
@@ -261,7 +222,7 @@ fn makeIrContext() IrCodegenContext {
 
 // Append `line` to ctx.decls (libc externals) only if not already declared.
 // malloc/free/fopen/strlen/exit go here (one leading space).
-fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
+export fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
     let i i64: 0
     while i.lt(ctx.declares.len()) {
         if ctx.declares.at(i).equals(line) { return ctx }
@@ -274,7 +235,7 @@ fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
 
 // Append `line` to ctx.suruDecls (Suru runtime declares) only if not already declared.
 // suru_*/suru_string_* use two leading spaces.
-fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
+export fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
     let i i64: 0
     while i.lt(ctx.declares.len()) {
         if ctx.declares.at(i).equals(line) { return ctx }
@@ -287,7 +248,7 @@ fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
 
 // Append declare stubs for an external struct type's clone/drop functions.
 // Idempotent — uses ctx.declares for deduplication.
-fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
+export fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
     let cloneLine String: "declare ptr  @suru_clone_".append(typeName).append("(ptr)\n")
     let dropLine  String: "declare void @suru_drop_".append(typeName).append("(ptr)\n")
     let i i64: 0
@@ -304,7 +265,7 @@ fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
 // ─── Variable table ───────────────────────────────────────────────────────────
 
 // Linear search for a variable by name.  Returns an empty VarEntry if not found.
-fn lookupVar(ctx IrCodegenContext, name String) VarEntry {
+export fn lookupVar(ctx IrCodegenContext, name String) VarEntry {
     let i i64: 0
     while i.lt(ctx.vars.len()) {
         let e VarEntry: ctx.vars.at(i)
@@ -317,7 +278,7 @@ fn lookupVar(ctx IrCodegenContext, name String) VarEntry {
 // Add or update a variable binding.  Overwrites an existing entry with the same
 // name — re-declared variables (e.g. same `let` name in a second while loop)
 // update the slot rather than shadow it.
-fn addVar(ctx IrCodegenContext, name String, allocaName String, suruType String) IrCodegenContext {
+export fn addVar(ctx IrCodegenContext, name String, allocaName String, suruType String) IrCodegenContext {
     let i i64: 0
     while i.lt(ctx.vars.len()) {
         let v VarEntry: ctx.vars.at(i)
@@ -335,7 +296,7 @@ fn addVar(ctx IrCodegenContext, name String, allocaName String, suruType String)
 
 // Update an existing variable's suruType (for NarrowCondVar / RestoreCondVar).
 // Caller saves the original entry and restores it after the narrowed region.
-fn updateVar(ctx IrCodegenContext, varName String, entry VarEntry) IrCodegenContext {
+export fn updateVar(ctx IrCodegenContext, varName String, entry VarEntry) IrCodegenContext {
     let i i64: 0
     while i.lt(ctx.vars.len()) {
         let v VarEntry: ctx.vars.at(i)
@@ -351,7 +312,7 @@ fn updateVar(ctx IrCodegenContext, varName String, entry VarEntry) IrCodegenCont
 // ─── Function registry ────────────────────────────────────────────────────────
 
 // Linear search for a function signature by name.  Returns an empty FnEntry if not found.
-fn lookupFn(ctx IrCodegenContext, name String) FnEntry {
+export fn lookupFn(ctx IrCodegenContext, name String) FnEntry {
     let i i64: 0
     while i.lt(ctx.functions.len()) {
         let e FnEntry: ctx.functions.at(i)
@@ -363,7 +324,7 @@ fn lookupFn(ctx IrCodegenContext, name String) FnEntry {
 }
 
 // Append a function signature.  Called during pre-pass; NOT idempotent.
-fn addFn(ctx IrCodegenContext, entry FnEntry) IrCodegenContext {
+export fn addFn(ctx IrCodegenContext, entry FnEntry) IrCodegenContext {
     ctx.functions.add(entry)
     return ctx
 }
@@ -372,7 +333,7 @@ fn addFn(ctx IrCodegenContext, entry FnEntry) IrCodegenContext {
 
 // Linear search for a module-level constant by Suru name.
 // Returns an empty GlobalVar if not found.
-fn lookupGlobal(ctx IrCodegenContext, suruName String) GlobalVar {
+export fn lookupGlobal(ctx IrCodegenContext, suruName String) GlobalVar {
     let i i64: 0
     while i.lt(ctx.globalVars.len()) {
         let g GlobalVar: ctx.globalVars.at(i)
@@ -385,7 +346,7 @@ fn lookupGlobal(ctx IrCodegenContext, suruName String) GlobalVar {
 // ─── Type registry ────────────────────────────────────────────────────────────
 
 // Linear search for a struct TypeDecl by name.  Returns an empty TypeDecl if not found.
-fn lookupType(ctx IrCodegenContext, name String) TypeDecl {
+export fn lookupType(ctx IrCodegenContext, name String) TypeDecl {
     let i i64: 0
     while i.lt(ctx.typeDecls.len()) {
         let d TypeDecl: ctx.typeDecls.at(i)
@@ -399,7 +360,7 @@ fn lookupType(ctx IrCodegenContext, name String) TypeDecl {
 
 // methodIndex — 0-based position of `methodName` in a TypeDecl's declared
 // method order (== its vtable slot index), or -1 if absent.
-fn methodIndex(decl TypeDecl, methodName String) i64 {
+export fn methodIndex(decl TypeDecl, methodName String) i64 {
     let i i64: 0
     while i.lt(decl.methods.len()) {
         if decl.methods.at(i).name.equals(methodName) { return i }
@@ -409,7 +370,7 @@ fn methodIndex(decl TypeDecl, methodName String) i64 {
 }
 
 // methodEntry — the TypeMethodEntry for `methodName`, or an empty entry.
-fn methodEntry(decl TypeDecl, methodName String) TypeMethodEntry {
+export fn methodEntry(decl TypeDecl, methodName String) TypeMethodEntry {
     let i i64: 0
     while i.lt(decl.methods.len()) {
         let m TypeMethodEntry: decl.methods.at(i)
@@ -421,7 +382,7 @@ fn methodEntry(decl TypeDecl, methodName String) TypeMethodEntry {
 }
 
 // Append a TypeDecl to the registry.  Called during pre-pass; NOT idempotent.
-fn addType(ctx IrCodegenContext, decl TypeDecl) IrCodegenContext {
+export fn addType(ctx IrCodegenContext, decl TypeDecl) IrCodegenContext {
     ctx.typeDecls.add(decl)
     return ctx
 }
@@ -441,14 +402,14 @@ fn lookupSumType(ctx IrCodegenContext, name String) SumTypeDecl {
 }
 
 // Append a SumTypeDecl.  Called during pre-pass; NOT idempotent.
-fn addSumType(ctx IrCodegenContext, decl SumTypeDecl) IrCodegenContext {
+export fn addSumType(ctx IrCodegenContext, decl SumTypeDecl) IrCodegenContext {
     ctx.sumTypes.add(decl)
     return ctx
 }
 
 // Returns the 0-based index of variantName in sumType.variants, or -1 if not found.
 // Used by EmitPatternComparisons to emit icmp eq i64 tag, <variantIdx>.
-fn variantIdx(sumType SumTypeDecl, variantName String) i64 {
+export fn variantIdx(sumType SumTypeDecl, variantName String) i64 {
     let i i64: 0
     while i.lt(sumType.variants.len()) {
         if sumType.variants.at(i).equals(variantName) { return i }
@@ -458,7 +419,7 @@ fn variantIdx(sumType SumTypeDecl, variantName String) i64 {
 }
 
 // True when name appears as a variant in any registered sum type.
-fn isVariant(ctx IrCodegenContext, name String) bool {
+export fn isVariant(ctx IrCodegenContext, name String) bool {
     let i i64: 0
     while i.lt(ctx.sumTypes.len()) {
         let d SumTypeDecl: ctx.sumTypes.at(i)
@@ -474,7 +435,7 @@ fn isVariant(ctx IrCodegenContext, name String) bool {
 
 // Walk sumTypes to find the SumTypeDecl that owns variantName.
 // Returns an empty SumTypeDecl if not found.
-fn findParentSumType(ctx IrCodegenContext, variantName String) SumTypeDecl {
+export fn findParentSumType(ctx IrCodegenContext, variantName String) SumTypeDecl {
     let i i64: 0
     while i.lt(ctx.sumTypes.len()) {
         let sd SumTypeDecl: ctx.sumTypes.at(i)
@@ -492,7 +453,7 @@ fn findParentSumType(ctx IrCodegenContext, variantName String) SumTypeDecl {
 // True when name is a declared sum type (e.g. "AstNode", "Shape").
 // Used to dispatch match statements on sum-type conditions even when the
 // condition variable is not itself a variant of another sum type.
-fn isSumTypeName(ctx IrCodegenContext, name String) bool {
+export fn isSumTypeName(ctx IrCodegenContext, name String) bool {
     let i i64: 0
     while i.lt(ctx.sumTypes.len()) {
         if ctx.sumTypes.at(i).name.equals(name) { return true }
@@ -505,7 +466,7 @@ fn isSumTypeName(ctx IrCodegenContext, name String) bool {
 
 // Returns the 0-based index of fieldName within TypeDecl.fields, or -1 if absent.
 // Used by struct codegen to compute the byte offset: 32 + fieldIdx * 8.
-fn fieldIndex(decl TypeDecl, fieldName String) i64 {
+export fn fieldIndex(decl TypeDecl, fieldName String) i64 {
     let i i64: 0
     while i.lt(decl.fields.len()) {
         if decl.fields.at(i).name.equals(fieldName) { return i }
@@ -518,7 +479,7 @@ fn fieldIndex(decl TypeDecl, fieldName String) i64 {
 // mono pass for this compilation unit).  Unlike ownFnNames, monoFnNames only
 // contains freshly-instantiated names, preventing same-named functions from
 // unrelated included files from being treated as own.
-fn isMonoFn(ctx IrCodegenContext, name String) bool {
+export fn isMonoFn(ctx IrCodegenContext, name String) bool {
     let i i64: 0
     while i.lt(ctx.monoFnNames.len()) {
         if ctx.monoFnNames.at(i).equals(name) { return true }
@@ -528,7 +489,7 @@ fn isMonoFn(ctx IrCodegenContext, name String) bool {
 }
 
 // True when name is in ctx.ownFnNames (function defined in this module, not from includes).
-fn isOwnFn(ctx IrCodegenContext, name String) bool {
+export fn isOwnFn(ctx IrCodegenContext, name String) bool {
     let i i64: 0
     while i.lt(ctx.ownFnNames.len()) {
         if ctx.ownFnNames.at(i).equals(name) { return true }
@@ -539,7 +500,7 @@ fn isOwnFn(ctx IrCodegenContext, name String) bool {
 
 // True when name is in ctx.ownTypeNames (type declared in this module, not from includes).
 // Used by emitAllTypeCloneDrop to decide whether to emit a body or a declare stub.
-fn isOwnType(ctx IrCodegenContext, name String) bool {
+export fn isOwnType(ctx IrCodegenContext, name String) bool {
     let i i64: 0
     while i.lt(ctx.ownTypeNames.len()) {
         if ctx.ownTypeNames.at(i).equals(name) { return true }
@@ -562,7 +523,7 @@ fn isOwnType(ctx IrCodegenContext, name String) bool {
 // cannot write in identifiers); then '.' + name is appended.
 // Defined here (rather than irCodegen.suru) so irRegisterPasses.suru can use it
 // without creating a circular include dependency.
-fn mangleNsSym(ns String, name String) String {
+export fn mangleNsSym(ns String, name String) String {
     let out String: ""
     let i i64: 0
     while i.lt(ns.len()) {
@@ -579,7 +540,7 @@ fn mangleNsSym(ns String, name String) String {
 
 // srcPath → namespace string (or "" for files without a namespace declaration).
 // Defined alongside mangleNsSym so both are available to irRegisterPasses.suru.
-fn lookupSrcNs(ctx IrCodegenContext, srcPath String) String {
+export fn lookupSrcNs(ctx IrCodegenContext, srcPath String) String {
     let i i64: 0
     while i.lt(ctx.srcNsPath.len()) {
         if ctx.srcNsPath.at(i).equals(srcPath) { return ctx.srcNsNs.at(i) }

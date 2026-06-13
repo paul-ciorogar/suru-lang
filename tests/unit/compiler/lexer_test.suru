@@ -13,10 +13,8 @@ import {
     [toString]: Suru.Compiler.Lexer
 }
 
-export { lexerTests }
-
 // lexerTests — one TestResult per assertion.
-fn lexerTests() Array<TestResult> {
+export fn lexerTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // isHexDigit — accepts [0-9a-fA-F], rejects everything else.

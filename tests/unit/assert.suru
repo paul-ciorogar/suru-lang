@@ -8,18 +8,10 @@
 
 namespace Test.Unit.Assert
 
-export {
-    TestResult
-    assertEqI64
-    assertTrue
-    assertEqStr
-    reportResults
-}
-
-type TestResult: { name String, pass bool, detail String }
+export type TestResult: { name String, pass bool, detail String }
 
 // assertEqI64 — pass when got == want; on failure detail records both values.
-fn assertEqI64(name String, got i64, want i64) TestResult {
+export fn assertEqI64(name String, got i64, want i64) TestResult {
     if got.equals(want) {
         return { name: name, pass: true, detail: "" }
     }
@@ -28,7 +20,7 @@ fn assertEqI64(name String, got i64, want i64) TestResult {
 }
 
 // assertTrue — pass when cond is true.
-fn assertTrue(name String, cond bool) TestResult {
+export fn assertTrue(name String, cond bool) TestResult {
     if cond {
         return { name: name, pass: true, detail: "" }
     }
@@ -36,7 +28,7 @@ fn assertTrue(name String, cond bool) TestResult {
 }
 
 // assertEqStr — pass when got equals want (String comparison).
-fn assertEqStr(name String, got String, want String) TestResult {
+export fn assertEqStr(name String, got String, want String) TestResult {
     if got.equals(want) {
         return { name: name, pass: true, detail: "" }
     }
@@ -46,7 +38,7 @@ fn assertEqStr(name String, got String, want String) TestResult {
 
 // reportResults — print one line per result and return the number of failures.
 // Format: "  PASS <suite>/<name>" or "  FAIL <suite>/<name> — <detail>".
-fn reportResults(suite String, results Array<TestResult>) i64 {
+export fn reportResults(suite String, results Array<TestResult>) i64 {
     let failures i64: 0
     let i i64: 0
     while i.lt(results.len()) {

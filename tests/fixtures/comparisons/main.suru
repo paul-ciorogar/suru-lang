@@ -1,7 +1,5 @@
 namespace Test.Comparisons
 
-export { main }
-
 fn main(args Array<String>) {
     printLn(3.lt(5))
     printLn(5.lt(3))

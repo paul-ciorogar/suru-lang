@@ -40,15 +40,6 @@ namespace Suru.Stdlib.String
 
 import { [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder }
 
-export {
-    SuruString
-    newSuruString
-    suruStringFrom
-    suruStringFromI64
-    suruStringFromChar
-    suruStringFromBuilder
-}
-
 extern fn malloc(n i64) ptr
 extern fn free(p ptr) void
 extern fn memcpy(dst ptr, src ptr, n i64) void
@@ -57,7 +48,7 @@ extern fn memcpy(dst ptr, src ptr, n i64) void
 // Declaring fn clone() and fn drop() sets hasCustomLifecycle = true, so the
 // compiler emits vtable-dispatch @suru_clone_SuruString / @suru_drop_SuruString
 // wrappers instead of auto-walking fields — required because `data` is a raw ptr.
-type SuruString: {
+export type SuruString: {
     fn concat(other String) SuruString
     fn concatStr(other SuruString) SuruString
     fn dataBuffer() ptr
@@ -234,7 +225,7 @@ fn suruStringFromBuffer(buf ptr, n i64, cap i64) SuruString {
 // suruStringFromBuilder — copy a StringBuilder's bytes into a fresh malloc'd buffer
 // and wrap them in an immutable SuruString via suruStringFromBuffer. The builder is
 // read-only here (via its public len()/charAt()) and remains owned by the caller.
-fn suruStringFromBuilder(b StringBuilder) SuruString {
+export fn suruStringFromBuilder(b StringBuilder) SuruString {
     let n i64: b.len()
     let buf ptr: malloc(n.add(1))
     let i i64: 0
@@ -256,7 +247,7 @@ fn newSuruString() SuruString {
 
 // suruStringFrom — create a SuruString by copying bytes from a built-in String value.
 // Handles both static string literals (type_tag=8) and heap strings (type_tag=6).
-fn suruStringFrom(s String) SuruString {
+export fn suruStringFrom(s String) SuruString {
     let sb StringBuilder: newStringBuilder()
     sb.append(s)
     let r SuruString: suruStringFromBuilder(sb)
@@ -268,7 +259,7 @@ fn suruStringFrom(s String) SuruString {
 // Delegates digit formatting to StringBuilder.appendI64 (overflow-safe at i64
 // min via non-positive digit extraction), then snapshots to an immutable
 // SuruString. The builder is dropped so only the returned string survives.
-fn suruStringFromI64(n i64) SuruString {
+export fn suruStringFromI64(n i64) SuruString {
     let sb StringBuilder: newStringBuilder()
     sb.appendI64(n)
     let r SuruString: sb.toString()
@@ -279,7 +270,7 @@ fn suruStringFromI64(n i64) SuruString {
 // suruStringFromChar — wrap a single char byte in a fresh one-character
 // SuruString. Uses StringBuilder.appendChar (which NUL-terminates), then
 // snapshots to an immutable SuruString and drops the builder.
-fn suruStringFromChar(c char) SuruString {
+export fn suruStringFromChar(c char) SuruString {
     let sb StringBuilder: newStringBuilder()
     sb.appendChar(c)
     let r SuruString: sb.toString()

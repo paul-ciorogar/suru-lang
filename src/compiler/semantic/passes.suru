@@ -30,29 +30,6 @@ import {
     parser: Suru.Compiler.Parser
 }
 
-export {
-    isArrayGeneric
-    isBuiltinType
-    typeNameExistsAt
-    indexOfAngle
-    ltrimStr
-    flattenPassTypeArg
-    appendMangledArgsAt
-    mangleAnnotation
-    isUserGenericAnnotation
-    resolveTypeName
-    isTypeParam
-    recordTypeDecl
-    isCTypeNamed
-    isExternTypeNamed
-    collectTypeDeclarations
-    registerFnDecl
-    registerExternFnDecl
-    collectFunctionDeclarations
-    runPrePasses
-    normalizeGenericTypeName
-}
-
 // ─── Type resolution ──────────────────────────────────────────────────────────
 
 // isArrayGeneric — true when name is a generic Array type like "Array<i64>".
@@ -67,7 +44,7 @@ fn isArrayGeneric(name String) bool {
 
 // isBuiltinType — true for the seven primitive type names, ptr, and generic Array forms.
 // ptr is an untyped C pointer, valid only in extern fn signatures and let declarations.
-fn isBuiltinType(name String) bool {
+export fn isBuiltinType(name String) bool {
     return name.equals("bool")
         or name.equals("i32")
         or name.equals("i64")
@@ -201,7 +178,7 @@ fn isUserGenericAnnotation(name String) bool {
 // the mangled form "Box-i64" in typeNames (injected by the mono pass).
 // Note: uses explicit match rather than `and` to guard the mangleAnnotation call
 // because Suru's boolean `and` is not short-circuit (both sides are always evaluated).
-fn resolveTypeName(state AnalyzerState, name String) bool {
+export fn resolveTypeName(state AnalyzerState, name String) bool {
     let typeNames Array<String>: state.typeNames
     if isBuiltinType(name) or typeNameExistsAt(typeNames, name) { return true }
     if isUserGenericAnnotation(name) { return typeNameExistsAt(typeNames, mangleAnnotation(name)) }
@@ -224,7 +201,7 @@ fn isTypeParam(name String, typeParams Array<String>) bool {
 // isCTypeNamed — true if `typeName` names a registered cType. Used by the
 // analyze pass to reject clone()/drop() in function-call form on a cType value.
 // Returns false for unknown / empty names, so it never produces a false positive.
-fn isCTypeNamed(state AnalyzerState, typeName String) bool {
+export fn isCTypeNamed(state AnalyzerState, typeName String) bool {
     let decls Array<SemTypeEntry>: state.typeDecls
     let i i64: 0
     while i.lt(decls.len()) {
@@ -237,7 +214,7 @@ fn isCTypeNamed(state AnalyzerState, typeName String) bool {
 
 // isExternTypeNamed — true when `typeName` resolves to a declared `extern type`.
 // Used to reject clone()/drop() and use as a regular struct field.
-fn isExternTypeNamed(state AnalyzerState, typeName String) bool {
+export fn isExternTypeNamed(state AnalyzerState, typeName String) bool {
     let decls Array<SemTypeEntry>: state.typeDecls
     let i i64: 0
     while i.lt(decls.len()) {
@@ -260,7 +237,7 @@ fn isCAbiPrimitive(typeName String) bool {
 // comparison.  Handles single-level generics only (all clone() return types
 // are necessarily single-level — a type clones itself, not a nested wrapper).
 // Plain types without '<' are returned unchanged.
-fn normalizeGenericTypeName(typeName String) String {
+export fn normalizeGenericTypeName(typeName String) String {
     let len i64: typeName.len()
     let i i64: 0
     while i.lt(len) {
@@ -341,7 +318,7 @@ fn recordTypeDecl(state AnalyzerState, typed TypeDeclNode) AnalyzerState {
 // name to state.typeNames or report a duplicate-type error. Non-duplicate
 // TypeDeclNodes are also copied into state.typeDecls so resolveTypes can
 // recurse into nested object literals with the right field-type expectations.
-fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+export fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let typeNames Array<String>: state.typeNames
     let i i64: 0
     while i.lt(stmts.len()) {
@@ -511,7 +488,7 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 // runPrePasses — runs pass 1 then pass 2 in order.
-fn runPrePasses(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+export fn runPrePasses(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     collectTypeDeclarations(state, stmts)
     collectFunctionDeclarations(state, stmts)
     return state

@@ -1,7 +1,5 @@
 namespace Test.Char
 
-export { main }
-
 fn main(args Array<String>) {
     // char literals and char.ord()
     let a char: 'a'

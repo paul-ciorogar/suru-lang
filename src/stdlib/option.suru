@@ -22,25 +22,17 @@
 
 namespace Suru.Stdlib.Option
 
-export {
-    Option
-    Some
-    None
-    some
-    none
-}
-
-type Some<T>: { value T }
-type None: {}
+export type Some<T>: { value T }
+export type None: {}
 
 // None is variant 0, Some<T> is variant 1.  This ordering ensures that a
 // None struct created in compileOneFile (where the generic Option<T> is
 // filtered out by filterGenericDefs) retains the default variant_idx=0 and
 // is correctly dispatched by suru_variant_tag in any Option<T> match.
-type Option<T>: None, Some<T>
+export type Option<T>: None, Some<T>
 
 // some — wrap a value in Some, returning Option<T>.
-fn some<T>(value T) Option<T> {
+export fn some<T>(value T) Option<T> {
     let s Some<T>: { value: value }
     return s
 }
@@ -49,7 +41,7 @@ fn some<T>(value T) Option<T> {
 // Works correctly because None is variant index 0, matching the default
 // variant_idx emitted by emitObjectLiteralAlloc when Option<T> is absent
 // from the codegen context (filtered by filterGenericDefs).
-fn none() None {
+export fn none() None {
     let n None: {}
     return n
 }

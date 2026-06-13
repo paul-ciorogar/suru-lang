@@ -25,6 +25,4 @@ namespace stdlib.ffi
 // codegen/irCodegen.suru) on a `ptr` receiver, so no phantom declaration is
 // required here.
 
-export { typeSize }
-
-fn typeSize<T>() i64 { return 0 }
+export fn typeSize<T>() i64 { return 0 }

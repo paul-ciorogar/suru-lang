@@ -23,49 +23,16 @@ import {
     nodes: Suru.Compiler.Parser.Nodes
 }
 
-export {
-    MonoResult
-    extractFnNames
-    extractTypeNames
-    runMonoPass
-    isGenericStmt
-    filterGenericDefs
-    rewriteCallName
-    rewriteZeroArgCallName
-    rewriteCallInExprWithAnnotation
-    rewriteZeroArgFnFromAnnotation
-    rewriteCallsInExprs
-    rewriteCallsInStmts
-    rewriteMatchArm
-    rewriteMatchArms
-    rewriteMatchStmtArm
-    rewriteMatchStmtArms
-    rewriteObjectField
-    rewriteObjectFields
-    rewriteBlock
-    rewriteCallsInExpr
-    rewriteCallsInStmt
-    rewriteCallSites
-    collectConcreteSumTypesAt
-    getVariantsForAt
-    resolveVariantNameAt
-    rewriteArmPat
-    rewriteStmtArmsAt
-    rewriteVariantArmsInStmt
-    rewriteVariantArmsInStmtsAt
-    rewriteVariantArms
-}
-
 // ─── Result type ─────────────────────────────────────────────────────────────
 
 // MonoResult carries the concrete nodes produced by one mono pass plus the
 // names of those nodes so the pipeline can add them to ownFnNames / ownTypeNames.
-type MonoResult: { newNodes Array<AstNode>, newFnNames Array<String>, newTypeNames Array<String> }
+export type MonoResult: { newNodes Array<AstNode>, newFnNames Array<String>, newTypeNames Array<String> }
 
 // ─── Name extraction ─────────────────────────────────────────────────────────
 
 // extractFnNames — collect the name of every FnDeclNode in nodes.
-fn extractFnNames(nodes Array<AstNode>, out Array<String>) {
+export fn extractFnNames(nodes Array<AstNode>, out Array<String>) {
     let i i64: 0
     while i.lt(nodes.len()) {
         let node AstNode: nodes.at(i)
@@ -81,7 +48,7 @@ fn extractFnNames(nodes Array<AstNode>, out Array<String>) {
 }
 
 // extractTypeNames — collect the name of every TypeDeclNode in nodes.
-fn extractTypeNames(nodes Array<AstNode>, out Array<String>) {
+export fn extractTypeNames(nodes Array<AstNode>, out Array<String>) {
     let i i64: 0
     while i.lt(nodes.len()) {
         let node AstNode: nodes.at(i)
@@ -101,7 +68,7 @@ fn extractTypeNames(nodes Array<AstNode>, out Array<String>) {
 // runMonoPass — given the current registry of generic definitions, infer all
 // instantiation requests from stmts and produce the concrete copies.
 // Returns new concrete nodes and their names for the pipeline to inject.
-fn runMonoPass(stmts Array<AstNode>, registry GenericRegistry) MonoResult {
+export fn runMonoPass(stmts Array<AstNode>, registry GenericRegistry) MonoResult {
     let requests Array<InstantiationRequest>: infer.collectInstantiations(stmts, registry)
     let newNodes Array<AstNode>: inst.instantiateAll(registry, requests)
     let newFnNames Array<String>: []
@@ -140,7 +107,7 @@ fn isGenericStmt(stmt AstNode) bool {
 // statements from stmts.  Called on both the resolved stmts (to remove
 // template definitions before pass 2) and on ownStmts (to stop
 // analyzeModuleStatements from emitting false errors on typeParam bodies).
-fn filterGenericDefs(stmts Array<AstNode>) Array<AstNode> {
+export fn filterGenericDefs(stmts Array<AstNode>) Array<AstNode> {
     let out Array<AstNode>: []
     let i i64: 0
     while i.lt(stmts.len()) {
@@ -282,14 +249,14 @@ fn rewriteCallsInStmts(stmts Array<AstNode>, registry GenericRegistry) Array<Ast
 
 // rewriteMatchArm — rewrite generic calls in a match-expression arm's
 // pattern and body expressions.
-fn rewriteMatchArm(arm MatchArm, registry GenericRegistry) MatchArm {
+export fn rewriteMatchArm(arm MatchArm, registry GenericRegistry) MatchArm {
     let newPat AstNode: rewriteCallsInExpr(arm.pattern, registry)
     let newBody AstNode: rewriteCallsInExpr(arm.body, registry)
     return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
 }
 
 // rewriteMatchArms — return a new MatchArm array with all generic call names mangled.
-fn rewriteMatchArms(arms Array<MatchArm>, registry GenericRegistry) Array<MatchArm> {
+export fn rewriteMatchArms(arms Array<MatchArm>, registry GenericRegistry) Array<MatchArm> {
     let out Array<MatchArm>: []
     let i i64: 0
     while i.lt(arms.len()) {
@@ -301,14 +268,14 @@ fn rewriteMatchArms(arms Array<MatchArm>, registry GenericRegistry) Array<MatchA
 
 // rewriteMatchStmtArm — rewrite generic calls in a match-statement arm's
 // pattern expression and body statement list.
-fn rewriteMatchStmtArm(arm MatchStmtArm, registry GenericRegistry) MatchStmtArm {
+export fn rewriteMatchStmtArm(arm MatchStmtArm, registry GenericRegistry) MatchStmtArm {
     let newPat AstNode: rewriteCallsInExpr(arm.pattern, registry)
     let newStmts Array<AstNode>: rewriteCallsInStmts(arm.stmts, registry)
     return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
 }
 
 // rewriteMatchStmtArms — return a new MatchStmtArm array with all generic call names mangled.
-fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Array<MatchStmtArm> {
+export fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
     let i i64: 0
     while i.lt(arms.len()) {
@@ -320,14 +287,14 @@ fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry) Arra
 
 // rewriteObjectField — rewrite generic calls in a ObjectFieldNode's value expression
 // and optional inline method body.
-fn rewriteObjectField(sf ObjectFieldNode, registry GenericRegistry) ObjectFieldNode {
+export fn rewriteObjectField(sf ObjectFieldNode, registry GenericRegistry) ObjectFieldNode {
     let newVal AstNode: rewriteCallsInExpr(sf.value, registry)
     let newMbody Array<AstNode>: rewriteCallsInStmts(sf.methodBody, registry)
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newMbody }
 }
 
 // rewriteObjectFields — return a new ObjectFieldNode array with all generic call names mangled.
-fn rewriteObjectFields(fields Array<ObjectFieldNode>, registry GenericRegistry) Array<ObjectFieldNode> {
+export fn rewriteObjectFields(fields Array<ObjectFieldNode>, registry GenericRegistry) Array<ObjectFieldNode> {
     let out Array<ObjectFieldNode>: []
     let i i64: 0
     while i.lt(fields.len()) {
@@ -338,7 +305,7 @@ fn rewriteObjectFields(fields Array<ObjectFieldNode>, registry GenericRegistry) 
 }
 
 // rewriteBlock — rewrite generic calls in all statements of a BlockNode.
-fn rewriteBlock(block BlockNode, registry GenericRegistry) BlockNode {
+export fn rewriteBlock(block BlockNode, registry GenericRegistry) BlockNode {
     let newStmts Array<AstNode>: rewriteCallsInStmts(block.stmts, registry)
     return { stmts: newStmts }
 }
@@ -519,7 +486,7 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
 // call-site names to their mangled forms using post-pass-2 resolvedTypes.
 // Short-circuits when there are no generic functions in the registry to
 // avoid deep recursion over large non-generic codebases.
-fn rewriteCallSites(stmts Array<AstNode>, registry GenericRegistry) Array<AstNode> {
+export fn rewriteCallSites(stmts Array<AstNode>, registry GenericRegistry) Array<AstNode> {
     let fns Array<GenericFnDef>: registry.fns
     if fns.len().equals(0) { return stmts }
     return rewriteCallsInStmts(stmts, registry)
@@ -660,7 +627,7 @@ fn rewriteVariantArmsInStmtsAt(stmts Array<AstNode>, sumTypes Array<SumTypeDeclN
 // rewriteCallSites.  Builds a concrete sum-type map from the merged statement
 // list and rewrites every match-arm pattern from its unmangled base name to
 // the fully-mangled variant name that the codegen expects.
-fn rewriteVariantArms(stmts Array<AstNode>) Array<AstNode> {
+export fn rewriteVariantArms(stmts Array<AstNode>) Array<AstNode> {
     let sumTypes Array<SumTypeDeclNode>: []
     collectConcreteSumTypesAt(stmts, sumTypes, 0)
     if sumTypes.len().equals(0) { return stmts }

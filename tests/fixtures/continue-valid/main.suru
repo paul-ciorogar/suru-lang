@@ -1,7 +1,5 @@
 namespace Test.ContinueValid
 
-export { main }
-
 // tests/fixtures/continue-valid/main.suru
 //
 // Validates that `continue` skips to the next loop iteration.

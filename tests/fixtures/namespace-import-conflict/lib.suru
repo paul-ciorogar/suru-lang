@@ -1,9 +1,5 @@
 namespace MyApp.Lib
 
-export {
-    greet
-}
-
-fn greet() {
+export fn greet() {
     printLn("from lib")
 }

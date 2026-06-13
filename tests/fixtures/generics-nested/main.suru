@@ -1,7 +1,5 @@
 namespace Test.GenericsNested
 
-export { main }
-
 // Verify that the same generic type can be instantiated with three different
 // concrete type arguments (i64, String, bool) in a single program.  The mono
 // pass must produce Box-i64, Box-String, and Box-bool as independent

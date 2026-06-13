@@ -31,11 +31,6 @@ namespace Suru.Stdlib.StringBuilder
 
 import { [SuruString, suruStringFromBuilder]: Suru.Stdlib.String }
 
-export {
-    StringBuilder
-    newStringBuilder
-}
-
 extern fn malloc(n i64) ptr
 extern fn free(p ptr) void
 extern fn realloc(p ptr, n i64) ptr
@@ -50,7 +45,7 @@ extern fn suru_i64_to_f64(v i64) f64
 // Declaring fn clone() and fn drop() sets hasCustomLifecycle = true, so the
 // compiler emits vtable-dispatch wrappers instead of auto-walking fields —
 // required because `data` is a raw ptr.
-type StringBuilder: {
+export type StringBuilder: {
     fn append(other String) void
     fn appendChar(c char) void
     fn appendStr(other SuruString) void
@@ -222,6 +217,6 @@ fn newStringBuilderCap(cap i64) StringBuilder {
 }
 
 // newStringBuilder — create an empty StringBuilder with default capacity of 16.
-fn newStringBuilder() StringBuilder {
+export fn newStringBuilder() StringBuilder {
     return newStringBuilderCap(16)
 }

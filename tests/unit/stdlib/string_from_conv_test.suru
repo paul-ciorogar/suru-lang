@@ -18,8 +18,6 @@ import {
     [SuruString, suruStringFromI64, suruStringFromChar]: Suru.Stdlib.String
 }
 
-export { stringFromConvTests }
-
 // checkI64 — assert that suruStringFromI64(n) produces want; drops the snapshot.
 fn checkI64(results Array<TestResult>, name String, n i64, want String) Array<TestResult> {
     let s SuruString: suruStringFromI64(n)
@@ -37,7 +35,7 @@ fn checkChar(results Array<TestResult>, name String, c char, want String) Array<
 }
 
 // stringFromConvTests — one TestResult per assertion.
-fn stringFromConvTests() Array<TestResult> {
+export fn stringFromConvTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // ── suruStringFromI64 ───────────────────────────────────────────────────

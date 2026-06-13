@@ -35,58 +35,6 @@ import {
     Suru.Compiler.PathUtils
 }
 
-export {
-    Module
-    ResolveState
-    ResolveResult
-    MonoGroup
-    PipelineResult
-    DebugResult
-    buildModuleImportRegistry
-    pathResolved
-    resolveIncludesRec
-    resolveIncludes
-    collectNonInclude
-    findProjectFile
-    readProjectSourceDirs
-    registryRootsFor
-    srcPathForLowering
-    loTypeMethods
-    loHasMethodMembers
-    loFindMethodMember
-    lookupSrcPathNs
-    nsToPrefix
-    sanitizePathLocal
-    vtablePrefix
-    lowerObjectsBody
-    lowerObjectsStmt
-    lowerObjectsExprList
-    lowerObjectsExpr
-    lowerObjectsObjectLit
-    augPrivAddField
-    augPrivFromLitFields
-    augPrivInBody
-    augmentPrivateFields
-    lowerObjects
-    analyzeModuleStatement
-    analyzeModuleStatements
-    printErrorsFrom
-    collectFnNames
-    collectTypeNames
-    injectMonoConcretes
-    isMethodOfMonoType
-    augmentMonoFnNamesFromLowered
-    findGenericDeclSrcPath
-    groupRequestsByModule
-    compileOneFile
-    compileOneFileWithRequests
-    runPipelineFull
-    runPipelineDebug
-    generateIRText
-    runBuildDriver
-    compilePipeline
-}
-
 
 // ─── Project file discovery ────────────────────────────────────────────────────
 
@@ -180,7 +128,7 @@ fn registryRootsFor(sourcePath String) Array<String> {
 // same nodes added to ResolveState.decls, but grouped per file.
 // importedNs holds the namespace strings from every ImportNode in the file;
 // used to build the per-module import context for semantic validation.
-type Module: { srcPath String, ns String, stmts Array<AstNode>, importedNs Array<String> }
+export type Module: { srcPath String, ns String, stmts Array<AstNode>, importedNs Array<String> }
 
 // Carries accumulated declarations and the set of already-resolved absolute
 // paths so transitive and diamond includes are handled without re-processing.
@@ -190,13 +138,13 @@ type Module: { srcPath String, ns String, stmts Array<AstNode>, importedNs Array
 // srcNsEntries maps each resolved file's absolute path to its namespace declaration,
 // so codegen can namespace-mangle symbols without re-parsing.
 // modules accumulates one Module per resolved file (including the root).
-type ResolveState: { decls Array<AstNode>, resolved Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
+export type ResolveState: { decls Array<AstNode>, resolved Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
 
 // Return value of resolveIncludes: merged statement list + ordered deduplicated
 // list of resolved absolute source paths (in depth-first resolution order).
 // modules is the ordered list of per-file Module objects (root first, then
 // transitive dependencies in depth-first order).
-type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
+export type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
 
 // Linear scan: true if path already appears in the resolved list.
 fn pathResolved(resolved Array<String>, path String) bool {
@@ -214,7 +162,7 @@ fn pathResolved(resolved Array<String>, path String) bool {
 //   - otherwise mark as resolved, recurse into that file's own imports first,
 //     then add its FnDeclNode / TypeDeclNode / SumTypeDeclNode / scalar LetNode
 //     to state.decls.
-fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state ResolveState, reg NamespaceRegistry) ResolveState {
+export fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state ResolveState, reg NamespaceRegistry) ResolveState {
     // Pre-scan: extract this file's namespace and exported names so the import
     // desugaring pass can validate selective imports against this file's exports.
     let fileNs String: ""
@@ -368,7 +316,7 @@ fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, state R
 // Resolve all transitive dependencies from mainStmts via the namespace registry.
 // Returns the merged statement list (main file's own nodes FIRST, then transitive
 // declarations) and the ordered deduplicated list of resolved absolute source paths.
-fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String, reg NamespaceRegistry) ResolveResult {
+export fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String, reg NamespaceRegistry) ResolveResult {
     let initSrcNsEntries Array<SrcNsEntry>: []
     let initModules Array<Module>: []
     let state ResolveState: { decls: [], resolved: [], nsExports: [], srcNsEntries: initSrcNsEntries, modules: initModules }
@@ -525,7 +473,7 @@ fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String, reg Na
 // (transitive dependency declarations are appended by resolveIncludes after
 // the root file's own nodes, so callers can pass mod.stmts directly to get
 // just the root file's own declarations).
-fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
+export fn collectNonInclude(stmts Array<AstNode>) Array<AstNode> {
     let result Array<AstNode>: []
     let i i64: 0
     while i.lt(stmts.len()) {
@@ -936,7 +884,7 @@ fn augPrivFromLitFields(stmts Array<AstNode>, typeName String, litFields Array<O
 // literals and calls augPrivFromLitFields for any that have private fields.
 // returnTypeName is the enclosing function's declared return type, used to
 // identify the TypeDeclNode when a ReturnNode directly contains a struct lit.
-fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, returnTypeName String) {
+export fn augPrivInBody(stmts Array<AstNode>, body Array<AstNode>, returnTypeName String) {
     let i i64: 0
     while i.lt(body.len()) {
         match body.at(i) {
@@ -986,7 +934,7 @@ fn augmentPrivateFields(stmts Array<AstNode>) {
 
 // lowerObjects — module driver. Walks `stmts`, lifts object methods, and
 // appends every synthesised FnDeclNode to `stmts`.
-fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String, nsEntries Array<SrcNsEntry>) {
+export fn lowerObjects(state AnalyzerState, stmts Array<AstNode>, root String, nsEntries Array<SrcNsEntry>) {
     // Pre-pass: inject private data fields from object literals into TypeDeclNodes
     // so the codegen's registerTypes creates the correct struct layout (size + GEP offsets).
     augmentPrivateFields(stmts)
@@ -1017,7 +965,7 @@ fn analyzeModuleStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
 }
 
 // analyzeModuleStatements — iterates the module statement list.
-fn analyzeModuleStatements(state AnalyzerState, moduleStmts Array<AstNode>) AnalyzerState {
+export fn analyzeModuleStatements(state AnalyzerState, moduleStmts Array<AstNode>) AnalyzerState {
     let i i64: 0
     while i.lt(moduleStmts.len()) {
         analyzeModuleStatement(state, moduleStmts.at(i))
@@ -1095,7 +1043,7 @@ fn collectTypeNames(stmts Array<AstNode>) Array<String> {
 // expression node carries its `resolvedType` for codegen to read. Without
 // this, struct/array literals in included files would emit with an empty
 // type name and crash the compiler.
-fn compileOneFile(sourcePath String, outDir String, reg NamespaceRegistry) {
+export fn compileOneFile(sourcePath String, outDir String, reg NamespaceRegistry) {
     let src String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(src, sourcePath)
     let mod AstModule: parser.parse(tokens, sourcePath)
@@ -1298,7 +1246,7 @@ type PipelineResult: { irText String, includedPaths Array<String>, builtReg Name
 // Carries intermediate pipeline state for per-pass debugging.
 // stmts is the statement list as it exists at the named stop point;
 // state is the AnalyzerState populated up to that point.
-type DebugResult: { stmts Array<AstNode>, state AnalyzerState }
+export type DebugResult: { stmts Array<AstNode>, state AnalyzerState }
 
 // injectMonoConcretes — common monomorphization fan-in.  Appends the new
 // concrete nodes produced by monoPass.runMonoPass into stmts, strips the
@@ -1523,7 +1471,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
 //   "semantic"  — after analyzeModuleStatements (full symbol table visible)
 //
 // Exits with code 1 for unknown pass names.
-fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
+export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     let source String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(source, sourcePath)
     let mod AstModule: parser.parse(tokens, sourcePath)
@@ -1586,7 +1534,7 @@ fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
 
 // generateIRText — run the full pipeline for sourcePath and return the LLVM IR
 // string for the main file.  No files are written.
-fn generateIRText(sourcePath String) String {
+export fn generateIRText(sourcePath String) String {
     let result PipelineResult: runPipelineFull(sourcePath)
     return result.irText
 }
@@ -1594,7 +1542,7 @@ fn generateIRText(sourcePath String) String {
 // runBuildDriver — compile sourcePath to IR, write the main file's IR to
 // outputPath, and compile each included file to a .ll in the same directory.
 // This is the entry point used by bin/suru-build.
-fn runBuildDriver(sourcePath String, outputPath String) {
+export fn runBuildDriver(sourcePath String, outputPath String) {
     let result PipelineResult: runPipelineFull(sourcePath)
     writeFile(outputPath, result.irText)
     let outDir String: dirName(outputPath)
@@ -1616,7 +1564,7 @@ fn runBuildDriver(sourcePath String, outputPath String) {
 // all .ll files there, then links them with clang-18 into buildDir/main.
 // The runtime is linked from precompiled C objects (runtime/*.o, built by the
 // Docker scripts); the program's own modules are still IR (buildDir/*.ll).
-fn compilePipeline(sourcePath String, buildDir String) {
+export fn compilePipeline(sourcePath String, buildDir String) {
     exec("mkdir -p ".append(buildDir))
     let outputPath String: buildDir.append(fileNameStem(baseName(sourcePath))).append(".ll")
     runBuildDriver(sourcePath, outputPath)

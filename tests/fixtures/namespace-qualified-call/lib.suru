@@ -1,9 +1,5 @@
 namespace Test.Lib
 
-export {
-    add
-}
-
-fn add(a i64, b i64) i64 {
+export fn add(a i64, b i64) i64 {
     return a.add(b)
 }

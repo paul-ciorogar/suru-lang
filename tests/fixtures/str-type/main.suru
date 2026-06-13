@@ -1,7 +1,5 @@
 namespace Test.StrType
 
-export { main }
-
 // `Str` is the borrowed static-string type (string literals). It shares the
 // %suru.String layout and all read-only operations with the owned heap `String`;
 // it differs only in ownership (drop is a no-op) and is assignable to a `String`

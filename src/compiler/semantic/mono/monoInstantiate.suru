@@ -18,33 +18,12 @@ import {
     subst: Suru.Compiler.Semantic.Mono.Subst
 }
 
-export {
-    InstantiationRequest
-    flattenTypeArg
-    appendMangledTypes
-    mangleGenericName
-    instantiateType
-    instantiateFn
-    wrapTypeDeclNode
-    wrapFnDeclNode
-    mangleTypeExpr
-    substAndMangleVariants
-    instantiateSumType
-    wrapSumTypeDeclNode
-    alreadySeen
-    findInstType
-    findInstFn
-    instantiateVariantTypes
-    findInstSumType
-    instantiateAll
-}
-
 // ─── InstantiationRequest ─────────────────────────────────────────────────────
 
 // InstantiationRequest names one concrete instantiation: the generic definition
 // identified by genericName, specialized with the listed concrete type arguments.
 // One request per usage site; duplicates are deduplicated by instantiateAll.
-type InstantiationRequest: { genericName String, concreteTypes Array<String> }
+export type InstantiationRequest: { genericName String, concreteTypes Array<String> }
 
 // ─── Name mangling ────────────────────────────────────────────────────────────
 
@@ -56,7 +35,7 @@ type InstantiationRequest: { genericName String, concreteTypes Array<String> }
 //   "Option<i64>"         → "Option-i64"
 //   "Option<Array<i64>>"  → "Option-Array-i64"
 // Plain names (no ':' prefix and no '<') are returned as a fresh clone.
-fn flattenTypeArg(typeName String) String {
+export fn flattenTypeArg(typeName String) String {
     let len i64: typeName.len()
     if len.gt(5) {
         if typeName.slice(0, 6).equals("Array:") {
@@ -103,7 +82,7 @@ fn appendMangledTypes(acc String, types Array<String>) String {
 //   mangleGenericName("Box",  ["i64"])          → "Box-i64"
 //   mangleGenericName("Pair", ["i64","String"]) → "Pair-i64-String"
 // Always returns an owned heap String; the caller is responsible for dropping it.
-fn mangleGenericName(baseName String, concreteTypes Array<String>) String {
+export fn mangleGenericName(baseName String, concreteTypes Array<String>) String {
     let acc String: baseName.clone()
     return appendMangledTypes(acc, concreteTypes)
 }
@@ -113,7 +92,7 @@ fn mangleGenericName(baseName String, concreteTypes Array<String>) String {
 // instantiateType — produce a concrete TypeDeclNode from a generic definition.
 // The result has the mangled name, empty typeParams, and all field/method type
 // annotations substituted by the monoSubst helpers.
-fn instantiateType(def GenericTypeDef, concreteTypes Array<String>) TypeDeclNode {
+export fn instantiateType(def GenericTypeDef, concreteTypes Array<String>) TypeDeclNode {
     let mangledName String: mangleGenericName(def.name, concreteTypes)
     let newFields Array<Param>: subst.substParams(def.node.fields, def.typeParams(), concreteTypes)
     let newMethods Array<MethodSig>: subst.substMethodSigs(def.node.methods, def.typeParams(), concreteTypes)
@@ -464,7 +443,7 @@ fn scanOneNodeForFollowups(node AstNode, registry GenericRegistry, work Array<In
 // `requests` and processed by later iterations.  The mangled-name `seen` set
 // guarantees termination — each distinct concrete instantiation is handled at
 // most once, and a finite program reaches a finite set of instantiations.
-fn instantiateAll(registry GenericRegistry, requests Array<InstantiationRequest>) Array<AstNode> {
+export fn instantiateAll(registry GenericRegistry, requests Array<InstantiationRequest>) Array<AstNode> {
     let seen Array<String>: []
     let out Array<AstNode>: []
     let i i64: 0

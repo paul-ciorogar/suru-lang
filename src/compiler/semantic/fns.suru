@@ -23,15 +23,6 @@ import {
     analysis: Suru.Compiler.Semantic.Stmts
 }
 
-export {
-    allMatchArmsHaveReturn
-    checkHasReturnInMatchStmt
-    isExitCall
-    checkHasReturnInIf
-    checkHasReturn
-    analyzeFunctionDeclaration
-}
-
 // ─── checkHasReturn ───────────────────────────────────────────────────────────
 
 // allMatchArmsHaveReturn — true when every arm of a MatchStmtNode has a return/exit
@@ -129,7 +120,7 @@ fn checkHasReturn(stmts Array<AstNode>) bool {
 // Module-scope constants and symbols remain visible inside the function through
 // the parent-chain traversal in lookupSymbol: the new function scope's parent
 // index points to the module scope, so lookupSymbolAt walks up naturally.
-fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
+export fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
     // 1. Save outer context for restoration after body analysis.
     let savedReturnType String: state.currentReturnType
     let savedInsideFunction i64: state.insideFunction

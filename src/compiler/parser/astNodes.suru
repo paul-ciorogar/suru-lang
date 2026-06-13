@@ -17,24 +17,15 @@ import {
     Suru.Compiler.Parser.Ast
 }
 
-export {
-    newParam
-    newMethodSig
-    newObjectFieldNode
-    newMatchArm
-    newMatchStmtArm
-    newBlockNode
-}
-
-fn newParam(name String, typeName String) Param {
+export fn newParam(name String, typeName String) Param {
     return { name: name, typeName: typeName }
 }
 
-fn newMethodSig(name String, params Array<Param>, returnType String) MethodSig {
+export fn newMethodSig(name String, params Array<Param>, returnType String) MethodSig {
     return { name: name, params: params, returnType: returnType }
 }
 
-fn newObjectFieldNode(name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) ObjectFieldNode {
+export fn newObjectFieldNode(name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode>) ObjectFieldNode {
     return {
         name:               name
         value:              value

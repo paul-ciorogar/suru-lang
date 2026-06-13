@@ -1,29 +1,21 @@
-// exportPass.suru — Semantic validation for export blocks.
+// exportPass.suru — Semantic validation for exported declarations.
 //
-// Validates that each name listed in an `export { ... }` block is actually
-// defined in the same file's own functions, types, or top-level constants.
-// On success, the resolved exported names are stored in state.exportedNames
-// for use by the import desugaring pass (Task 6).
+// The parser synthesises one ExportNode by folding every `export`-prefixed
+// top-level declaration; this pass validates that each entry's name is actually
+// defined in the same file's own functions, types, or top-level constants. On
+// success, the resolved exported names are stored in state.exportedNames for
+// use by the import desugaring pass.
 //
 // Rules enforced here:
 //   - Every entry's localName must resolve to a FnDeclNode, TypeDeclNode,
-//     SumTypeDeclNode, or top-level LetNode in the same file.
+//     SumTypeDeclNode, ExternTypeNode, or top-level LetNode in the same file.
 //   - Error: "export: '<name>' is not defined in this module"
-//
-// The parser already enforces export block syntax (braces, colons, idents),
-// so only semantic correctness is checked here.
 
 namespace Suru.Compiler.Semantic.ExportPass
 
 import {
     semantic: Suru.Compiler.Semantic
     ast: Suru.Compiler.Parser.Ast
-}
-
-export {
-    collectOwnDefinedNames
-    containsName
-    validateExports
 }
 
 // collectOwnDefinedNames — walk ownStmts and return the names of all
@@ -51,7 +43,7 @@ fn collectOwnDefinedNames(ownStmts Array<AstNode>) Array<String> {
 }
 
 // containsName — linear search for name in names array.
-fn containsName(names Array<String>, name String) bool {
+export fn containsName(names Array<String>, name String) bool {
     let i i64: 0
     while i.lt(names.len()) {
         if names.at(i).equals(name) { return true }
@@ -72,7 +64,7 @@ fn containsName(names Array<String>, name String) bool {
 //   state    — the AnalyzerState for the current module (mutated in-place)
 //   ownStmts — own-file statements from collectNonInclude(mod.stmts),
 //              with generic templates already filtered out
-fn validateExports(state AnalyzerState, ownStmts Array<AstNode>) AnalyzerState {
+export fn validateExports(state AnalyzerState, ownStmts Array<AstNode>) AnalyzerState {
     let definedNames Array<String>: collectOwnDefinedNames(ownStmts)
     let i i64: 0
     while i.lt(ownStmts.len()) {

@@ -1,7 +1,5 @@
 namespace Test.GenericsMultiParam
 
-export { main }
-
 // Verify a generic type with two type parameters is correctly monomorphized.
 // Pair<T, U> is instantiated as Pair-i64-String; both fields are accessible.
 type Pair<T, U>: { first T, second U }

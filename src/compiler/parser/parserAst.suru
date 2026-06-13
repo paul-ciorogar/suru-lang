@@ -48,72 +48,14 @@ import {
     Suru.Compiler.Lexer
 }
 
-export {
-    OP_NOT
-    OP_AND
-    OP_OR
-    Parser
-    Param
-    MethodSig
-    ObjectFieldNode
-    MatchArm
-    MatchStmtArm
-    ExportEntry
-    FullNs
-    AliasNs
-    SelectiveNames
-    SelectiveAliased
-    ImportKind
-    ImportEntry
-    SrcNsEntry
-    FnDeclNode
-    LetNode
-    AssignNode
-    FieldAssignNode
-    ReturnNode
-    WhileNode
-    ExprStmtNode
-    TypeDeclNode
-    SumTypeDeclNode
-    MatchStmtNode
-    BlockNode
-    IfNode
-    BoolLitNode
-    IntLitNode
-    FloatLitNode
-    StrLitNode
-    WildcardNode
-    VarRefNode
-    CallNode
-    MethodCallNode
-    FieldAccessNode
-    ArrayLitNode
-    ObjectLitNode
-    MatchExprNode
-    UnaryNode
-    BinaryNode
-    CharLitNode
-    VtableRefNode
-    ExternFnNode
-    BreakNode
-    ContinueNode
-    NamespaceDeclNode
-    ExportNode
-    ImportNode
-    QualifiedNameNode
-    SizeNode
-    AstNode
-    AstModule
-}
-
 // Operator constants for UnaryNode.op and BinaryNode.op.
-let OP_NOT i64: 1
-let OP_AND i64: 2
-let OP_OR  i64: 3
+export let OP_NOT i64: 1
+export let OP_AND i64: 2
+export let OP_OR  i64: 3
 
 // ─── Parser state ─────────────────────────────────────────────────────────────
 
-type Parser: {
+export type Parser: {
     fn advance()
     fn currentToken() Token
     fn currentTokenIs(kind i64) bool
@@ -123,11 +65,11 @@ type Parser: {
     fn peekIs2(kind i64) bool
     fn consume(expectedKind i64)
     fn consumeIf(kind i64)
+    fn isDeclStart() bool
     fn error(msg String)
     fn parseTypeAnnotation() String
     fn parseStatement() AstNode
     fn parseNamespaceDecl() AstNode
-    fn parseExportBlock() AstNode
     fn parseImportBlock() AstNode
     fn parseImportEntry() ImportEntry
     fn parseQualifiedNsPath() String
@@ -198,9 +140,9 @@ type Parser: {
 
 // ─── Helper types (not AstNode variants) ──────────────────────────────────────
 
-type Param:          { name String, typeName String }
+export type Param:          { name String, typeName String }
 // MethodSig: a method signature in a `type` body (`fn name(params) Ret`, no body).
-type MethodSig:      { name String, params Array<Param>, returnType String }
+export type MethodSig:      { name String, params Array<Param>, returnType String }
 // ObjectFieldNode: one member of a `{ ... }` literal.
 // Data field: isMethod=false, `value` holds the field expression.
 // Method def:  isMethod=true, `name`/`methodParams`/`methodRet`/`methodBody`
@@ -211,63 +153,65 @@ type MethodSig:      { name String, params Array<Param>, returnType String }
 //   syntax; it is inaccessible outside the object literal's own method bodies.
 //   privateTypeName holds the mandatory type annotation for private data fields
 //   (e.g. "i64") so the codegen/semantic layers can add it to the struct layout.
-type ObjectFieldNode: { name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
-type MatchArm:       { isWildcard bool, pattern AstNode, body AstNode }
-type MatchStmtArm:   { isWildcard bool, pattern AstNode, stmts Array<AstNode> }
+export type ObjectFieldNode: { name String, value AstNode, isMethod bool, isPrivate bool, privateTypeName String, methodParams Array<Param>, methodRet String, methodBody Array<AstNode> }
+export type MatchArm:       { isWildcard bool, pattern AstNode, body AstNode }
+export type MatchStmtArm:   { isWildcard bool, pattern AstNode, stmts Array<AstNode> }
 
 // ─── Namespace / export / import helper types ──────────────────────────────────
 
-// ExportEntry: one entry in an `export { ... }` block.
-// Plain `name` → both fields equal; `alias: localName` → exportedAs differs.
-type ExportEntry: { exportedAs String, localName String }
+// ExportEntry: one exported declaration. Synthesised by the parser from an
+// `export`-prefixed top-level declaration; exportedAs always equals localName
+// (a declaration is exported under its own name). The two fields are retained
+// because import desugaring and codegen consume this shared shape.
+export type ExportEntry: { exportedAs String, localName String }
 
 // ImportKind discriminates the four import syntaxes.
-type FullNs:           { }
-type AliasNs:          { }
-type SelectiveNames:   { }
-type SelectiveAliased: { }
+export type FullNs:           { }
+export type AliasNs:          { }
+export type SelectiveNames:   { }
+export type SelectiveAliased: { }
 type ImportKind: FullNs, AliasNs, SelectiveNames, SelectiveAliased
 
 // ImportEntry: one namespace reference inside an `import { ... }` block.
-type ImportEntry: { kind ImportKind, ns String, alias String, names Array<String>, nameAliases Array<ExportEntry> }
+export type ImportEntry: { kind ImportKind, ns String, alias String, names Array<String>, nameAliases Array<ExportEntry> }
 
 // ─── Statement node types (AstNode variants 0–9) ──────────────────────────────
 
 // SrcNsEntry: maps a source file path to its declared namespace.
 // Threaded through the pipeline so codegen can namespace-mangle symbols without
 // storing a srcPath on every AST node type.
-type SrcNsEntry:      { srcPath String, ns String }
-type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String, typeParams Array<String>, line i64, col i64 }
+export type SrcNsEntry:      { srcPath String, ns String }
+export type FnDeclNode:      { name String, params Array<Param>, returnType String, body Array<AstNode>, srcPath String, typeParams Array<String>, line i64, col i64 }
 // srcPath is "" for local variables; set to the enclosing file path for module-level
 // scalar constants by resolveIncludesRec so codegen can namespace-mangle global names.
-type LetNode:         { name String, typeName String, value AstNode, line i64, col i64, srcPath String }
-type AssignNode:      { name String, value AstNode, line i64, col i64 }
-type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode, line i64, col i64 }
-type ReturnNode:      { hasValue bool, value AstNode, line i64, col i64 }
-type WhileNode:       { condition AstNode, body Array<AstNode>, line i64, col i64 }
-type ExprStmtNode:    { expr AstNode }
+export type LetNode:         { name String, typeName String, value AstNode, line i64, col i64, srcPath String }
+export type AssignNode:      { name String, value AstNode, line i64, col i64 }
+export type FieldAssignNode: { receiver AstNode, fieldName String, value AstNode, line i64, col i64 }
+export type ReturnNode:      { hasValue bool, value AstNode, line i64, col i64 }
+export type WhileNode:       { condition AstNode, body Array<AstNode>, line i64, col i64 }
+export type ExprStmtNode:    { expr AstNode }
 // TypeDeclNode: a struct/interface type. `fields` are data members; `methods`
 // are declared method signatures (empty for a plain data record). `isCType` is
 // true for `cType` declarations — header-less, C-ABI-laid-out structs for FFI.
-type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String>, isCType bool, line i64, col i64 }
-type SumTypeDeclNode: { name String, variants Array<String>, typeParams Array<String>, line i64, col i64 }
-type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
+export type TypeDeclNode:    { name String, fields Array<Param>, methods Array<MethodSig>, typeParams Array<String>, isCType bool, line i64, col i64 }
+export type SumTypeDeclNode: { name String, variants Array<String>, typeParams Array<String>, line i64, col i64 }
+export type MatchStmtNode:   { condition AstNode, arms Array<MatchStmtArm> }
 // BlockNode: a brace-delimited sequence of statements.
 // Used as the then/else branches of IfNode; stmts empty means the branch is absent.
-type BlockNode:       { stmts Array<AstNode> }
+export type BlockNode:       { stmts Array<AstNode> }
 // IfNode: if/else if/else statement.
 // elseBranch.stmts empty    → no else clause.
 // elseBranch.stmts = [IfNode] → else-if chain (recursive).
-type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch BlockNode, line i64, col i64 }
+export type IfNode:          { condition AstNode, thenBranch BlockNode, elseBranch BlockNode, line i64, col i64 }
 // ExternFnNode: an `extern fn` declaration — a function signature with no body.
 // Declares a raw IR function (defined in runtime/*.ll) so Suru call sites can
 // resolve its name and type. No typeParams: extern fns are never generic.
 // Appended LAST (index 29) — see the header comment on variant ordering.
-type ExternFnNode:    { name String, params Array<Param>, returnType String }
+export type ExternFnNode:    { name String, params Array<Param>, returnType String }
 // BreakNode / ContinueNode: control flow in while loops. No fields — the keyword
 // is the entire statement. Appended LAST (indices 30, 31) to keep prior indices stable.
-type BreakNode:       { line i64, col i64 }
-type ContinueNode:    { line i64, col i64 }
+export type BreakNode:       { line i64, col i64 }
+export type ContinueNode:    { line i64, col i64 }
 // ExternTypeNode: `extern type Foo` — an opaque handle type backed by a C pointer.
 // No fields or methods; the name is used only for compile-time call-site checking
 // and is erased to `ptr` in codegen. Appended LAST (index 36).
@@ -280,25 +224,25 @@ type ExternTypeNode:  { name String, line i64, col i64 }
 // analysis writes the canonical Suru type name (e.g. "i64", "String",
 // "Array:Foo", a struct name, or a sum-type name). Codegen reads it
 // directly. See the header comment for the rationale.
-type BoolLitNode:     { boolVal bool, resolvedType String }
-type IntLitNode:      { text String, resolvedType String }
-type FloatLitNode:    { text String, resolvedType String }
-type StrLitNode:      { text String, resolvedType String }
+export type BoolLitNode:     { boolVal bool, resolvedType String }
+export type IntLitNode:      { text String, resolvedType String }
+export type FloatLitNode:    { text String, resolvedType String }
+export type StrLitNode:      { text String, resolvedType String }
 // WildcardNode is pattern-only and has no value, so no resolvedType.
-type WildcardNode:    { }
-type VarRefNode:      { name String, line i64, col i64, resolvedType String }
-type CallNode:        { name String, args Array<AstNode>, line i64, col i64, resolvedType String }
-type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, line i64, col i64, resolvedType String }
-type FieldAccessNode: { receiver AstNode, fieldName String, line i64, col i64, resolvedType String }
-type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
-type ObjectLitNode:   { fields Array<ObjectFieldNode>, resolvedType String, line i64, col i64 }
-type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, line i64, col i64, resolvedType String }
-type UnaryNode:       { op i64, operand AstNode, resolvedType String }
-type BinaryNode:      { op i64, left AstNode, right AstNode, resolvedType String }
+export type WildcardNode:    { }
+export type VarRefNode:      { name String, line i64, col i64, resolvedType String }
+export type CallNode:        { name String, args Array<AstNode>, line i64, col i64, resolvedType String }
+export type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, line i64, col i64, resolvedType String }
+export type FieldAccessNode: { receiver AstNode, fieldName String, line i64, col i64, resolvedType String }
+export type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
+export type ObjectLitNode:   { fields Array<ObjectFieldNode>, resolvedType String, line i64, col i64 }
+export type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, line i64, col i64, resolvedType String }
+export type UnaryNode:       { op i64, operand AstNode, resolvedType String }
+export type BinaryNode:      { op i64, left AstNode, right AstNode, resolvedType String }
 // CharLitNode: a single-quoted char literal. `text` holds the one decoded
 // character (same shape as a 1-char StrLitNode); codegen folds it to an i8.
 // Declared/appended LAST — see the header comment on variant ordering.
-type CharLitNode:     { text String, resolvedType String }
+export type CharLitNode:     { text String, resolvedType String }
 // VtableRefNode: a reference to a module-level vtable constant. Produced only
 // by the method lambda-lift (pipeline.suru) as the value of the synthetic
 // `$vtable` struct field. `sym` is the LLVM global name (e.g.
@@ -307,26 +251,27 @@ type CharLitNode:     { text String, resolvedType String }
 // `<sym> = constant [N x ptr] [ptr <e0>, ...]` and stores
 // `ptrtoint (ptr <sym> to i64)` into the slot.
 // Appended LAST — see the header comment on variant ordering.
-type VtableRefNode:   { sym String, entries Array<String>, resolvedType String }
+export type VtableRefNode:   { sym String, entries Array<String>, resolvedType String }
 
 // NamespaceDeclNode: `namespace MyApp.CoolService` declaration.
 // Must be the first statement in a file; validated in semantic pass (Task 4).
 // Appended LAST (index 32) — see header comment on variant ordering.
-type NamespaceDeclNode: { name String, line i64, col i64 }
+export type NamespaceDeclNode: { name String, line i64, col i64 }
 
-// ExportNode: `export { Name, alias: LocalName }` block.
-// Appended LAST (index 33).
-type ExportNode: { entries Array<ExportEntry>, line i64, col i64 }
+// ExportNode: the module's public surface. Synthesised by the parser by
+// folding every `export`-prefixed top-level declaration into one node; never
+// written directly in source. Appended LAST (index 33).
+export type ExportNode: { entries Array<ExportEntry>, line i64, col i64 }
 
 // ImportNode: `import { … }` block; entries are the parsed ImportEntry list.
 // Appended LAST (index 34).
-type ImportNode: { entries Array<ImportEntry>, line i64, col i64 }
+export type ImportNode: { entries Array<ImportEntry>, line i64, col i64 }
 
 // QualifiedNameNode: `MyApp.CoolService.doSomething` in expression / type position.
 // parts = ["MyApp", "CoolService", "doSomething"].
 // Carries resolvedType (expression variant convention).
 // Appended LAST (index 35).
-type QualifiedNameNode: { parts Array<String>, line i64, col i64, resolvedType String }
+export type QualifiedNameNode: { parts Array<String>, line i64, col i64, resolvedType String }
 
 // SizeNode: `typeSize(T)` compiler intrinsic returning the element storage size
 // of type T as an i64 constant (bool/char=1, i32=4, everything else=8).
@@ -335,12 +280,12 @@ type QualifiedNameNode: { parts Array<String>, line i64, col i64, resolvedType S
 // typeName is the raw parsed type string; monoSubst rewrites it to the concrete
 // type during monomorphization so generic functions get the right constant.
 // Appended LAST (index 36) — do NOT move or remove (bootstrap stability).
-type SizeNode: { typeName String, line i64, col i64, resolvedType String }
+export type SizeNode: { typeName String, line i64, col i64, resolvedType String }
 
 // ─── Sum type ──────────────────────────────────────────────────────────────────
 
-type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, ObjectLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode, ExternTypeNode, SizeNode
+export type AstNode: FnDeclNode, LetNode, AssignNode, FieldAssignNode, ReturnNode, WhileNode, ExprStmtNode, TypeDeclNode, SumTypeDeclNode, MatchStmtNode, BlockNode, IfNode, BoolLitNode, IntLitNode, FloatLitNode, StrLitNode, WildcardNode, VarRefNode, CallNode, MethodCallNode, FieldAccessNode, ArrayLitNode, ObjectLitNode, MatchExprNode, UnaryNode, BinaryNode, CharLitNode, VtableRefNode, ExternFnNode, BreakNode, ContinueNode, NamespaceDeclNode, ExportNode, ImportNode, QualifiedNameNode, ExternTypeNode, SizeNode
 
 // ─── Module type ───────────────────────────────────────────────────────────────
 
-type AstModule: { stmts Array<AstNode> }
+export type AstModule: { stmts Array<AstNode> }

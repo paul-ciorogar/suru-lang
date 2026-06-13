@@ -1,7 +1,5 @@
 namespace Test.ObjectsBasic
 
-export { main }
-
 type Greeter: { name String, fn greet(prefix String) String, fn rename(n String) }
 
 fn shout(g Greeter) String {

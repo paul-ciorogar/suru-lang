@@ -14,26 +14,18 @@
 
 namespace Suru.Stdlib.Result
 
-export {
-    Result
-    Ok
-    Err
-    ok
-    err
-}
-
-type Ok<T>:  { value T }
-type Err<E>: { error E }
-type Result<T, E>: Ok<T>, Err<E>
+export type Ok<T>:  { value T }
+export type Err<E>: { error E }
+export type Result<T, E>: Ok<T>, Err<E>
 
 // ok — wrap a success value in Ok<T>.
-fn ok<T>(value T) Ok<T> {
+export fn ok<T>(value T) Ok<T> {
     let o Ok<T>: { value: value }
     return o
 }
 
 // err — wrap an error value in Err<E>.
-fn err<E>(error E) Err<E> {
+export fn err<E>(error E) Err<E> {
     let e Err<E>: { error: error }
     return e
 }

@@ -1,7 +1,5 @@
 namespace Test.GenericsTypeBasic
 
-export { main }
-
 // Verify that a generic type can be instantiated with two different concrete
 // type arguments in the same program.  The mono pass must produce two separate
 // concrete TypeDeclNodes (Box-i64 and Box-String) with correct clone/drop.

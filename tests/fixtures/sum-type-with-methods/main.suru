@@ -1,7 +1,5 @@
 namespace Test.SumTypeWithMethods
 
-export { main }
-
 // sum-type-with-methods: verify that an object type (a type with method
 // signatures) can be used as a sum type variant, and that methods can be
 // called on the narrowed value inside a match arm.

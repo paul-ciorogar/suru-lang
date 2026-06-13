@@ -18,9 +18,7 @@ import {
     [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers
 }
 
-export { ptrTests }
-
-fn ptrTests() Array<TestResult> {
+export fn ptrTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // isBuiltinType — ptr is now a recognised builtin type.

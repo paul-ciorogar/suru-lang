@@ -11,10 +11,6 @@ import {
     Suru.Compiler.Semantic
 }
 
-export {
-    printDebugOutput
-}
-
 // ─── Function registry ────────────────────────────────────────────────────────
 
 fn joinParamsAt(params Array<String>) String {
@@ -149,7 +145,7 @@ fn printErrors(errors Array<AnalysisError>) {
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 // printDebugOutput — print the AST and symbol table after a named pipeline pass.
-fn printDebugOutput(stmts Array<AstNode>, state AnalyzerState, passName String) {
+export fn printDebugOutput(stmts Array<AstNode>, state AnalyzerState, passName String) {
     printLn("=== AST after ".append(passName).append(" ==="))
     let mod AstModule: { stmts: stmts }
     pprint.printModule(mod, passName)

@@ -1,7 +1,5 @@
 namespace Test.PrivateFields
 
-export { main }
-
 // tests/fixtures/private-fields/main.suru
 //
 // Validates that private data fields declared with `_ name Type: value` in an

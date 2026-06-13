@@ -35,22 +35,6 @@ import {
     irArr: Suru.Compiler.Codegen.Array
 }
 
-export {
-    CgTextResult
-    CloneDropResult
-    cgName
-    copyI64Field
-    copyScalarField
-    copyPtrField
-    cloneHeapField
-    dropHeapField
-    cdNonOwnedField
-    emitTypeCloneDrop
-    emitCustomLifecycleCloneDrop
-    emitExternalCloneDropDeclare
-    emitAllTypeCloneDrop
-}
-
 // ─── Helper types ─────────────────────────────────────────────────────────────
 
 // Result of a field-copy helper: the emitted IR text fragment and the updated cgTmp
@@ -344,7 +328,7 @@ fn emitCustomLifecycleCloneDrop(ctx IrCodegenContext, decl TypeDecl, cgTmp i64) 
 // The cgTmp counter starts at 0 and threads through all types, producing globally
 // unique SSA names across the entire helpers block.
 //
-fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
+export fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
     let cgTmp i64: 0
     let i i64: 0
     while i.lt(ctx.typeDecls.len()) {

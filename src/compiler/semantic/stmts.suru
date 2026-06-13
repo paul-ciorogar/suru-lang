@@ -27,23 +27,6 @@ import {
     exprs: Suru.Compiler.Semantic.Exprs
 }
 
-export {
-    isConstant
-    addConstant
-    markConstantIfModuleScope
-    checkBareReturn
-    analyzeLetStatement
-    analyzeAssignmentStatement
-    analyzeFieldAssignmentStatement
-    analyzeReturnStatement
-    analyzeStatements
-    analyzeWhileStatement
-    analyzeBreakStatement
-    analyzeContinueStatement
-    analyzeIfStatement
-    analyzeStatement
-}
-
 // ─── Constants array helpers ──────────────────────────────────────────────────
 
 // isConstant — true when name is in state.constants (module-level constant).
@@ -150,7 +133,7 @@ fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) An
 //
 // IMPORTANT: test ReturnNodes with hasValue: true must include a valid AstNode
 // value — analyzeExpr will be called on it.
-fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
+export fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
     if stmt.hasValue {
         let val AstNode: stmt.value
         exprs.analyzeExpr(state, val)
@@ -171,7 +154,7 @@ fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerState {
 // analyzeStatements — iterates stmts in order, dispatching each to analyzeStatement.
 // Mutually recursive with analyzeWhileStatement: while bodies are analyzed by
 // calling back into analyzeStatements, enabling arbitrarily nested loops.
-fn analyzeStatements(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+export fn analyzeStatements(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let i i64: 0
     while i.lt(stmts.len()) {
         analyzeStatement(state, stmts.at(i))
@@ -254,7 +237,7 @@ fn analyzeIfStatement(state AnalyzerState, stmt IfNode) AnalyzerState {
 //
 // TypeDeclNode, SumTypeDeclNode, and FnDeclNode are handled by pre-passes.
 // All other statement variants fall through to _:{}.
-fn analyzeStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
+export fn analyzeStatement(state AnalyzerState, stmt AstNode) AnalyzerState {
     match stmt {
         LetNode:         { analyzeLetStatement(state, stmt) }
         AssignNode:      { analyzeAssignmentStatement(state, stmt) }

@@ -1,9 +1,5 @@
 namespace Test.Lib
 
-export {
-    greet
-}
-
-fn greet() {
+export fn greet() {
     printLn("hello from include-compat")
 }

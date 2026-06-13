@@ -18,8 +18,6 @@ import {
     [StringBuilder, newStringBuilder]: Suru.Stdlib.StringBuilder
 }
 
-export { stringBuilderNumTests }
-
 // buildI64 — format n via a fresh StringBuilder and return the snapshot.
 fn buildI64(n i64) SuruString {
     let b StringBuilder: newStringBuilder()
@@ -55,7 +53,7 @@ fn checkF64(results Array<TestResult>, name String, n f64, want String) Array<Te
 }
 
 // stringBuilderNumTests — one TestResult per assertion.
-fn stringBuilderNumTests() Array<TestResult> {
+export fn stringBuilderNumTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // ── appendI64 ───────────────────────────────────────────────────────────

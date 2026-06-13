@@ -34,39 +34,13 @@ import {
     box: Suru.Compiler.Codegen.Box
 }
 
-export {
-    emitExtractStringData
-    emitExtractStringLen
-    emitStringLiteralValue
-    emitStringLen
-    emitStringAppend
-    emitStringAppendLit
-    emitStringAt
-    emitStringCharAt
-    emitStringAppendChar
-    emitStringFromChar
-    emitStringEquals
-    emitStringEqualsLit
-    emitStringCompareLit
-    emitStringCompare
-    emitStringSlice
-    emitStringOrd
-    emitStringClone
-    emitStringDrop
-    emitInt64ToString
-    emitInt64FromString
-    emitFloat64FromString
-    emitFloat64LlvmHex
-    emitStringMethod
-}
-
 // ─── Low-level %suru.String field extractors ──────────────────────────────────
 // %suru.String layout: { type_tag@0(i64), len@1(i64), data@2(ptr) }
 // Used directly by printLn/writeFile/string-pattern match — not general string methods.
 
 // GEP to field 2 (data ptr) and load it.
 // Uses double-space formatting (emitGEP2) — required for data-field GEPs.
-fn emitExtractStringData(ctx IrCodegenContext, seqVal String) CodegenResult {
+export fn emitExtractStringData(ctx IrCodegenContext, seqVal String) CodegenResult {
     let gr IrResult: ir.emitGEP2(ctx.builder, "%suru.String", seqVal, "i32 0, i32 2")
     ctx.builder: gr.builder
     let lr IrResult: ir.emitLoad(ctx.builder, "ptr", gr.name)
@@ -91,7 +65,7 @@ fn emitExtractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
 //
 // type_tag=7 marks the header as a static literal so suru_string_drop skips freeing it.
 // Returning a ptr to the global constant costs zero at runtime — no malloc, no memcpy.
-fn emitStringLiteralValue(ctx IrCodegenContext, text String) CodegenResult {
+export fn emitStringLiteralValue(ctx IrCodegenContext, text String) CodegenResult {
     // internString emits both @.str_N and @.str_hdr_N (idempotent).
     ctx: strIntern.internString(ctx, text)
     let hdrName String: strIntern.lookupStrHdrGlobal(ctx, text)
@@ -101,13 +75,13 @@ fn emitStringLiteralValue(ctx IrCodegenContext, text String) CodegenResult {
 // ─── String instance methods ──────────────────────────────────────────────────
 
 // .len() → raw i64: GEP+load the len field directly (no runtime call).
-fn emitStringLen(ctx IrCodegenContext, recv String) CodegenResult {
+export fn emitStringLen(ctx IrCodegenContext, recv String) CodegenResult {
     return emitExtractStringLen(ctx, recv)
 }
 
 // .append(other) → String: concat two strings into a new heap allocation.
 // Both recv and arg are ptr to suru.String.
-fn emitStringAppend(ctx IrCodegenContext, recv String, arg String) CodegenResult {
+export fn emitStringAppend(ctx IrCodegenContext, recv String, arg String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append(ptr, ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -119,7 +93,7 @@ fn emitStringAppend(ctx IrCodegenContext, recv String, arg String) CodegenResult
 
 // .append("literal") → String: concat lhs with a raw string-literal global.
 // gname is the interned @.str_N name; charLen is the char count (excl. null).
-fn emitStringAppendLit(ctx IrCodegenContext, recv String, gname String, charLen i64) CodegenResult {
+export fn emitStringAppendLit(ctx IrCodegenContext, recv String, gname String, charLen i64) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append_lit(ptr, ptr, i64)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -132,7 +106,7 @@ fn emitStringAppendLit(ctx IrCodegenContext, recv String, gname String, charLen 
 
 // .at(idx) → String: single-character string at byte position idx.
 // idx must already be a raw i64 SSA name (caller handles unboxing).
-fn emitStringAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
+export fn emitStringAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_at(ptr, i64)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -145,7 +119,7 @@ fn emitStringAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
 // .__at(idx) → char (raw i8): byte at position idx. NO allocation — unlike
 // .at(), which mallocs a one-char String. The leak-free char accessor.
 // idx must already be a raw i64 SSA name (caller handles unboxing).
-fn emitStringCharAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
+export fn emitStringCharAt(ctx IrCodegenContext, recv String, idx String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare i8   @suru_string_char_at(ptr, i64)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -156,7 +130,7 @@ fn emitStringCharAt(ctx IrCodegenContext, recv String, idx String) CodegenResult
 }
 
 // .append(ch char) → String: lhs with one byte appended (new heap String).
-fn emitStringAppendChar(ctx IrCodegenContext, recv String, ch String) CodegenResult {
+export fn emitStringAppendChar(ctx IrCodegenContext, recv String, ch String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_append_char(ptr, i8)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -167,7 +141,7 @@ fn emitStringAppendChar(ctx IrCodegenContext, recv String, ch String) CodegenRes
 }
 
 // char.toString() → String: materialize a char into an owned length-1 String.
-fn emitStringFromChar(ctx IrCodegenContext, ch String) CodegenResult {
+export fn emitStringFromChar(ctx IrCodegenContext, ch String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_from_char(i8)\n")
     let args Array<String>: []
     args.add("i8 ".append(ch))
@@ -178,7 +152,7 @@ fn emitStringFromChar(ctx IrCodegenContext, ch String) CodegenResult {
 
 // .equals(other) → raw i1 bool: byte-for-byte string comparison.
 // Both recv and other are ptr to suru.String.
-fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResult {
+export fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare i1   @suru_string_equals(ptr, ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -190,7 +164,7 @@ fn emitStringEquals(ctx IrCodegenContext, recv String, other String) CodegenResu
 
 // .equals("literal") → raw i1 bool: compare recv with a raw string-literal global.
 // gname is the interned @.str_N constant; no suru.String wrapper needed for rhs.
-fn emitStringEqualsLit(ctx IrCodegenContext, recv String, gname String) CodegenResult {
+export fn emitStringEqualsLit(ctx IrCodegenContext, recv String, gname String) CodegenResult {
     ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
     let ldGr IrResult: ir.emitGEP(ctx.builder, "%suru.String", recv, "i32 0, i32 2")
     ctx.builder: ldGr.builder
@@ -226,7 +200,7 @@ fn emitStringCompareLit(ctx IrCodegenContext, recv String, gname String) Codegen
 
 // .compare(rhs) → i64: signed ordering via @strcmp; negative/0/positive.
 // Extracts the data ptr from both strings, calls @strcmp (i32), sext to i64.
-fn emitStringCompare(ctx IrCodegenContext, recv String, other String) CodegenResult {
+export fn emitStringCompare(ctx IrCodegenContext, recv String, other String) CodegenResult {
     ctx: types.addDecl(ctx, "declare i32 @strcmp(ptr, ptr)\n")
     // Extract data ptrs: %suru.String field 2 is ptr data.
     let ldGr IrResult: ir.emitGEP(ctx.builder, "%suru.String", recv, "i32 0, i32 2")
@@ -249,7 +223,7 @@ fn emitStringCompare(ctx IrCodegenContext, recv String, other String) CodegenRes
 
 // .slice(from, to) → String: substring [from, to) as a new heap allocation.
 // fromIdx and toIdx must already be raw i64 SSA names (caller handles unboxing).
-fn emitStringSlice(ctx IrCodegenContext, recv String, fromIdx String, toIdx String) CodegenResult {
+export fn emitStringSlice(ctx IrCodegenContext, recv String, fromIdx String, toIdx String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_slice(ptr, i64, i64)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -261,7 +235,7 @@ fn emitStringSlice(ctx IrCodegenContext, recv String, fromIdx String, toIdx Stri
 }
 
 // .ord() → raw i64: ASCII / UTF-8 code unit of the first byte.
-fn emitStringOrd(ctx IrCodegenContext, recv String) CodegenResult {
+export fn emitStringOrd(ctx IrCodegenContext, recv String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare i64  @suru_string_ord(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -271,7 +245,7 @@ fn emitStringOrd(ctx IrCodegenContext, recv String) CodegenResult {
 }
 
 // clone(str) → String: deep copy (new buffer + new header).
-fn emitStringClone(ctx IrCodegenContext, recv String) CodegenResult {
+export fn emitStringClone(ctx IrCodegenContext, recv String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_string_clone(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -282,7 +256,7 @@ fn emitStringClone(ctx IrCodegenContext, recv String) CodegenResult {
 
 // drop(str): deallocate str's data buffer and header.
 // Returns a null placeholder — drop is always used as a statement.
-fn emitStringDrop(ctx IrCodegenContext, recv String) CodegenResult {
+export fn emitStringDrop(ctx IrCodegenContext, recv String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare void @suru_string_drop(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -294,7 +268,7 @@ fn emitStringDrop(ctx IrCodegenContext, recv String) CodegenResult {
 
 // n.toString() → String: format a raw i64 as a decimal string via snprintf.
 // val must be a raw i64 SSA name.
-fn emitInt64ToString(ctx IrCodegenContext, val String) CodegenResult {
+export fn emitInt64ToString(ctx IrCodegenContext, val String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_int64_to_string(i64)\n")
     let args Array<String>: []
     args.add("i64 ".append(val))
@@ -305,7 +279,7 @@ fn emitInt64ToString(ctx IrCodegenContext, val String) CodegenResult {
 
 // i64.from(str) → raw i64: parse a decimal string via strtol.
 // seqPtr must be a ptr to suru.String.
-fn emitInt64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
+export fn emitInt64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare i64  @suru_int64_from_string(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(seqPtr))
@@ -316,7 +290,7 @@ fn emitInt64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
 
 // f64.from(str) → raw double: parse a decimal string via strtod.
 // seqPtr must be a ptr to suru.String.
-fn emitFloat64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
+export fn emitFloat64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare double @suru_float64_from_string(ptr)\n")
     let args Array<String>: []
     args.add("ptr ".append(seqPtr))
@@ -328,7 +302,7 @@ fn emitFloat64FromString(ctx IrCodegenContext, seqPtr String) CodegenResult {
 // f.llvmHex() → String: format a raw double as IEEE-754 hex, e.g. "0xC004000000000000".
 // Used by ir-codegen.suru when emitting float literal constants into LLVM IR text.
 // val must be a raw double SSA name.
-fn emitFloat64LlvmHex(ctx IrCodegenContext, val String) CodegenResult {
+export fn emitFloat64LlvmHex(ctx IrCodegenContext, val String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_float64_to_llvm_hex(double)\n")
     let args Array<String>: []
     args.add("double ".append(val))

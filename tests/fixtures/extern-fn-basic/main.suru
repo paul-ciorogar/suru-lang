@@ -1,7 +1,5 @@
 namespace Test.ExternFnBasic
 
-export { main }
-
 // extern-fn-basic — test fixture for `extern fn` declarations and call sites.
 // Verifies that an extern fn can be declared and called like a regular function,
 // with the compiler emitting the correct declare stub and unmangled call instruction.

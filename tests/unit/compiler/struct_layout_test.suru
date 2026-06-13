@@ -18,8 +18,6 @@ import {
     [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types
 }
 
-export { structLayoutTests }
-
 // mkFields — build a parallel name/type list into an Array<TypeFieldEntry>.
 fn mkFields(fieldNames Array<String>, fieldTypes Array<String>) Array<TypeFieldEntry> {
     let fields Array<TypeFieldEntry>: []
@@ -40,7 +38,7 @@ fn mkType(name String, fieldNames Array<String>, fieldTypes Array<String>) TypeD
     return decl
 }
 
-fn structLayoutTests() Array<TestResult> {
+export fn structLayoutTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // reorderSuruFields — stable 8 ++ 4 ++ 1 partition.

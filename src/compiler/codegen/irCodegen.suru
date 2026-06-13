@@ -27,47 +27,6 @@ import {
     eh: Suru.Compiler.Codegen.ExprHelpers
 }
 
-export {
-    emitInt64Static
-    emitFloat64Static
-    emitInt32Static
-    lookupFnSrcPath
-    lookupExternalFnSrcPath
-    joinDots
-    fnMangleSym
-    emitUserFnCallSym
-    emitUserFnCall
-    emitArrayLit
-    emitObjectLit
-    isExprTemp
-    isPrintTempString
-    isOwnedStringTemp
-    appendRootSlot
-    emitValue
-    peekTypeNode
-    emitObjectMethodCall
-    emitMethodCall
-    narrowCondVar
-    restoreCondVar
-    collectPatterns
-    collectStmtPatterns
-    emitPatternComparisons
-    emitMatchExpr
-    emitMatchExprAsStmt
-    emitMatchStmt
-    emitWhile
-    emitBreak
-    emitContinue
-    emitIf
-    emitStmt
-    emitStmts
-    emitFunction
-    emitMainWrapper
-    emitModule
-    sortStrings
-    generate
-}
-
 // Module-level pre-passes (registerTypes/registerFunctions/registerConstants/
 // emitGlobalConstants) live in irRegisterPasses.suru. Low-level expression
 // helpers (emitVarLoad, effectiveSuruType, rawVal, emitArith, emitCmpOp,
@@ -154,7 +113,7 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
 // ─── Per-module symbol mangling ─────────────────────────────────────────────────
 
 // name → owning source path (or "" when not a user function: runtime/builtin).
-fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
+export fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
     let names Array<String>: ctx.fnSrcName
     let paths Array<String>: ctx.fnSrcPath
     let i i64: 0
@@ -168,7 +127,7 @@ fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
 // name → source path of an external (non-own-file) function, or "".
 // Used when emitting alias method calls (lib.fn()) to prefer the imported
 // function over a same-named local function.
-fn lookupExternalFnSrcPath(ctx IrCodegenContext, name String) String {
+export fn lookupExternalFnSrcPath(ctx IrCodegenContext, name String) String {
     let i i64: 0
     while i.lt(ctx.fnSrcName.len()) {
         if ctx.fnSrcName.at(i).equals(name) {
@@ -184,7 +143,7 @@ fn lookupExternalFnSrcPath(ctx IrCodegenContext, name String) String {
 
 // Join an Array<String> with "." separator — reconstructs a namespace string from
 // the parts of a QualifiedNameNode.
-fn joinDots(parts Array<String>) String {
+export fn joinDots(parts Array<String>) String {
     let out String: ""
     let i i64: 0
     while i.lt(parts.len()) {
@@ -197,7 +156,7 @@ fn joinDots(parts Array<String>) String {
 
 // Mangle a function symbol using its namespace. ExternFnNodes have an empty
 // srcPath (no namespace), so their name is returned verbatim.
-fn fnMangleSym(ctx IrCodegenContext, srcPath String, name String) String {
+export fn fnMangleSym(ctx IrCodegenContext, srcPath String, name String) String {
     let ns String: types.lookupSrcNs(ctx, srcPath)
     if not ns.equals("") { return types.mangleNsSym(ns, name) }
     return name
@@ -250,7 +209,7 @@ fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, ar
 // Also handles SelectiveAliased import aliases: if fnName is a local alias
 // (e.g. "dbl" from `import { {dbl: double}: My.Lib }`), resolves it to the
 // real function name and calls the correctly mangled external symbol.
-fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) CodegenResult {
+export fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) CodegenResult {
     let srcPath String: lookupFnSrcPath(ctx, fnName)
     if srcPath.equals("") {
         let ai i64: 0
@@ -281,7 +240,7 @@ fn emitUserFnCall(ctx IrCodegenContext, fnName String, args Array<AstNode>) Code
 //                 for i=1..count-1: elemVal = EmitValue, slot = GEP, enc = emitElemEncode, store
 //   pre-allocate all 5 header GEP SSA names in one batch
 //   emit header GEPs + stores (lenGep/capGep with double-space after SSA name)
-fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String) CodegenResult {
+export fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType String) CodegenResult {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     // Step 1: allocate Array header (40 bytes).
     let hdrArgs Array<String>: []
@@ -371,7 +330,7 @@ fn cTypeZeroLit(llvmType String) String {
     return "0"
 }
 
-fn emitObjectLit(ctx IrCodegenContext, fields Array<ObjectFieldNode>, typeName String) CodegenResult {
+export fn emitObjectLit(ctx IrCodegenContext, fields Array<ObjectFieldNode>, typeName String) CodegenResult {
     // `{}` against a field whose type is NOT a registered struct — i.e. a sum
     // type (e.g. AstNode) or an array (e.g. Array:AstNode) — is the
     // ownership-release idiom `x.field: {}` used before drop(x). There is no
@@ -482,7 +441,7 @@ fn isExprTemp(node AstNode) bool {
 // CallNode is excluded: user functions may return borrowed references (e.g.
 // lookupSymbol returns a ptr into the symbol table — dropping it corrupts the table).
 // "at" is excluded because Array<String>.at() returns a borrowed element pointer.
-fn isPrintTempString(node AstNode) bool {
+export fn isPrintTempString(node AstNode) bool {
     match node {
         MethodCallNode: {
             if node.methodName.equals("toString") { return true }
@@ -550,7 +509,7 @@ fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
 // Emit IR for any expression node, returning the SSA name and Suru type.
 // All sub-expressions are emitted here or in helpers;
 // helper files (string/array/struct) never call emitValue themselves.
-fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
+export fn emitValue(ctx IrCodegenContext, expr AstNode) CodegenResult {
     match expr {
         IntLitNode: {
             return { ctx: ctx, name: expr.text, llvmType: "i64", suruType: "i64" }
@@ -978,7 +937,7 @@ fn emitPrintByType(ctx IrCodegenContext, valueName String, suruType String, suff
     return ctx
 }
 
-fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
+export fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResult {
     let method String: expr.methodName
     let recv AstNode: expr.receiver
 
@@ -1553,7 +1512,7 @@ fn emitPatternComparisons(ctx IrCodegenContext, condVal String, condSuruType Str
 
 // Emit a match-as-expression.  Result alloca MUST be emitted BEFORE the comparison
 // chain (LLVM dominance invariant).
-fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
+export fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
     // Peek result type from first non-wildcard arm.
     let resultSuruType String: "i64"
     let i i64: 0
@@ -1623,7 +1582,7 @@ fn emitMatchExpr(ctx IrCodegenContext, node MatchExprNode) CodegenResult {
 }
 
 // Emit a MatchExprNode used as a statement (side-effects only, no result stored).
-fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContext {
+export fn emitMatchExprAsStmt(ctx IrCodegenContext, node MatchExprNode) IrCodegenContext {
     let condR CodegenResult: emitValue(ctx, node.condition)
     ctx: condR.ctx
     let patterns Array<AstNode>: collectPatterns(node.arms)
@@ -1724,7 +1683,7 @@ fn emitMatchStmt(ctx IrCodegenContext, node MatchStmtNode) IrCodegenContext {
 // Emit a while loop: three labeled blocks (cond/body/after).
 // Pushes the cond/after label strings onto the loop-label stacks before emitting the body
 // so that nested break/continue can find the correct branch targets.
-fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCodegenContext {
+export fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCodegenContext {
     let wnR IrResult: ir.nextWhileNum(ctx.builder)
     ctx.builder: wnR.builder
     let wn String: wnR.name
@@ -1756,7 +1715,7 @@ fn emitWhile(ctx IrCodegenContext, condition AstNode, body Array<AstNode>) IrCod
 }
 
 // Emit a `break` — unconditional branch to the enclosing while loop's after-label.
-fn emitBreak(ctx IrCodegenContext) IrCodegenContext {
+export fn emitBreak(ctx IrCodegenContext) IrCodegenContext {
     let topIdx i64: ctx.loopAfterLabels.len().take(1)
     let afterLabel String: ctx.loopAfterLabels.at(topIdx)
     ctx.builder: ir.emitBr(ctx.builder, afterLabel)
@@ -1765,7 +1724,7 @@ fn emitBreak(ctx IrCodegenContext) IrCodegenContext {
 }
 
 // Emit a `continue` — unconditional branch back to the enclosing while loop's cond-label.
-fn emitContinue(ctx IrCodegenContext) IrCodegenContext {
+export fn emitContinue(ctx IrCodegenContext) IrCodegenContext {
     let topIdx i64: ctx.loopCondLabels.len().take(1)
     let condLabel String: ctx.loopCondLabels.at(topIdx)
     ctx.builder: ir.emitBr(ctx.builder, condLabel)
@@ -1805,7 +1764,7 @@ fn emitContinue(ctx IrCodegenContext) IrCodegenContext {
 // else branch contains a guaranteed return, we must skip the trailing branch
 // to merge to avoid emitting a second terminator into the same basic block,
 // which is a verifier error in LLVM IR.
-fn emitIf(ctx IrCodegenContext, node IfNode) IrCodegenContext {
+export fn emitIf(ctx IrCodegenContext, node IfNode) IrCodegenContext {
     let inR IrResult: ir.nextLabelNum(ctx.builder)
     ctx.builder: inR.builder
     let id String: inR.name
@@ -2198,7 +2157,7 @@ fn emitStmts(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
 
 // Emit a function definition or declare stub (for external/included functions).
 // Resets per-function state.
-fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
+export fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
     // A function is defined here only when it belongs to the file being
     // compiled as root (by source path) OR its name is in ownFnNames.
     // The second condition handles concrete monomorphic instantiations: a
@@ -2296,7 +2255,7 @@ fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
 // Builds a real Array<String> from argc/argv — each argv[i] is copied into a
 // heap-owned suru.String (type_tag=6) and added to the array via suru_array_add_i64.
 // suru_main receives the fully-populated array and drops it before returning.
-fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
+export fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     ctx: types.addDecl(ctx, "declare i64 @strlen(ptr)\n")
     ctx: types.addDecl(ctx, "declare ptr @memcpy(ptr, ptr, i64)\n")
@@ -2346,7 +2305,7 @@ fn emitMainWrapper(ctx IrCodegenContext) IrCodegenContext {
 
 // Full module emit: run pre-passes, emit all type clone/drop helpers, emit all
 // function bodies.
-fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
+export fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     ctx: types.addDecl(ctx, "declare void @free(ptr)\n")
     ctx: passes.registerTypes(ctx, stmts)
@@ -2427,7 +2386,7 @@ fn sortStrings(arr Array<String>) Array<String> {
 //              file (the generic template's origin), but should still get a full
 //              define in this file's IR.  Kept separate from ownFnNames to avoid
 //              false-positive "own" matches for same-named functions in includes.
-fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, monoFnNames Array<String>, rootPath String, srcNsEntries Array<SrcNsEntry>) String {
+export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, monoFnNames Array<String>, rootPath String, srcNsEntries Array<SrcNsEntry>) String {
     let ctx IrCodegenContext: types.makeIrContext()
     ctx.ownFnNames: ownFnNames
     ctx.monoFnNames: monoFnNames

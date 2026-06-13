@@ -1,9 +1,5 @@
 namespace My.Lib
 
-export {
-    double
-}
-
-fn double(x i64) i64 {
+export fn double(x i64) i64 {
     return x.add(x)
 }

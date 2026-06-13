@@ -6,8 +6,6 @@ import {
     nodes: Suru.Compiler.Parser.Nodes
 }
 
-export { main }
-
 // Unit test for monoInstantiate.suru.
 //
 // Constructs a GenericTypeDef for Pair<T, U> by hand and verifies:

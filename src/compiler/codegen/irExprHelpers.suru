@@ -18,22 +18,8 @@ import {
     irArr: Suru.Compiler.Codegen.Array
 }
 
-export {
-    emitVarLoad
-    effectiveSuruType
-    rawVal
-    emitArith
-    emitCmpOp
-    emitCompare
-    emitInvert
-    emitCloneDyn
-    emitDropDyn
-    emitBoolNot
-    emitBinaryExpr
-}
-
 // Load from a local alloca or module-level constant global.
-fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
+export fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
     let v VarEntry: types.lookupVar(ctx, name)
     if v.name.equals("") {
         let g GlobalVar: types.lookupGlobal(ctx, name)
@@ -49,7 +35,7 @@ fn emitVarLoad(ctx IrCodegenContext, name String) CodegenResult {
 }
 
 // For arithmetic/comparison, NamedType (struct field) is treated as i64 at runtime.
-fn effectiveSuruType(suruType String) String {
+export fn effectiveSuruType(suruType String) String {
     if box.isScalarType(suruType)      { return suruType }
     if tyh.isStringType(suruType)      { return "String" }
     if tyh.isArraySuruType(suruType)   { return suruType }
@@ -58,7 +44,7 @@ fn effectiveSuruType(suruType String) String {
 
 // Unbox val to raw scalar if it is heap-boxed for the given suruType.
 // Returns val unchanged when suruType is already scalar.
-fn rawVal(ctx IrCodegenContext, val String, suruType String) CodegenResult {
+export fn rawVal(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: val, llvmType: box.llvmTypeOf(suruType), suruType: suruType }
     }
@@ -66,7 +52,7 @@ fn rawVal(ctx IrCodegenContext, val String, suruType String) CodegenResult {
 }
 
 // Emit binary arithmetic operation.
-fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, ltype String, rval String, rtype String) CodegenResult {
+export fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
     ctx: rr1.ctx
@@ -80,7 +66,7 @@ fn emitArith(ctx IrCodegenContext, intOp String, floatOp String, lval String, lt
 }
 
 // Emit comparison. Returns i1 result with suruType="bool".
-fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String, ltype String, rval String, rtype String) CodegenResult {
+export fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
     ctx: rr1.ctx
@@ -96,7 +82,7 @@ fn emitCmpOp(ctx IrCodegenContext, intPred String, floatPred String, lval String
 }
 
 // Emit compare() → i64 -1/0/1.
-fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String) CodegenResult {
+export fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String) CodegenResult {
     let eff String: effectiveSuruType(ltype)
     let rawT String: box.rawLlvmTypeOf(eff)
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
@@ -123,7 +109,7 @@ fn emitCompare(ctx IrCodegenContext, lval String, ltype String, rval String, rty
 }
 
 // Emit invert() — numeric negation. bool invert is also numeric (xor not needed).
-fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
+export fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     let eff String: effectiveSuruType(suruType)
     let rr CodegenResult: rawVal(ctx, val, suruType)
     ctx: rr.ctx
@@ -138,7 +124,7 @@ fn emitInvert(ctx IrCodegenContext, val String, suruType String) CodegenResult {
 // clone(x) builtin — static dispatch by the value's known type. Scalars are
 // returned as-is; String/Array/struct/variant route to their null-safe clone
 // symbol (heapCloneSym). No runtime type-tag read.
-fn emitCloneDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
+export fn emitCloneDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: val, llvmType: box.llvmTypeOf(suruType), suruType: suruType }
     }
@@ -159,7 +145,7 @@ fn emitCloneDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult
 }
 
 // drop(x) builtin — static dispatch by the value's known type (see emitCloneDyn).
-fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
+export fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
     }
@@ -178,7 +164,7 @@ fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) CodegenResult 
     return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
 }
 
-fn emitBoolNot(ctx IrCodegenContext, val String, suruType String) CodegenResult {
+export fn emitBoolNot(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     let rawB String: val
     if not box.isScalarType(suruType) {
         let ur CodegenResult: box.unboxBool(ctx, val)
@@ -190,7 +176,7 @@ fn emitBoolNot(ctx IrCodegenContext, val String, suruType String) CodegenResult 
     return { ctx: ctx, name: xr.name, llvmType: "i1", suruType: "bool" }
 }
 
-fn emitBinaryExpr(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String, op i64) CodegenResult {
+export fn emitBinaryExpr(ctx IrCodegenContext, lval String, ltype String, rval String, rtype String, op i64) CodegenResult {
     let rr1 CodegenResult: rawVal(ctx, lval, ltype)
     ctx: rr1.ctx
     let rr2 CodegenResult: rawVal(rr1.ctx, rval, rtype)

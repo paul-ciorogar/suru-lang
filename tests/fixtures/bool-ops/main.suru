@@ -1,7 +1,5 @@
 namespace Test.BoolOps
 
-export { main }
-
 fn isBig(n i64) bool {
     return n.gt(100)
 }

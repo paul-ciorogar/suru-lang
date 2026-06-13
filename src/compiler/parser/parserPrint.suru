@@ -10,44 +10,11 @@ import {
     Suru.Compiler.Parser.Ast
 }
 
-export {
-    printModule
-    printStmt
-    printExpr
-    makeIndent
-    printStmtFnDecl
-    printStmtLet
-    printStmtAssign
-    printStmtFieldAssign
-    printStmtReturn
-    printStmtWhile
-    printStmtExpr
-    printStmtTypeDecl
-    formatTypeParams
-    printStmtSumTypeDecl
-    printStmtMatchStatement
-    printStmtIf
-    printStmtExternFnDecl
-    buildParamStr
-    printExprBool
-    printExprString
-    printExprCall
-    printExprMethodCall
-    printExprFieldAccess
-    printExprArrayLit
-    printExprObjectLit
-    printExprMatch
-    printExprUnary
-    printExprBinary
-    matchPatternLabel
-    matchPatternLabelInner
-}
-
 fn makeIndent(indent String) String {
     return indent.append("  ")
 }
 
-fn printModule(ast AstModule, path String) {
+export fn printModule(ast AstModule, path String) {
     printLn("Module [".append(path).append("]"))
     let nstmts i64: ast.stmts.len()
     let i i64: 0

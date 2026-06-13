@@ -1,7 +1,5 @@
 namespace Test.PrivateFieldsConstructor
 
-export { main }
-
 // tests/fixtures/private-fields-constructor/main.suru
 //
 // Validates that private fields declared in a constructor function's

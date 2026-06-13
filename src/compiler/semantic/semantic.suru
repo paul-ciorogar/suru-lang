@@ -14,46 +14,23 @@
 
 namespace Suru.Compiler.Semantic
 
-export {
-    SymbolEntry
-    Scope
-    FunctionSig
-    FunctionRegistry
-    AnalysisError
-    SemFieldEntry
-    SemMethodEntry
-    SemTypeEntry
-    SrcModImports
-    AnalyzerState
-    newFunctionSig
-    newFunctionRegistry
-    makeAnalyzerState
-    newScope
-    sumHasVariantAt
-    isSumVariantAt
-    isMovedAt
-    clearMovedAt
-    currentModuleHasImport
-    lookupModuleImports
-}
-
 // ─── Type declarations ────────────────────────────────────────────────────────
 
 // SrcModImports — lightweight per-module import record stored in
 // AnalyzerState.moduleImportRegistry. Built by the pipeline from the Module
 // list returned by resolveIncludes. Carries only what semantic analysis needs:
 // the source path and the set of namespace strings that module imported.
-type SrcModImports: { srcPath String, importedNs Array<String> }
+export type SrcModImports: { srcPath String, importedNs Array<String> }
 
-type SymbolEntry: { name String, typeName String }
+export type SymbolEntry: { name String, typeName String }
 
-type Scope: {
+export type Scope: {
     symbols Array<SymbolEntry>,
     parent i64,
     fn lookup(name String) String
 }
 
-type FunctionSig: { 
+export type FunctionSig: { 
     name String
     paramTypes Array<String>
     returnType String
@@ -61,7 +38,7 @@ type FunctionSig: {
     fn paramCount() i64 
 }
 
-fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String) FunctionSig {
+export fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String) FunctionSig {
     return { 
         name: name
         paramTypes: paramTypes
@@ -136,18 +113,18 @@ fn newFunctionRegistry() FunctionRegistry {
     }
 }
 
-type AnalysisError: { message String, line i64, col i64, srcPath String }
+export type AnalysisError: { message String, line i64, col i64, srcPath String }
 
 // SemFieldEntry / SemTypeEntry mirror parser TypeDeclNode + Param shape but live
 // inside the semantic layer so semantic.suru can stay a leaf (no parser/ast
 // include). collectTypeDeclarations copies each TypeDeclNode into a SemTypeEntry
 // at pre-pass time; resolveTypes.suru reads them when resolving ObjectLitNodes
 // and FieldAccessNodes.
-type SemFieldEntry: { name String, typeName String }
+export type SemFieldEntry: { name String, typeName String }
 // SemMethodEntry mirrors a parser MethodSig (declared method signature on a
 // type). paramTypes are the declared parameter type names in order; the
 // implicit `this` receiver is NOT included here.
-type SemMethodEntry: { name String, paramTypes Array<String>, returnType String }
+export type SemMethodEntry: { name String, paramTypes Array<String>, returnType String }
 // SemTypeEntry mirrors a parser TypeDeclNode. privateFieldNames / privateMethodNames
 // are populated by resolveTypes.suru when it first encounters a ObjectLitNode whose
 // fields carry isPrivate=true; they drive the access-control check in FieldAccessNode
@@ -162,9 +139,9 @@ type SemMethodEntry: { name String, paramTypes Array<String>, returnType String 
 // This allows `ptr`/extern-type private fields in the object literal and causes codegen
 // to emit vtable-dispatch wrappers for @suru_clone_T / @suru_drop_T instead of the
 // normal field-walking auto-generated bodies.
-type SemTypeEntry:  { name String, fields Array<SemFieldEntry>, methods Array<SemMethodEntry>, privateFieldNames Array<String>, privateMethodNames Array<String>, isCType bool, isExternType bool, hasCustomLifecycle bool }
+export type SemTypeEntry:  { name String, fields Array<SemFieldEntry>, methods Array<SemMethodEntry>, privateFieldNames Array<String>, privateMethodNames Array<String>, isCType bool, isExternType bool, hasCustomLifecycle bool }
 
-type AnalyzerState: {
+export type AnalyzerState: {
     scopes          Array<Scope>
     functions       FunctionRegistry
     typeNames       Array<String>
@@ -198,7 +175,7 @@ type AnalyzerState: {
 
 // ─── State constructor ────────────────────────────────────────────────────────
 
-fn makeAnalyzerState() AnalyzerState {
+export fn makeAnalyzerState() AnalyzerState {
     let state AnalyzerState: {
         scopes: [],
         functions: newFunctionRegistry(),
@@ -341,7 +318,7 @@ fn makeAnalyzerState() AnalyzerState {
 
 // ─── Scope constructor ────────────────────────────────────────────────────────
 
-fn newScope(parent i64) Scope {
+export fn newScope(parent i64) Scope {
     return {
         symbols: [],
         parent: parent,
@@ -408,7 +385,7 @@ fn clearMovedAt(src Array<String>, dst Array<String>, name String, i i64) Array<
 // current module's import list (state.currentModuleImports).  Called from
 // resolveTypes.suru to gate the typeSize compiler intrinsic behind an explicit
 // per-module import, not a root-only global flag.
-fn currentModuleHasImport(importedNs Array<String>, ns String) bool {
+export fn currentModuleHasImport(importedNs Array<String>, ns String) bool {
     let i i64: 0
     while i.lt(importedNs.len()) {
         if importedNs.at(i).equals(ns) { return true }
@@ -420,7 +397,7 @@ fn currentModuleHasImport(importedNs Array<String>, ns String) bool {
 // lookupModuleImports — find the importedNs list for a given srcPath in the
 // registry.  Returns [] if srcPath is not found (covers synthetic nodes with
 // no source file, such as injected object-lowering stubs).
-fn lookupModuleImports(registry Array<SrcModImports>, srcPath String) Array<String> {
+export fn lookupModuleImports(registry Array<SrcModImports>, srcPath String) Array<String> {
     let i i64: 0
     while i.lt(registry.len()) {
         if registry.at(i).srcPath.equals(srcPath) { return registry.at(i).importedNs }

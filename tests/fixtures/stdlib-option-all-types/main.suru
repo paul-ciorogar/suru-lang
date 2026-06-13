@@ -2,8 +2,6 @@ namespace Test.StdlibOptionAllTypes
 
 import { opt: Suru.Stdlib.Option }
 
-export { main }
-
 // stdlib-option-all-types — exercises Option<T> with every major type category:
 //   primitives (i64, String, bool), user-defined structs, Array<i64>,
 //   and Option<Option<i64>> (nested generic).

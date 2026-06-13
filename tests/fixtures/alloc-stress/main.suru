@@ -1,7 +1,5 @@
 namespace Test.AllocStress
 
-export { main }
-
 fn main(args Array<String>) {
     let i i64: 0
     while i.lt(50) {

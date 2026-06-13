@@ -18,42 +18,11 @@ import {
     collect: Suru.Compiler.Semantic.Mono.Collect
 }
 
-export {
-    extractBaseTypeName
-    collectTrimmedArgs
-    extractTypeArgs
-    inferFromAnnotation
-    resolvedTypeOf
-    suruCanonToAnnotation
-    collectArgTypes
-    findBindingForVar
-    buildConcreteTypes
-    allBound
-    inferFromGenericFnCall
-    inferFromCallSite
-    appendAll
-    inferFromStmts
-    inferFromExprs
-    inferFromParams
-    inferFromObjectFieldAt
-    inferFromObjectFields
-    inferFromMatchArms
-    inferFromMatchStmtArms
-    inferFromExpr
-    inferFromStmt
-    keyAlreadySeen
-    deduplicateRequests
-    collectInstantiations
-    matchReturnTypeSingle
-    inferZeroArgFnFromAnnotation
-    inferZeroArgFnsFromAnnotation
-}
-
 // ─── Type-name string helpers ─────────────────────────────────────────────────
 
 // extractBaseTypeName — return the portion of typeName before the first '<'.
 // "Pair<i64, String>" → "Pair";  "i64" → "i64".
-fn extractBaseTypeName(typeName String) String {
+export fn extractBaseTypeName(typeName String) String {
     return typeName.slice(0, subst.indexOfLT(typeName))
 }
 
@@ -93,7 +62,7 @@ fn extractTypeArgs(typeName String) Array<String> {
 // inferFromAnnotation — if typeName is a generic application whose base name
 // appears in the registry as a struct type or sum type, return one
 // InstantiationRequest.  Otherwise return an empty array.
-fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<InstantiationRequest> {
+export fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
     // Quick exit: no '<' means not a generic annotation.
     let ltIdx i64: subst.indexOfLT(typeName)
@@ -115,7 +84,7 @@ fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<Instanti
 
 // resolvedTypeOf — extract the resolvedType String from any expression AstNode.
 // Returns "" for non-expression variants (statements, WildcardNode).
-fn resolvedTypeOf(node AstNode) String {
+export fn resolvedTypeOf(node AstNode) String {
     return match node {
         BoolLitNode:      node.resolvedType
         IntLitNode:       node.resolvedType
@@ -157,7 +126,7 @@ fn suruCanonToAnnotation(t String) String {
 // resolvedTypeOf returns the suru canonical form (e.g. "Array:i64"); we
 // convert that to annotation form ("Array<i64>") so the resulting
 // InstantiationRequest matches requests inferred from explicit annotations.
-fn collectArgTypes(args Array<AstNode>) Array<String> {
+export fn collectArgTypes(args Array<AstNode>) Array<String> {
     let out Array<String>: []
     let i i64: 0
     while i.lt(args.len()) {
@@ -183,7 +152,7 @@ fn findBindingForVar(typeVar String, params Array<Param>, argTypes Array<String>
 }
 
 // buildConcreteTypes — for each typeParam, find its binding and append to out.
-fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Array<String>, out Array<String>) Array<String> {
+export fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Array<String>, out Array<String>) Array<String> {
     let j i64: 0
     while j.lt(typeParams.len()) {
         let binding String: findBindingForVar(typeParams.at(j), params, argTypes)
@@ -194,7 +163,7 @@ fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Ar
 }
 
 // allBound — true if every element of concretes is non-empty.
-fn allBound(concretes Array<String>) bool {
+export fn allBound(concretes Array<String>) bool {
     let i i64: 0
     while i.lt(concretes.len()) {
         if concretes.at(i).equals("") { return false }
@@ -345,7 +314,7 @@ fn inferFromMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry, ou
 // Handles:
 //   returnType = "T"             → expected                    (bare var)
 //   returnType = "Base<T>"       → inner of expected           (one-level generic)
-fn matchReturnTypeSingle(returnType String, expected String, typeParam String) String {
+export fn matchReturnTypeSingle(returnType String, expected String, typeParam String) String {
     if returnType.equals(typeParam) { return clone(expected) }
     let rtLt i64: subst.indexOfLT(returnType)
     if rtLt.equals(returnType.len()) { return "" }
@@ -611,7 +580,7 @@ fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationReque
 // collectInstantiations — walk all stmts, collect every generic instantiation
 // site, and return a deduplicated Array<InstantiationRequest>.
 // Call this after resolveModuleTypes so resolvedType fields are populated.
-fn collectInstantiations(stmts Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
+export fn collectInstantiations(stmts Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
     let raw Array<InstantiationRequest>: []
     raw: inferFromStmts(stmts, registry, raw)
     let result Array<InstantiationRequest>: deduplicateRequests(raw)

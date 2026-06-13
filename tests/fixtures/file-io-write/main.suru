@@ -1,7 +1,5 @@
 namespace Test.FileIoWrite
 
-export { main }
-
 fn main(args Array<String>) {
     let path String: "/tmp/suru-file-io-write-test.txt"
 

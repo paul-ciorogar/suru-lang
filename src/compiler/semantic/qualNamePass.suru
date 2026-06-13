@@ -23,11 +23,6 @@ namespace Suru.Compiler.Semantic.QualNamePass
 
 import { importPass: Suru.Compiler.Semantic.ImportPass }
 
-export {
-    collectQualNsPrefixes
-    rewriteQualifiedCalls
-}
-
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 // joinDots — join parts with "." separator: ["A","B","C"] → "A.B.C".
@@ -233,7 +228,7 @@ fn collectQualNsPrefixesFromStmts(stmts Array<AstNode>, found Array<String>) {
 // candidates found in stmts.  Each candidate is a dotted string like "A.B".
 // The caller (pipeline.resolveIncludesRec) checks each against the namespace
 // registry to decide which files to load.
-fn collectQualNsPrefixes(stmts Array<AstNode>) Array<String> {
+export fn collectQualNsPrefixes(stmts Array<AstNode>) Array<String> {
     let found Array<String>: []
     collectQualNsPrefixesFromStmts(stmts, found)
     let unique Array<String>: []
@@ -505,6 +500,6 @@ fn rewriteQualNameStmts(stmts Array<AstNode>, nsExports Array<NsExportEntry>) Ar
 // resolves to a namespace in nsExports.  The resulting form is identical to
 // what desugarImports produces for AliasNs imports, so the existing semantic
 // analysis and codegen paths handle it without further modification.
-fn rewriteQualifiedCalls(stmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
+export fn rewriteQualifiedCalls(stmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
     return rewriteQualNameStmts(stmts, nsExports)
 }

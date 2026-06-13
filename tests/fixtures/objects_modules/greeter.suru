@@ -1,12 +1,10 @@
 namespace Test.ObjectsModules.Greeter
 
-export { makeGreeter }
-
 type Greeter: { name String, fn greet(p String) String }
 
 // A literal of `Greeter` lives HERE — its vtable global is emitted in
 // greeter.ll. The caller (main.suru) sees only a declare stub for
 // makeGreeter and receives an already-vtable-stamped object at runtime.
-fn makeGreeter(n String) Greeter {
+export fn makeGreeter(n String) Greeter {
     return { name: n, fn greet(p String) String { return p.append(this.name) } }
 }

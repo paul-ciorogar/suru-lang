@@ -16,18 +16,13 @@ import {
     Suru.Compiler.Parser.Nodes
 }
 
-export {
-    parse
-    newParser
-}
-
-fn parse(tokens Array<Token>, srcPath String) AstModule {
+export fn parse(tokens Array<Token>, srcPath String) AstModule {
     let p Parser: newParser(move(tokens), srcPath)
     let stmts Array<AstNode>: []
     // Module header order is fixed: optional namespace declaration, then at most
-    // one import block, then zero or more export blocks, then declarations.
-    // A second import block, an import after the export block, or an export after
-    // a declaration is a compile error.
+    // one import block, then declarations. A declaration may be prefixed with
+    // `export` to add it to the module's public surface. A second import block,
+    // or an import after a declaration, is a compile error.
     if p.currentTokenIs(TOK_NAMESPACE) {
         stmts.add(p.parseNamespaceDecl())
     }
@@ -37,19 +32,45 @@ fn parse(tokens Array<Token>, srcPath String) AstModule {
     if p.currentTokenIs(TOK_IMPORT) {
         p.error("a module may declare at most one import block")
     }
-    while p.currentTokenIs(TOK_EXPORT) {
-        stmts.add(p.parseExportBlock())
-    }
+    // Exported declarations are collected and folded into a single synthesised
+    // ExportNode appended below, so every downstream pass sees the same
+    // ExportNode shape it always has.
+    let exportEntries Array<ExportEntry>: []
     while not p.currentTokenIs(TOK_EOF) {
         if p.currentTokenIs(TOK_IMPORT) {
-            p.error("import block must appear before the export block")
+            p.error("import block must appear before declarations")
         }
         if p.currentTokenIs(TOK_EXPORT) {
-            p.error("export block must appear before declarations")
+            p.consume(TOK_EXPORT)
+            if not p.isDeclStart() {
+                p.error("expected a declaration after 'export'")
+            }
+            let decl AstNode: p.parseStatement()
+            exportEntries.add({ exportedAs: declName(decl), localName: declName(decl) })
+            stmts.add(decl)
+        } else {
+            stmts.add(p.parseStatement())
         }
-        stmts.add(p.parseStatement())
+    }
+    if exportEntries.len().gt(0) {
+        let synthesised ExportNode: { entries: exportEntries, line: 0, col: 0 }
+        stmts.add(synthesised)
     }
     return { stmts: stmts }
+}
+
+// declName — extract the declared name from a top-level declaration node so it
+// can be recorded as an export entry. Only declaration kinds reach here (the
+// parser gates on isDeclStart before parsing).
+fn declName(node AstNode) String {
+    return match node {
+        FnDeclNode:      node.name
+        TypeDeclNode:    node.name
+        SumTypeDeclNode: node.name
+        ExternTypeNode:  node.name
+        LetNode:         node.name
+        _:               ""
+    }
 }
 
 fn newParser(tokens Array<Token>, srcPath String) Parser {
@@ -106,6 +127,18 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             if this.currentTokenIs(kind) { this.advance() }
         }
 
+        // isDeclStart — true when the current token begins a top-level
+        // declaration that may carry an `export` prefix: fn, type, cType, let,
+        // or an extern fn/type.
+        fn isDeclStart() bool {
+            let k i64: this.currentToken().kind
+            return k.equals(TOK_FN)
+                or k.equals(TOK_TYPE)
+                or k.equals(TOK_CTYPE)
+                or k.equals(TOK_LET)
+                or k.equals(TOK_EXTERN)
+        }
+
         fn error(msg String) {
             let tok Token: this.currentToken()
             let header String: this.srcPath
@@ -157,7 +190,6 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             let k i64: this.currentToken().kind
             return match k {
                 TOK_NAMESPACE: this.parseNamespaceDecl()
-                TOK_EXPORT:    this.parseExportBlock()
                 TOK_IMPORT:    this.parseImportBlock()
                 TOK_FN:        this.parseFnDecl()
                 TOK_EXTERN:    this.parseExternDecl()
@@ -192,36 +224,6 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 name: name.append(".").append(segTok.text)
             }
             let n NamespaceDeclNode: { name: name, line: tok.line, col: tok.col }
-            return n
-        }
-
-        // parseExportBlock — `export { name1, alias: localName2, ... }`
-        //
-        // Each entry is either a plain identifier (exportedAs == localName) or an
-        // alias form `publicName: localName` where the function/type is defined
-        // internally as localName but exported under publicName.
-        // Commas between entries are optional (consumeIf).
-        fn parseExportBlock() AstNode {
-            let tok Token: this.currentToken()
-            this.consume(TOK_EXPORT)
-            this.consume(TOK_LBRACE)
-            let entries Array<ExportEntry>: []
-            while not this.currentTokenIs(TOK_RBRACE) and not this.currentTokenIs(TOK_EOF) {
-                let nameTok Token: this.currentToken()
-                this.consume(TOK_IDENT)
-                let exportedAs String: nameTok.text
-                let localName String: nameTok.text
-                if this.currentTokenIs(TOK_COLON) {
-                    this.advance()
-                    let localTok Token: this.currentToken()
-                    this.consume(TOK_IDENT)
-                    localName: localTok.text
-                }
-                entries.add({ exportedAs: exportedAs, localName: localName })
-                this.consumeIf(TOK_COMMA)
-            }
-            this.consume(TOK_RBRACE)
-            let n ExportNode: { entries: entries, line: tok.line, col: tok.col }
             return n
         }
 

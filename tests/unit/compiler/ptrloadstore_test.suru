@@ -18,9 +18,7 @@ import {
     [irLlvmTypeOf, isScalarSuruType]: Suru.Compiler.Codegen.TypeHelpers
 }
 
-export { ptrLoadStoreTests }
-
-fn ptrLoadStoreTests() Array<TestResult> {
+export fn ptrLoadStoreTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // ptrLoad/ptrStore use irLlvmTypeOf to select the LLVM memory type.

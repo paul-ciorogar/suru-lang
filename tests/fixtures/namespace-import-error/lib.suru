@@ -1,9 +1,5 @@
 namespace Test.Other
 
-export {
-    someFunc
-}
-
-fn someFunc() {
+export fn someFunc() {
     printLn("other")
 }

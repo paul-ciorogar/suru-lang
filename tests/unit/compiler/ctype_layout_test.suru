@@ -15,8 +15,6 @@ import {
     [TypeDecl, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types
 }
 
-export { ctypeLayoutTests }
-
 // mkCType — build a cType TypeDecl from parallel name/type lists (data-only).
 fn mkCType(name String, fieldNames Array<String>, fieldTypes Array<String>) TypeDecl {
     let fields Array<TypeFieldEntry>: []
@@ -30,7 +28,7 @@ fn mkCType(name String, fieldNames Array<String>, fieldTypes Array<String>) Type
     return decl
 }
 
-fn ctypeLayoutTests() Array<TestResult> {
+export fn ctypeLayoutTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // cFieldSize — natural C size per primitive.

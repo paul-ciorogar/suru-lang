@@ -42,31 +42,12 @@ import {
     box: Suru.Compiler.Codegen.Box
 }
 
-export {
-    elemStorageLlvmType
-    elemSizeBytes
-    emitElemEncode
-    emitElemDecode
-    emitExtractArrayLen
-    emitArrayLen
-    emitArrayAt
-    emitArraySlice
-    emitArrayAdd
-    emitArraySet
-    emitArrayClone
-    emitArrayDrop
-    ensureArrayHelper
-    emitArrayLiteralAlloc
-    emitArrayLiteralElements
-    emitArrayMethod
-}
-
 // ─── Element storage type ─────────────────────────────────────────────────────
 
 // LLVM type used in the data buffer for a given Suru element type.
 // bool → i8 (1 byte), i32 → i32 (4 bytes), everything else → i64 (8 bytes).
 // f64 is stored as i64 via bitcast; heap ptrs via ptrtoint.
-fn elemStorageLlvmType(suruType String) String {
+export fn elemStorageLlvmType(suruType String) String {
     return match suruType {
         "bool":  "i8"
         "char":  "i8"
@@ -77,7 +58,7 @@ fn elemStorageLlvmType(suruType String) String {
 
 // Byte size of one element for a given Suru type — used by emitArrayLit
 // in irCodegen.suru to compute the raw data buffer size.
-fn elemSizeBytes(suruType String) i64 {
+export fn elemSizeBytes(suruType String) i64 {
     return match suruType {
         "bool":  1
         "char":  1
@@ -93,7 +74,7 @@ fn elemSizeBytes(suruType String) i64 {
 // Encode a Suru value to its storage-native LLVM type for array element storage.
 // bool (i1) → i8 via zext; i32 → i32 pass-through; i64 → i64 pass-through;
 // f64 → i64 via bitcast; heap (ptr) → i64 via ptrtoint.
-fn emitElemEncode(ctx IrCodegenContext, val String, suruType String) CodegenResult {
+export fn emitElemEncode(ctx IrCodegenContext, val String, suruType String) CodegenResult {
     match suruType {
         "bool": {
             let r IrResult: ir.emitZext(ctx.builder, "i1", val, "i8")
@@ -170,7 +151,7 @@ fn emitExtractArrayLen(ctx IrCodegenContext, arrVal String) CodegenResult {
 // ─── Array instance methods ───────────────────────────────────────────────────
 
 // .len() → raw i64: GEP+load the len field directly (no runtime call).
-fn emitArrayLen(ctx IrCodegenContext, recv String) CodegenResult {
+export fn emitArrayLen(ctx IrCodegenContext, recv String) CodegenResult {
     return emitExtractArrayLen(ctx, recv)
 }
 
@@ -178,7 +159,7 @@ fn emitArrayLen(ctx IrCodegenContext, recv String) CodegenResult {
 // idx must already be a raw i64 SSA name (caller handles unboxing via argSuruTypes).
 // elemSuruType is the Suru type of the array's elements (e.g. "i64", "Token").
 // Returns raw scalar for scalar element types; ptr for heap element types.
-fn emitArrayAt(ctx IrCodegenContext, recv String, idx String, elemSuruType String) CodegenResult {
+export fn emitArrayAt(ctx IrCodegenContext, recv String, idx String, elemSuruType String) CodegenResult {
     let storeType String: elemStorageLlvmType(elemSuruType)
     let dgr IrResult: ir.emitGEP(ctx.builder, "%suru.Array", recv, "i32 0, i32 4")
     ctx.builder: dgr.builder
@@ -193,7 +174,7 @@ fn emitArrayAt(ctx IrCodegenContext, recv String, idx String, elemSuruType Strin
 
 // .slice(from, to) → Array: sub-array [from, to) via suru_array_slice.
 // from and to are raw i64 SSA names (caller unboxes if needed).
-fn emitArraySlice(ctx IrCodegenContext, recv String, fromSsa String, toSsa String, elemSuruType String) CodegenResult {
+export fn emitArraySlice(ctx IrCodegenContext, recv String, fromSsa String, toSsa String, elemSuruType String) CodegenResult {
     ctx: types.addSuruDecl(ctx, "declare ptr  @suru_array_slice(ptr, i64, i64)\n")
     let args Array<String>: []
     args.add("ptr ".append(recv))
@@ -207,7 +188,7 @@ fn emitArraySlice(ctx IrCodegenContext, recv String, fromSsa String, toSsa Strin
 // .add(val) — append element to the array (grows if needed).
 // Calls the appropriate typed runtime variant: suru_array_add_i8/i32/i64.
 // Returns ctx (void operation — no result value).
-fn emitArrayAdd(ctx IrCodegenContext, recv String, val String, valSuruType String) IrCodegenContext {
+export fn emitArrayAdd(ctx IrCodegenContext, recv String, val String, valSuruType String) IrCodegenContext {
     let enc CodegenResult: emitElemEncode(ctx, val, valSuruType)
     ctx: enc.ctx
     match valSuruType {
@@ -246,7 +227,7 @@ fn emitArrayAdd(ctx IrCodegenContext, recv String, val String, valSuruType Strin
 // .set(val, idx) — update element at index via inline GEP+store.
 // Suru source order is set(val, idx); idx is a raw i64 SSA name (caller unboxes).
 // Returns ctx (void operation — no result value).
-fn emitArraySet(ctx IrCodegenContext, recv String, val String, valSuruType String, idx String) IrCodegenContext {
+export fn emitArraySet(ctx IrCodegenContext, recv String, val String, valSuruType String, idx String) IrCodegenContext {
     let enc CodegenResult: emitElemEncode(ctx, val, valSuruType)
     ctx: enc.ctx
     let storeType String: elemStorageLlvmType(valSuruType)
@@ -267,7 +248,7 @@ fn emitArraySet(ctx IrCodegenContext, recv String, val String, valSuruType Strin
 //   @suru_array_drop_<flat>(ptr)  → calls @suru_array_drop_scalar/heap
 // Scalar elements bitcopy; heap elements walk the buffer, applying the element's
 // own clone/drop symbol (recursively ensured for nested arrays).
-fn ensureArrayHelper(ctx IrCodegenContext, elemSuru String) IrCodegenContext {
+export fn ensureArrayHelper(ctx IrCodegenContext, elemSuru String) IrCodegenContext {
     let flat String: tyh.flatSuruName(elemSuru)
     let sentinel String: "@@arrhelp:".append(flat)
     let i i64: 0
@@ -325,7 +306,7 @@ fn ensureArrayHelper(ctx IrCodegenContext, elemSuru String) IrCodegenContext {
 
 // clone(arr) → Array: deep copy via the statically-dispatched per-element-type
 // wrapper. elemSuruType reconstructs the correct "Array:T" suruType for the result.
-fn emitArrayClone(ctx IrCodegenContext, recv String, elemSuruType String) CodegenResult {
+export fn emitArrayClone(ctx IrCodegenContext, recv String, elemSuruType String) CodegenResult {
     ctx: ensureArrayHelper(ctx, elemSuruType)
     let sym String: "suru_array_clone_".append(tyh.flatSuruName(elemSuruType))
     let args Array<String>: []
@@ -337,7 +318,7 @@ fn emitArrayClone(ctx IrCodegenContext, recv String, elemSuruType String) Codege
 
 // drop(arr): deallocate array elements and header via the per-element-type wrapper.
 // Returns a null placeholder — drop is always used as a statement, result discarded.
-fn emitArrayDrop(ctx IrCodegenContext, recv String, elemSuruType String) CodegenResult {
+export fn emitArrayDrop(ctx IrCodegenContext, recv String, elemSuruType String) CodegenResult {
     ctx: ensureArrayHelper(ctx, elemSuruType)
     let sym String: "suru_array_drop_".append(tyh.flatSuruName(elemSuruType))
     let args Array<String>: []

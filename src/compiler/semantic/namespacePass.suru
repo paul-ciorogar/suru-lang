@@ -19,10 +19,6 @@ import {
     ast: Suru.Compiler.Parser.Ast
 }
 
-export {
-    validateNamespaceDecl
-}
-
 // validateNamespaceDecl — walk ownStmts, apply namespace structural rules,
 // and store the resolved namespace string in state.namespace.
 //
@@ -30,7 +26,7 @@ export {
 //   state  — the AnalyzerState for the current module (mutated in-place)
 //   stmts  — the own-module statements from collectNonInclude(mod.stmts),
 //             i.e. the original file's statements without transitive includes
-fn validateNamespaceDecl(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+export fn validateNamespaceDecl(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let foundNs bool: false
     let firstNsPos i64: 0
     let i i64: 0

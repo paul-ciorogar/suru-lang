@@ -1,7 +1,5 @@
 namespace Test.CTypeStruct
 
-export { main }
-
 // ctype-struct — test fixture for `cType` declarations (E2, FFI plan).
 //
 // A `cType` is a header-less, C-ABI-laid-out struct: field 0 starts at offset 0

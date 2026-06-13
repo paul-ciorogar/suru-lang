@@ -10,13 +10,6 @@ namespace Suru.Compiler.Codegen.StrIntern
 
 import { types: Suru.Compiler.Codegen.Types }
 
-export {
-    irEscapeStr
-    internString
-    lookupStrGlobal
-    lookupStrHdrGlobal
-}
-
 // Map a nibble (0–15) to its uppercase hex character.
 fn _hexDigit(n i64) String {
     return match n {
@@ -49,7 +42,7 @@ fn _hexEscape(ord i64) String {
 // Escape a Suru string for inclusion in an LLVM c-string constant.
 // Printable ASCII (32–126) except '"' (34) and '\' (92) pass through.
 // All other bytes — including null (0) — are encoded as \HH.
-fn irEscapeStr(text String) String {
+export fn irEscapeStr(text String) String {
     let r String: ""
     let i i64: 0
     while i.lt(text.len()) {
@@ -70,7 +63,7 @@ fn irEscapeStr(text String) String {
 // The byteLen stored includes the null terminator so callers can use it for malloc.
 // ctx.strLiterals is separate from ctx.strGlobals (mode/format strings) so the
 // generate function can add a blank line after user literals but not after mode strings.
-fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
+export fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
     // Dedup: if this text was already interned, nothing to do.
     let i i64: 0
     while i.lt(ctx.strIndex.len()) {
@@ -106,7 +99,7 @@ fn internString(ctx IrCodegenContext, text String) IrCodegenContext {
 
 // Look up the pre-interned global name for a string literal text.
 // Returns "" if the text was not previously passed to internString.
-fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
+export fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
     let i i64: 0
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)
@@ -119,7 +112,7 @@ fn lookupStrGlobal(ctx IrCodegenContext, text String) String {
 // Look up the pre-interned static header global name for a string literal text.
 // @.str_hdr_N is the companion to @.str_N — emitted together by internString.
 // Returns "" if the text was not previously passed to internString.
-fn lookupStrHdrGlobal(ctx IrCodegenContext, text String) String {
+export fn lookupStrHdrGlobal(ctx IrCodegenContext, text String) String {
     let i i64: 0
     while i.lt(ctx.strIndex.len()) {
         let e StrIndexEntry: ctx.strIndex.at(i)

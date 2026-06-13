@@ -929,11 +929,7 @@ Split a program across multiple `.suru` files by writing the full qualified name
 ```suru
 namespace My.Lib
 
-export {
-    double
-}
-
-fn double(n i64) i64 {
+export fn double(n i64) i64 {
     return n.multiply(2)
 }
 ```
@@ -959,9 +955,9 @@ import {
 }
 ```
 
-Exported names are declared with `export { name1, name2 }`. Only exported names are visible to importers; unexported names are private to their module.
+A declaration is made visible to importers by writing `export` in front of it (`export fn`, `export type`, `export cType`, `export let`, `export extern fn`, `export extern type`). It is exported under its own name. Declarations without the `export` prefix are private to their module.
 
-**Module-header order is fixed**: `namespace`, then the (single) `import` block, then the `export` block, then declarations. A second `import` block, an `import` after the `export` block, or an `export` after a declaration is a compile error.
+**Module-header order is fixed**: `namespace`, then the (single) `import` block, then declarations (any of which may carry an `export` prefix). A second `import` block, or an `import` after a declaration, is a compile error.
 
 A `.suruproject` file at the project root lists source root directories (one per line, relative paths, `#` comments allowed). The compiler scans those directories to build the namespace registry so imports resolve without explicit file paths.
 

@@ -17,9 +17,7 @@ import {
     [irLlvmTypeOf, isScalarSuruType, makeSuruType]: Suru.Compiler.Codegen.TypeHelpers
 }
 
-export { externTypeTests }
-
-fn externTypeTests() Array<TestResult> {
+export fn externTypeTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // irLlvmTypeOf — any unknown type name (including an extern type name) maps to

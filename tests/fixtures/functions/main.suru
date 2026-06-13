@@ -1,7 +1,5 @@
 namespace Test.Functions
 
-export { main }
-
 // Exercises function definitions with parameters, variable returns, and
 // method calls on variable receivers — patterns that previously caused
 // use-after-free in the bootstrapped compiler (isPrintTempString / CallNode).

@@ -6,8 +6,6 @@ import {
     nodes: Suru.Compiler.Parser.Nodes
 }
 
-export { main }
-
 // Unit test for monoInfer.suru.
 //
 // Constructs a minimal GenericRegistry containing Pair<T, U> and a statement

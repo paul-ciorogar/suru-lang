@@ -27,42 +27,12 @@ import {
     ast: Suru.Compiler.Parser.Ast
 }
 
-export {
-    NsExportEntry
-    SubstEntry
-    AliasEntry
-    SubstTable
-    nsSegsFromString
-    findNs
-    isExportedAt
-    lookupSubst
-    lookupAlias
-    containsName
-    collectLocalFnNames
-    buildSubstTable
-    makeQualNode
-    qualNsSegs
-    rewriteExprs
-    rewriteStmts
-    rewriteBlock
-    rewriteObjectField
-    rewriteObjectFields
-    rewriteMatchArm
-    rewriteMatchArms
-    rewriteMatchStmtArm
-    rewriteMatchStmtArms
-    rewriteStmt
-    rewriteExpr
-    desugarImports
-    rewriteCodegenStmts
-}
-
 // ─── Registry types ───────────────────────────────────────────────────────────
 
 // NsExportEntry — one row in the export registry built from included files.
 // ns is the full namespace string (e.g. "MyApp.Lib").
 // exported is the list of names that namespace exports.
-type NsExportEntry: { ns String, exported Array<String> }
+export type NsExportEntry: { ns String, exported Array<String> }
 
 // ─── Substitution types ────────────────────────────────────────────────────────
 
@@ -145,7 +115,7 @@ fn lookupAlias(subst SubstTable, alias String) Array<String> {
 // ─── Local name helpers ────────────────────────────────────────────────────────
 
 // containsName — true if name appears in the names array.
-fn containsName(names Array<String>, name String) bool {
+export fn containsName(names Array<String>, name String) bool {
     let i i64: 0
     while i.lt(names.len()) {
         if names.at(i).equals(name) { return true }
@@ -335,20 +305,20 @@ fn rewriteStmts(stmts Array<AstNode>, subst SubstTable) Array<AstNode> {
 }
 
 // rewriteBlock — rewrite a BlockNode's statement list.
-fn rewriteBlock(block BlockNode, subst SubstTable) BlockNode {
+export fn rewriteBlock(block BlockNode, subst SubstTable) BlockNode {
     let newStmts Array<AstNode>: rewriteStmts(block.stmts, subst)
     return { stmts: newStmts }
 }
 
 // rewriteObjectField — rewrite a ObjectFieldNode's value and method body.
-fn rewriteObjectField(sf ObjectFieldNode, subst SubstTable) ObjectFieldNode {
+export fn rewriteObjectField(sf ObjectFieldNode, subst SubstTable) ObjectFieldNode {
     let newVal AstNode: rewriteExpr(sf.value, subst)
     let newBody Array<AstNode>: rewriteStmts(sf.methodBody, subst)
     return { name: sf.name, value: newVal, isMethod: sf.isMethod, isPrivate: sf.isPrivate, privateTypeName: sf.privateTypeName, methodParams: sf.methodParams, methodRet: sf.methodRet, methodBody: newBody }
 }
 
 // rewriteObjectFields — rewrite an array of ObjectFieldNodes.
-fn rewriteObjectFields(fields Array<ObjectFieldNode>, subst SubstTable) Array<ObjectFieldNode> {
+export fn rewriteObjectFields(fields Array<ObjectFieldNode>, subst SubstTable) Array<ObjectFieldNode> {
     let out Array<ObjectFieldNode>: []
     let i i64: 0
     while i.lt(fields.len()) {
@@ -359,14 +329,14 @@ fn rewriteObjectFields(fields Array<ObjectFieldNode>, subst SubstTable) Array<Ob
 }
 
 // rewriteMatchArm — rewrite both pattern and body of a match-expression arm.
-fn rewriteMatchArm(arm MatchArm, subst SubstTable) MatchArm {
+export fn rewriteMatchArm(arm MatchArm, subst SubstTable) MatchArm {
     let newPat AstNode: rewriteExpr(arm.pattern, subst)
     let newBody AstNode: rewriteExpr(arm.body, subst)
     return { isWildcard: arm.isWildcard, pattern: newPat, body: newBody }
 }
 
 // rewriteMatchArms — rewrite a match-expression arm array.
-fn rewriteMatchArms(arms Array<MatchArm>, subst SubstTable) Array<MatchArm> {
+export fn rewriteMatchArms(arms Array<MatchArm>, subst SubstTable) Array<MatchArm> {
     let out Array<MatchArm>: []
     let i i64: 0
     while i.lt(arms.len()) {
@@ -377,14 +347,14 @@ fn rewriteMatchArms(arms Array<MatchArm>, subst SubstTable) Array<MatchArm> {
 }
 
 // rewriteMatchStmtArm — rewrite pattern and body stmts of a match-statement arm.
-fn rewriteMatchStmtArm(arm MatchStmtArm, subst SubstTable) MatchStmtArm {
+export fn rewriteMatchStmtArm(arm MatchStmtArm, subst SubstTable) MatchStmtArm {
     let newPat AstNode: rewriteExpr(arm.pattern, subst)
     let newStmts Array<AstNode>: rewriteStmts(arm.stmts, subst)
     return { isWildcard: arm.isWildcard, pattern: newPat, stmts: newStmts }
 }
 
 // rewriteMatchStmtArms — rewrite a match-statement arm array.
-fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, subst SubstTable) Array<MatchStmtArm> {
+export fn rewriteMatchStmtArms(arms Array<MatchStmtArm>, subst SubstTable) Array<MatchStmtArm> {
     let out Array<MatchStmtArm>: []
     let i i64: 0
     while i.lt(arms.len()) {
@@ -597,7 +567,7 @@ fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
 //
 // Returns a new ownStmts array with imported names rewritten, or the original
 // array unchanged if no ImportNode is present or no substitutions are needed.
-fn desugarImports(state AnalyzerState, ownStmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
+export fn desugarImports(state AnalyzerState, ownStmts Array<AstNode>, nsExports Array<NsExportEntry>) Array<AstNode> {
     let i i64: 0
     while i.lt(ownStmts.len()) {
         let stmt AstNode: ownStmts.at(i)
@@ -662,6 +632,6 @@ fn hasRenamingEntries(subst SubstTable) bool {
 // ctx.fnAliasLocal/fnAliasReal), and AliasNs calls are resolved by
 // lookupExternalFnSrcPath in emitMethodCall.  Rewriting produced broken nodes
 // under the bootstrap binary's sum-type encoding, so this approach is retired.
-fn rewriteCodegenStmts(ownStmts Array<AstNode>, stmts Array<AstNode>, rootPath String, nsExports Array<NsExportEntry>) Array<AstNode> {
+export fn rewriteCodegenStmts(ownStmts Array<AstNode>, stmts Array<AstNode>, rootPath String, nsExports Array<NsExportEntry>) Array<AstNode> {
     return stmts
 }

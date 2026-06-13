@@ -1,7 +1,5 @@
 namespace Test.PrivateMethod
 
-export { main }
-
 // Counter declares only the public method `bump` in its interface. The object
 // literal adds two PRIVATE methods (`_ fn`) and one PRIVATE field (`_ base`).
 // This exercises private-method dispatch via `this.`:

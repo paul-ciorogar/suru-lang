@@ -1,7 +1,5 @@
 namespace Test.StructLayout
 
-export { main }
-
 // Fields are declared in an order that forces the compact layout to reorder them
 // into alignment buckets (8 ++ 4 ++ 1):
 //   declared : flag bool, count i64, code i32, letter char, ratio f64, label String

@@ -2,8 +2,6 @@ namespace Test.Modules
 
 import { a: Test.Modules.A }
 
-export { main }
-
 fn main(args Array<String>) {
     
 }

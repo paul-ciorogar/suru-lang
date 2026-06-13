@@ -2,8 +2,6 @@ namespace Test.StdlibResult
 
 import { res: Suru.Stdlib.Result }
 
-export { main }
-
 fn describeResult(x Result<i64, String>) {
     match x {
         Ok: { printLn(x.value) }

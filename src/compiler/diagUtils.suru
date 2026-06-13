@@ -3,13 +3,8 @@
 
 namespace Suru.Compiler.DiagUtils
 
-export {
-    extractSourceLine
-    buildSpaces
-}
-
 // extractSourceLine — return the 1-based targetLine from src (empty when not found).
-fn extractSourceLine(src String, targetLine i64) String {
+export fn extractSourceLine(src String, targetLine i64) String {
     let currentLine i64: 1
     let lineStart i64: 0
     let i i64: 0
@@ -27,7 +22,7 @@ fn extractSourceLine(src String, targetLine i64) String {
 }
 
 // buildSpaces — return a string of n space characters.
-fn buildSpaces(n i64) String {
+export fn buildSpaces(n i64) String {
     let acc String: ""
     let i i64: 0
     while i.lt(n) {

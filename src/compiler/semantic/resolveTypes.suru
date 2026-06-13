@@ -42,30 +42,6 @@ import {
     tyh: Suru.Compiler.Codegen.TypeHelpers
 }
 
-export {
-    rtLookupTypeEntry
-    rtLookupFieldType
-    rtCheckMissingFields
-    rtCheckUndeclaredMethods
-    rtLookupMethodReturn
-    isPrivateName
-    rtHasField
-    rtAugmentPrivateFields
-    isThisReceiver
-    rtNodeResolvedType
-    rtResolveArrayElems
-    rtResolveObjectFields
-    rtResolveObjectMethods
-    rtResolveMatchArms
-    rtResolveCallArgs
-    resolveExpr
-    rtResolveBody
-    rtResolveStmt
-    rtResolveMatchStmtArms
-    rtResolveFnDecl
-    resolveModuleTypes
-}
-
 // ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
 
 // rtLookupTypeEntry — returns the SemTypeEntry for `name`, or an empty entry
@@ -837,7 +813,7 @@ fn rtResolveFnDecl(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
 // re-declares each module-level `let` and would then report duplicates), we
 // swap in a fresh scope stack for the duration of the pass and restore the
 // caller's stack on exit.
-fn resolveModuleTypes(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
+export fn resolveModuleTypes(state AnalyzerState, stmts Array<AstNode>) AnalyzerState {
     let savedScopes Array<Scope>: state.scopes
     let myScopes Array<Scope>: []
     let modScope Scope: sem.newScope(0.take(1))

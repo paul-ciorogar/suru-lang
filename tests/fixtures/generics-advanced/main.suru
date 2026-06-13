@@ -1,7 +1,5 @@
 namespace Test.GenericsAdvanced
 
-export { main }
-
 // Exercises:
 //   1. identity<T> instantiated at i64, bool, and String in one program
 //      (String variant must not be dropped — the literal is a static global)

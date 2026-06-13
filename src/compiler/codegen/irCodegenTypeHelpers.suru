@@ -11,31 +11,8 @@
 
 namespace Suru.Compiler.Codegen.TypeHelpers
 
-export {
-    isScalarSuruType
-    isArraySuruType
-    elemSuruType
-    isArrayTypeName
-    extractElemType
-    indexOfAngleCG
-    ltrimCG
-    flattenCGTypeArg
-    appendMangledCGAt
-    isUserGenericTypeName
-    mangleGenericAnnotation
-    normalizeTypeName
-    makeSuruType
-    irLlvmTypeOf
-    suruTypeTag
-    isBuiltinSuruType
-    isStringType
-    flatSuruName
-    heapCloneSym
-    heapDropSym
-}
-
 // True for the four scalar types that use raw LLVM values (not ptr).
-fn isScalarSuruType(suruType String) bool {
+export fn isScalarSuruType(suruType String) bool {
     return match suruType {
         "i64"   : true
         "bool"    : true
@@ -51,25 +28,25 @@ fn isScalarSuruType(suruType String) bool {
 // only in ownership/drop (Str = no-op, String = free) and in that a `Str` flowing
 // into a `String` slot is materialized (heap-cloned). Central helper so the 15+
 // scattered string checks stay in sync as the split lands.
-fn isStringType(suruType String) bool {
+export fn isStringType(suruType String) bool {
     return suruType.equals("String") or suruType.equals("Str")
 }
 
 // True when suruType encodes an array (e.g. "Array:i64", "Array:Lvl1").
-fn isArraySuruType(suruType String) bool {
+export fn isArraySuruType(suruType String) bool {
     if suruType.len().lt(6) { return false }
     return suruType.slice(0, 6).equals("Array:")
 }
 
 // Extract the element Suru type from an array suruType like "Array:i64" → "i64".
-fn elemSuruType(suruType String) String {
+export fn elemSuruType(suruType String) String {
     return suruType.slice(6, suruType.len())
 }
 
 // True when a type annotation string names an Array (e.g. "Array<i64>").
 // Must check for "Array<" (with angle bracket) to avoid matching user-defined
 // types whose names begin with "Array" (e.g. ArrayLitNode).
-fn isArrayTypeName(typeName String) bool {
+export fn isArrayTypeName(typeName String) bool {
     if typeName.len().lt(6) { return false }
     return typeName.slice(0, 6).equals("Array<")
 }
@@ -77,7 +54,7 @@ fn isArrayTypeName(typeName String) bool {
 // Extract the element type from a generic type annotation: "Array<i64>" → "i64".
 // Uses the FIRST '<' and the final '>' so nested generics keep their inner
 // brackets intact: "Array<Array<i64>>" → "Array<i64>" (not "i64>").
-fn extractElemType(typeName String) String {
+export fn extractElemType(typeName String) String {
     let i i64: 0
     let start i64: -1
     while i.lt(typeName.len()) {
@@ -206,7 +183,7 @@ fn normalizeTypeName(name String) String {
 // Convert a Suru type annotation name to the suruType encoding used in VarEntry.
 // "Array<i64>" → "Array:i64"; user-defined generics "Box<i64>" → "Box-i64";
 // all other types pass through unchanged.
-fn makeSuruType(typeName String) String {
+export fn makeSuruType(typeName String) String {
     // Recurse on the element so nested arrays canonicalize fully:
     // "Array<Array<i64>>" → "Array:Array:i64" (consistent colon encoding).
     if isArrayTypeName(typeName) { return "Array:".append(makeSuruType(extractElemType(typeName))) }
@@ -216,7 +193,7 @@ fn makeSuruType(typeName String) String {
 
 // LLVM type string for a Suru type name.
 // Scalars use raw LLVM types; all heap types and void use ptr.
-fn irLlvmTypeOf(suruType String) String {
+export fn irLlvmTypeOf(suruType String) String {
     // Void functions return `ret ptr null` per Suru's IR convention.
     return match suruType {
         "void":     "ptr"
@@ -232,7 +209,7 @@ fn irLlvmTypeOf(suruType String) String {
 
 // Integer type_tag for a Suru type (used for array elem_tag and struct type_tag).
 // Values must stay in sync with the Suru runtime's type_tag encoding.
-fn suruTypeTag(suruType String) String {
+export fn suruTypeTag(suruType String) String {
     if isArraySuruType(suruType) { return "5" }
     if suruType.equals("Str") { return "8" }
     return match suruType {
@@ -247,7 +224,7 @@ fn suruTypeTag(suruType String) String {
 }
 
 // True when name is one of the builtin Suru type names (or a generic array).
-fn isBuiltinSuruType(name String) bool {
+export fn isBuiltinSuruType(name String) bool {
     if isArrayTypeName(name) { return true }
     return match name {
         "i64":   true
@@ -271,7 +248,7 @@ fn isBuiltinSuruType(name String) bool {
 // replacing the "Array:" separator ':' with '-': "Array:i64" → "Array-i64".
 // Scalars / "String" / already-mangled struct names contain no ':' and pass
 // through unchanged.
-fn flatSuruName(suruType String) String {
+export fn flatSuruName(suruType String) String {
     let out String: ""
     let i i64: 0
     while i.lt(suruType.len()) {
@@ -293,7 +270,7 @@ fn flatSuruName(suruType String) String {
 //                value's own clone_fn — uniform for plain structs and variants,
 //                where the concrete arm is only known per-value, not statically)
 // Callers must guard scalars (no clone call) before calling this.
-fn heapCloneSym(suruType String) String {
+export fn heapCloneSym(suruType String) String {
     if isArraySuruType(suruType) {
         return "suru_array_clone_".append(flatSuruName(elemSuruType(suruType)))
     }
@@ -302,7 +279,7 @@ fn heapCloneSym(suruType String) String {
 }
 
 // Bare symbol name to drop a heap value of the given suruType (see heapCloneSym).
-fn heapDropSym(suruType String) String {
+export fn heapDropSym(suruType String) String {
     if isArraySuruType(suruType) {
         return "suru_array_drop_".append(flatSuruName(elemSuruType(suruType)))
     }

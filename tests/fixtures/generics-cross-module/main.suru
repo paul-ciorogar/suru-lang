@@ -2,8 +2,6 @@ namespace Test.GenericsCrossModule
 
 import { boxlib: Test.GenericsCrossModule.Boxlib }
 
-export { main }
-
 // Verify that a generic type defined in an included file can be instantiated
 // in the root file.  The mono pass collects generic defs from the resolved
 // statement list (which includes included files), so Box<T> from boxlib.suru

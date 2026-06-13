@@ -1,7 +1,5 @@
 namespace Test.FileIo
 
-export { main }
-
 fn main(args Array<String>) {
     let path String: args.at(1)
     let content String: readFile(path)

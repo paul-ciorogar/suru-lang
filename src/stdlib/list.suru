@@ -26,11 +26,6 @@ namespace Suru.Stdlib.List
 
 import { [typeSize]: stdlib.ffi }
 
-export {
-    List
-    newList
-}
-
 extern fn malloc(size i64) ptr
 extern fn realloc(p ptr, n i64) ptr
 extern fn free(p ptr) void
@@ -38,7 +33,7 @@ extern fn free(p ptr) void
 // List<T>: a resizable array of T elements.
 // Declares fn clone() and fn drop() so the compiler generates vtable-dispatch
 // wrappers instead of auto-walking fields (required because `buf` is a raw ptr).
-type List<T>: {
+export type List<T>: {
     fn add(val T) void
     fn at(idx i64) T
     fn set(idx i64, val T) void
@@ -51,7 +46,7 @@ type List<T>: {
 // newList — returns a new empty List<T> with capacity 8.
 // T is inferred from the let-binding annotation at the call site, e.g.:
 //   let arr List<i64>: newList()
-fn newList<T>() List<T> {
+export fn newList<T>() List<T> {
     let initCap i64: 8
     return {
         _ buf   ptr: malloc(initCap.multiply(typeSize(T)))

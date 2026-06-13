@@ -1,7 +1,5 @@
 namespace Test.Simple
 
-export { main }
-
 fn greet(name String) String {
     let a String: "hello, "
     let result String: a.append(name)

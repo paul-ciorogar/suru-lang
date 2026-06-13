@@ -1,7 +1,5 @@
 namespace Test.MoveValid
 
-export { main }
-
 // tests/fixtures/move-valid/main.suru
 //
 // Validates that move() transfers ownership without cloning:

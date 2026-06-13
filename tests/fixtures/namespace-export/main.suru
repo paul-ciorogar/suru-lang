@@ -1,10 +1,6 @@
 namespace Test.Ns
 
-export {
-    greet
-}
-
-fn greet() {
+export fn greet() {
     printLn("hello from namespace")
 }
 

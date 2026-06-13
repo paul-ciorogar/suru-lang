@@ -1,7 +1,5 @@
 namespace Test.GenericsFnBasic
 
-export { main }
-
 // Verify a generic function can be instantiated with both scalar (i64) and
 // heap (String) type arguments.  The mono pass must produce identity-i64
 // and identity-String as separate concrete functions.

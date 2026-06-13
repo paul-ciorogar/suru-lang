@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `export` is now a declaration prefix (the `export { }` block is removed)
+
+- A top-level declaration is made part of a module's public surface by writing
+  `export` directly in front of it: `export fn parse(...)`, `export type Parser: { ... }`,
+  `export let OP_NOT i64: 1`, etc. Applies to `fn`, `type`, `cType`, `let`,
+  `extern fn`, and `extern type`. The standalone `export { name1, name2 }` header
+  block no longer parses, and the unused aliasing form (`export { public: local }`)
+  is gone — a declaration is always exported under its own name.
+- The parser folds every `export`-prefixed declaration into a single synthetic
+  `ExportNode` (via the new `declName` helper in `parser/parser.suru`), so the
+  cross-module visibility machinery (`exportPass.suru`, the `pipeline.suru`
+  export pre-scan, `importPass.suru`, codegen alias mapping) is untouched.
+- New diagnostic: `export` before a non-declaration token → "expected a
+  declaration after 'export'". With the block gone, the module-header ordering
+  error simplifies to "import block must appear before declarations".
+- All ~120 `.suru` source, stdlib, fixture, and unit-test files migrated to the
+  prefix form. Fixtures `import-after-export-error` and `namespace-export-error`
+  repurposed for the new diagnostics.
+- Front-end only (no codegen change), rolled out across two bootstrap cycles
+  (additive accept-both, then migrate-and-remove); fixed point (C2 == C3) re-verified.
+
 ### Private object methods (`_ fn`) are now callable via `this.method()`
 
 - A private method (`_ fn name(...) Ret { ... }`) declared in an object literal can

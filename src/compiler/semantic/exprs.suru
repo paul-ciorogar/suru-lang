@@ -28,25 +28,12 @@ import {
     passes: Suru.Compiler.Semantic.Passes
 }
 
-export {
-    inferTypeFromMethod
-    inferTypeFromFirstArm
-    inferType
-    analyzeExprAt
-    analyzeMatchArmsAt
-    analyzeObjectFieldsAt
-    checkCallArgTypesAt
-    isBuiltinTypeName
-    isStringFamilyName
-    analyzeExpr
-}
-
 // ─── Type inference ───────────────────────────────────────────────────────────
 
 // inferTypeFromMethod — infers the return type of a MethodCallNode from its
 // method name and, for "from" conversions, the static receiver name.
 // Mirrors the MethodCallExpression cases in InferType (SemanticAnalyzer.cs:483–506).
-fn inferTypeFromMethod(state AnalyzerState, expr MethodCallNode) String {
+export fn inferTypeFromMethod(state AnalyzerState, expr MethodCallNode) String {
     let m String: expr.methodName
     match m {
         "compare": { return "i64" }
@@ -92,7 +79,7 @@ fn inferTypeFromFirstArm(state AnalyzerState, arms Array<MatchArm>) String {
 // inferType — infers the type of an expression node as a String type name.
 // Returns "" for unknowns rather than reporting errors.
 // Mirrors InferType in SemanticAnalyzer.cs:456–517.
-fn inferType(state AnalyzerState, expr AstNode) String {
+export fn inferType(state AnalyzerState, expr AstNode) String {
     match expr {
         BoolLitNode:    { return "bool"    }
         IntLitNode:     { return "i64"   }
@@ -204,7 +191,7 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
 // isBuiltinTypeName — true for the static type-receiver names that appear as
 // VarRefNode without being declared in scope (e.g. i64.from, bool.toString).
 // True for the string family: owned heap `String` or borrowed static `Str`.
-fn isStringFamilyName(name String) bool {
+export fn isStringFamilyName(name String) bool {
     return name.equals("String") or name.equals("Str")
 }
 
@@ -227,7 +214,7 @@ fn isBuiltinTypeName(name String) bool {
 // Namespace alias heuristic: a MethodCallNode whose receiver is a VarRefNode
 // not in scope and not a static builtin type is treated as a namespace call.
 // The receiver is silently skipped — no "undefined variable" error.
-fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
+export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
     match expr {
         VarRefNode: {
             let typed VarRefNode: expr

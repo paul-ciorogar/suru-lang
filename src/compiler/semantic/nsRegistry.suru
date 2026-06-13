@@ -20,28 +20,18 @@ import {
     parser: Suru.Compiler.Parser
 }
 
-export {
-    NamespaceRegistry
-    nsRegistryLookup
-    splitLines
-    extractFileNamespace
-    augmentRegistry
-    buildNamespaceRegistry
-    buildNamespaceRegistryMulti
-}
-
 // ─── Registry type ─────────────────────────────────────────────────────────────
 
 // NamespaceRegistry maps namespace strings (e.g. "Test.Lib") to their absolute
 // source file paths. Built once per compilation by scanning *.suru files under
 // the project root directory.
-type NamespaceRegistry: { namespaces Array<String>, srcPaths Array<String> }
+export type NamespaceRegistry: { namespaces Array<String>, srcPaths Array<String> }
 
 // ─── Lookup ────────────────────────────────────────────────────────────────────
 
 // nsRegistryLookup — linear scan through the registry; returns the srcPath
 // registered for `ns`, or "" if no file with that namespace was found.
-fn nsRegistryLookup(reg NamespaceRegistry, ns String) String {
+export fn nsRegistryLookup(reg NamespaceRegistry, ns String) String {
     let i i64: 0
     while i.lt(reg.namespaces.len()) {
         if reg.namespaces.at(i).equals(ns) { return reg.srcPaths.at(i) }
@@ -54,7 +44,7 @@ fn nsRegistryLookup(reg NamespaceRegistry, ns String) String {
 
 // splitLines — splits a newline-separated string into an array of non-empty
 // lines. Used to parse the newline-delimited output of the `find` shell command.
-fn splitLines(s String) Array<String> {
+export fn splitLines(s String) Array<String> {
     let lines Array<String>: []
     let start i64: 0
     let i i64: 0
@@ -107,7 +97,7 @@ fn extractFileNamespace(srcPath String) String {
 // `include` directives (e.g. files outside the initial filesystem-scan
 // directory). This lets qualified names (e.g. Foo.Bar.func()) resolve against
 // files that were loaded by include rather than by the upfront directory scan.
-fn augmentRegistry(reg NamespaceRegistry, entries Array<SrcNsEntry>) NamespaceRegistry {
+export fn augmentRegistry(reg NamespaceRegistry, entries Array<SrcNsEntry>) NamespaceRegistry {
     let i i64: 0
     while i.lt(entries.len()) {
         let entry SrcNsEntry: entries.at(i)
@@ -161,7 +151,7 @@ fn buildNamespaceRegistry(rootDir String) NamespaceRegistry {
 // `src/compiler/` or `src/stdlib/` namespaces).
 //
 // An empty `dirs` array produces an empty registry.
-fn buildNamespaceRegistryMulti(dirs Array<String>) NamespaceRegistry {
+export fn buildNamespaceRegistryMulti(dirs Array<String>) NamespaceRegistry {
     let reg NamespaceRegistry: { namespaces: [], srcPaths: [] }
     if dirs.len().equals(0) { return reg }
     let tmpFile String: "/tmp/__suru_ns_registry.txt"

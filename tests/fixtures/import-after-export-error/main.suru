@@ -1,7 +1,5 @@
 namespace Test.ImportAfterExportError
 
-export { main }
+fn main() {}
 
 import { a: Some.Lib }
-
-fn main() {}

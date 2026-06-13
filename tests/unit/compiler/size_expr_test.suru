@@ -12,9 +12,7 @@ import {
     [elemSizeBytes]: Suru.Compiler.Codegen.Array
 }
 
-export { sizeExprTests }
-
-fn sizeExprTests() Array<TestResult> {
+export fn sizeExprTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // 1-byte types.
