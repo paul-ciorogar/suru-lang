@@ -1,0 +1,3 @@
+/work/tests/fixtures/import-type-mismatch-error/lib.suru:13:19: error: struct literal field 'data' type mismatch: expected List, got Array:i64
+  13 |     let h Holder: { data: [0] }
+                         ^

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Type-check imported module bodies (not just the root file)
+
+- Pass-3 semantic analysis previously ran only over the **root** compilation
+  file's own statements, so a type error inside an *imported* module
+  (e.g. an `Array` literal assigned to a non-`Array` struct field) was never
+  diagnosed and only surfaced as a runtime segfault. The pipeline now also runs
+  the type-mismatch checks over imported module **function bodies**
+  (`analyzeImportedFnBodies` in `pipeline.suru`; root-only namespace/export
+  validation still runs on the root). Imported modules' top-level constants are
+  registered into scope first so their bodies resolve.
+- New compileError fixture `tests/fixtures/import-type-mismatch-error`: the
+  offending `{ data: [0] }` (an `Array:i64` assigned to a non-`Array` field)
+  lives in an imported `lib.suru`; the diagnostic is attributed to that file.
+- Extending pass-3 coverage to the compiler's own source surfaced (and this
+  change fixes) several latent type-checker gaps, all exercised by the
+  self-hosting bootstrap:
+  - `isAssignable` now canonicalizes both sides through `makeSuruType`, so
+    variant→sum assignability works for **monomorphized generic** sum types
+    (`Some<i64>` → `Option<i64>`), and also accepts the **sum→variant downcast**
+    idiom the compiler relies on (`let n MatchStmtNode: someAstNode`).
+  - A `match` **expression** over a sum type is now valid; its variant-tag arm
+    patterns (bare identifiers) are no longer mis-analyzed as undefined
+    variables.
+  - Cross-module function **name collisions** (same simple name, different
+    signatures in two namespaces) no longer produce spurious argument
+    type-mismatch errors — ambiguous names skip arg typing.
+
 ### `List<T>.toArray()` — bridge a List back to a built-in Array
 
 - New method on `List<T>` (`src/stdlib/list.suru`): `fn toArray() Array<T>`

@@ -1,0 +1,11 @@
+namespace Test.ImportTypeMismatchError
+
+import { lib: Test.ImportTypeMismatchError.Lib }
+
+// main itself is type-clean. The compile error comes entirely from the
+// imported module lib.suru, which is only analyzed after pass-3 was
+// extended to type-check imported module bodies.
+fn main(args Array<String>) {
+    lib.makeBad()
+    printLn("unreachable")
+}

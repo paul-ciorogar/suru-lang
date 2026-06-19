@@ -1,0 +1,15 @@
+namespace Test.ImportTypeMismatchError.Lib
+
+// The type error lives HERE, in an imported module — not in the root file.
+// Before pass-3 was extended to analyze imported module bodies, this
+// struct-literal field mismatch (an Array literal assigned to a non-Array
+// struct field) was never type-checked and shipped a runtime memory-layout
+// bug. This mirrors the real Lexer.tokens Array-vs-List confusion.
+
+type List: { items i64 }
+type Holder: { data List }
+
+export fn makeBad() Holder {
+    let h Holder: { data: [0] }
+    return h
+}
