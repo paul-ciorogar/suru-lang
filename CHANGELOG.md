@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `List<T>.toArray()` — bridge a List back to a built-in Array
+
+- New method on `List<T>` (`src/stdlib/list.suru`): `fn toArray() Array<T>`
+  returns a fresh built-in `Array<T>` holding a **deep-copied** snapshot of the
+  list's elements. The receiver `List` is unchanged and still owned by the
+  caller — each element is cloned individually (no-op value copy for scalars,
+  `suru_clone_dyn` for heap `T`), exactly mirroring `clone`/`slice`.
+- Purpose: enable an **incremental** migration from the built-in `Array<T>` to
+  the stdlib `List<T>`. A function switched to return a `List<T>` can still feed
+  call sites that have not yet migrated and expect an `Array<T>`.
+- Coverage: new fixture `tests/fixtures/list-toarray` (scalar + heap elements,
+  asserts the source list survives the call), registered in the runner.
+
 ### Type-mismatch diagnostics for wrong-typed values in typed slots
 
 - The semantic analyzer now rejects, at compile time, several wrong-value-in-a-

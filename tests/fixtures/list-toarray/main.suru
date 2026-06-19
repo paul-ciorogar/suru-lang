@@ -1,0 +1,29 @@
+namespace Test.ListToArray
+
+import { [List, newList]: Suru.Stdlib.List }
+
+fn main(args Array<String>) {
+    // --- scalar elements: deep-copy snapshot into an Array ---
+    let nums List<i64>: newList()
+    nums.add(10)
+    nums.add(20)
+    nums.add(30)
+    let arr Array<i64>: nums.toArray()
+    printLn(arr.len().toString())     // 3
+    printLn(arr.at(0).toString())     // 10
+    printLn(arr.at(2).toString())     // 30
+    printLn(nums.len().toString())    // 3  (source still valid after toArray)
+    drop(arr)
+    drop(nums)
+
+    // --- heap elements: each String is cloned into the Array ---
+    let words List<String>: newList()
+    words.add("hello")
+    words.add("world")
+    let warr Array<String>: words.toArray()
+    printLn(warr.len().toString())    // 2
+    printLn(warr.at(0))               // hello
+    printLn(warr.at(1))               // world
+    drop(warr)
+    drop(words)
+}

@@ -41,6 +41,7 @@ export type List<T>: {
     fn clone() List<T>
     fn drop() void
     fn slice(from i64, to i64) List<T>
+    fn toArray() Array<T>
 }
 
 // newList — returns a new empty List<T> with capacity 8.
@@ -125,6 +126,21 @@ export fn newList<T>() List<T> {
             let result List<T>: newList()
             let i i64: from
             while i.lt(to) {
+                let elem T: this.buf.load(i.multiply(typeSize(T)))
+                result.add(clone(elem))
+                i: i.add(1)
+            }
+            return result
+        }
+
+        // toArray — return a new Array containing a deep-copied snapshot of the
+        // elements. The List is unchanged and still owned by the caller (mirrors
+        // slice/clone: each element is cloned individually). Used to bridge code
+        // that has migrated to List<T> with code still consuming Array<T>.
+        fn toArray() Array<T> {
+            let result Array<T>: []
+            let i i64: 0
+            while i.lt(this.count) {
                 let elem T: this.buf.load(i.multiply(typeSize(T)))
                 result.add(clone(elem))
                 i: i.add(1)
