@@ -1,0 +1,97 @@
+// semantic_type_mismatch_test.suru — in-process unit tests asserting that the
+// semantic analyzer emits the right diagnostic message for every kind of type
+// mismatch.
+//
+// Run by the test runner (tests/runner/main.suru), which calls
+// semanticTypeMismatchTests() and folds the failures into the suite tally.
+//
+// Each case compiles a tiny fixture under fixtures/ through the pipeline, stopped
+// after the "semantic" pass, and inspects state.errors directly — no
+// clang/link/run/valgrind. runPipelineDebug returns a DebugResult without calling
+// exit() on analysis errors, so a fixture with a deliberate type error is safe to
+// drive in-process. The fixtures are addressed by their Docker-cwd absolute path
+// (/work/...), matching how the compile-error fixtures are referenced.
+//
+// Covered diagnostics (one fixture each, every fixture triggers exactly one
+// error): the five conditions that pre-existed (argument, return, while/if/match
+// condition) plus the five wrong-value-in-typed-slot checks added alongside these
+// tests (let binding, assignment, field assignment, struct-literal field, array
+// element). The first prevented a class of runtime segfaults from wrong-typed
+// values reaching codegen.
+
+namespace Test.Unit.Compiler.SemanticTypeMismatch
+
+import {
+    [TestResult, assertTrue, assertEqI64]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AnalysisError, AnalyzerState]: Suru.Compiler.Semantic
+}
+
+// runErrors — run the pipeline up to the semantic pass and return the accumulated
+// analysis errors for the fixture at `file` (a name under fixtures/).
+fn runErrors(file String) Array<AnalysisError> {
+    let path String: "/work/tests/unit/compiler/fixtures/".append(file)
+    let res DebugResult: runPipelineDebug(path, "semantic")
+    return res.state.errors
+}
+
+// hasErrorMsg — true when any accumulated error's message equals `msg`. Kept
+// local so the shared assert helpers stay decoupled from AnalysisError.
+fn hasErrorMsg(errors Array<AnalysisError>, msg String) bool {
+    let i i64: 0
+    while i.lt(errors.len()) {
+        if errors.at(i).message.equals(msg) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+export fn semanticTypeMismatchTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ─── Pre-existing diagnostics ─────────────────────────────────────────────
+
+    let argErrs Array<AnalysisError>: runErrors("arg_mismatch.suru")
+    results.add(assertEqI64("arg count", argErrs.len(), 1))
+    results.add(assertTrue("arg msg", hasErrorMsg(argErrs, "argument type mismatch: expected i64, got bool")))
+
+    let retErrs Array<AnalysisError>: runErrors("return_mismatch.suru")
+    results.add(assertEqI64("return count", retErrs.len(), 1))
+    results.add(assertTrue("return msg", hasErrorMsg(retErrs, "return type mismatch: expected i64, got bool")))
+
+    let whileErrs Array<AnalysisError>: runErrors("while_cond.suru")
+    results.add(assertEqI64("while count", whileErrs.len(), 1))
+    results.add(assertTrue("while msg", hasErrorMsg(whileErrs, "while condition must be bool, got i64")))
+
+    let ifErrs Array<AnalysisError>: runErrors("if_cond.suru")
+    results.add(assertEqI64("if count", ifErrs.len(), 1))
+    results.add(assertTrue("if msg", hasErrorMsg(ifErrs, "if condition must be bool, got i64")))
+
+    let matchErrs Array<AnalysisError>: runErrors("match_cond.suru")
+    results.add(assertEqI64("match count", matchErrs.len(), 1))
+    results.add(assertTrue("match msg", hasErrorMsg(matchErrs, "match condition must be bool, i64, f64, String, SuruString, or char, got Foo")))
+
+    // ─── Wrong-value-in-typed-slot diagnostics ────────────────────────────────
+
+    let letErrs Array<AnalysisError>: runErrors("let_mismatch.suru")
+    results.add(assertEqI64("let count", letErrs.len(), 1))
+    results.add(assertTrue("let msg", hasErrorMsg(letErrs, "let binding type mismatch: expected i64, got bool")))
+
+    let assignErrs Array<AnalysisError>: runErrors("assign_mismatch.suru")
+    results.add(assertEqI64("assign count", assignErrs.len(), 1))
+    results.add(assertTrue("assign msg", hasErrorMsg(assignErrs, "assignment type mismatch: expected i64, got bool")))
+
+    let fieldErrs Array<AnalysisError>: runErrors("field_assign_mismatch.suru")
+    results.add(assertEqI64("field-assign count", fieldErrs.len(), 1))
+    results.add(assertTrue("field-assign msg", hasErrorMsg(fieldErrs, "field assignment type mismatch: expected i64, got bool")))
+
+    let structErrs Array<AnalysisError>: runErrors("struct_field_mismatch.suru")
+    results.add(assertEqI64("struct-field count", structErrs.len(), 1))
+    results.add(assertTrue("struct-field msg", hasErrorMsg(structErrs, "struct literal field 'n' type mismatch: expected i64, got bool")))
+
+    let arrErrs Array<AnalysisError>: runErrors("array_elem_mismatch.suru")
+    results.add(assertEqI64("array-elem count", arrErrs.len(), 1))
+    results.add(assertTrue("array-elem msg", hasErrorMsg(arrErrs, "array element type mismatch: expected i64, got bool")))
+
+    return results
+}

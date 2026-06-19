@@ -26,6 +26,7 @@ namespace Suru.Compiler.Semantic.Exprs
 import {
     semantic: Suru.Compiler.Semantic
     passes: Suru.Compiler.Semantic.Passes
+    tyh: Suru.Compiler.Codegen.TypeHelpers
 }
 
 // ─── Type inference ───────────────────────────────────────────────────────────
@@ -175,11 +176,31 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
         let argType String: inferType(state, args.at(i))
         // String family: `Str` (borrowed static literal) is assignable to a
         // `String` (owned) parameter and vice-versa; codegen materializes a heap
-        // copy at the boundary when an owned String is required.
-        let strInterop bool: isStringFamilyName(expected) and isStringFamilyName(argType)
-        let assignable bool: argType.equals(expected) or state.isSumVariant(expected, argType) or strInterop
-        if not expected.equals("") and not argType.equals("") and not assignable {
+        // copy at the boundary when an owned String is required. (see isAssignable)
+        if not isAssignable(state, expected, argType) {
             state.addError("argument type mismatch: expected ".append(expected).append(", got ").append(argType), callLine, callCol)
+        }
+        i: i.add(1)
+    }
+    return state
+}
+
+// checkFnCallArgTypes — argument type checking for a plain function CallNode
+// (e.g. `f(x)`), the companion to checkCallArgTypesAt's method-call path. Plain
+// calls used to skip argument typing entirely, so passing the wrong type (e.g. a
+// String where an i64 is expected) slipped through to a runtime crash. Uses the
+// argument's resolved type (resolveTypes narrows each arg to the i-th parameter
+// type, so integer literals don't spuriously read as i64) against the declared
+// parameter type. Builtins and unknown functions have no paramType entry → "" →
+// skipped by isAssignable.
+fn checkFnCallArgTypes(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
+    let i i64: 0
+    while i.lt(args.len()) {
+        let paramAnn String: state.functions.paramType(fnName, i)
+        let expected String: tyh.makeSuruType(paramAnn)
+        let actual String: nodeResolvedType(args.at(i))
+        if not isAssignable(state, expected, actual) {
+            state.addError("argument type mismatch: expected ".append(paramAnn).append(", got ").append(actual), callLine, callCol)
         }
         i: i.add(1)
     }
@@ -193,6 +214,53 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
 // True for the string family: owned heap `String` or borrowed static `Str`.
 export fn isStringFamilyName(name String) bool {
     return name.equals("String") or name.equals("Str")
+}
+
+// isAssignable — the single assignability rule shared by every type-mismatch
+// check (argument, return, let, assignment, field assignment, struct-literal
+// field, array element). Returns true (does NOT flag) when:
+//   - either type is unknown ("") — avoid false positives on un-inferred nodes;
+//   - the types are identical;
+//   - `actual` is a declared variant of the sum type `expected`;
+//   - both are in the String family (`String`/`Str` interop at the boundary).
+// This is the one place to extend when a legitimate subtyping relation must be
+// permitted.
+export fn isAssignable(state AnalyzerState, expected String, actual String) bool {
+    if expected.equals("") { return true }
+    if actual.equals("") { return true }
+    if actual.equals(expected) { return true }
+    if state.isSumVariant(expected, actual) { return true }
+    if isStringFamilyName(expected) and isStringFamilyName(actual) { return true }
+    return false
+}
+
+// nodeResolvedType — the canonical Suru type that resolveTypes (pass 2) annotated
+// on an expression node, or "" when the node carries none. This is the actual
+// type used by every type-mismatch check: unlike the context-free inferType, it
+// reflects context-sensitive narrowing (an integer literal under an `i32`
+// expectation resolves to "i32"; a method call resolves to its real return
+// type), which keeps the checks free of false positives. The semantic pass runs
+// after pass-2 resolution, so these annotations are populated.
+export fn nodeResolvedType(expr AstNode) String {
+    match expr {
+        BoolLitNode:     { let t BoolLitNode: expr     return t.resolvedType }
+        IntLitNode:      { let t IntLitNode: expr      return t.resolvedType }
+        FloatLitNode:    { let t FloatLitNode: expr    return t.resolvedType }
+        StrLitNode:      { let t StrLitNode: expr      return t.resolvedType }
+        CharLitNode:     { let t CharLitNode: expr     return t.resolvedType }
+        VarRefNode:      { let t VarRefNode: expr      return t.resolvedType }
+        CallNode:        { let t CallNode: expr        return t.resolvedType }
+        MethodCallNode:  { let t MethodCallNode: expr  return t.resolvedType }
+        FieldAccessNode: { let t FieldAccessNode: expr return t.resolvedType }
+        ArrayLitNode:    { let t ArrayLitNode: expr    return t.resolvedType }
+        ObjectLitNode:   { let t ObjectLitNode: expr   return t.resolvedType }
+        MatchExprNode:   { let t MatchExprNode: expr   return t.resolvedType }
+        UnaryNode:       { let t UnaryNode: expr       return t.resolvedType }
+        BinaryNode:        { let t BinaryNode: expr        return t.resolvedType }
+        QualifiedNameNode: { let t QualifiedNameNode: expr return t.resolvedType }
+        _: {}
+    }
+    return ""
 }
 
 fn isBuiltinTypeName(name String) bool {
@@ -280,6 +348,7 @@ export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             if not is1ArgBuiltin and not is2ArgBuiltin and paramCount.gte(0) and not argCount.equals(paramCount) {
                 state.addError("function '".append(name).append("' called with ").append(argCount.toString()).append(" argument(s), expected ").append(paramCount.toString()), typed.line, typed.col)
             }
+            checkFnCallArgTypes(state, name, args, typed.line, typed.col)
             let isCloneOrDrop bool: name.equals("clone") or name.equals("drop")
             if isCloneOrDrop and argCount.equals(1) {
                 match args.at(0) {
@@ -335,12 +404,46 @@ export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
 
         ArrayLitNode: {
             let typed ArrayLitNode: expr
-            analyzeExprAt(state, typed.elems)
+            let elems Array<AstNode>: typed.elems
+            analyzeExprAt(state, elems)
+            // Element type-mismatch: compare each element's inferred type against
+            // the element type resolveTypes annotated on the literal ("Array:T").
+            // resolvedType folds in any surrounding annotation context (e.g.
+            // `let a Array<i64>: [...]`), so a wrong-but-homogeneous literal is
+            // still caught. Element nodes carry no line/col → report at 0,0.
+            let elemType String: ""
+            if tyh.isArraySuruType(typed.resolvedType) { elemType: tyh.elemSuruType(typed.resolvedType) }
+            let ei i64: 0
+            while ei.lt(elems.len()) {
+                let actual String: nodeResolvedType(elems.at(ei))
+                if not isAssignable(state, elemType, actual) {
+                    state.addError("array element type mismatch: expected ".append(elemType).append(", got ").append(actual), 0, 0)
+                }
+                ei: ei.add(1)
+            }
         }
 
         ObjectLitNode: {
             let typed ObjectLitNode: expr
-            analyzeObjectFieldsAt(state, typed.fields)
+            let fields Array<ObjectFieldNode>: typed.fields
+            analyzeObjectFieldsAt(state, fields)
+            // Struct-literal field type-mismatch: look up each data field's
+            // declared type on the resolved struct type and compare against the
+            // field value's inferred type. Method fields are skipped.
+            let typeName String: typed.resolvedType
+            let fi i64: 0
+            while fi.lt(fields.len()) {
+                let field ObjectFieldNode: fields.at(fi)
+                if not field.isMethod {
+                    let annot String: state.lookupFieldType(typeName, field.name)
+                    let expectedFieldType String: tyh.makeSuruType(annot)
+                    let actual String: nodeResolvedType(field.value)
+                    if not isAssignable(state, expectedFieldType, actual) {
+                        state.addError("struct literal field '".append(field.name).append("' type mismatch: expected ").append(annot).append(", got ").append(actual), typed.line, typed.col)
+                    }
+                }
+                fi: fi.add(1)
+            }
         }
 
         UnaryNode: {

@@ -1,0 +1,8 @@
+namespace Test.Unit.Compiler.Fixtures.AssignMismatch
+
+// Reassigns a bool to an i64-typed variable → assignment type mismatch.
+fn main() {
+    let x i64: 5
+    x: true
+    printLn(x.toString())
+}

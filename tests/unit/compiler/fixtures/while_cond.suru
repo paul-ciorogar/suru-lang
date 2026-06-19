@@ -1,0 +1,8 @@
+namespace Test.Unit.Compiler.Fixtures.WhileCond
+
+// while condition is an i64, not a bool → condition type error.
+fn main() {
+    while 5 {
+        printLn("loop")
+    }
+}

@@ -1,0 +1,13 @@
+namespace Test.Unit.Compiler.Fixtures.MatchCond
+
+type Foo: { n i64 }
+
+// match condition is a struct value, not a matchable scalar → condition error.
+fn m() i64 {
+    let foo Foo: { n: 1 }
+    return match foo { _: 0 }
+}
+
+fn main() {
+    printLn(m().toString())
+}

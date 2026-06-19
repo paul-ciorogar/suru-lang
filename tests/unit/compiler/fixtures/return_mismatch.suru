@@ -1,0 +1,10 @@
+namespace Test.Unit.Compiler.Fixtures.ReturnMismatch
+
+// Returns a bool from an i64 function → return type mismatch.
+fn f() i64 {
+    return true
+}
+
+fn main() {
+    printLn(f().toString())
+}

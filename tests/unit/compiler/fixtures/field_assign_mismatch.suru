@@ -1,0 +1,10 @@
+namespace Test.Unit.Compiler.Fixtures.FieldAssignMismatch
+
+type Box: { n i64 }
+
+// Assigns a bool to an i64 field → field assignment type mismatch.
+fn main() {
+    let b Box: { n: 1 }
+    b.n: true
+    printLn(b.n.toString())
+}

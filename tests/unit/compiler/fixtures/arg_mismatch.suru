@@ -1,0 +1,9 @@
+namespace Test.Unit.Compiler.Fixtures.ArgMismatch
+
+// Calls takesI64 with a bool argument → argument type mismatch.
+fn takesI64(x i64) i64 { return x }
+
+fn main() {
+    let r i64: takesI64(true)
+    printLn(r.toString())
+}

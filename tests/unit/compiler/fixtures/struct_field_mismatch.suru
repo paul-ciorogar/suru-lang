@@ -1,0 +1,9 @@
+namespace Test.Unit.Compiler.Fixtures.StructFieldMismatch
+
+type Foo: { n i64 }
+
+// Object literal supplies a bool for an i64 field → struct literal field error.
+fn main() {
+    let foo Foo: { n: true }
+    printLn(foo.n.toString())
+}

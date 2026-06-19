@@ -1,0 +1,8 @@
+namespace Test.Unit.Compiler.Fixtures.IfCond
+
+// if condition is an i64, not a bool → condition type error.
+fn main() {
+    if 5 {
+        printLn("yes")
+    }
+}

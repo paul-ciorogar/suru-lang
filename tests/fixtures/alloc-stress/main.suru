@@ -43,7 +43,7 @@ fn main(args Array<String>) {
 }
 
 type SomeType: {name String, height i64 }
-type OtherType: {otherName string, otherHeight i64 }
+type OtherType: {otherName String, otherHeight i64 }
 type SumType: SomeType, OtherType
 
 fn choseOne(index i64) SumType {

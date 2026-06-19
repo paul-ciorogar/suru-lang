@@ -1,0 +1,7 @@
+namespace Test.Unit.Compiler.Fixtures.LetMismatch
+
+// Binds a bool to an i64-typed variable → let binding type mismatch.
+fn main() {
+    let x i64: true
+    printLn(x.toString())
+}

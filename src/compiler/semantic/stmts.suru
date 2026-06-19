@@ -25,6 +25,7 @@ import {
     semantic: Suru.Compiler.Semantic
     passes: Suru.Compiler.Semantic.Passes
     exprs: Suru.Compiler.Semantic.Exprs
+    tyh: Suru.Compiler.Codegen.TypeHelpers
 }
 
 // ─── Constants array helpers ──────────────────────────────────────────────────
@@ -86,6 +87,17 @@ fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
     markConstantIfModuleScope(state, stmt.name, isDuplicate)
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
+    // Type-mismatch: the RHS value must be assignable to the declared type. Only
+    // checked when the annotation resolves (an unknown type already errored
+    // above). The actual type is the value's resolved type (context-narrowed),
+    // compared against the canonical form of the declared annotation.
+    if typeResolved {
+        let expected String: tyh.makeSuruType(stmt.typeName)
+        let actual String: exprs.nodeResolvedType(val)
+        if not exprs.isAssignable(state, expected, actual) {
+            state.addError("let binding type mismatch: expected ".append(stmt.typeName).append(", got ").append(actual), stmt.line, stmt.col)
+        }
+    }
     // Re-binding a name clears any prior moved state for that variable.
     if not isDuplicate { state.clearMoved(stmt.name) }
     return state
@@ -102,6 +114,15 @@ fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerStat
     }
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
+    // Type-mismatch: the RHS must be assignable to the variable's declared type.
+    if isDefined {
+        let varType String: state.lookupSymbol(stmt.name)
+        let expected String: tyh.makeSuruType(varType)
+        let actual String: exprs.nodeResolvedType(val)
+        if not exprs.isAssignable(state, expected, actual) {
+            state.addError("assignment type mismatch: expected ".append(varType).append(", got ").append(actual), stmt.line, stmt.col)
+        }
+    }
     // Re-assigning a variable clears its moved state (it has a new value now).
     if not isConst and isDefined { state.clearMoved(stmt.name) }
     return state
@@ -122,6 +143,17 @@ fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) An
         }
         _: {}
     }
+    // Type-mismatch: the RHS must be assignable to the field's declared type.
+    // rcvType is "" for receivers whose type can't be resolved (e.g. a not-yet-
+    // tracked `this`), which leaves the field annotation empty → isAssignable
+    // treats it as a skip.
+    let rcvType String: exprs.nodeResolvedType(rcv)
+    let annot String: state.lookupFieldType(rcvType, stmt.fieldName)
+    let expectedFieldType String: tyh.makeSuruType(annot)
+    let actual String: exprs.nodeResolvedType(val)
+    if not exprs.isAssignable(state, expectedFieldType, actual) {
+        state.addError("field assignment type mismatch: expected ".append(annot).append(", got ").append(actual), stmt.line, stmt.col)
+    }
     return state
 }
 
@@ -139,10 +171,9 @@ export fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerS
         exprs.analyzeExpr(state, val)
         let retType String: exprs.inferType(state, val)
         let expected String: state.currentReturnType
-        let typesKnown bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-        let strInterop bool: exprs.isStringFamilyName(expected) and exprs.isStringFamilyName(retType)
-        let assignable bool: retType.equals(expected) or state.isSumVariant(expected, retType) or strInterop
-        if typesKnown and not assignable {
+        // void functions never carry a return value type to compare against;
+        // isAssignable handles the unknown-type ("") cases.
+        if not expected.equals("void") and not exprs.isAssignable(state, expected, retType) {
             state.addError("return type mismatch: expected ".append(expected).append(", got ").append(retType), stmt.line, stmt.col)
         }
     } else {

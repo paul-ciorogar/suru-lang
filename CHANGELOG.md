@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Type-mismatch diagnostics for wrong-typed values in typed slots
+
+- The semantic analyzer now rejects, at compile time, several wrong-value-in-a-
+  typed-slot cases that previously slipped through to a runtime crash:
+  - `let x i64: <non-i64>` → `let binding type mismatch: expected i64, got bool`
+  - `x: <wrong type>` → `assignment type mismatch: expected …, got …`
+  - `obj.field: <wrong type>` → `field assignment type mismatch: expected …, got …`
+  - object literal `{ f: <wrong type> }` → `struct literal field 'f' type mismatch: expected …, got …`
+  - array literal element → `array element type mismatch: expected …, got …`
+  - plain function call `f(<wrong type>)` → `argument type mismatch: expected …, got …`
+    (previously only method-call syntax checked argument types).
+- All checks (including the pre-existing argument/return/condition checks) now
+  route through one assignability rule, `isAssignable` in `semantic/exprs.suru`:
+  identical types, sum-type variant → base, and `String`/`Str` interop are
+  accepted; it is the one place to extend for new legitimate subtyping. The
+  *actual* type is read from the node's resolved type (`nodeResolvedType`), so
+  context narrowing is respected — an integer literal under an `i32`/field/param
+  expectation resolves to that type rather than spuriously reading as `i64`.
+- Field-type lookup added to `AnalyzerState` (`lookupFieldType`).
+- New in-process unit suite `tests/unit/compiler/semantic_type_mismatch_test.suru`
+  (with snippet fixtures under `tests/unit/compiler/fixtures/`) drives each case
+  through `runPipelineDebug(..., "semantic")` and asserts the exact message and a
+  single-error count — covering all ten mismatch diagnostics.
+- Fixed a latent typo surfaced by the new struct-literal check: `alloc-stress`
+  declared a field as lowercase `string` (it holds a `String`).
+
 ### `export` is now a declaration prefix (the `export { }` block is removed)
 
 - A top-level declaration is made part of a module's public surface by writing

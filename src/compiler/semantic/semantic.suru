@@ -166,6 +166,7 @@ export type AnalyzerState: {
     fn existsInCurrentScope(name String) bool
     fn recordSumType(name String, variants Array<String>)
     fn isSumVariant(sumName String, candidate String) bool
+    fn lookupFieldType(typeName String, fieldName String) String
     fn isMoved(name String) bool
     fn markMoved(name String)
     fn clearMoved(name String)
@@ -277,6 +278,29 @@ export fn makeAnalyzerState() AnalyzerState {
         // isSumVariant — true when `candidate` is a declared variant of sum type `sumName`.
         fn isSumVariant(sumName String, candidate String) bool {
             return isSumVariantAt(this.sumTypes, sumName, candidate, 0)
+        }
+
+        // lookupFieldType — declared type annotation for `fieldName` on the
+        // registered struct/object type `typeName`, or "" when the type or the
+        // field is unknown. Used by the field-assignment and struct-literal-field
+        // type-mismatch checks.
+        fn lookupFieldType(typeName String, fieldName String) String {
+            let decls Array<SemTypeEntry>: this.typeDecls
+            let i i64: 0
+            while i.lt(decls.len()) {
+                let decl SemTypeEntry: decls.at(i)
+                if decl.name.equals(typeName) {
+                    let fields Array<SemFieldEntry>: decl.fields
+                    let j i64: 0
+                    while j.lt(fields.len()) {
+                        if fields.at(j).name.equals(fieldName) { return fields.at(j).typeName }
+                        j: j.add(1)
+                    }
+                    return ""
+                }
+                i: i.add(1)
+            }
+            return ""
         }
 
         // ─── Move tracking ────────────────────────────────────────────────────

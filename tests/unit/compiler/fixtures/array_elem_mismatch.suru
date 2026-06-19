@@ -1,0 +1,7 @@
+namespace Test.Unit.Compiler.Fixtures.ArrayElemMismatch
+
+// Array<i64> literal contains a bool element → array element type mismatch.
+fn main() {
+    let a Array<i64>: [1, true]
+    printLn(a.len().toString())
+}
