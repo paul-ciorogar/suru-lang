@@ -138,13 +138,13 @@ export type Module: { srcPath String, ns String, stmts Array<AstNode>, importedN
 // srcNsEntries maps each resolved file's absolute path to its namespace declaration,
 // so codegen can namespace-mangle symbols without re-parsing.
 // modules accumulates one Module per resolved file (including the root).
-export type ResolveState: { decls Array<AstNode>, resolved Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
+export type ResolveState: { decls Array<AstNode>, externFns Array<AstNode>, resolved Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
 
 // Return value of resolveIncludes: merged statement list + ordered deduplicated
 // list of resolved absolute source paths (in depth-first resolution order).
 // modules is the ordered list of per-file Module objects (root first, then
 // transitive dependencies in depth-first order).
-export type ResolveResult: { stmts Array<AstNode>, includedPaths Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
+export type ResolveResult: { stmts Array<AstNode>, externFns Array<AstNode>, includedPaths Array<String>, nsExports Array<NsExportEntry>, srcNsEntries Array<SrcNsEntry>, modules Array<Module> }
 
 // Linear scan: true if path already appears in the resolved list.
 fn pathResolved(resolved Array<String>, path String) bool {
@@ -231,6 +231,14 @@ export fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, 
                 fd.srcPath: filePath
                 state.decls.add(fd)
             }
+            // Imported extern fns (e.g. stdlib's `malloc`/`free`) are collected into
+            // a SEPARATE channel — never into `decls`/`stmts`, because codegen emits
+            // each module's externs in its own {module}__mono.ll and a second declare
+            // in the root IR redefines them (conflicting `declare @memcpy`). The
+            // semantic registry still needs the signatures so analyzeImportedFnBodies
+            // can resolve calls inside imported bodies instead of mis-flagging them
+            // as undefined functions; they are registered post-prepass from here.
+            ExternFnNode:    { state.externFns.add(s) }
             TypeDeclNode:    { state.decls.add(s) }
             SumTypeDeclNode: { state.decls.add(s) }
             LetNode: {
@@ -319,7 +327,7 @@ export fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, 
 export fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String, reg NamespaceRegistry) ResolveResult {
     let initSrcNsEntries Array<SrcNsEntry>: []
     let initModules Array<Module>: []
-    let state ResolveState: { decls: [], resolved: [], nsExports: [], srcNsEntries: initSrcNsEntries, modules: initModules }
+    let state ResolveState: { decls: [], externFns: [], resolved: [], nsExports: [], srcNsEntries: initSrcNsEntries, modules: initModules }
     // Seed the root path into the resolved set so an import cycle that leads
     // back to the root (e.g. String → StringBuilder → String, when the root is
     // String or StringBuilder) does not re-include the root as a transitive
@@ -464,7 +472,7 @@ export fn resolveIncludes(mainStmts Array<AstNode>, dir String, rootPath String,
         if not rp.equals(rootPath) { includedPaths.add(rp) }
         ipi: ipi.add(1)
     }
-    return { stmts: all, includedPaths: includedPaths, nsExports: state.nsExports, srcNsEntries: state.srcNsEntries, modules: allModules }
+    return { stmts: all, externFns: state.externFns, includedPaths: includedPaths, nsExports: state.nsExports, srcNsEntries: state.srcNsEntries, modules: allModules }
 }
 
 // ─── Semantic analysis helpers ─────────────────────────────────────────────────
@@ -736,6 +744,10 @@ fn lowerObjectsObjectLit(state AnalyzerState, lit ObjectLitNode, newDecls Array<
     let site i64: ctr.at(0)
     ctr.set(site.add(1), 0)
     let siteStr String: site.toString()
+    // Loop-invariant: the owning file's namespace, used both per-method (entrySym
+    // mangling) and once after the loop (vtable global symbol). Hoisted out of the
+    // loop so it stays in scope at the post-loop use below.
+    let entryNs String: lookupSrcPathNs(nsEntries, srcPath)
     let entrySyms Array<String>: []
     let j i64: 0
     let errsBefore i64: state.errors.len()
@@ -763,7 +775,6 @@ fn lowerObjectsObjectLit(state AnalyzerState, lit ObjectLitNode, newDecls Array<
             newDecls.add(fnDecl)
             // Use namespace-based mangling when the source file has a namespace, so
             // vtable entry names match the function definitions emitted by fnMangleSym.
-            let entryNs String: lookupSrcPathNs(nsEntries, srcPath)
             let entrySym String: match entryNs.equals("") {
                 true: synth
                 _:    mangleNsSym(entryNs, synth)
@@ -969,6 +980,52 @@ export fn analyzeModuleStatements(state AnalyzerState, moduleStmts Array<AstNode
     let i i64: 0
     while i.lt(moduleStmts.len()) {
         analyzeModuleStatement(state, moduleStmts.at(i))
+        i: i.add(1)
+    }
+    return state
+}
+
+// analyzeImportedFnBodies — run pass-3 type checks over imported module function
+// bodies. The root file's own statements are analyzed separately via `ownStmts`
+// (which carry the import-desugar / qualified-name rewrites that the raw codegen
+// `stmts` list lacks for the root), so here we only pick FnDeclNodes whose srcPath
+// differs from the root. Each FnDecl's srcPath drives currentSrcPath in
+// analyzeFunctionDeclaration, attributing any error to the right imported file.
+// Before this, imported bodies were type-resolved but never type-checked, so a
+// type error inside an imported function (e.g. an Array literal assigned to a
+// non-Array field) compiled silently and only failed at runtime.
+export fn analyzeImportedFnBodies(state AnalyzerState, stmts Array<AstNode>, rootPath String) AnalyzerState {
+    // First bring imported modules' top-level constants into module scope so
+    // references to them from imported function bodies resolve (the root file's
+    // own constants were already declared by analyzeModuleStatements(ownStmts)).
+    // Only declare names not already in scope, which skips the root's and keeps
+    // each constant single-entry. We register the symbol without re-checking the
+    // initializer — that was validated when the module was compiled as its own
+    // root; here we only need the name visible to the bodies being checked.
+    let ci i64: 0
+    while ci.lt(stmts.len()) {
+        let cs AstNode: stmts.at(ci)
+        match cs {
+            LetNode: {
+                if state.lookupSymbol(cs.name).equals("") {
+                    state.declareSymbol(cs.name, cs.typeName)
+                    state.constants.add(cs.name)
+                }
+            }
+            _: {}
+        }
+        ci: ci.add(1)
+    }
+    // Then type-check imported function bodies (srcPath != root).
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            FnDeclNode: {
+                if not s.srcPath.equals(rootPath) { analyzeModuleStatement(state, s) }
+            }
+            _: {}
+        }
         i: i.add(1)
     }
     return state
@@ -1202,6 +1259,7 @@ fn compileOneFileWithRequests(sourcePath String, outDir String, reg NamespaceReg
     state.currentSrcPath: sourcePath
     state.moduleImportRegistry: buildModuleImportRegistry(resolved.modules)
     passes.runPrePasses(state, stmts)
+    passes.registerImportedExterns(state, resolved.externFns)
     semresolve.resolveModuleTypes(state, stmts)
     // Rewrite generic call sites and variant arm patterns.
     stmts: monoPass.rewriteCallSites(stmts, globalRegistry)
@@ -1426,6 +1484,9 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     state.currentSrcPath: sourcePath
     state.moduleImportRegistry: modImportReg
     passes.runPrePasses(state, stmts)
+    // Register imported externs (side channel — not in stmts) so the registry can
+    // resolve calls to them inside imported bodies (see registerImportedExterns).
+    passes.registerImportedExterns(state, resolved.externFns)
     semresolve.resolveModuleTypes(state, stmts)
     // Rewrite generic call-site names to mangled forms now that pass-2
     // resolvedTypes are populated on all arg expressions.
@@ -1453,6 +1514,9 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     ownStmts: qualNamePass.rewriteQualifiedCalls(ownStmts, resolved.nsExports)
     stmts: importPass.rewriteCodegenStmts(ownStmts, stmts, sourcePath, resolved.nsExports)
     analyzeModuleStatements(state, ownStmts)
+    // Also type-check imported module function bodies (root-only validation above
+    // stays on ownStmts). srcPath != sourcePath selects imported decls.
+    analyzeImportedFnBodies(state, stmts, sourcePath)
     printErrorsFrom(state, sourcePath)
     let errors Array<AnalysisError>: state.errors
     if errors.len().gt(0) { exit(1) }
@@ -1504,6 +1568,7 @@ export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     state.currentSrcPath: sourcePath
     state.moduleImportRegistry: modImportRegDbg
     passes.runPrePasses(state, stmts)
+    passes.registerImportedExterns(state, resolved.externFns)
     semresolve.resolveModuleTypes(state, stmts)
     stmts: monoPass.rewriteCallSites(stmts, registry)
     stmts: monoPass.rewriteVariantArms(stmts)
@@ -1523,6 +1588,8 @@ export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     ownStmts: importPass.desugarImports(state, ownStmts, resolved.nsExports)
     ownStmts: qualNamePass.rewriteQualifiedCalls(ownStmts, resolved.nsExports)
     analyzeModuleStatements(state, ownStmts)
+    // Mirror runPipelineFull: type-check imported module function bodies too.
+    analyzeImportedFnBodies(state, stmts, sourcePath)
 
     if stopPass.equals("semantic") { return { stmts: stmts, state: state } }
 

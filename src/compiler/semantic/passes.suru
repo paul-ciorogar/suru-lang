@@ -472,9 +472,36 @@ fn collectFunctionDeclarations(state AnalyzerState, stmts Array<AstNode>) Analyz
             }
             ExternFnNode: {
                 let typed ExternFnNode: stmt
-                if state.functions.hasSig("", typed.name) {
-                    state.addError("function '".append(typed.name).append("' is already declared"), 0, 0)
-                } else {
+                // A repeated extern declaration is harmless (C-style: several
+                // stdlib modules each declare `extern fn malloc`). Now that
+                // imported externs reach this collector, silently skip duplicates
+                // rather than erroring — the first registration already gives the
+                // registry the signature it needs.
+                if not state.functions.hasSig("", typed.name) {
+                    registerExternFnDecl(state, typed)
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return state
+}
+
+// registerImportedExterns — register extern fn signatures collected from imported
+// files (resolveIncludes keeps them in a side channel, NOT in `stmts`, so codegen
+// never emits a conflicting second declare in the root IR). Without this the
+// function registry lacks imported externs like `malloc`/`free`/`memcpy`, and the
+// undefined-function check in analyzeExpr would mis-flag calls to them inside
+// imported bodies. Duplicates (the same extern declared by several modules) are
+// silently skipped via the hasSig guard.
+export fn registerImportedExterns(state AnalyzerState, externFns Array<AstNode>) AnalyzerState {
+    let i i64: 0
+    while i.lt(externFns.len()) {
+        match externFns.at(i) {
+            ExternFnNode: {
+                let typed ExternFnNode: externFns.at(i)
+                if not state.functions.hasSig("", typed.name) {
                     registerExternFnDecl(state, typed)
                 }
             }

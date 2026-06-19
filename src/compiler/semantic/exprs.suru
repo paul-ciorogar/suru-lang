@@ -138,20 +138,43 @@ fn analyzeExprAt(state AnalyzerState, nodes Array<AstNode>) AnalyzerState {
     return state
 }
 
-// analyzeMatchArmsAt — iterates MatchArm array.
-// For each non-wildcard arm: analyzes the pattern expression.
-// Always analyzes the arm body.
+// analyzeMatchArmsAt — iterates MatchArm array. Analyzes each arm body, and the
+// arm pattern only when it is a value expression (literal). A bare-identifier
+// pattern (VarRefNode) is a sum-type variant tag, NOT a variable reference, so it
+// is skipped — analyzing it as an expression would wrongly report the variant
+// name as an undefined variable. Wildcard arms carry no pattern.
 fn analyzeMatchArmsAt(state AnalyzerState, arms Array<MatchArm>) AnalyzerState {
     let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
-        if not arm.isWildcard {
+        if not arm.isWildcard and not isVariantTagPattern(arm.pattern) {
             analyzeExpr(state, arm.pattern)
         }
         analyzeExpr(state, arm.body)
         i: i.add(1)
     }
     return state
+}
+
+// isVariantTagPattern — true when a match arm pattern is a bare identifier
+// (VarRefNode), i.e. a sum-type variant tag rather than a value literal.
+fn isVariantTagPattern(pattern AstNode) bool {
+    match pattern {
+        VarRefNode: { return true }
+        _:          { return false }
+    }
+}
+
+// isSumTypeName — true when `name` is a registered sum type (membership in
+// state.sumTypes, which only ever holds sum types).
+fn isSumTypeName(state AnalyzerState, name String) bool {
+    let sums Array<SemTypeEntry>: state.sumTypes
+    let i i64: 0
+    while i.lt(sums.len()) {
+        if sums.at(i).name.equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
 }
 
 // analyzeObjectFieldsAt — iterates ObjectFieldNode array,
@@ -170,6 +193,9 @@ fn analyzeObjectFieldsAt(state AnalyzerState, fields Array<ObjectFieldNode>) Ana
 // Emits "argument type mismatch: expected X, got Y" when both types are known
 // and do not match (and the actual type is not a sum-type variant of expected).
 fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
+    // Ambiguous across modules: the flat registry can't pick the right signature,
+    // so skip arg typing rather than compare against an arbitrary one.
+    if state.functions.nameCount(fnName).gt(1) { return state }
     let i i64: 0
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
@@ -194,6 +220,8 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
 // parameter type. Builtins and unknown functions have no paramType entry → "" →
 // skipped by isAssignable.
 fn checkFnCallArgTypes(state AnalyzerState, fnName String, args Array<AstNode>, callLine i64, callCol i64) AnalyzerState {
+    // Ambiguous across modules: see checkCallArgTypesAt.
+    if state.functions.nameCount(fnName).gt(1) { return state }
     let i i64: 0
     while i.lt(args.len()) {
         let paramAnn String: state.functions.paramType(fnName, i)
@@ -228,9 +256,21 @@ export fn isStringFamilyName(name String) bool {
 export fn isAssignable(state AnalyzerState, expected String, actual String) bool {
     if expected.equals("") { return true }
     if actual.equals("") { return true }
-    if actual.equals(expected) { return true }
-    if state.isSumVariant(expected, actual) { return true }
-    if isStringFamilyName(expected) and isStringFamilyName(actual) { return true }
+    // Canonicalize generic annotations to their mangled form so the identity
+    // and sum-variant checks work for monomorphized generics: a concrete copy
+    // may still carry substituted-but-unmangled types like "Some<i64>" /
+    // "Option<i64>", while the registered sum type is "Some__i64" / "Option__i64".
+    // makeSuruType is idempotent on already-canonical names ("Array:i64", "List").
+    let exp String: tyh.makeSuruType(expected)
+    let act String: tyh.makeSuruType(actual)
+    if act.equals(exp) { return true }
+    // Variant -> sum (a `Some<i64>` value where an `Option<i64>` is expected).
+    if state.isSumVariant(exp, act) { return true }
+    // Sum -> variant (the compiler's own "typed bridge" downcast idiom:
+    // `let n MatchStmtNode: someAstNode`). The language permits narrowing a sum
+    // value to one of its variants for field access; codegen relies on it.
+    if state.isSumVariant(act, exp) { return true }
+    if isStringFamilyName(exp) and isStringFamilyName(act) { return true }
     return false
 }
 
@@ -344,6 +384,20 @@ export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             if is2ArgBuiltin and not argCount.equals(2) {
                 state.addError("'".append(name).append("' expects exactly 2 arguments"), typed.line, typed.col)
             }
+            // Undefined function: a non-builtin name with no definition anywhere in
+            // the registry (no exact match and no monomorphized instantiation).
+            // Reported before the arity/arg-type checks so an unknown name yields
+            // one clear diagnostic rather than a misleading arity message. This
+            // catches calls that mono left unmangled because the template was
+            // removed and could NOT be instantiated (e.g. an un-inferable
+            // `newList()`), which otherwise slipped through pass-3 and failed later
+            // at link time. Extern fns and normal/imported fns match exactly; a
+            // generic call site keeps its base name and is accepted via its
+            // concrete `name__T` instantiation (see FunctionRegistry.isDefined).
+            let isBuiltin bool: is1ArgBuiltin or is2ArgBuiltin
+            if not isBuiltin and not state.functions.isDefined(name) {
+                state.addError("undefined function '".append(name).append("'"), typed.line, typed.col)
+            }
             let paramCount i64: state.functions.paramCount(name)
             if not is1ArgBuiltin and not is2ArgBuiltin and paramCount.gte(0) and not argCount.equals(paramCount) {
                 state.addError("function '".append(name).append("' called with ").append(argCount.toString()).append(" argument(s), expected ").append(paramCount.toString()), typed.line, typed.col)
@@ -390,9 +444,12 @@ export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             let cond AstNode: typed.condition
             analyzeExpr(state, cond)
             let condType String: inferType(state, cond)
-            let isValidCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("Str") or condType.equals("char") or condType.equals("SuruString")
-            if not isValidCondType {
-                state.addError("match condition must be bool, i64, f64, String, SuruString, or char, got ".append(condType), typed.line, typed.col)
+            // A sum-type subject is valid too; its arm patterns are variant tag
+            // names, so check only the arm bodies (see analyzeMatchArmBodiesAt).
+            let isSum bool: isSumTypeName(state, tyh.makeSuruType(condType)) or isSumTypeName(state, condType)
+            let isScalarCondType bool: condType.equals("") or condType.equals("bool") or condType.equals("i64") or condType.equals("f64") or condType.equals("String") or condType.equals("Str") or condType.equals("char") or condType.equals("SuruString")
+            if not isScalarCondType and not isSum {
+                state.addError("match condition must be bool, i64, f64, String, SuruString, char, or a sum type, got ".append(condType), typed.line, typed.col)
             }
             analyzeMatchArmsAt(state, typed.arms)
         }

@@ -57,9 +57,11 @@ type FunctionRegistry: {
     fn add(sig FunctionSig)
     fn hasSig(srcPath String, name String) bool
     fn findIndexByName(name String) i64
+    fn nameCount(name String) i64
+    fn isDefined(name String) bool
     fn returnType(name String) String
     fn paramCount(name String) i64
-    fn paramType(name String, idx i64) String 
+    fn paramType(name String, idx i64) String
 }
 
 fn newFunctionRegistry() FunctionRegistry {
@@ -89,6 +91,42 @@ fn newFunctionRegistry() FunctionRegistry {
                 i: i.add(1)
             }
             return -1
+        }
+
+        // Count signatures registered under `name`. >1 means the simple name is
+        // ambiguous across modules (Suru resolves these per-namespace at codegen,
+        // but this flat registry cannot); arg-type checks skip such names rather
+        // than compare against an arbitrarily-chosen signature.
+        fn nameCount(name String) i64 {
+            let i i64: 0
+            let n i64: 0
+            while i.lt(this.signatures.len()) {
+                if this.signatures.at(i).name.equals(name) { n: n.add(1) }
+                i: i.add(1)
+            }
+            return n
+        }
+
+        // isDefined — true when `name` names a callable in this registry, either
+        // directly (exact match: a normal/extern fn, or a concrete fn called by
+        // its mangled name) or via a monomorphized instantiation. A generic call
+        // site keeps its ORIGINAL unmangled name through pass-3 (codegen mangles at
+        // emit time) while the registry holds only the concrete copies
+        // (`elemBytes` → `elemBytes-i64`, separator from mangleGenericName); accept
+        // it when any signature name starts with `name ++ "-"`. Used to gate the
+        // undefined-function diagnostic so it fires only for names with no
+        // definition at all.
+        fn isDefined(name String) bool {
+            let prefix String: name.append("-")
+            let plen i64: prefix.len()
+            let i i64: 0
+            while i.lt(this.signatures.len()) {
+                let sname String: this.signatures.at(i).name
+                if sname.equals(name) { return true }
+                if sname.len().gte(plen) and sname.slice(0, plen).equals(prefix) { return true }
+                i: i.add(1)
+            }
+            return false
         }
 
         fn returnType(name String) String {

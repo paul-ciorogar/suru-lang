@@ -1,0 +1,9 @@
+namespace Test.Unit.Compiler.Fixtures.UndefinedFnCall
+
+// Calls notDefined, a function declared nowhere and not a builtin → the semantic
+// pass must emit exactly one "undefined function 'notDefined'" diagnostic. Before
+// the check existed this slipped through pass-3 and only failed later at link time.
+fn main() {
+    let x i64: notDefined(42)
+    printLn(x.toString())
+}

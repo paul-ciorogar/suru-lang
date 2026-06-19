@@ -34,6 +34,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     signatures in two namespaces) no longer produce spurious argument
     type-mismatch errors — ambiguous names skip arg typing.
 
+### Compile error for calls to undefined functions
+
+- A call to a name that is neither a builtin nor defined anywhere is now a
+  compile-time error (`undefined function 'name'`) raised in the single semantic
+  pass (`analyzeExpr` CallNode arm, `semantic/exprs.suru`). Previously such a
+  call slipped through pass-3 silently and only failed later as an unresolved
+  LLVM symbol at link time — e.g. a generic call like `newList()` that mono
+  could not instantiate (template removed, no concrete copy) produced a confusing
+  failure instead of a diagnostic. `FunctionRegistry.isDefined(name)` gates it:
+  true on an exact match (normal/extern/imported fn, or a concrete fn called by
+  its mangled name) or when a monomorphized instantiation (`name-T`) is
+  registered, so generic call sites — which keep their base name through pass-3 —
+  are not mis-flagged.
+- Imported `extern fn` signatures (e.g. stdlib's `malloc`/`free`/`memcpy`) are
+  now visible to the semantic function registry. `resolveIncludes` collects them
+  into a **side channel** (`ResolveResult.externFns`) — deliberately *not* into
+  the codegen statement list, since each module emits its own externs in its
+  `{module}__mono.ll` and a second `declare` in the root IR would redefine them.
+  `passes.registerImportedExterns` registers them after the pass-2 prepass so
+  calls to them inside imported bodies resolve. A repeated extern declaration
+  (several modules each declaring `extern fn malloc`) is now a silent skip rather
+  than a duplicate-declaration error.
+- Coverage: in-process unit test `undefined-fn` in
+  `tests/unit/compiler/semantic_type_mismatch_test.suru`
+  (+ fixture `tests/unit/compiler/fixtures/undefined_fn_call.suru`).
+
 ### `List<T>.toArray()` — bridge a List back to a built-in Array
 
 - New method on `List<T>` (`src/stdlib/list.suru`): `fn toArray() Array<T>`

@@ -93,5 +93,11 @@ export fn semanticTypeMismatchTests() Array<TestResult> {
     results.add(assertEqI64("array-elem count", arrErrs.len(), 1))
     results.add(assertTrue("array-elem msg", hasErrorMsg(arrErrs, "array element type mismatch: expected i64, got bool")))
 
+    // ─── Undefined function call ──────────────────────────────────────────────
+
+    let undefErrs Array<AnalysisError>: runErrors("undefined_fn_call.suru")
+    results.add(assertEqI64("undefined-fn count", undefErrs.len(), 1))
+    results.add(assertTrue("undefined-fn msg", hasErrorMsg(undefErrs, "undefined function 'notDefined'")))
+
     return results
 }
