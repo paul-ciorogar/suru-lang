@@ -1,0 +1,57 @@
+// type_value_test.suru — unit tests for the structured `Type` value (task 1.1).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// typeValueTests() and reports the returned results. Covers construction via the
+// constructor fns and field access on each of the four shapes (Prim, Named, Arr,
+// Var), including nested `Named` arguments and the built-in `Arr`.
+//
+// Field access uses the unchecked-downcast idiom: a value typed as the base sum
+// `Type` is bound to a specific variant (`let p Prim: <type value>`) to read its
+// fields. `Named.args.at(i)` returns a `Type`, which is downcast again for the
+// nested cases.
+
+namespace Test.Unit.Compiler.TypeValue
+
+import {
+    [TestResult, assertEqI64, assertTrue, assertEqStr]: Test.Unit.Assert
+    [Type, Prim, Named, Arr, Var, primType, namedType, arrType, varType]: Suru.Compiler.Types
+}
+
+// typeValueTests — one TestResult per assertion.
+export fn typeValueTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // Prim — bare primitive name.
+    let pInt Prim: primType("i64")
+    results.add(assertEqStr("primType('i64').name", pInt.name, "i64"))
+
+    // Var — type variable carries id + source name.
+    let vT Var: varType(0, "T")
+    results.add(assertEqI64("varType(0,'T').id", vT.id, 0))
+    results.add(assertEqStr("varType(0,'T').name", vT.name, "T"))
+
+    // Named with a single Prim argument: List<Token>.
+    let listTok Named: namedType("List", [primType("Token")])
+    results.add(assertEqStr("namedType('List',..).name", listTok.name, "List"))
+    results.add(assertEqI64("List<Token>.args.len", listTok.args.len(), 1))
+    let arg0 Prim: listTok.args.at(0)
+    results.add(assertEqStr("List<Token>.args[0].name", arg0.name, "Token"))
+
+    // Nested Named: List<Option<T>> — args[0] is itself a Named with one arg.
+    let nested Named: namedType("List", [namedType("Option", [varType(1, "T")])])
+    results.add(assertEqI64("List<Option<T>>.args.len", nested.args.len(), 1))
+    let inner Named: nested.args.at(0)
+    results.add(assertEqStr("List<Option<T>>.args[0].name", inner.name, "Option"))
+    results.add(assertEqI64("Option<T>.args.len", inner.args.len(), 1))
+
+    // Arr — built-in Array<i64>; elem is a Prim.
+    let arr Arr: arrType(primType("i64"))
+    let elem Prim: arr.elem
+    results.add(assertEqStr("Array<i64>.elem.name", elem.name, "i64"))
+
+    // Named with empty args — a generic name awaiting application.
+    let pair Named: namedType("Pair", [])
+    results.add(assertEqI64("Pair.args.len (empty)", pair.args.len(), 0))
+
+    return results
+}

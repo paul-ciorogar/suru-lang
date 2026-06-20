@@ -1,0 +1,74 @@
+// type.suru — the structured `Type` value at the heart of the type-system refactor.
+//
+// Today the compiler represents types as raw strings in three mutually
+// incompatible encodings, parsed by hand at dozens of sites:
+//   - source form        `List<Token>`   (parser output / annotations)
+//   - colon form          `Array:i64`     (canonical arrays via makeSuruType)
+//   - hyphen-mangled form `List-Token`    (symbol names via mangleGenericName)
+// Every type operation (equality, substitution, mangling, "does this mention a
+// type var") is re-implemented per call site with string surgery, and a whole
+// class of bugs is "which string form am I holding?".
+//
+// This file introduces the single structured replacement: one `Type` value with
+// four shapes. Later tasks add the five canonical operations on top of it
+// (parseType, printSymbol, equalType, substitute, unify) — see todo.md and
+// semantic_analysis_architecture_rd.md §4.A.
+//
+// `Type` is a non-generic, recursive sum type, the same shape as the existing
+// `AstNode` (src/compiler/parser/parserAst.suru): `Named` carries an
+// `Array<Type>` of arguments and `Arr` carries a nested `Type`.
+//
+// This task (1.1) only declares the type and its constructors; nothing in the
+// compiler imports it yet. Coverage: tests/unit/compiler/type_value_test.suru.
+
+namespace Suru.Compiler.Types
+
+// Prim — a primitive / nullary named type carrying no type arguments.
+// Subsumes the bare-name string form: `i64`, `bool`, `String`, `char`, `f64`,
+// `ptr`, `void`, and user struct/sum names with no generic arguments.
+export type Prim: { name String }
+
+// Named — a named type applied to zero or more type arguments.
+// Subsumes the source/colon/hyphen forms for generic applications: `List<Token>`
+// is `Named { name: "List", args: [Prim "Token"] }`; `Pair<i64, String>` has two
+// args; user structs and sum types with type parameters live here too. An empty
+// `args` is permitted (e.g. a generic name awaiting application).
+export type Named: { name String, args Array<Type> }
+
+// Arr — the built-in `Array<T>`, kept distinct from a user `Named` "Array" so
+// the built-in array machinery (colon form `Array:i64`) has a dedicated shape.
+export type Arr: { elem Type }
+
+// Var — a type variable: a generic parameter `T` (carrying its source name) or a
+// fresh inference variable `?0` introduced by the unifier (carrying its `id`).
+// `name` may be empty for a pure inference variable identified only by `id`.
+export type Var: { id i64, name String }
+
+// Type — the structured type value. Prim is listed first (variant index 0).
+export type Type: Prim, Named, Arr, Var
+
+// primType — construct a primitive / nullary named type. Returned as `Type` so
+// the result composes directly into `Array<Type>` argument lists and `Type`
+// parameters (variant -> base assignability).
+export fn primType(name String) Type {
+    let p Prim: { name: name }
+    return p
+}
+
+// namedType — construct a named type applied to `args` (possibly empty).
+export fn namedType(name String, args Array<Type>) Type {
+    let n Named: { name: name, args: args }
+    return n
+}
+
+// arrType — construct the built-in `Array<elem>`.
+export fn arrType(elem Type) Type {
+    let a Arr: { elem: elem }
+    return a
+}
+
+// varType — construct a type variable from an id and (optional) source name.
+export fn varType(id i64, name String) Type {
+    let v Var: { id: id, name: name }
+    return v
+}
