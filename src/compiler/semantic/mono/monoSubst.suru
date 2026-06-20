@@ -15,6 +15,10 @@ namespace Suru.Compiler.Semantic.Mono.Subst
 import {
     ast: Suru.Compiler.Parser.Ast
     nodes: Suru.Compiler.Parser.Nodes
+    [Type]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [printAnnotation]: Suru.Compiler.Types.Print
+    [substitute, Binding, binding, varizeType]: Suru.Compiler.Types.Ops
 }
 
 // ─── String helpers ───────────────────────────────────────────────────────────
@@ -55,45 +59,48 @@ export fn splitByComma(s String) Array<String> {
     return results
 }
 
-// joinSubstituted — substitute each element of args and join with ','.
-fn joinSubstituted(args Array<String>, paramNames Array<String>, concreteTypes Array<String>) String {
-    let result String: ""
-    let i i64: 0
-    while i.lt(args.len()) {
-        let arg String: trimLeft(args.at(i))
-        let sub String: substituteType(arg, paramNames, concreteTypes)
-        if result.len().gt(0) {
-            let next String: result.append(",").append(sub)
-            drop(result)
-            result: next
-        } else {
-            result: sub
-        }
-        i: i.add(1)
-    }
-    return result
-}
-
-// substituteType — replace type-variable names with concrete types.
-// Handles bare type vars ("T" → "i64"), single-arg generics
-// ("Array<T>" → "Array<i64>"), and multi-arg forms
-// ("Pair<T, U>" → "Pair<i64,String>").
-export fn substituteType(typeName String, paramNames Array<String>, concreteTypes Array<String>) String {
-    // Exact match: bare type variable.
+// buildBindings — pair each type-parameter name with the parsed concrete type it
+// maps to, producing the `Array<Binding>` `substitute` consumes. Mirrors the
+// parallel-array convention of the legacy substituteType (paramNames[i] ↦
+// concreteTypes[i]); the parameter name is CLONED so the binding owns it and the
+// whole array can be dropped without aliasing the caller's `paramNames`.
+fn buildBindings(paramNames Array<String>, concreteTypes Array<String>) Array<Binding> {
+    let out Array<Binding>: []
     let i i64: 0
     while i.lt(paramNames.len()) {
-        if paramNames.at(i).equals(typeName) { return concreteTypes.at(i) }
+        out.add(binding(paramNames.at(i).clone(), parseType(concreteTypes.at(i))))
         i: i.add(1)
     }
-    // No '<': plain non-generic type — return unchanged.
-    let ltIdx i64: indexOfLT(typeName)
-    if ltIdx.equals(typeName.len()) { return typeName }
-    // Generic application: substitute all type args and rebuild.
-    let base String: typeName.slice(0, ltIdx)
-    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
-    let args Array<String>: splitByComma(inner)
-    let substArgs String: joinSubstituted(args, paramNames, concreteTypes)
-    return base.append("<").append(substArgs).append(">")
+    return out
+}
+
+// substituteType — replace type-variable names with concrete types in a
+// type-name string.  Handles bare type vars ("T" → "i64"), single-arg generics
+// ("List<T>" → "List<i64>"), and multi-arg forms ("Pair<T, U>" → "Pair<i64, String>").
+//
+// Reimplemented (todo.md §1.8) on top of the structured `Type` ops, replacing the
+// old hand-rolled string surgery:
+//   1. parseType reads the annotation into a `Type` at the boundary.
+//   2. varizeType promotes the type-parameter names (which parse to context-free
+//      `Prim` leaves) to `Var`, since `substitute` only rewrites `Var` nodes.
+//   3. substitute applies the paramName ↦ concreteType bindings.
+//   4. printAnnotation emits the result in source form.
+// This NORMALIZES the output to a single canonical form (e.g. a colon-array input
+// "Array:i64" reprints as "Array<i64>", and multi-arg generics print with ", ");
+// the legacy form-preserving surgery is gone. Every downstream consumer of the
+// result (flattenTypeArg / mangleGenericName / makeSuruType) re-normalizes, so the
+// mangled instantiation names are unchanged — see the §1.8 plan and bootstrap.
+export fn substituteType(typeName String, paramNames Array<String>, concreteTypes Array<String>) String {
+    let t Type: parseType(typeName)
+    let tv Type: varizeType(t, paramNames)
+    drop(t)
+    let bindings Array<Binding>: buildBindings(paramNames, concreteTypes)
+    let sub Type: substitute(tv, bindings)
+    drop(tv)
+    drop(bindings)
+    let out String: printAnnotation(sub)
+    drop(sub)
+    return out
 }
 
 // ─── Param / MethodSig substitution ──────────────────────────────────────────

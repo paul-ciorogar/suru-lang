@@ -82,12 +82,19 @@ export fn parseType(annotation String) Type {
     let s String: trimLeft(annotation)
 
     // Colon array form: `Array:<elem>` — recurse on the element so nested arrays
-    // (`Array:Array:i64`) fold correctly into the dedicated `Arr` shape.
+    // (`Array:Array:i64`) fold correctly into the dedicated `Arr` shape. `rest` and
+    // `s` are owned slices; `parseType` borrows `rest` (so we drop it) and `arrType`
+    // consumes the recursively parsed element.
     if hasArrayColonPrefix(s) {
-        return arrType(parseType(s.slice(6, s.len())))
+        let rest String: s.slice(6, s.len())
+        drop(s)
+        let elemT Type: parseType(rest)
+        drop(rest)
+        return arrType(elemT)
     }
 
     // No '<' anywhere: a bare name (primitive, user struct, or a type variable).
+    // primType takes ownership of `s`, so it is NOT dropped here.
     let ltIdx i64: indexOfLT(s)
     if ltIdx.equals(s.len()) {
         return primType(s)
@@ -95,15 +102,25 @@ export fn parseType(annotation String) Type {
 
     // Generic application `Base<args>`. The inner span runs from just after the
     // first '<' to just before the final '>' (dropped via the len-1 `take(1)`
-    // idiom). parseArgs is depth-aware so nested multi-arg generics split right.
+    // idiom). `s` is no longer needed once `base`/`inner` are sliced out of it.
     let base String: s.slice(0, ltIdx)
     let inner String: s.slice(ltIdx.add(1), s.len().take(1))
-    let args Array<Type>: parseArgs(inner)
+    drop(s)
 
     // The built-in array gets the dedicated `Arr` shape rather than a `Named`.
+    // It always has exactly one type argument, so parse `inner` directly (rather
+    // than via parseArgs + args.at(0), which would borrow an array element that
+    // arrType then aliases) and drop the scratch strings.
     if base.equals("Array") {
-        return arrType(args.at(0))
+        drop(base)
+        let elemT Type: parseType(inner)
+        drop(inner)
+        return arrType(elemT)
     }
+
+    // parseArgs borrows `inner`; namedType consumes `base` and `args`.
+    let args Array<Type>: parseArgs(inner)
+    drop(inner)
     return namedType(base, args)
 }
 
@@ -118,17 +135,25 @@ fn parseArgs(inner String) Array<Type> {
     let start i64: 0
     let i i64: 0
     while i.lt(inner.len()) {
+        // `c` is a fresh 1-char String each iteration — drop it before looping or
+        // it leaks per character. `part`/the final slice are borrowed by parseType,
+        // so they are dropped after the call.
         let c String: inner.at(i)
         if c.equals("<") { depth: depth.add(1) }
         if c.equals(">") { depth: depth.take(1) }
         if c.equals(",") {
             if depth.equals(0) {
-                args.add(parseType(inner.slice(start, i)))
+                let part String: inner.slice(start, i)
+                args.add(parseType(part))
+                drop(part)
                 start: i.add(1)
             }
         }
+        drop(c)
         i: i.add(1)
     }
-    args.add(parseType(inner.slice(start, inner.len())))
+    let last String: inner.slice(start, inner.len())
+    args.add(parseType(last))
+    drop(last)
     return args
 }

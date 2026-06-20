@@ -89,6 +89,46 @@ fn appendSymbolArgs(acc String, args Array<Type>) String {
     return cur
 }
 
+// ─── Legacy suruType (VarEntry) form ─────────────────────────────────────────────
+
+// printSuruType — the canonical `VarEntry.suruType` encoding the rest of codegen
+// still speaks (see irCodegenTypeHelpers.suru). It matches printSymbol EXCEPT for
+// the built-in array, which is POSITION-DEPENDENT in this encoding:
+//   - a top-level array (or an array directly nested under another array) uses the
+//     COLON form:  Arr(i64)        -> "Array:i64"
+//                  Arr(Arr(i64))   -> "Array:Array:i64"
+//   - an array nested inside a generic's args uses the HYPHEN form, via printSymbol:
+//                  Named "Option" [Arr(i64)] -> "Option-Array-i64"
+// Everything that is not an `Arr` (including a `Named` whose args contain arrays —
+// printSymbol already hyphen-flattens those) is delegated to printSymbol, so:
+//   Prim "i64"                  -> "i64"
+//   Named "Box" [Prim "i64"]    -> "Box-i64"
+//   Named "Pair" [i64, String]  -> "Pair-i64-String"
+// This is the inverse of the old hand-rolled makeSuruType string munging (task 1.7);
+// it differs from printSymbol ONLY in the colon array context.
+export fn printSuruType(t Type) String {
+    match t {
+        Prim: {
+            return printSymbol(t)
+        }
+        Named: {
+            return printSymbol(t)
+        }
+        Var: {
+            return printSymbol(t)
+        }
+        Arr: {
+            let a Arr: t
+            // Recurse with printSuruType so a nested array stays in colon form
+            // ("Array:Array:i64"), unlike printSymbol's all-hyphen mangling.
+            let elem String: printSuruType(a.elem)
+            let result String: "Array:".append(elem)
+            drop(elem)
+            return result
+        }
+    }
+}
+
 // ─── Annotation (source) form ───────────────────────────────────────────────────
 
 // printAnnotation — the source form a programmer writes for a `Type`.

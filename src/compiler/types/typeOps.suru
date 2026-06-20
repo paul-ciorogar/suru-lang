@@ -192,9 +192,78 @@ fn substituteArgs(args Array<Type>, bindings Array<Binding>) Array<Type> {
 
 // cloneType — deep-copy a `Type`. Implemented as a substitution with no bindings,
 // so it reuses the same fresh-copy walk: nothing matches, every node is rebuilt.
+// `empty` is dropped before returning — substitute only borrows it, so leaving it
+// undropped leaks a 40-byte array header on every clone (cloneType runs on every
+// Var substitution and every bindVar).
 fn cloneType(t Type) Type {
     let empty Array<Binding>: []
-    return substitute(t, empty)
+    let result Type: substitute(t, empty)
+    drop(empty)
+    return result
+}
+
+// ─── varizeType ─────────────────────────────────────────────────────────────────
+//
+// `parseType` is context-free, so a type parameter like `T` parses to `Prim "T"`,
+// indistinguishable from a concrete name. `substitute` only rewrites `Var` nodes
+// (it is keyed by variable, not by every bare name), so before substituting a
+// generic body's type-parameter names we must first PROMOTE the matching `Prim`
+// leaves to `Var`. `varizeType` is that promotion: a `Prim` whose name is one of
+// `paramNames` becomes `varType(0, name)` (name-keyed, id unused here); every other
+// shape is deep-copied unchanged, recursing into `Named` args and `Arr` elements.
+//
+//   varizeType(Prim "T",        ["T"]) -> Var  "T"
+//   varizeType(Prim "Token",    ["T"]) -> Prim "Token"     (not a param: unchanged)
+//   varizeType(List<T>,         ["T"]) -> List<Var "T">    (recurses into args)
+//   varizeType(Array<T>,        ["T"]) -> Array<Var "T">
+//
+// The result is a fresh deep copy (same ownership discipline as `substitute`), so
+// `substituteType` (todo.md §1.8) can drop it independently of its input. This is the
+// same "type params -> Var" primitive Phase 2/3 will reuse when pushing a type-param
+// scope on entering a generic body (§4.B).
+export fn varizeType(t Type, paramNames Array<String>) Type {
+    match t {
+        Prim: {
+            let p Prim: t
+            if isParamName(p.name, paramNames) { return varType(0, p.name.clone()) }
+            return primType(p.name.clone())
+        }
+        Named: {
+            let n Named: t
+            return namedType(n.name.clone(), varizeArgs(n.args, paramNames))
+        }
+        Arr: {
+            let a Arr: t
+            return arrType(varizeType(a.elem, paramNames))
+        }
+        Var: {
+            let v Var: t
+            return varType(v.id, v.name.clone())
+        }
+    }
+}
+
+// isParamName — whether `name` is one of the type-parameter names. Linear scan
+// mirrors `substituteType`'s parallel-array lookup; the param lists are tiny.
+fn isParamName(name String, paramNames Array<String>) bool {
+    let i i64: 0
+    while i.lt(paramNames.len()) {
+        if paramNames.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// varizeArgs — map each type argument through `varizeType`, building a fresh list.
+// Mirrors `substituteArgs`.
+fn varizeArgs(args Array<Type>, paramNames Array<String>) Array<Type> {
+    let out Array<Type>: []
+    let i i64: 0
+    while i.lt(args.len()) {
+        out.add(varizeType(args.at(i), paramNames))
+        i: i.add(1)
+    }
+    return out
 }
 
 // ─── unify ────────────────────────────────────────────────────────────────────────

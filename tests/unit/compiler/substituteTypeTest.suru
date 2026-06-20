@@ -1,0 +1,119 @@
+// substituteTypeTest.suru — unit tests for the monomorphizer's type-substitution
+// and name-mangling functions after their §1.8 reimplementation on the structured
+// `Type` ops.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// substituteTypeTests() and reports the returned results.
+//
+// Three functions are exercised, each rebuilt on parseType / substitute / printSymbol
+// / printAnnotation (todo.md §1.8):
+//   - substituteType  — replace type-parameter names with concrete types in an
+//     annotation string. Output is now NORMALIZED to source form (colon-array
+//     inputs reprint as angle form; multi-arg generics print with ", ").
+//   - mangleGenericName / flattenTypeArg — hyphen-mangled symbol names.
+//   - varizeType (the §1.8 helper in Types.Ops) — promote type-parameter `Prim`
+//     leaves to `Var` so `substitute` can replace them; probed end-to-end here.
+//
+// These pin the chosen output forms byte-for-byte so the refactor is verifiably
+// behavior-preserving where it must be (mangled names) and its one intended change
+// (normalized substituteType output) is documented.
+
+namespace Test.Unit.Compiler.SubstituteType
+
+import {
+    [TestResult, assertEqStr]: Test.Unit.Assert
+    [substituteType]: Suru.Compiler.Semantic.Mono.Subst
+    [mangleGenericName, flattenTypeArg]: Suru.Compiler.Semantic.Mono.Instantiate
+    [Type]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [printAnnotation]: Suru.Compiler.Types.Print
+    [substitute, Binding, binding, varizeType]: Suru.Compiler.Types.Ops
+}
+
+// ─── tiny array builders ─────────────────────────────────────────────────────────
+// substituteType / mangleGenericName take parallel String arrays; these keep the
+// call sites readable without a literal-array-as-argument inference dance.
+
+fn one(a String) Array<String> {
+    let out Array<String>: []
+    out.add(a)
+    return out
+}
+
+fn two(a String, b String) Array<String> {
+    let out Array<String>: []
+    out.add(a)
+    out.add(b)
+    return out
+}
+
+// varizeProbe — make `varizeType`'s promotion observable as a String. Parse a leaf,
+// promote `params` to vars, substitute a single `paramName -> concrete` binding, and
+// print. If the leaf was promoted it substitutes; if not, it prints unchanged. All
+// intermediate `Type` values are dropped (the runner is leak-checked).
+fn varizeProbe(typeName String, params Array<String>, paramName String, concrete String) String {
+    let t Type: parseType(typeName)
+    let tv Type: varizeType(t, params)
+    drop(t)
+    let bs Array<Binding>: []
+    bs.add(binding(paramName.clone(), parseType(concrete)))
+    let r Type: substitute(tv, bs)
+    drop(tv)
+    drop(bs)
+    let out String: printAnnotation(r)
+    drop(r)
+    return out
+}
+
+export fn substituteTypeTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // Shared parameter / concrete-argument lists, reused across cases.
+    let tParam Array<String>: one("T")
+    let i64Arg Array<String>: one("i64")
+    let tokenArg Array<String>: one("Token")
+    let tuParams Array<String>: two("T", "U")
+    let isArgs Array<String>: two("i64", "String")
+
+    // ─── substituteType ──────────────────────────────────────────────────────────
+    // Bare type variable.
+    results.add(assertEqStr("subst bare T", substituteType("T", tParam, i64Arg), "i64"))
+    // Single-arg generic.
+    results.add(assertEqStr("subst List<T>", substituteType("List<T>", tParam, i64Arg), "List<i64>"))
+    // Multi-arg generic — output uses ", " (normalized source form).
+    results.add(assertEqStr("subst Pair<T, U>",
+        substituteType("Pair<T, U>", tuParams, isArgs), "Pair<i64, String>"))
+    // Nested generic.
+    results.add(assertEqStr("subst List<Option<T>>",
+        substituteType("List<Option<T>>", tParam, tokenArg), "List<Option<Token>>"))
+    // Built-in array — colon/angle collapse to angle form.
+    results.add(assertEqStr("subst Array<T>", substituteType("Array<T>", tParam, i64Arg), "Array<i64>"))
+    // Non-generic passthrough (no '<', not a parameter).
+    results.add(assertEqStr("subst non-generic i64", substituteType("i64", tParam, i64Arg), "i64"))
+    // Only DECLARED parameters substitute: an undeclared inner name is left alone.
+    results.add(assertEqStr("subst leaves undeclared U",
+        substituteType("Box<U>", tParam, i64Arg), "Box<U>"))
+
+    // ─── varizeType (probed end-to-end) ──────────────────────────────────────────
+    results.add(assertEqStr("varize promotes a param leaf",
+        varizeProbe("T", tParam, "T", "i64"), "i64"))
+    results.add(assertEqStr("varize keeps a non-param leaf",
+        varizeProbe("Token", tParam, "T", "i64"), "Token"))
+
+    // ─── mangleGenericName ───────────────────────────────────────────────────────
+    results.add(assertEqStr("mangle Box-i64", mangleGenericName("Box", i64Arg), "Box-i64"))
+    results.add(assertEqStr("mangle Pair-i64-String",
+        mangleGenericName("Pair", isArgs), "Pair-i64-String"))
+    results.add(assertEqStr("mangle nested Option-Array-i64",
+        mangleGenericName("Option", one("Array<i64>")), "Option-Array-i64"))
+
+    // ─── flattenTypeArg ──────────────────────────────────────────────────────────
+    results.add(assertEqStr("flatten colon Array-i64", flattenTypeArg("Array:i64"), "Array-i64"))
+    results.add(assertEqStr("flatten angle Array-i64", flattenTypeArg("Array<i64>"), "Array-i64"))
+    results.add(assertEqStr("flatten Box-i64", flattenTypeArg("Box<i64>"), "Box-i64"))
+    results.add(assertEqStr("flatten nested Option-Array-i64",
+        flattenTypeArg("Option<Array<i64>>"), "Option-Array-i64"))
+    results.add(assertEqStr("flatten bare i64", flattenTypeArg("i64"), "i64"))
+
+    return results
+}

@@ -1,0 +1,55 @@
+// makeSuruTypeTest.suru — unit tests for makeSuruType (task 1.7).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// makeSuruTypeTests() and reports the returned results.
+//
+// makeSuruType was reimplemented as parseType→printSuruType over the structured
+// `Type` value (replacing the old hand-rolled string munging). These tests pin its
+// output byte-for-byte across the full behavior matrix so the refactor is verified
+// to be behavior-preserving:
+//   - scalars / bare names pass through unchanged
+//   - built-in arrays use the COLON encoding ("Array:i64"), recursively
+//   - user-defined generics use the HYPHEN encoding ("Box-i64"), with arrays nested
+//     inside a generic's args flattened to hyphen form ("Option-Array-i64")
+//   - makeSuruType is idempotent on already-canonical names ("Array:i64", "List-Token")
+
+namespace Test.Unit.Compiler.MakeSuruType
+
+import {
+    [TestResult, assertEqStr]: Test.Unit.Assert
+    [makeSuruType]: Suru.Compiler.Codegen.TypeHelpers
+}
+
+// makeSuruTypeTests — one TestResult per assertion.
+export fn makeSuruTypeTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ─── scalars / bare names pass through ───────────────────────────────────────
+    results.add(assertEqStr("scalar i64", makeSuruType("i64"), "i64"))
+    results.add(assertEqStr("string String", makeSuruType("String"), "String"))
+    results.add(assertEqStr("struct Token", makeSuruType("Token"), "Token"))
+    results.add(assertEqStr("empty", makeSuruType(""), ""))
+
+    // ─── built-in arrays use the colon encoding (recursive) ──────────────────────
+    results.add(assertEqStr("array Array<i64>", makeSuruType("Array<i64>"), "Array:i64"))
+    results.add(assertEqStr("nested array Array<Array<i64>>",
+        makeSuruType("Array<Array<i64>>"), "Array:Array:i64"))
+    results.add(assertEqStr("array of generic Array<List<Token>>",
+        makeSuruType("Array<List<Token>>"), "Array:List-Token"))
+
+    // ─── user-defined generics use the hyphen encoding ───────────────────────────
+    results.add(assertEqStr("generic Box<i64>", makeSuruType("Box<i64>"), "Box-i64"))
+    results.add(assertEqStr("multi-arg Pair<i64, String>",
+        makeSuruType("Pair<i64, String>"), "Pair-i64-String"))
+    // An array nested inside a generic's args flattens to hyphen form.
+    results.add(assertEqStr("generic of array Option<Array<i64>>",
+        makeSuruType("Option<Array<i64>>"), "Option-Array-i64"))
+
+    // ─── idempotent on already-canonical names ───────────────────────────────────
+    results.add(assertEqStr("idempotent colon Array:i64",
+        makeSuruType("Array:i64"), "Array:i64"))
+    results.add(assertEqStr("idempotent mangled List-Token",
+        makeSuruType("List-Token"), "List-Token"))
+
+    return results
+}

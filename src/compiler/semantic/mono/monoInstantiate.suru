@@ -16,6 +16,9 @@ namespace Suru.Compiler.Semantic.Mono.Instantiate
 import {
     collect: Suru.Compiler.Semantic.Mono.Collect
     subst: Suru.Compiler.Semantic.Mono.Subst
+    [Type, namedType]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [printSymbol]: Suru.Compiler.Types.Print
 }
 
 // ─── InstantiationRequest ─────────────────────────────────────────────────────
@@ -35,46 +38,29 @@ export type InstantiationRequest: { genericName String, concreteTypes Array<Stri
 //   "Option<i64>"         → "Option-i64"
 //   "Option<Array<i64>>"  → "Option-Array-i64"
 // Plain names (no ':' prefix and no '<') are returned as a fresh clone.
+//
+// Reimplemented (todo.md §1.8) as parseType → printSymbol over the structured
+// `Type`: parseType reads both the colon-array and angle forms into one `Arr`/`Named`
+// value, and printSymbol emits the hyphen-mangled symbol name. This is the same
+// boundary pattern as makeSuruType (§1.7), and byte-identical to the old recursive
+// flattening on every real input.
 export fn flattenTypeArg(typeName String) String {
-    let len i64: typeName.len()
-    if len.gt(5) {
-        if typeName.slice(0, 6).equals("Array:") {
-            return "Array-".append(typeName.slice(6, len))
-        }
-    }
-    let ltIdx i64: subst.indexOfLT(typeName)
-    if ltIdx.equals(len) { return typeName.clone() }
-    let base String: typeName.slice(0, ltIdx)
-    let inner String: typeName.slice(ltIdx.add(1), len.take(1))
-    let args Array<String>: subst.splitByComma(inner)
-    let acc String: base
-    let i i64: 0
-    while i.lt(args.len()) {
-        let flat String: flattenTypeArg(subst.trimLeft(args.at(i)))
-        let next String: acc.append("-").append(flat)
-        drop(flat)
-        drop(acc)
-        acc: next
-        i: i.add(1)
-    }
-    return acc
+    let t Type: parseType(typeName)
+    let out String: printSymbol(t)
+    drop(t)
+    return out
 }
 
-// appendMangledTypes — append "-<flattenTypeArg(types[i])>" for each type in
-// types to acc, returning the grown string.  Calls flattenTypeArg so that nested
-// generic names like "Array<i64>" are flattened to "Array-i64" before
-// appending.  Drops each intermediate acc before replacing it.
-fn appendMangledTypes(acc String, types Array<String>) String {
+// parseConcreteTypes — parse each concrete type-argument string into a `Type`,
+// building the argument list for the mangled `Named` below.
+fn parseConcreteTypes(concreteTypes Array<String>) Array<Type> {
+    let out Array<Type>: []
     let i i64: 0
-    while i.lt(types.len()) {
-        let flat String: flattenTypeArg(types.at(i))
-        let next String: acc.append("-").append(flat)
-        drop(flat)
-        drop(acc)
-        acc: next
+    while i.lt(concreteTypes.len()) {
+        out.add(parseType(concreteTypes.at(i)))
         i: i.add(1)
     }
-    return acc
+    return out
 }
 
 // mangleGenericName — produce the monomorphized identifier for a generic
@@ -82,9 +68,17 @@ fn appendMangledTypes(acc String, types Array<String>) String {
 //   mangleGenericName("Box",  ["i64"])          → "Box-i64"
 //   mangleGenericName("Pair", ["i64","String"]) → "Pair-i64-String"
 // Always returns an owned heap String; the caller is responsible for dropping it.
+//
+// Reimplemented (todo.md §1.8) as printSymbol over a `Named baseName <args>`: a
+// `Named`'s symbol form is exactly `baseName` followed by `-<printSymbol(arg)>` per
+// argument, which equals `baseName` + `-flattenTypeArg(arg)` — the previous
+// accumulator — for every real input.
 export fn mangleGenericName(baseName String, concreteTypes Array<String>) String {
-    let acc String: baseName.clone()
-    return appendMangledTypes(acc, concreteTypes)
+    let args Array<Type>: parseConcreteTypes(concreteTypes)
+    let t Type: namedType(baseName.clone(), args)
+    let out String: printSymbol(t)
+    drop(t)
+    return out
 }
 
 // ─── Instantiation ────────────────────────────────────────────────────────────
@@ -142,30 +136,18 @@ fn wrapFnDeclNode(fd FnDeclNode) AstNode {
 
 // ─── Sum type instantiation ───────────────────────────────────────────────────
 
-// mangleTypeExpr — convert a post-substitution type expression string into a
-// mangled identifier.  Plain names are returned unchanged; generic applications
-// are flattened to the mangled form.
-//   "None"        → "None"
-//   "Some<i64>" → "Some-i64"
-//   "Pair<i64,String>" → "Pair-i64-String"
-fn mangleTypeExpr(typeExpr String) String {
-    let ltIdx i64: subst.indexOfLT(typeExpr)
-    // No '<': plain name — return as-is.
-    if ltIdx.equals(typeExpr.len()) { return typeExpr }
-    let base String: typeExpr.slice(0, ltIdx)
-    // Strip the enclosing '<' and '>' and split the type args by comma.
-    let inner String: typeExpr.slice(ltIdx.add(1), typeExpr.len().take(1))
-    let args Array<String>: subst.splitByComma(inner)
-    return appendMangledTypes(base, args)
-}
-
-// substAndMangleVariants — for each variant, apply substituteType then
-// mangleTypeExpr, appending results to out.
+// substAndMangleVariants — for each variant, apply substituteType then mangle the
+// resulting type expression to a flat identifier, appending results to out.
+// flattenTypeArg is the post-substitution mangler ("None" → "None",
+// "Some<i64>" → "Some-i64", "Pair<i64, String>" → "Pair-i64-String"); the
+// substituted intermediate is dropped since flattenTypeArg returns a fresh String.
 fn substAndMangleVariants(variants Array<String>, paramNames Array<String>, concreteTypes Array<String>, out Array<String>) Array<String> {
     let i i64: 0
     while i.lt(variants.len()) {
         let substituted String: subst.substituteType(variants.at(i), paramNames, concreteTypes)
-        out.add(mangleTypeExpr(substituted))
+        let mangled String: flattenTypeArg(substituted)
+        drop(substituted)
+        out.add(mangled)
         i: i.add(1)
     }
     return out

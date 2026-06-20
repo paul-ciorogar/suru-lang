@@ -7,9 +7,17 @@
 //   arrays:     "Array:" + elemSuruType
 //   structs:    the declared type name
 //
-// Include DAG: leaf. Imported by irBoxCodegen.suru and everything above it.
+// Include DAG: near-leaf. Imported by irBoxCodegen.suru and everything above it;
+// depends only on the foundational types/ tree (Type + parse/print), which imports
+// nothing from codegen — so no cycle.
 
 namespace Suru.Compiler.Codegen.TypeHelpers
+
+import {
+    [Type]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [printSuruType]: Suru.Compiler.Types.Print
+}
 
 // True for the four scalar types that use raw LLVM values (not ptr).
 export fn isScalarSuruType(suruType String) bool {
@@ -67,113 +75,6 @@ export fn extractElemType(typeName String) String {
     return typeName.slice(start.add(1), typeName.len().take(1))
 }
 
-// ─── User-defined generic type-name mangling ─────────────────────────────────
-// Map annotations like "Box<i64>" to their mangled suruType "Box-i64" so
-// that codegen's type-registry lookup finds the concrete TypeDeclNode injected
-// by the mono pass.  (These helpers duplicate the equivalent logic in passes.suru
-// because irCodegenTypeHelpers.suru is a leaf with no semantic includes.)
-
-// indexOfAngleCG — index of the first '<' in s, or s.len() when absent.
-fn indexOfAngleCG(s String) i64 {
-    let i i64: 0
-    while i.lt(s.len()) {
-        if s.at(i).equals("<") { return i }
-        i: i.add(1)
-    }
-    return s.len()
-}
-
-// ltrimCG — strip leading ASCII space characters from s.
-fn ltrimCG(s String) String {
-    let i i64: 0
-    while i.lt(s.len()) {
-        if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// flattenCGTypeArg — recursively flatten a type-name string to an
-// identifier-safe form, using the same conventions as monoInstantiate's
-// flattenTypeArg (duplicated here because irCodegenTypeHelpers.suru is a leaf).
-//   "Array<i64>"          → "Array-i64"
-//   "Option<i64>"         → "Option-i64"
-//   "Option<Array<i64>>"  → "Option-Array-i64"
-//   plain names             → trimmed clone
-fn flattenCGTypeArg(typeName String) String {
-    let trimmed String: ltrimCG(typeName)
-    let ltIdx i64: indexOfAngleCG(trimmed)
-    if ltIdx.equals(trimmed.len()) { return trimmed }
-    let base String: trimmed.slice(0, ltIdx)
-    let inner String: trimmed.slice(ltIdx.add(1), trimmed.len().take(1))
-    let acc String: base
-    let start i64: 0
-    let i i64: 0
-    while i.lt(inner.len()) {
-        if inner.at(i).equals(",") {
-            let seg String: flattenCGTypeArg(inner.slice(start, i))
-            let next String: acc.append("-").append(seg)
-            drop(seg)
-            drop(acc)
-            acc: next
-            i: i.add(1)
-            start: i
-        } else {
-            i: i.add(1)
-        }
-    }
-    let seg String: flattenCGTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("-").append(seg)
-    drop(seg)
-    drop(acc)
-    return result
-}
-
-// appendMangledCGAt — scan inner[i..] for comma-separated type args and append
-// "-<flattenCGTypeArg(arg)>" for each to acc, so nested generic names like
-// "Array<i64>" are flattened to "Array-i64" in the resulting identifier.
-fn appendMangledCGAt(inner String, start i64, acc String) String {
-    let i i64: start
-    while i.lt(inner.len()) {
-        if inner.at(i).equals(",") {
-            let seg String: flattenCGTypeArg(inner.slice(start, i))
-            let next String: acc.append("-").append(seg)
-            drop(seg)
-            drop(acc)
-            acc: next
-            i: i.add(1)
-            start: i
-        } else {
-            i: i.add(1)
-        }
-    }
-    let seg String: flattenCGTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("-").append(seg)
-    drop(seg)
-    drop(acc)
-    return result
-}
-
-// isUserGenericTypeName — true when typeName has a '<' but is not the builtin
-// "Array<...>" form.  Catches user-defined generics like "Box<i64>".
-fn isUserGenericTypeName(typeName String) bool {
-    if isArrayTypeName(typeName) { return false }
-    let i i64: 0
-    while i.lt(typeName.len()) {
-        if typeName.at(i).equals("<") { return true }
-        i: i.add(1)
-    }
-    return false
-}
-
-// mangleGenericAnnotation — "Box<i64>" → "Box-i64".
-fn mangleGenericAnnotation(typeName String) String {
-    let ltIdx i64: indexOfAngleCG(typeName)
-    let base String: typeName.slice(0, ltIdx)
-    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
-    return appendMangledCGAt(inner, 0, base)
-}
-
 // normalizeTypeName is now a no-op: all type names are already lowercase.
 // Kept as a call site so the bootstrap transition compiles cleanly.
 fn normalizeTypeName(name String) String {
@@ -183,12 +84,16 @@ fn normalizeTypeName(name String) String {
 // Convert a Suru type annotation name to the suruType encoding used in VarEntry.
 // "Array<i64>" → "Array:i64"; user-defined generics "Box<i64>" → "Box-i64";
 // all other types pass through unchanged.
+//
+// Implemented as parse→print over the structured `Type` (task 1.7): parseType reads
+// the source/colon form at the boundary, printSuruType emits the legacy suruType
+// encoding (colon arrays, hyphen generics). This replaces the old hand-rolled string
+// munging with no behavior change on any real input.
 export fn makeSuruType(typeName String) String {
-    // Recurse on the element so nested arrays canonicalize fully:
-    // "Array<Array<i64>>" → "Array:Array:i64" (consistent colon encoding).
-    if isArrayTypeName(typeName) { return "Array:".append(makeSuruType(extractElemType(typeName))) }
-    if isUserGenericTypeName(typeName) { return mangleGenericAnnotation(typeName) }
-    return typeName
+    let t Type: parseType(typeName)
+    let out String: printSuruType(t)
+    drop(t)
+    return out
 }
 
 // LLVM type string for a Suru type name.
