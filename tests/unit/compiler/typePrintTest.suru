@@ -1,0 +1,68 @@
+// typePrintTest.suru — unit tests for printSymbol and printAnnotation (task 1.3).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// typePrintTests() and reports the returned results.
+//
+// The headline coverage is the print∘parse round trip: feeding a source-form
+// string through parseType and back out through printAnnotation must reproduce
+// the original string (identity), and through printSymbol must produce the
+// hyphen-mangled identifier form. Round-tripping via parseType keeps the tests
+// concise (no hand-built `Type` trees) and exercises both boundaries at once.
+//
+// One non-identity case is included on purpose: the colon array form `Array:i64`
+// parses to the same `Arr` shape as `Array<i64>`, so printAnnotation canonicalizes
+// it to the source form — this documents that intended normalization.
+
+namespace Test.Unit.Compiler.TypePrint
+
+import {
+    [TestResult, assertEqStr]: Test.Unit.Assert
+    [parseType]: Suru.Compiler.Types.Parse
+    [printSymbol, printAnnotation]: Suru.Compiler.Types.Print
+}
+
+// typePrintTests — one TestResult per assertion.
+export fn typePrintTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ─── printAnnotation∘parseType is the identity on source-form strings ────────
+
+    results.add(assertEqStr("ann i64",
+        printAnnotation(parseType("i64")), "i64"))
+    results.add(assertEqStr("ann T",
+        printAnnotation(parseType("T")), "T"))
+    results.add(assertEqStr("ann List<Token>",
+        printAnnotation(parseType("List<Token>")), "List<Token>"))
+    results.add(assertEqStr("ann Pair<i64, String>",
+        printAnnotation(parseType("Pair<i64, String>")), "Pair<i64, String>"))
+    results.add(assertEqStr("ann nested List<Option<Token>>",
+        printAnnotation(parseType("List<Option<Token>>")), "List<Option<Token>>"))
+    results.add(assertEqStr("ann nested-multi Pair<Map<i64, String>, bool>",
+        printAnnotation(parseType("Pair<Map<i64, String>, bool>")),
+        "Pair<Map<i64, String>, bool>"))
+    results.add(assertEqStr("ann Array<i64>",
+        printAnnotation(parseType("Array<i64>")), "Array<i64>"))
+    results.add(assertEqStr("ann Array<List<Token>>",
+        printAnnotation(parseType("Array<List<Token>>")), "Array<List<Token>>"))
+
+    // Colon array form normalizes to the source form on the way out (not identity).
+    results.add(assertEqStr("ann colon Array:i64 -> source",
+        printAnnotation(parseType("Array:i64")), "Array<i64>"))
+
+    // ─── printSymbol∘parseType produces the hyphen-mangled identifier form ───────
+
+    results.add(assertEqStr("sym i64",
+        printSymbol(parseType("i64")), "i64"))
+    results.add(assertEqStr("sym List<Token>",
+        printSymbol(parseType("List<Token>")), "List-Token"))
+    results.add(assertEqStr("sym Pair<i64, String>",
+        printSymbol(parseType("Pair<i64, String>")), "Pair-i64-String"))
+    results.add(assertEqStr("sym nested List<Option<Token>>",
+        printSymbol(parseType("List<Option<Token>>")), "List-Option-Token"))
+    results.add(assertEqStr("sym Array<i64>",
+        printSymbol(parseType("Array<i64>")), "Array-i64"))
+    results.add(assertEqStr("sym nested colon Array:Array:i64",
+        printSymbol(parseType("Array:Array:i64")), "Array-Array-i64"))
+
+    return results
+}

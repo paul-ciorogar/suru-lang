@@ -1,0 +1,156 @@
+// typePrint.suru — render a structured `Type` back into a string.
+//
+// This is the inverse of typeParse.suru and the second boundary of the
+// type-system refactor (todo.md §1.3, design in
+// semantic_analysis_architecture_rd.md §4.A). Where parseType turns a string
+// into a `Type`, the two functions here turn a `Type` back into the two string
+// forms the rest of the compiler still speaks:
+//
+//   - printSymbol     — the hyphen-mangled IDENTIFIER form used for symbol names
+//                       (`List-Token`, `Pair-i64-String`). Inverse of the
+//                       mangling in mangleGenericName / flattenTypeArg
+//                       (semantic/mono/monoInstantiate.suru).
+//   - printAnnotation — the SOURCE form a programmer writes (`List<Token>`,
+//                       `Pair<i64, String>`). Inverse of parseType for the
+//                       source encoding; the colon array form (`Array:i64`) is
+//                       canonicalized to the source form (`Array<i64>`) on the
+//                       way out, since both parse to the same `Arr` shape.
+//
+// Together parse↔print let later tasks (1.7–1.9) re-implement makeSuruType and
+// mangleGenericName on top of `Type` with no behavior change: parse a string at
+// the boundary, operate on structure, print the legacy form back out.
+//
+// Own namespace (not Suru.Compiler.Types) for the same reason as typeParse.suru:
+// the namespace registry maps each namespace to exactly one file, so two files
+// cannot share a namespace.
+//
+// Coverage: tests/unit/compiler/typePrintTest.suru.
+
+namespace Suru.Compiler.Types.Print
+
+import {
+    [Type, Prim, Named, Arr, Var]: Suru.Compiler.Types
+}
+
+// ─── Symbol (mangled identifier) form ───────────────────────────────────────────
+
+// printSymbol — the hyphen-mangled identifier for a `Type`.
+//   Prim "i64"                          -> "i64"
+//   Named "List" [Prim "Token"]         -> "List-Token"
+//   Named "Pair" [i64, String]          -> "Pair-i64-String"
+//   Named "List" [Named "Option" [Tok]] -> "List-Option-Token"   (nested flattens)
+//   Arr (Prim "i64")                    -> "Array-i64"
+//   Arr (Arr (Prim "i64"))              -> "Array-Array-i64"
+//   Var{name:"T"}                       -> "T"
+//   Var{id:0, name:""}                  -> "?0"   (degenerate; see header)
+// A fully-concrete type carries no `Var`, so the `Var` arm only matters to keep
+// the function total — it is not exercised by the print∘parse round-trip tests.
+export fn printSymbol(t Type) String {
+    match t {
+        Prim: {
+            let p Prim: t
+            return p.name.clone()
+        }
+        Named: {
+            let n Named: t
+            let acc String: n.name.clone()
+            return appendSymbolArgs(acc, n.args)
+        }
+        Arr: {
+            let a Arr: t
+            // The built-in array mangles exactly like a one-arg generic named
+            // "Array": Arr(i64) -> "Array-i64", matching flattenTypeArg.
+            let elemSym String: printSymbol(a.elem)
+            let result String: "Array-".append(elemSym)
+            drop(elemSym)
+            return result
+        }
+        Var: {
+            let v Var: t
+            return printVarName(v)
+        }
+    }
+}
+
+// appendSymbolArgs — append "-<printSymbol(arg)>" for each arg to acc, returning
+// the grown string. Mirrors appendMangledTypes' owned-string discipline: each
+// intermediate accumulator is dropped before being replaced.
+fn appendSymbolArgs(acc String, args Array<Type>) String {
+    let cur String: acc
+    let i i64: 0
+    while i.lt(args.len()) {
+        let seg String: printSymbol(args.at(i))
+        let next String: cur.append("-").append(seg)
+        drop(seg)
+        drop(cur)
+        cur: next
+        i: i.add(1)
+    }
+    return cur
+}
+
+// ─── Annotation (source) form ───────────────────────────────────────────────────
+
+// printAnnotation — the source form a programmer writes for a `Type`.
+//   Prim "i64"                  -> "i64"
+//   Named "List" [Prim "Token"] -> "List<Token>"
+//   Named "Pair" [i64, String]  -> "Pair<i64, String>"   (args joined with ", ")
+//   Arr (Prim "i64")            -> "Array<i64>"           (colon form normalized)
+//   Var{name:"T"}               -> "T";  Var{id:0} -> "?0"
+// Args are joined with ", " (comma + space) so printAnnotation∘parseType is the
+// identity on the spaced source form the parser and tests use.
+export fn printAnnotation(t Type) String {
+    match t {
+        Prim: {
+            let p Prim: t
+            return p.name.clone()
+        }
+        Named: {
+            let n Named: t
+            let inner String: joinAnnotationArgs(n.args)
+            let result String: n.name.append("<").append(inner).append(">")
+            drop(inner)
+            return result
+        }
+        Arr: {
+            let a Arr: t
+            let elemAnn String: printAnnotation(a.elem)
+            let result String: "Array<".append(elemAnn).append(">")
+            drop(elemAnn)
+            return result
+        }
+        Var: {
+            let v Var: t
+            return printVarName(v)
+        }
+    }
+}
+
+// joinAnnotationArgs — render args as a ", "-separated source list (no enclosing
+// angle brackets). Empty for an empty arg list. Owned-string discipline as above.
+fn joinAnnotationArgs(args Array<Type>) String {
+    let acc String: ""
+    let i i64: 0
+    while i.lt(args.len()) {
+        let seg String: printAnnotation(args.at(i))
+        // A leading ", " separates every arg after the first; the first arg
+        // joins directly so no spurious comma precedes the list.
+        let sep String: match i.gt(0) { true: ", ", _: "" }
+        let next String: acc.append(sep).append(seg)
+        drop(seg)
+        drop(acc)
+        acc: next
+        i: i.add(1)
+    }
+    return acc
+}
+
+// ─── Shared helper ──────────────────────────────────────────────────────────────
+
+// printVarName — a `Var` renders as its source name when it has one (a generic
+// parameter like `T`), otherwise as `?<id>` (a fresh inference variable, e.g.
+// `?0`). Used by both printers so the two forms agree on type variables.
+fn printVarName(v Var) String {
+    if v.name.len().gt(0) { return v.name.clone() }
+    return "?".append(v.id.toString())
+}
