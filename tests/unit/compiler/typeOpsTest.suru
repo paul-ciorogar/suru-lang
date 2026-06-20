@@ -10,9 +10,9 @@
 //
 // equalType coverage emphasizes the two ways structural equality can fail beyond a
 // plain payload mismatch: ARG ORDER (`Pair<i64, String>` != `Pair<String, i64>`)
-// and ARITY (`Pair<i64, String>` != `Pair<i64>`), called out in todo.md §1.4.
+// and ARITY (`Pair<i64, String>` != `Pair<i64>`).
 // substitute coverage drives the replacements through equalType, including the
-// nested `List<T>` with `T=Token` case todo.md §1.5 requires.
+// nested `List<T>` with `T=Token` case.
 
 namespace Test.Unit.Compiler.TypeOps
 
@@ -86,7 +86,7 @@ export fn typeOpsTests() Array<TestResult> {
     results.add(assertTrue("subst [] is identity on List<Token>",
         equalType(substitute(parseType("List<Token>"), bEmpty), parseType("List<Token>"))))
 
-    // Nested: `List<T>` with `T=Token` -> `List<Token>` (todo.md §1.5 requirement).
+    // Nested: `List<T>` with `T=Token` -> `List<Token>`.
     let bTok Array<Binding>: [binding("T", parseType("Token"))]
     let listOfT Type: namedType("List", [varType(0, "T")])
     results.add(assertTrue("subst List<T> with T=Token -> List<Token>",
@@ -124,7 +124,7 @@ export fn typeOpsTests() Array<TestResult> {
     let varT Type: varType(0, "T")
     let varU Type: varType(1, "U")
 
-    // Solve: `List<?0> = List<Token>` recovers `?0 = Token` (todo.md §1.6 case 1).
+    // Solve: `List<?0> = List<Token>` recovers `?0 = Token` (case 1).
     let uList UnifyResult: unify(namedType("List", [varType(0, "T")]), parseType("List<Token>"))
     results.add(assertTrue("unify List<?0> = List<Token> ok", uList.ok))
     results.add(assertTrue("unify List<?0> = List<Token> solves ?0=Token",

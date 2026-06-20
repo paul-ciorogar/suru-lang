@@ -1,7 +1,7 @@
 // typeParse.suru — parse a type-annotation string into a structured `Type`.
 //
-// This is the boundary operation of the type-system refactor (todo.md §1.2,
-// design in semantic_analysis_architecture_rd.md §4.A): it turns the raw string
+// This is the boundary operation of the type-system refactor (design in
+// semantic_analysis_architecture_rd.md §4.A): it turns the raw string
 // forms the compiler carries today into the single structured `Type` value
 // declared in type.suru, so every later operation (printSymbol, equalType,
 // substitute, unify) works on structure instead of re-parsing strings.

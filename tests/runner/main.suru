@@ -16,6 +16,8 @@ import {
     [typeOpsTests]: Test.Unit.Compiler.TypeOps
     [makeSuruTypeTests]: Test.Unit.Compiler.MakeSuruType
     [substituteTypeTests]: Test.Unit.Compiler.SubstituteType
+    [collectGenericAppTests]: Test.Unit.Compiler.CollectGenericApp
+    [callNodeTypeArgsTests]: Test.Unit.Compiler.CallNodeTypeArgs
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
@@ -183,6 +185,10 @@ fn main(args Array<String>) {
     failed: failed.add(makeSuruTypeFailed)
     let substTypeFailed i64: reportResults("substitute-type", substituteTypeTests())
     failed: failed.add(substTypeFailed)
+    let collectGenAppFailed i64: reportResults("collect-generic-app", collectGenericAppTests())
+    failed: failed.add(collectGenAppFailed)
+    let callTypeArgsFailed i64: reportResults("call-node-typeargs", callNodeTypeArgsTests())
+    failed: failed.add(callTypeArgsFailed)
     let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())
@@ -225,7 +231,7 @@ fn main(args Array<String>) {
                         xpassed: xpassed.add(1)
                     }
                     _: {
-                        printLn("XFAIL ".append(tc.name).append(" (known-broken, not blocking — todo.md L2)"))
+                        printLn("XFAIL ".append(tc.name).append(" (known-broken, not blocking)"))
                         xfailed: xfailed.add(1)
                     }
                 }

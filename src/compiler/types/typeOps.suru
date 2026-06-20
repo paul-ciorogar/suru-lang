@@ -1,9 +1,9 @@
 // typeOps.suru — structural operations on the structured `Type` value.
 //
 // This file hosts the canonical operations that compare and transform `Type`
-// values (todo.md §1.4–1.6, design in semantic_analysis_architecture_rd.md §4.A).
+// values (design in semantic_analysis_architecture_rd.md §4.A).
 // It begins with the keystone equality test (`equalType`), then `substitute`
-// (1.5, type-variable replacement); a later task adds `unify` (1.6) alongside.
+// (type-variable replacement); a later task adds `unify` alongside.
 //
 // `equalType` is the single structural-equality rule for the whole compiler. It
 // replaces the per-call-site string comparisons over the three legacy encodings
@@ -106,9 +106,9 @@ fn equalArgs(xs Array<Type>, ys Array<Type>) bool {
 // `substitute` replaces type variables with concrete types throughout a `Type`,
 // keyed by variable NAME. It is the structured replacement for the string-based
 // `substituteType` in semantic/mono/monoSubst.suru (which pairs a `paramNames`
-// array with a `concreteTypes` array); a later task (1.8) rebuilds that mangler on
-// top of this op, and the `unify` solver (1.6) produces the very bindings fed in
-// here. See todo.md §1.5.
+// array with a `concreteTypes` array); a later task rebuilds that mangler on
+// top of this op, and the `unify` solver produces the very bindings fed in
+// here.
 
 // Binding — one `var name -> Type` mapping. A list of these (`Array<Binding>`) IS
 // the "Bindings" carrier the design names; Suru has no map type and no type-alias
@@ -218,7 +218,7 @@ fn cloneType(t Type) Type {
 //   varizeType(Array<T>,        ["T"]) -> Array<Var "T">
 //
 // The result is a fresh deep copy (same ownership discipline as `substitute`), so
-// `substituteType` (todo.md §1.8) can drop it independently of its input. This is the
+// `substituteType` can drop it independently of its input. This is the
 // same "type params -> Var" primitive Phase 2/3 will reuse when pushing a type-param
 // scope on entering a generic body (§4.B).
 export fn varizeType(t Type, paramNames Array<String>) Type {
@@ -268,7 +268,7 @@ fn varizeArgs(args Array<Type>, paramNames Array<String>) Array<Type> {
 
 // ─── unify ────────────────────────────────────────────────────────────────────────
 //
-// `unify` is the keystone op for Phase 2 (todo.md §1.6, design §4.A / §C). It takes a
+// `unify` is the keystone op for Phase 2 (design §4.A / §C). It takes a
 // PATTERN type — one that may contain type variables (`Var`) — and a (typically
 // concrete) type, and SOLVES for the variables: the bindings that, fed to
 // `substitute`, make the pattern equal the target. In Phase 2 the resolver unifies a

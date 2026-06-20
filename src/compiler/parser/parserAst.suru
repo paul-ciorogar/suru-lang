@@ -46,6 +46,7 @@ namespace Suru.Compiler.Parser.Ast
 
 import {
     Suru.Compiler.Lexer
+    [Type]: Suru.Compiler.Types
 }
 
 // Operator constants for UnaryNode.op and BinaryNode.op.
@@ -231,8 +232,12 @@ export type StrLitNode:      { text String, resolvedType String }
 // WildcardNode is pattern-only and has no value, so no resolvedType.
 export type WildcardNode:    { }
 export type VarRefNode:      { name String, line i64, col i64, resolvedType String }
-export type CallNode:        { name String, args Array<AstNode>, line i64, col i64, resolvedType String }
-export type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, line i64, col i64, resolvedType String }
+// CallNode/MethodCallNode carry `typeArgs`: the type arguments bound for a call to a
+// generic callee. Populated by the resolver's unifier (Phase 2.2/2.3); the parser
+// initializes it to `[]`. Recording the binding here lets monomorphization read the
+// concrete instantiation directly instead of re-deriving it syntactically.
+export type CallNode:        { name String, args Array<AstNode>, typeArgs Array<Type>, line i64, col i64, resolvedType String }
+export type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, typeArgs Array<Type>, line i64, col i64, resolvedType String }
 export type FieldAccessNode: { receiver AstNode, fieldName String, line i64, col i64, resolvedType String }
 export type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
 export type ObjectLitNode:   { fields Array<ObjectFieldNode>, resolvedType String, line i64, col i64 }

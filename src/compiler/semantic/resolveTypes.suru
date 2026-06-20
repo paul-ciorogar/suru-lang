@@ -18,8 +18,7 @@
 //     propagate it inward so deeply nested object literals know their type.
 //
 // This replaces the brittle `ctx.currentReturnTypeName` save/restore dance in
-// the codegen with a single read from `expr.resolvedType`. See todo.md task 3
-// for the full plan.
+// the codegen with a single read from `expr.resolvedType`.
 //
 // Implementation notes
 //   • The pass mutates AST nodes in place. The Suru pattern is to bind the

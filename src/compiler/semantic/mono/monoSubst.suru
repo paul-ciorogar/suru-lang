@@ -78,7 +78,7 @@ fn buildBindings(paramNames Array<String>, concreteTypes Array<String>) Array<Bi
 // type-name string.  Handles bare type vars ("T" → "i64"), single-arg generics
 // ("List<T>" → "List<i64>"), and multi-arg forms ("Pair<T, U>" → "Pair<i64, String>").
 //
-// Reimplemented (todo.md §1.8) on top of the structured `Type` ops, replacing the
+// Reimplemented on top of the structured `Type` ops, replacing the
 // old hand-rolled string surgery:
 //   1. parseType reads the annotation into a `Type` at the boundary.
 //   2. varizeType promotes the type-parameter names (which parse to context-free
@@ -366,14 +366,14 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         CallNode: {
             let cn CallNode: node
             let newArgs Array<AstNode>: substExprs(cn.args, paramNames, concreteTypes)
-            let result CallNode: { name: cn.name, args: newArgs, line: cn.line, col: cn.col, resolvedType: substituteType(cn.resolvedType, paramNames, concreteTypes) }
+            let result CallNode: { name: cn.name, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: substituteType(cn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         MethodCallNode: {
             let mcn MethodCallNode: node
             let newRec AstNode: substExpr(mcn.receiver, paramNames, concreteTypes)
             let newArgs Array<AstNode>: substExprs(mcn.args, paramNames, concreteTypes)
-            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: substituteType(mcn.resolvedType, paramNames, concreteTypes) }
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: substituteType(mcn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         FieldAccessNode: {

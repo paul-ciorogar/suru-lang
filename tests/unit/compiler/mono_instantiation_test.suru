@@ -1,6 +1,6 @@
 // mono_instantiation_test.suru — in-process REGRESSION ORACLE for the
 // monomorphization pass (Phase 0, task 0.1 of the type-system refactor; see
-// todo.md and semantic_analysis_architecture_rd.md).
+// semantic_analysis_architecture_rd.md).
 //
 // Purpose: pin down TODAY's set of monomorphized (mangled) declarations, INCLUDING
 // the known object-literal-field bug, so every later phase of the refactor can

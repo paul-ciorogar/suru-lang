@@ -6,7 +6,7 @@
 // substituteTypeTests() and reports the returned results.
 //
 // Three functions are exercised, each rebuilt on parseType / substitute / printSymbol
-// / printAnnotation (todo.md §1.8):
+// / printAnnotation:
 //   - substituteType  — replace type-parameter names with concrete types in an
 //     annotation string. Output is now NORMALIZED to source form (colon-array
 //     inputs reprint as angle form; multi-arg generics print with ", ").

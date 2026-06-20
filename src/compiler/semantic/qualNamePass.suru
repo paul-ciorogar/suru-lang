@@ -337,13 +337,13 @@ fn rewriteQualNameExpr(node AstNode, nsExports Array<NsExportEntry>) AstNode {
                 if nsInExports(ns, nsExports) {
                     let newArgs Array<AstNode>: rewriteQualNameExprs(mcn.args, nsExports)
                     let qn QualifiedNameNode: { parts: parts, line: mcn.line, col: mcn.col, resolvedType: "" }
-                    let result MethodCallNode: { receiver: qn, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+                    let result MethodCallNode: { receiver: qn, methodName: mcn.methodName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
                     return result
                 }
             }
             let newRec AstNode: rewriteQualNameExpr(mcn.receiver, nsExports)
             let newArgs Array<AstNode>: rewriteQualNameExprs(mcn.args, nsExports)
-            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
             return result
         }
         FieldAccessNode: {
@@ -369,7 +369,7 @@ fn rewriteQualNameExpr(node AstNode, nsExports Array<NsExportEntry>) AstNode {
         CallNode: {
             let cn CallNode: node
             let newArgs Array<AstNode>: rewriteQualNameExprs(cn.args, nsExports)
-            let result CallNode: { name: cn.name, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            let result CallNode: { name: cn.name, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
             return result
         }
         BinaryNode: {

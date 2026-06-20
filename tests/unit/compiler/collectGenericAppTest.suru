@@ -1,0 +1,138 @@
+// collectGenericAppTest.suru — unit tests for the monomorphizer's transitive
+// generic-application collector after its §1.9 reimplementation on the structured
+// `Type` ops.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// collectGenericAppTests() and reports the returned results.
+//
+// `collectGenericAppFromType` (semantic/mono/monoInstantiate.suru) is the transitive
+// follow-up scanner: given a (substituted) type annotation, it appends an
+// InstantiationRequest for every generic application whose base is a registry struct
+// or sum type, recursing inner-before-outer. §1.9 replaced its hand-rolled
+// indexOfLT/slice/splitByComma string surgery with parseType → walk-the-`Type`.
+//
+// These tests drive it directly against a hand-built GenericRegistry (List/Pair/Box
+// as generic structs, Option as a generic sum type) and pin, as a compact string:
+//   - the request base name + concrete-arg list, and
+//   - the inner-before-outer ordering of nested applications.
+// They also cover the one intended improvement over the old code: a nested MULTI-arg
+// argument (`List<Pair<i64, String>>`) is split at the correct angle-bracket depth,
+// which the old depth-blind splitByComma mangled.
+
+namespace Test.Unit.Compiler.CollectGenericApp
+
+import {
+    [TestResult, assertEqStr]: Test.Unit.Assert
+    [collectGenericAppFromType, InstantiationRequest]: Suru.Compiler.Semantic.Mono.Instantiate
+    [GenericRegistry, GenericFnDef, GenericTypeDef, GenericSumTypeDef, newGenericRegistry, newGenericTypeDef]: Suru.Compiler.Semantic.Mono.Collect
+    [TypeDeclNode, SumTypeDeclNode, Param, MethodSig]: Suru.Compiler.Parser.Ast
+}
+
+// ─── Registry builders ───────────────────────────────────────────────────────────
+
+// dummyType — a minimal generic TypeDeclNode. Only `name` matters to hasType; the
+// single `["T"]` type parameter just keeps it shaped like a real generic struct.
+fn dummyType(name String) TypeDeclNode {
+    let fields Array<Param>: []
+    let methods Array<MethodSig>: []
+    let tp Array<String>: ["T"]
+    return { name: name, fields: fields, methods: methods, typeParams: tp, isCType: false, line: 0, col: 0 }
+}
+
+// dummySum — a minimal generic SumTypeDeclNode (only `name` matters to hasSumType).
+fn dummySum(name String) SumTypeDeclNode {
+    let variants Array<String>: []
+    let tp Array<String>: ["T"]
+    return { name: name, variants: variants, typeParams: tp, line: 0, col: 0 }
+}
+
+// buildRegistry — List/Pair/Box registered as generic structs, Option as a generic
+// sum type, so the `hasType(base) or hasSumType(base)` test exercises both branches.
+// The GenericSumTypeDef is built as an object literal because newGenericSumTypeDef is
+// private to monoCollect.suru; the inline typeParams() body mirrors the constructor.
+fn buildRegistry() GenericRegistry {
+    let fns Array<GenericFnDef>: []
+    let types Array<GenericTypeDef>: []
+    types.add(newGenericTypeDef("List", dummyType("List")))
+    types.add(newGenericTypeDef("Pair", dummyType("Pair")))
+    types.add(newGenericTypeDef("Box", dummyType("Box")))
+    let sums Array<GenericSumTypeDef>: []
+    let optDef GenericSumTypeDef: { name: "Option", node: dummySum("Option"), fn typeParams() Array<String> { return this.node.typeParams } }
+    sums.add(optDef)
+    return newGenericRegistry(fns, types, sums)
+}
+
+// ─── Rendering ───────────────────────────────────────────────────────────────────
+
+// joinArgs — render a concreteTypes list as a ", "-separated string (matching the
+// source form the requests carry: `Pair<i64, String>` → args "i64", "String").
+fn joinArgs(args Array<String>) String {
+    let s String: ""
+    let i i64: 0
+    while i.lt(args.len()) {
+        let sep String: match i.gt(0) { true: ", ", _: "" }
+        let next String: s.append(sep).append(args.at(i))
+        drop(s)
+        s: next
+        i: i.add(1)
+    }
+    return s
+}
+
+// renderRequests — render the request list as "Base(arg, arg);Base(arg)…", so a
+// single assertEqStr pins both the base/arg contents AND the inner-before-outer
+// ordering. Empty for no requests.
+fn renderRequests(out Array<InstantiationRequest>) String {
+    let s String: ""
+    let i i64: 0
+    while i.lt(out.len()) {
+        let req InstantiationRequest: out.at(i)
+        let sep String: match i.gt(0) { true: ";", _: "" }
+        let args String: joinArgs(req.concreteTypes)
+        let piece String: req.genericName.append("(").append(args).append(")")
+        drop(args)
+        let next String: s.append(sep).append(piece)
+        drop(piece)
+        drop(s)
+        s: next
+        i: i.add(1)
+    }
+    return s
+}
+
+// collectStr — run the collector on one annotation against `registry` and render the
+// resulting requests. The owned request list is dropped here (it owns the heap
+// strings the collector produced); the returned summary is consumed by assertEqStr.
+fn collectStr(registry GenericRegistry, typeName String) String {
+    let out Array<InstantiationRequest>: []
+    out: collectGenericAppFromType(typeName, registry, out)
+    let s String: renderRequests(out)
+    drop(out)
+    return s
+}
+
+export fn collectGenericAppTests() Array<TestResult> {
+    let results Array<TestResult>: []
+    let reg GenericRegistry: buildRegistry()
+
+    // Single-arg generic struct.
+    results.add(assertEqStr("List<i64>", collectStr(reg, "List<i64>"), "List(i64)"))
+    // Multi-arg generic struct — args keep source form and order.
+    results.add(assertEqStr("Pair<i64, String>",
+        collectStr(reg, "Pair<i64, String>"), "Pair(i64, String)"))
+    // Nested same-name sum type: inner request enqueues before the outer one.
+    results.add(assertEqStr("Option<Option<i64>> inner-first",
+        collectStr(reg, "Option<Option<i64>>"), "Option(i64);Option(Option<i64>)"))
+    // Built-in Array is not a registry generic: only the inner Box is requested.
+    results.add(assertEqStr("Array<Box<i64>> skips Array",
+        collectStr(reg, "Array<Box<i64>>"), "Box(i64)"))
+    // A bare primitive yields no requests.
+    results.add(assertEqStr("bare i64 no requests", collectStr(reg, "i64"), ""))
+    // §1.9 improvement: a nested MULTI-arg arg splits at the right depth (the old
+    // depth-blind splitByComma would have mangled the inner comma).
+    results.add(assertEqStr("nested multi-arg depth-correct",
+        collectStr(reg, "List<Pair<i64, String>>"),
+        "Pair(i64, String);List(Pair<i64, String>)"))
+
+    return results
+}

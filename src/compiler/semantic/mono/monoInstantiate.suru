@@ -16,9 +16,9 @@ namespace Suru.Compiler.Semantic.Mono.Instantiate
 import {
     collect: Suru.Compiler.Semantic.Mono.Collect
     subst: Suru.Compiler.Semantic.Mono.Subst
-    [Type, namedType]: Suru.Compiler.Types
+    [Type, Named, Arr, namedType]: Suru.Compiler.Types
     [parseType]: Suru.Compiler.Types.Parse
-    [printSymbol]: Suru.Compiler.Types.Print
+    [printSymbol, printAnnotation]: Suru.Compiler.Types.Print
 }
 
 // ─── InstantiationRequest ─────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ export type InstantiationRequest: { genericName String, concreteTypes Array<Stri
 //   "Option<Array<i64>>"  → "Option-Array-i64"
 // Plain names (no ':' prefix and no '<') are returned as a fresh clone.
 //
-// Reimplemented (todo.md §1.8) as parseType → printSymbol over the structured
+// Reimplemented as parseType → printSymbol over the structured
 // `Type`: parseType reads both the colon-array and angle forms into one `Arr`/`Named`
 // value, and printSymbol emits the hyphen-mangled symbol name. This is the same
 // boundary pattern as makeSuruType (§1.7), and byte-identical to the old recursive
@@ -69,7 +69,7 @@ fn parseConcreteTypes(concreteTypes Array<String>) Array<Type> {
 //   mangleGenericName("Pair", ["i64","String"]) → "Pair-i64-String"
 // Always returns an owned heap String; the caller is responsible for dropping it.
 //
-// Reimplemented (todo.md §1.8) as printSymbol over a `Named baseName <args>`: a
+// Reimplemented as printSymbol over a `Named baseName <args>`: a
 // `Named`'s symbol form is exactly `baseName` followed by `-<printSymbol(arg)>` per
 // argument, which equals `baseName` + `-flattenTypeArg(arg)` — the previous
 // accumulator — for every real input.
@@ -314,29 +314,67 @@ fn findInstSumType(registry GenericRegistry, genericName String, concreteTypes A
 // name is a registry struct or sum type, append an InstantiationRequest for it
 // to out.  Recurses into the type arguments first so nested applications
 // (e.g. Option<Option<i64>>) enqueue the inner request too.
-fn collectGenericAppFromType(typeName String, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let ltIdx i64: subst.indexOfLT(typeName)
-    if ltIdx.equals(typeName.len()) { return out }
-    let base String: typeName.slice(0, ltIdx)
-    // Strip the enclosing '<' and trailing '>' and split args by comma.
-    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
-    let rawArgs Array<String>: subst.splitByComma(inner)
-    drop(inner)
-    let args Array<String>: []
-    let i i64: 0
-    while i.lt(rawArgs.len()) {
-        let a String: subst.trimLeft(rawArgs.at(i))
-        out: collectGenericAppFromType(a, registry, out)
-        args.add(a)
-        i: i.add(1)
+//
+// Reimplemented as parseType → walk-the-`Type`: the annotation is
+// parsed ONCE into a structured value and collectGenericAppFromTypeVal walks it,
+// replacing the hand-rolled indexOfLT/slice/splitByComma string surgery. Same
+// boundary pattern as makeSuruType (§1.7) and substituteType (§1.8). `t` is owned
+// by parseType and only borrowed by the walk, so it is dropped here (mirrors
+// flattenTypeArg). Exported so collectGenericAppTest can drive it directly.
+export fn collectGenericAppFromType(typeName String, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    let t Type: parseType(typeName)
+    out: collectGenericAppFromTypeVal(t, registry, out)
+    drop(t)
+    return out
+}
+
+// collectGenericAppFromTypeVal — walk a structured `Type`, appending an
+// InstantiationRequest for each `Named` node whose base name is a registry generic
+// (struct or sum type). Recurses into type arguments / array elements FIRST, so a
+// nested application (`Option<Option<i64>>`) enqueues the inner request before the
+// outer one — matching the pre-refactor inner-before-outer string walk. `Prim`/`Var`
+// leaves contribute nothing (the `_` arm). Each request's concreteTypes are the args
+// printed back to source form (printAnnotation), the same strings the downstream
+// mangler (mangleGenericName → parseConcreteTypes) re-parses.
+//
+// `t` is read-only here (the unchecked-downcast idiom `let n Named: t`); the only
+// owned strings produced are `n.name.clone()` for a matched request and the
+// printAnnotation results inside annotationArgs, so the caller may drop `t` safely.
+fn collectGenericAppFromTypeVal(t Type, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
+    match t {
+        Named: {
+            let n Named: t
+            // Recurse into args first so inner applications enqueue before outer.
+            let i i64: 0
+            while i.lt(n.args.len()) {
+                out: collectGenericAppFromTypeVal(n.args.at(i), registry, out)
+                i: i.add(1)
+            }
+            if registry.hasType(n.name) or registry.hasSumType(n.name) {
+                let args Array<String>: annotationArgs(n.args)
+                let req InstantiationRequest: { genericName: n.name.clone(), concreteTypes: args }
+                out.add(req)
+            }
+            return out
+        }
+        Arr: {
+            let a Arr: t
+            out: collectGenericAppFromTypeVal(a.elem, registry, out)
+            return out
+        }
+        _: { return out }
     }
-    drop(rawArgs)
-    if registry.hasType(base) or registry.hasSumType(base) {
-        let req InstantiationRequest: { genericName: base, concreteTypes: args }
-        out.add(req)
-    } else {
-        drop(base)
-        drop(args)
+}
+
+// annotationArgs — render each argument `Type` back to its source form, building the
+// `concreteTypes Array<String>` for an InstantiationRequest. printAnnotation returns a
+// fresh owned String per arg, so the resulting array is owned by the caller.
+fn annotationArgs(args Array<Type>) Array<String> {
+    let out Array<String>: []
+    let i i64: 0
+    while i.lt(args.len()) {
+        out.add(printAnnotation(args.at(i)))
+        i: i.add(1)
     }
     return out
 }

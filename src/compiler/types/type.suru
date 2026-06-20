@@ -11,7 +11,7 @@
 //
 // This file introduces the single structured replacement: one `Type` value with
 // four shapes. Later tasks add the five canonical operations on top of it
-// (parseType, printSymbol, equalType, substitute, unify) — see todo.md and
+// (parseType, printSymbol, equalType, substitute, unify) — see
 // semantic_analysis_architecture_rd.md §4.A.
 //
 // `Type` is a non-generic, recursive sum type, the same shape as the existing

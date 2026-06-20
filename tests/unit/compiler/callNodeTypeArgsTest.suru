@@ -1,0 +1,89 @@
+// callNodeTypeArgsTest.suru — unit test for task 2.1 of the type-system refactor:
+// the `typeArgs Array<Type>` field added to CallNode and MethodCallNode.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// callNodeTypeArgsTests() and reports the returned results.
+//
+// Task 2.1 is purely structural: the field exists and the parser initializes it to
+// an empty array. Nothing populates it yet (the resolver's unifier does that in
+// tasks 2.2/2.3). So the contract under test is exactly: after lex+parse, a call
+// expression's `typeArgs` is present and has length 0.
+//
+// Mechanism: tokenize + parse a tiny source snippet in-process (no compile/link),
+// then walk the known AST shape — first FnDeclNode → its first body statement
+// (a LetNode) → the let's value expression — to reach the CallNode / MethodCallNode
+// and read `typeArgs.len()`.
+
+namespace Test.Unit.Compiler.CallNodeTypeArgs
+
+import {
+    [TestResult, assertEqI64]: Test.Unit.Assert
+    [tokenize, Token]: Suru.Compiler.Lexer
+    [parse, AstModule, AstNode, FnDeclNode, LetNode, CallNode, MethodCallNode]: Suru.Compiler.Parser.Ast
+    parser: Suru.Compiler.Parser
+}
+
+// firstLetValue — return the value expression of the first `let` in the first
+// function declaration of `mod`. The returned AstNode is a BORROWED reference into
+// the module's tree (do NOT drop it; the caller drops the whole module). Returns the
+// first top-level statement as a harmless fallback if the expected shape is absent.
+fn firstLetValue(mod AstModule) AstNode {
+    let stmts Array<AstNode>: mod.stmts
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            FnDeclNode: {
+                let fd FnDeclNode: s
+                let body Array<AstNode>: fd.body
+                let v AstNode: body.at(0)
+                let ln LetNode: v
+                return ln.value
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return stmts.at(0)
+}
+
+// callTypeArgsLen — lex+parse `source`, locate the call expression bound by the
+// first let, and return its `typeArgs` length. Returns -1 if the value is neither a
+// CallNode nor a MethodCallNode (a test failure signal). The tokens and module are
+// intentionally NOT dropped: the parser shares token-text strings into the AST, so
+// the established in-process pattern (runPipelineDebug / compileOneFile) leaves both
+// alive — dropping both would double-free. Unit tests are not valgrind'd, so the
+// per-call leak is harmless (and bounded — two calls per run).
+fn callTypeArgsLen(source String) i64 {
+    let toks Array<Token>: tokenize(source, "test.suru")
+    let mod AstModule: parser.parse(toks, "test.suru")
+    let v AstNode: firstLetValue(mod)
+    let n i64: 0.take(1)
+    match v {
+        CallNode: {
+            let cn CallNode: v
+            n: cn.typeArgs.len()
+        }
+        MethodCallNode: {
+            let mcn MethodCallNode: v
+            n: mcn.typeArgs.len()
+        }
+        _: {}
+    }
+    return n
+}
+
+// callNodeTypeArgsTests — one TestResult per call form.
+export fn callNodeTypeArgsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // Plain function call: `g()` → CallNode with empty typeArgs.
+    let callSrc String: "namespace T\nfn f() i64 { let x i64: g() return x }\n"
+    results.add(assertEqI64("CallNode typeArgs empty", callTypeArgsLen(callSrc), 0))
+
+    // Method call: `5.add(3)` → MethodCallNode with empty typeArgs.
+    let methodSrc String: "namespace T\nfn f() i64 { let x i64: 5.add(3) return x }\n"
+    results.add(assertEqI64("MethodCallNode typeArgs empty", callTypeArgsLen(methodSrc), 0))
+
+    return results
+}

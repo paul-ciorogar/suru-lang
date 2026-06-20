@@ -21,6 +21,7 @@ import {
     infer: Suru.Compiler.Semantic.Mono.Infer
     inst: Suru.Compiler.Semantic.Mono.Instantiate
     nodes: Suru.Compiler.Parser.Nodes
+    [Type]: Suru.Compiler.Types
 }
 
 // ─── Result type ─────────────────────────────────────────────────────────────
@@ -172,7 +173,7 @@ fn rewriteCallInExprWithAnnotation(expr AstNode, annotation String, registry Gen
                 _: newName
             }
             let newArgs Array<AstNode>: rewriteCallsInExprs(cn.args, registry)
-            let result CallNode: { name: finalName, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            let result CallNode: { name: finalName, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
             return result
         }
         _: { return rewriteCallsInExpr(expr, registry) }
@@ -325,7 +326,7 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
             let cn CallNode: node
             let newName String: rewriteCallName(cn, registry)
             let newArgs Array<AstNode>: rewriteCallsInExprs(cn.args, registry)
-            let result CallNode: { name: newName, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            let result CallNode: { name: newName, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
             return result
         }
         MethodCallNode: {
@@ -339,10 +340,10 @@ fn rewriteCallsInExpr(node AstNode, registry GenericRegistry) AstNode {
             let recvType String: infer.resolvedTypeOf(mcn.receiver)
             let newName String: mcn.methodName
             if recvType.equals("") {
-                let synth CallNode: { name: mcn.methodName, args: mcn.args, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+                let synth CallNode: { name: mcn.methodName, args: mcn.args, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
                 newName: rewriteCallName(synth, registry)
             }
-            let result MethodCallNode: { receiver: newRec, methodName: newName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+            let result MethodCallNode: { receiver: newRec, methodName: newName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
             return result
         }
         FieldAccessNode: {
@@ -417,7 +418,8 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
                     if not mangledName.equals("") {
                         // mangledName ownership transfers to rewrittenCall.name — do NOT drop.
                         let emptyArgs Array<AstNode>: []
-                        let rewrittenCall CallNode: { name: mangledName, args: emptyArgs, line: 0, col: 0, resolvedType: ln.typeName }
+                        let emptyTypeArgs Array<Type>: []
+                        let rewrittenCall CallNode: { name: mangledName, args: emptyArgs, typeArgs: emptyTypeArgs, line: 0, col: 0, resolvedType: ln.typeName }
                         newVal: rewrittenCall
                     }
                 }

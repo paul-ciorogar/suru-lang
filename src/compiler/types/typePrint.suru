@@ -1,7 +1,7 @@
 // typePrint.suru — render a structured `Type` back into a string.
 //
 // This is the inverse of typeParse.suru and the second boundary of the
-// type-system refactor (todo.md §1.3, design in
+// type-system refactor (design in
 // semantic_analysis_architecture_rd.md §4.A). Where parseType turns a string
 // into a `Type`, the two functions here turn a `Type` back into the two string
 // forms the rest of the compiler still speaks:

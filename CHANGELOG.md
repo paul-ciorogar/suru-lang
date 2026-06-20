@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `typeArgs` on call nodes
+
+- `CallNode` and `MethodCallNode` (`parser/parserAst.suru`) gain a `typeArgs Array<Type>`
+  field — the structured type arguments bound for a call to a generic callee. The parser
+  initializes it to `[]`; node-cloning/rewriting passes (`importPass`, `qualNamePass`,
+  `monoPass`, `monoSubst`) propagate it unchanged. This is the structural groundwork for
+  Phase 2: the resolver's unifier will populate `typeArgs` (tasks 2.2/2.3) so
+  monomorphization can read the concrete instantiation directly instead of re-deriving it
+  syntactically. No behavior change yet; the Phase-0 oracle and the self-hosting bootstrap
+  fixed point are unchanged. Coverage: `tests/unit/compiler/callNodeTypeArgsTest.suru`.
+
+### Transitive instantiation re-parse on the structured `Type`
+
+- `collectGenericAppFromType` (`semantic/mono/monoInstantiate.suru`), the transitive
+  follow-up scanner that discovers further generic applications inside a freshly
+  instantiated function's substituted annotations, is reimplemented over the structured
+  `Type` instead of hand-rolled string surgery. It now parses the annotation once
+  (`parseType`) and walks the resulting `Type` (new `collectGenericAppFromTypeVal`):
+  it appends an `InstantiationRequest` for every `Named` whose base is a registry struct
+  or sum type, recursing into type arguments / `Arr` elements inner-before-outer, with
+  each request's `concreteTypes` rendered back to source form via `printAnnotation`. This
+  removes the last `indexOfLT`/`slice`/`splitByComma`/`trimLeft` re-parse in the
+  transitive path. The Phase-0 oracle and the self-hosting bootstrap fixed point are
+  unchanged.
+- Side benefit: a nested *multi-arg* type argument (`List<Pair<i64, String>>`) is now
+  split at the correct angle-bracket depth — the old depth-blind `splitByComma` mangled
+  the inner comma. (`instantiateVariantTypes` still does string surgery on generic
+  variant templates; that is outside this change and left for a later phase.)
+- Coverage: `tests/unit/compiler/collectGenericAppTest.suru` (the function is exported so
+  the test can drive it against a hand-built `GenericRegistry`).
+
+### Monomorphization type substitution + mangling on the structured `Type`
+
+- `substituteType` (`semantic/mono/monoSubst.suru`) is reimplemented over the
+  structured `Type` ops instead of hand-rolled string surgery: it now does
+  `parseType` → `varizeType` → `substitute` → `printAnnotation`. `varizeType` is a
+  new op in `types/typeOps.suru` that promotes type-parameter `Prim` leaves to `Var`
+  (since `substitute` only rewrites `Var`). The output is normalized to source form
+  (a colon-array input like `Array:i64` reprints as `Array<i64>`, and multi-arg
+  generics print with `, `); every downstream consumer re-normalizes, so the mangled
+  instantiation names — and the Phase-0 oracle — are byte-identical.
+- `mangleGenericName` and `flattenTypeArg` (`semantic/mono/monoInstantiate.suru`) now
+  route through `printSymbol` (`mangleGenericName` = `printSymbol(namedType(base, args))`,
+  `flattenTypeArg` = `printSymbol ∘ parseType`). The redundant `mangleTypeExpr` helper
+  is folded into `flattenTypeArg`.
+- Fixed latent memory leaks in the `types/` layer that this change was the first to
+  exercise under valgrind (the in-process type-ops unit tests are not leak-checked):
+  `cloneType` never dropped its scratch `empty` bindings array (leaked on every `Var`
+  substitution / clone), and `parseType`/`parseArgs` never dropped their intermediate
+  slice and per-char `at()` temporaries. The test suite reports 0 memcheck failures.
+- Coverage: `tests/unit/compiler/substituteTypeTest.suru`; verified by the Phase-0
+  `mono-instantiation` oracle and the self-hosting bootstrap fixed point.
+
 ### Type-check imported module bodies (not just the root file)
 
 - Pass-3 semantic analysis previously ran only over the **root** compilation

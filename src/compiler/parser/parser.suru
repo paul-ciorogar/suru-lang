@@ -14,6 +14,7 @@ import {
     Suru.Compiler.Parser.Ast
     Suru.Compiler.Parser.Print
     Suru.Compiler.Parser.Nodes
+    [Type]: Suru.Compiler.Types
 }
 
 export fn parse(tokens Array<Token>, srcPath String) AstModule {
@@ -785,7 +786,8 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             this.advance()
             let args Array<AstNode>: this.parseArgs()
             this.consume(TOK_RPAREN)
-            let n MethodCallNode: { receiver: expr, methodName: memberName, args: args, line: nameTok.line, col: nameTok.col, resolvedType: "" }
+            let typeArgs Array<Type>: []
+            let n MethodCallNode: { receiver: expr, methodName: memberName, args: args, typeArgs: typeArgs, line: nameTok.line, col: nameTok.col, resolvedType: "" }
             return n
         }
 
@@ -967,7 +969,8 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
             this.advance()
             let args Array<AstNode>: this.parseArgs()
             this.consume(TOK_RPAREN)
-            let n CallNode: { name: name, args: args, line: tok.line, col: tok.col, resolvedType: "" }
+            let typeArgs Array<Type>: []
+            let n CallNode: { name: name, args: args, typeArgs: typeArgs, line: tok.line, col: tok.col, resolvedType: "" }
             return n
         }
 

@@ -481,11 +481,11 @@ fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
                 let sym String: qp.at(qp.len().take(1))
                 let newArgs Array<AstNode>: rewriteExprs(cn.args, subst)
                 let receiver QualifiedNameNode: makeQualNode(nsSegs, cn.line, cn.col)
-                let result MethodCallNode: { receiver: receiver, methodName: sym, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+                let result MethodCallNode: { receiver: receiver, methodName: sym, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
                 return result
             }
             let newArgs Array<AstNode>: rewriteExprs(cn.args, subst)
-            let result CallNode: { name: cn.name, args: newArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
+            let result CallNode: { name: cn.name, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
             return result
         }
         MethodCallNode: {
@@ -498,7 +498,7 @@ fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
                     if nsSegs.len().gt(0) {
                         let newArgs Array<AstNode>: rewriteExprs(mcn.args, subst)
                         let receiver QualifiedNameNode: makeQualNode(nsSegs, vr.line, vr.col)
-                        let result MethodCallNode: { receiver: receiver, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+                        let result MethodCallNode: { receiver: receiver, methodName: mcn.methodName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
                         return result
                     }
                 }
@@ -507,7 +507,7 @@ fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
             // Receiver is not an alias — still rewrite receiver and args recursively.
             let newRec AstNode: rewriteExpr(mcn.receiver, subst)
             let newArgs Array<AstNode>: rewriteExprs(mcn.args, subst)
-            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: mcn.resolvedType }
             return result
         }
         FieldAccessNode: {
