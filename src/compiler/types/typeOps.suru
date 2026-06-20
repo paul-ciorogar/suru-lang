@@ -1,0 +1,102 @@
+// typeOps.suru — structural operations on the structured `Type` value.
+//
+// This file hosts the canonical operations that compare and transform `Type`
+// values (todo.md §1.4–1.6, design in semantic_analysis_architecture_rd.md §4.A).
+// It begins with the keystone equality test; later tasks add `substitute` (1.5)
+// and `unify` (1.6) alongside it.
+//
+// `equalType` is the single structural-equality rule for the whole compiler. It
+// replaces the per-call-site string comparisons over the three legacy encodings
+// (source / colon / hyphen-mangled) — instead of asking "are these two type
+// STRINGS the same after I normalize their form?", later phases (the `unify`
+// solver, and the `isAssignable` collapse in §3.4) ask "are these two `Type`
+// VALUES structurally identical?". Defined once, here.
+//
+// Own namespace (not Suru.Compiler.Types) for the same reason as typeParse.suru /
+// typePrint.suru: the namespace registry (nsRegistry.suru) maps each namespace to
+// exactly one file, so two files cannot share a namespace.
+//
+// Coverage: tests/unit/compiler/typeOpsTest.suru.
+
+namespace Suru.Compiler.Types.Ops
+
+import {
+    [Type, Prim, Named, Arr, Var]: Suru.Compiler.Types
+}
+
+// equalType — structural equality of two `Type` values.
+//
+// Two types are equal when they have the same shape AND their corresponding
+// payloads are equal, recursively:
+//   Prim  == Prim   iff names match
+//   Named == Named  iff names match AND args match pairwise (same length, same
+//                   order — argument position is significant: `Pair<i64, String>`
+//                   != `Pair<String, i64>`)
+//   Arr   == Arr    iff element types are equal (recursively)
+//   Var   == Var    iff both `id` and `name` match (purely structural; the later
+//                   `unify` solver keys vars on `id`, but equality compares the
+//                   whole value)
+// Any shape mismatch (e.g. a bare `Prim "List"` vs an applied `Named "List" []`)
+// is unequal — handled by the `_: { return false }` wildcard in each inner match.
+//
+// Reads only (the unchecked-downcast idiom `let p Prim: a`); no clones, no drops.
+export fn equalType(a Type, b Type) bool {
+    match a {
+        Prim: {
+            match b {
+                Prim: {
+                    let pa Prim: a
+                    let pb Prim: b
+                    return pa.name.equals(pb.name)
+                }
+                _: { return false }
+            }
+        }
+        Named: {
+            match b {
+                Named: {
+                    let na Named: a
+                    let nb Named: b
+                    if not na.name.equals(nb.name) { return false }
+                    return equalArgs(na.args, nb.args)
+                }
+                _: { return false }
+            }
+        }
+        Arr: {
+            match b {
+                Arr: {
+                    let aa Arr: a
+                    let ab Arr: b
+                    return equalType(aa.elem, ab.elem)
+                }
+                _: { return false }
+            }
+        }
+        Var: {
+            match b {
+                Var: {
+                    let va Var: a
+                    let vb Var: b
+                    if not va.id.equals(vb.id) { return false }
+                    return va.name.equals(vb.name)
+                }
+                _: { return false }
+            }
+        }
+    }
+}
+
+// equalArgs — element-wise equality of two type-argument lists. Unequal lengths
+// short-circuit to false (this is the arity check: `Pair<i64, String>` has two
+// args, `Pair<i64>` one). Equal lengths compare each pair by position via
+// `equalType`, so a differing or reordered argument makes the lists unequal.
+fn equalArgs(xs Array<Type>, ys Array<Type>) bool {
+    if not xs.len().equals(ys.len()) { return false }
+    let i i64: 0
+    while i.lt(xs.len()) {
+        if not equalType(xs.at(i), ys.at(i)) { return false }
+        i: i.add(1)
+    }
+    return true
+}

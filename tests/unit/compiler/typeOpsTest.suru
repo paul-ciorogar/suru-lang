@@ -1,0 +1,67 @@
+// typeOpsTest.suru — unit tests for equalType (task 1.4).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// typeOpsTests() and reports the returned results.
+//
+// Most `Type` values are built by routing a source-form string through parseType
+// (concise, and exercises the parse boundary at the same time); the `Var` cases
+// are hand-built with varType because parseType is context-free and never mints a
+// `Var` (a bare name is always a `Prim` — see typeParse.suru header).
+//
+// Coverage emphasizes the two ways structural equality can fail beyond a plain
+// payload mismatch: ARG ORDER (`Pair<i64, String>` != `Pair<String, i64>`) and
+// ARITY (`Pair<i64, String>` != `Pair<i64>`), called out explicitly in todo.md §1.4.
+
+namespace Test.Unit.Compiler.TypeOps
+
+import {
+    [TestResult, assertTrue]: Test.Unit.Assert
+    [parseType]: Suru.Compiler.Types.Parse
+    [Type, varType]: Suru.Compiler.Types
+    [equalType]: Suru.Compiler.Types.Ops
+}
+
+// typeOpsTests — one TestResult per assertion.
+export fn typeOpsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ─── Equal: same shape, same payload ─────────────────────────────────────────
+
+    results.add(assertTrue("eq i64 == i64",
+        equalType(parseType("i64"), parseType("i64"))))
+    results.add(assertTrue("eq List<Token> == List<Token>",
+        equalType(parseType("List<Token>"), parseType("List<Token>"))))
+    results.add(assertTrue("eq Pair<i64, String> == itself",
+        equalType(parseType("Pair<i64, String>"), parseType("Pair<i64, String>"))))
+    results.add(assertTrue("eq nested List<Option<Token>>",
+        equalType(parseType("List<Option<Token>>"), parseType("List<Option<Token>>"))))
+    results.add(assertTrue("eq Array<i64> == Array<i64>",
+        equalType(parseType("Array<i64>"), parseType("Array<i64>"))))
+    results.add(assertTrue("eq Var(0,T) == Var(0,T)",
+        equalType(varType(0, "T"), varType(0, "T"))))
+
+    // ─── Not equal: payload, shape, arg order, arity ─────────────────────────────
+
+    results.add(assertTrue("neq i64 vs bool",
+        not equalType(parseType("i64"), parseType("bool"))))
+    // Shape mismatch: bare `Prim "List"` vs applied `Named List<Token>`.
+    results.add(assertTrue("neq Prim List vs Named List<Token>",
+        not equalType(parseType("List"), parseType("List<Token>"))))
+    results.add(assertTrue("neq List<Token> vs List<i64> (arg differs)",
+        not equalType(parseType("List<Token>"), parseType("List<i64>"))))
+    // Arg ORDER is significant.
+    results.add(assertTrue("neq Pair<i64, String> vs Pair<String, i64> (order)",
+        not equalType(parseType("Pair<i64, String>"), parseType("Pair<String, i64>"))))
+    // ARITY mismatch.
+    results.add(assertTrue("neq Pair<i64, String> vs Pair<i64> (arity)",
+        not equalType(parseType("Pair<i64, String>"), parseType("Pair<i64>"))))
+    results.add(assertTrue("neq Array<i64> vs Array<bool>",
+        not equalType(parseType("Array<i64>"), parseType("Array<bool>"))))
+    // Var equality compares both id and name.
+    results.add(assertTrue("neq Var(0,T) vs Var(1,T) (id)",
+        not equalType(varType(0, "T"), varType(1, "T"))))
+    results.add(assertTrue("neq Var(0,T) vs Var(0,U) (name)",
+        not equalType(varType(0, "T"), varType(0, "U"))))
+
+    return results
+}

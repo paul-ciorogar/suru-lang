@@ -13,6 +13,7 @@ import {
     [typeValueTests]: Test.Unit.Compiler.TypeValue
     [typeParseTests]: Test.Unit.Compiler.TypeParse
     [typePrintTests]: Test.Unit.Compiler.TypePrint
+    [typeOpsTests]: Test.Unit.Compiler.TypeOps
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
@@ -174,6 +175,8 @@ fn main(args Array<String>) {
     failed: failed.add(typeParseFailed)
     let typePrintFailed i64: reportResults("type-print", typePrintTests())
     failed: failed.add(typePrintFailed)
+    let typeOpsFailed i64: reportResults("type-ops", typeOpsTests())
+    failed: failed.add(typeOpsFailed)
     let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())
