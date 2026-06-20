@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bind generic type args at the MethodCallNode arm 
+
+- The resolver now binds a generic callee's type arguments for namespace-aliased calls written
+  with method syntax (e.g. `import { opt: Suru.Stdlib.Option }` then `opt.some(42)`). After
+  `importPass` rewrites the alias receiver into a `QualifiedNameNode` (left untyped by
+  `resolveExpr`), such a call survives into `rtResolveMethodCallNode` as a `MethodCallNode`
+  with an empty receiver type; when `methodName` names an unambiguous generic free function and
+  a real expectation is present, the (varized) return template is unified against the expected
+  `Type`, recording concrete `typeArgs` and a concrete `resolvedType` (e.g. `Option-i64`) on the
+  node — the symmetric counterpart of the `CallNode` binding (§2.2). The §2.2 solver was
+  refactored into a node-agnostic core `rtSolveReturnArgs` shared by the new `rtMethodUnify` and
+  `rtCallUnify` wrappers (`semantic/rtCallUnify.suru`). Fails closed to the legacy method-table
+  resolution, so the mono instantiation set (Phase-0 oracle) and the self-hosting bootstrap fixed
+  point are unchanged. Coverage: `tests/unit/compiler/methodCallUnifyTypeArgsTest.suru`.
+
 ### `typeArgs` on call nodes
 
 - `CallNode` and `MethodCallNode` (`parser/parserAst.suru`) gain a `typeArgs Array<Type>`

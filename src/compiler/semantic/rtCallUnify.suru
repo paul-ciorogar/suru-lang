@@ -41,21 +41,31 @@ fn rtAppendBinding(bindings Array<Binding>, name String, dst Array<Type>) {
     }
 }
 
-export fn rtCallUnify(typed CallNode, expectedTy Type, tparams Array<String>, retAnn String) bool {
+// rtSolveReturnArgs — shared §2.2/§2.3 solver, node-agnostic. Appends one bound
+// Type per type-param (declaration order) into `dst` by unifying the varized
+// return template against `expectedTy`, and returns the concrete resolved-type
+// string (e.g. "List-Token", "Option-i64"). Returns "" and leaves `dst`
+// untouched on any miss — no expectation, empty return annotation, unify
+// failure, or an unbound type-param — so callers keep their legacy behavior.
+//
+// Mutation discipline: every type param must bind BEFORE any append, so a
+// partial solve never half-fills the node's typeArgs array.
+fn rtSolveReturnArgs(dst Array<Type>, expectedTy Type, tparams Array<String>, retAnn String) String {
     // Gate: need a real expectation to solve a (possibly zero-arg) generic.
-    if rtIsNoExpect(expectedTy) { return false }
-    if retAnn.equals("") { return false }
+    if rtIsNoExpect(expectedTy) { return "" }
+    if retAnn.equals("") { return "" }
 
     // Return template: parse the source-form return annotation, then promote the
     // type-param names to type variables, e.g. "List<T>" -> Named List [Var T].
     let retParsed Type: parseType(retAnn)
     let retTmpl Type: varizeType(retParsed, tparams)
 
-    // Solve template vs expected. newList has zero params, so return-vs-expected
-    // is the sole binding source; param-vs-arg unification is left to a later
-    // task — when the return doesn't bind every type param we fail closed below.
+    // Solve template vs expected. A zero-param call (e.g. newList) has the
+    // return-vs-expected unification as its sole binding source; param-vs-arg
+    // unification is left to a later task — when the return doesn't bind every
+    // type param we fail closed below.
     let res UnifyResult: unify(retTmpl, expectedTy)
-    if not res.ok { return false }
+    if not res.ok { return "" }
 
     // Every type param must be solved; otherwise the recorded args would be
     // incomplete — fail closed (before any mutation) and let mono handle it.
@@ -65,14 +75,11 @@ export fn rtCallUnify(typed CallNode, expectedTy Type, tparams Array<String>, re
         if not rtHasBinding(res.bindings, tparams.at(i)) { allBound: false }
         i: i.add(1)
     }
-    if not allBound { return false }
+    if not allBound { return "" }
 
-    // Commit. `node` is a writable alias of the CallNode (the resolver's in-place
-    // mutation idiom). Append one concrete Type per type param, in declaration
-    // order, into the node's existing (parser-initialised empty) typeArgs array
-    // — an in-place append, not a whole-array field assignment.
-    let node CallNode: typed
-    let dst Array<Type>: node.typeArgs
+    // Commit. Append one concrete Type per type param, in declaration order,
+    // into the node's existing (parser-initialised empty) typeArgs array — an
+    // in-place append, not a whole-array field assignment.
     let j i64: 0
     while j.lt(tparams.len()) {
         rtAppendBinding(res.bindings, tparams.at(j), dst)
@@ -82,7 +89,27 @@ export fn rtCallUnify(typed CallNode, expectedTy Type, tparams Array<String>, re
     // Concrete resolved return type, e.g. printSuruType(Named List [Token]) =
     // "List-Token" (the legacy codegen encoding the rest of the pass expects).
     let concrete Type: substitute(retTmpl, res.bindings)
-    let s String: printSuruType(concrete)
-    node.resolvedType: s
+    return printSuruType(concrete)
+}
+
+// rtCallUnify — §2.2 entry point for the resolver's CallNode arm. Solves the
+// callee's generic type args from the return-vs-expected unification, recording
+// them on the node and setting its concrete resolvedType. Returns false (node
+// untouched) on a miss so the caller keeps the legacy template-typed fallback.
+export fn rtCallUnify(typed CallNode, expectedTy Type, tparams Array<String>, retAnn String) bool {
+    let s String: rtSolveReturnArgs(typed.typeArgs, expectedTy, tparams, retAnn)
+    if s.equals("") { return false }
+    typed.resolvedType: s
+    return true
+}
+
+// rtMethodUnify — §2.3 entry point for the resolver's MethodCallNode arm. Same
+// contract as rtCallUnify, for a namespace-qualified generic function called via
+// method syntax (e.g. opt.some(42), whose receiver importPass rewrites to a
+// QualifiedNameNode so the call survives as a MethodCallNode).
+export fn rtMethodUnify(typed MethodCallNode, expectedTy Type, tparams Array<String>, retAnn String) bool {
+    let s String: rtSolveReturnArgs(typed.typeArgs, expectedTy, tparams, retAnn)
+    if s.equals("") { return false }
+    typed.resolvedType: s
     return true
 }

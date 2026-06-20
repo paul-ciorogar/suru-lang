@@ -41,7 +41,7 @@ import {
     tyh: Suru.Compiler.Codegen.TypeHelpers
     [primType]: Suru.Compiler.Types
     [parseType]: Suru.Compiler.Types.Parse
-    [rtCallUnify]: Suru.Compiler.Semantic.ResolveCallUnify
+    [rtCallUnify, rtMethodUnify]: Suru.Compiler.Semantic.ResolveCallUnify
 }
 
 // ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
@@ -378,8 +378,10 @@ fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String) An
 // enforce private-method privacy, and set the call's resolvedType from either
 // the user-declared method signature or the builtin method table.
 // `expectedTy` is the structured form of `expected` (the surrounding-context
-// type). It is threaded here for symmetry with the CallNode arm; method-call
-// return-type unification against it lands in §2.3.
+// type). For a namespace-qualified generic function called via method syntax
+// (e.g. opt.some(42)), it drives type-argument binding by unifying the callee's
+// return template against it — the MethodCallNode mirror of the CallNode arm
+// (§2.3, see the rcvType=="" block below).
 fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected String, expectedTy Type) AnalyzerState {
     let rcv AstNode: typed.receiver
     let noTy Type: primType("")
@@ -423,6 +425,25 @@ fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected S
         if tyh.isArraySuruType(rcvType) { argExpected: tyh.elemSuruType(rcvType) }
     }
     rtResolveArrayElems(state, typed.args, argExpected)
+    // §2.3: namespace-qualified generic function called via method syntax
+    // (e.g. opt.some(42), res.ok(99)). After importPass the receiver is a
+    // QualifiedNameNode whose resolvedType is "", so rcvType is "" and
+    // methodName names a free function. For an unambiguous generic callee with a
+    // real expectation, bind its type args by unifying the (varized) return
+    // template against expectedTy — the MethodCallNode mirror of the CallNode
+    // arm (§2.2). Records typeArgs + concrete resolvedType and returns; fails
+    // closed to the method-table resolution below. A real method (add, clone, …)
+    // is never a registered free function, so typeParams() is [] and the gate
+    // skips it, leaving the receiver-driven resolution below untouched.
+    if rcvType.equals("") {
+        if state.functions.nameCount(typed.methodName).equals(1) {
+            let mtparams Array<String>: state.functions.typeParams(typed.methodName)
+            if mtparams.len().gt(0) {
+                let mret String: state.functions.returnType(typed.methodName)
+                if rtMethodUnify(typed, expectedTy, mtparams, mret) { return state }
+            }
+        }
+    }
     // User-defined object method: if the receiver's resolved type is a
     // declared struct with a method of this name, the return type comes
     // from the declared signature. Otherwise fall back to the builtin

@@ -1,0 +1,21 @@
+// methodunify_let_some.suru — fixture for the §2.3 type-arg unification test.
+//
+// The keystone case for method-call syntax: a generic free function called via
+// a namespace alias (`opt.some(42)`). importPass rewrites the `opt` receiver
+// into a QualifiedNameNode, so the call survives into the resolver as a
+// MethodCallNode whose receiver resolvedType is "". The resolver's MethodCall
+// arm (rtMethodUnify) unifies the return template `Option<T>` against the
+// expected `Option<i64>`, binding `T = i64` and recording it on the call node.
+//
+// `"x".clone()` is a NON-generic builtin method call used to assert the
+// fallback path is intact (no typeArgs recorded, plain `String` resolvedType).
+
+namespace Test.Unit.Compiler.Fixtures.MethodUnifyLetSome
+
+import { opt: Suru.Stdlib.Option }
+
+fn main() {
+    let o Option<i64>: opt.some(42)
+    let s String: "x".clone()
+    printLn(s)
+}

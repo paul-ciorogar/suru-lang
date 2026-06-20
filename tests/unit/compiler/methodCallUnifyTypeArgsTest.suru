@@ -1,0 +1,113 @@
+// methodCallUnifyTypeArgsTest.suru — in-process test for §2.3 (bind generic
+// type arguments at the MethodCallNode arm by unification).
+//
+// Drives the keystone fixture through the pipeline stopped at the "resolve1"
+// pass (the pass that runs the edited resolver arm) and inspects the resolved
+// AST directly: the `opt.some(42)` method call inside `main` must carry the
+// concrete type argument `i64` and a concrete `Option-i64` resolvedType. A
+// second, non-generic builtin method call (`"x".clone()`) asserts the legacy
+// fallback is untouched (no typeArgs, plain `String`).
+//
+// We stop at "resolve1" deliberately: it is the tightest scope that runs the new
+// binding, before monomorphization rewrites call-site names.
+
+namespace Test.Unit.Compiler.MethodCallUnifyTypeArgs
+
+import {
+    [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AstNode, FnDeclNode, LetNode, MethodCallNode, VarRefNode]: Suru.Compiler.Parser.Ast
+    [printAnnotation]: Suru.Compiler.Types.Print
+}
+
+// emptyMethodCall — sentinel MethodCallNode returned when the search finds
+// nothing, so the assertions fail with readable values rather than crashing on
+// a missing node.
+fn emptyMethodCall() MethodCallNode {
+    let noArgs Array<AstNode>: []
+    let noTypeArgs Array<Type>: []
+    let vr VarRefNode: { name: "", line: 0, col: 0, resolvedType: "" }
+    let recv AstNode: vr
+    return { receiver: recv, methodName: "", args: noArgs, typeArgs: noTypeArgs, line: 0, col: 0, resolvedType: "" }
+}
+
+// letMethodCallNamed — if `stmt` is a `let` whose value is a MethodCallNode
+// named `method`, return that node; otherwise the empty sentinel (methodName "").
+fn letMethodCallNamed(stmt AstNode, method String) MethodCallNode {
+    match stmt {
+        LetNode: {
+            let ln LetNode: stmt
+            let v AstNode: ln.value
+            match v {
+                MethodCallNode: {
+                    let mcn MethodCallNode: v
+                    if mcn.methodName.equals(method) { return mcn }
+                }
+                _: {}
+            }
+        }
+        _: {}
+    }
+    return emptyMethodCall()
+}
+
+// findMethodCallInBody — scan a statement list for the first `let`-bound
+// MethodCallNode named `method`. Returns the empty sentinel if none match.
+fn findMethodCallInBody(body Array<AstNode>, method String) MethodCallNode {
+    let j i64: 0
+    while j.lt(body.len()) {
+        let found MethodCallNode: letMethodCallNamed(body.at(j), method)
+        if not found.methodName.equals("") { return found }
+        j: j.add(1)
+    }
+    return emptyMethodCall()
+}
+
+// findMethodCallInMain — within the merged post-resolve stmts, locate the
+// FnDeclNode named "main" and return the MethodCallNode that is the value of the
+// first `let` whose methodName equals `method`. Returns emptyMethodCall() if not
+// found.
+fn findMethodCallInMain(stmts Array<AstNode>, method String) MethodCallNode {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let node AstNode: stmts.at(i)
+        match node {
+            FnDeclNode: {
+                let fd FnDeclNode: node
+                if fd.name.equals("main") { return findMethodCallInBody(fd.body, method) }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return emptyMethodCall()
+}
+
+// firstTypeArgAnnotation — source-form annotation of a method call's first
+// recorded type argument, or "" when none were recorded.
+fn firstTypeArgAnnotation(mcn MethodCallNode) String {
+    let ta Array<Type>: mcn.typeArgs
+    if ta.len().equals(0) { return "" }
+    return printAnnotation(ta.at(0))
+}
+
+export fn methodCallUnifyTypeArgsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    let path String: "/work/tests/unit/compiler/fixtures/methodunify_let_some.suru"
+    let res DebugResult: runPipelineDebug(path, "resolve1")
+    let stmts Array<AstNode>: res.stmts
+
+    // ─── Generic method call: `let o Option<i64>: opt.some(42)` ──────────────
+    let someCall MethodCallNode: findMethodCallInMain(stmts, "some")
+    results.add(assertEqI64("some records 1 type arg", someCall.typeArgs.len(), 1))
+    results.add(assertEqStr("some type arg is i64", firstTypeArgAnnotation(someCall), "i64"))
+    results.add(assertEqStr("some resolvedType is Option-i64", someCall.resolvedType, "Option-i64"))
+
+    // ─── Non-generic builtin method: `let s String: "x".clone()` (fallback) ──
+    let cloneCall MethodCallNode: findMethodCallInMain(stmts, "clone")
+    results.add(assertEqI64("clone records 0 type args", cloneCall.typeArgs.len(), 0))
+    results.add(assertEqStr("clone resolvedType is String", cloneCall.resolvedType, "String"))
+
+    return results
+}
