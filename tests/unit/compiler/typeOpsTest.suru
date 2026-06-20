@@ -1,4 +1,4 @@
-// typeOpsTest.suru — unit tests for equalType (task 1.4).
+// typeOpsTest.suru — unit tests for equalType (task 1.4) + substitute (task 1.5).
 //
 // Run in-process by the test runner (tests/runner/main.suru), which calls
 // typeOpsTests() and reports the returned results.
@@ -8,17 +8,19 @@
 // are hand-built with varType because parseType is context-free and never mints a
 // `Var` (a bare name is always a `Prim` — see typeParse.suru header).
 //
-// Coverage emphasizes the two ways structural equality can fail beyond a plain
-// payload mismatch: ARG ORDER (`Pair<i64, String>` != `Pair<String, i64>`) and
-// ARITY (`Pair<i64, String>` != `Pair<i64>`), called out explicitly in todo.md §1.4.
+// equalType coverage emphasizes the two ways structural equality can fail beyond a
+// plain payload mismatch: ARG ORDER (`Pair<i64, String>` != `Pair<String, i64>`)
+// and ARITY (`Pair<i64, String>` != `Pair<i64>`), called out in todo.md §1.4.
+// substitute coverage drives the replacements through equalType, including the
+// nested `List<T>` with `T=Token` case todo.md §1.5 requires.
 
 namespace Test.Unit.Compiler.TypeOps
 
 import {
     [TestResult, assertTrue]: Test.Unit.Assert
     [parseType]: Suru.Compiler.Types.Parse
-    [Type, varType]: Suru.Compiler.Types
-    [equalType]: Suru.Compiler.Types.Ops
+    [Type, varType, namedType, arrType]: Suru.Compiler.Types
+    [equalType, substitute, binding, Binding, unify, UnifyResult]: Suru.Compiler.Types.Ops
 }
 
 // typeOpsTests — one TestResult per assertion.
@@ -62,6 +64,125 @@ export fn typeOpsTests() Array<TestResult> {
         not equalType(varType(0, "T"), varType(1, "T"))))
     results.add(assertTrue("neq Var(0,T) vs Var(0,U) (name)",
         not equalType(varType(0, "T"), varType(0, "U"))))
+
+    // ─── substitute (task 1.5) ───────────────────────────────────────────────────
+    //
+    // The variable-bearing INPUT types are built with constructors (varType inside
+    // namedType/arrType), because parseType is context-free and never mints a `Var`
+    // — `parseType("List<T>")` makes `T` a `Prim`, which substitute correctly leaves
+    // alone. The concrete EXPECTED types are built with parseType for brevity.
+
+    // A bare type variable is replaced by its bound type.
+    let bT Array<Binding>: [binding("T", parseType("i64"))]
+    results.add(assertTrue("subst Var T -> i64",
+        equalType(substitute(varType(0, "T"), bT), parseType("i64"))))
+
+    // An unbound variable passes through unchanged (no binding for "U").
+    results.add(assertTrue("subst unbound Var U passes through",
+        equalType(substitute(varType(0, "U"), bT), varType(0, "U"))))
+
+    // Empty bindings is the identity (a deep copy): nothing is replaced.
+    let bEmpty Array<Binding>: []
+    results.add(assertTrue("subst [] is identity on List<Token>",
+        equalType(substitute(parseType("List<Token>"), bEmpty), parseType("List<Token>"))))
+
+    // Nested: `List<T>` with `T=Token` -> `List<Token>` (todo.md §1.5 requirement).
+    let bTok Array<Binding>: [binding("T", parseType("Token"))]
+    let listOfT Type: namedType("List", [varType(0, "T")])
+    results.add(assertTrue("subst List<T> with T=Token -> List<Token>",
+        equalType(substitute(listOfT, bTok), parseType("List<Token>"))))
+
+    // Multi-arg: each variable resolved by name independently.
+    let bTU Array<Binding>: [binding("T", parseType("i64")), binding("U", parseType("String"))]
+    let pairOfTU Type: namedType("Pair", [varType(0, "T"), varType(0, "U")])
+    results.add(assertTrue("subst Pair<T, U> -> Pair<i64, String>",
+        equalType(substitute(pairOfTU, bTU), parseType("Pair<i64, String>"))))
+
+    // Array element substitution flows through the dedicated `Arr` shape.
+    let bBool Array<Binding>: [binding("T", parseType("bool"))]
+    let arrOfT Type: arrType(varType(0, "T"))
+    results.add(assertTrue("subst Array<T> with T=bool -> Array<bool>",
+        equalType(substitute(arrOfT, bBool), parseType("Array<bool>"))))
+
+    // Deeply nested generic application recurses all the way down.
+    let listOptT Type: namedType("List", [namedType("Option", [varType(0, "T")])])
+    results.add(assertTrue("subst List<Option<T>> with T=Token -> List<Option<Token>>",
+        equalType(substitute(listOptT, bTok), parseType("List<Option<Token>>"))))
+
+    // A type containing no variable is copied unchanged regardless of bindings.
+    results.add(assertTrue("subst i64 unaffected by bindings",
+        equalType(substitute(parseType("i64"), bBool), parseType("i64"))))
+
+    // ─── unify (task 1.6) ────────────────────────────────────────────────────────
+    //
+    // `unify(pattern, target)` is the inverse of `substitute`: it FINDS the bindings
+    // that make `pattern` equal `target`. So every solve case is checked by the
+    // round-trip `substitute(varT, res.bindings) == <expected concrete type>`, reusing
+    // the ops under test rather than reaching into the bindings list. The pattern's
+    // type variable is built as `varType(0, "T")` (parseType never mints a `Var`).
+
+    let varT Type: varType(0, "T")
+    let varU Type: varType(1, "U")
+
+    // Solve: `List<?0> = List<Token>` recovers `?0 = Token` (todo.md §1.6 case 1).
+    let uList UnifyResult: unify(namedType("List", [varType(0, "T")]), parseType("List<Token>"))
+    results.add(assertTrue("unify List<?0> = List<Token> ok", uList.ok))
+    results.add(assertTrue("unify List<?0> = List<Token> solves ?0=Token",
+        equalType(substitute(varT, uList.bindings), parseType("Token"))))
+
+    // A bare variable binds to a whole compound type.
+    let uCompound UnifyResult: unify(varType(0, "T"), parseType("List<Token>"))
+    results.add(assertTrue("unify ?0 = List<Token> ok", uCompound.ok))
+    results.add(assertTrue("unify ?0 = List<Token> solves ?0=List<Token>",
+        equalType(substitute(varT, uCompound.bindings), parseType("List<Token>"))))
+
+    // Symmetric: a variable on the RIGHT side is bound just the same.
+    let uSym UnifyResult: unify(parseType("Token"), varType(0, "T"))
+    results.add(assertTrue("unify Token = ?0 ok", uSym.ok))
+    results.add(assertTrue("unify Token = ?0 solves ?0=Token",
+        equalType(substitute(varT, uSym.bindings), parseType("Token"))))
+
+    // No variables, structurally equal: succeeds with an empty solution.
+    let uPrim UnifyResult: unify(parseType("i64"), parseType("i64"))
+    results.add(assertTrue("unify i64 = i64 ok", uPrim.ok))
+    results.add(assertTrue("unify i64 = i64 has empty bindings",
+        uPrim.bindings.len().equals(0)))
+
+    // Mismatch (primitive name) fails.
+    results.add(assertTrue("unify i64 = bool fails",
+        not unify(parseType("i64"), parseType("bool")).ok))
+    // Mismatch (named shape) fails.
+    results.add(assertTrue("unify List<Token> = Option<Token> fails",
+        not unify(parseType("List<Token>"), parseType("Option<Token>")).ok))
+    // Mismatch (arity) fails.
+    results.add(assertTrue("unify Pair<i64, String> = Pair<i64> fails",
+        not unify(parseType("Pair<i64, String>"), parseType("Pair<i64>")).ok))
+
+    // Multi-var: each variable resolved independently by name.
+    let uPair UnifyResult: unify(namedType("Pair", [varType(0, "T"), varType(1, "U")]),
+        parseType("Pair<i64, String>"))
+    results.add(assertTrue("unify Pair<?0, ?1> = Pair<i64, String> ok", uPair.ok))
+    results.add(assertTrue("unify Pair<?0, ?1> solves ?0=i64",
+        equalType(substitute(varT, uPair.bindings), parseType("i64"))))
+    results.add(assertTrue("unify Pair<?0, ?1> solves ?1=String",
+        equalType(substitute(varU, uPair.bindings), parseType("String"))))
+
+    // Consistency: the same variable cannot bind to two different types.
+    results.add(assertTrue("unify Pair<?0, ?0> = Pair<i64, String> fails (conflict)",
+        not unify(namedType("Pair", [varType(0, "T"), varType(0, "T")]),
+            parseType("Pair<i64, String>")).ok))
+    // Same variable, SAME type on both positions, succeeds.
+    let uSame UnifyResult: unify(namedType("Pair", [varType(0, "T"), varType(0, "T")]),
+        parseType("Pair<i64, i64>"))
+    results.add(assertTrue("unify Pair<?0, ?0> = Pair<i64, i64> ok", uSame.ok))
+    results.add(assertTrue("unify Pair<?0, ?0> = Pair<i64, i64> solves ?0=i64",
+        equalType(substitute(varT, uSame.bindings), parseType("i64"))))
+
+    // Array elements unify through the dedicated `Arr` shape.
+    let uArr UnifyResult: unify(arrType(varType(0, "T")), parseType("Array<Token>"))
+    results.add(assertTrue("unify Array<?0> = Array<Token> ok", uArr.ok))
+    results.add(assertTrue("unify Array<?0> solves ?0=Token",
+        equalType(substitute(varT, uArr.bindings), parseType("Token"))))
 
     return results
 }

@@ -2,8 +2,8 @@
 //
 // This file hosts the canonical operations that compare and transform `Type`
 // values (todo.md §1.4–1.6, design in semantic_analysis_architecture_rd.md §4.A).
-// It begins with the keystone equality test; later tasks add `substitute` (1.5)
-// and `unify` (1.6) alongside it.
+// It begins with the keystone equality test (`equalType`), then `substitute`
+// (1.5, type-variable replacement); a later task adds `unify` (1.6) alongside.
 //
 // `equalType` is the single structural-equality rule for the whole compiler. It
 // replaces the per-call-site string comparisons over the three legacy encodings
@@ -21,7 +21,7 @@
 namespace Suru.Compiler.Types.Ops
 
 import {
-    [Type, Prim, Named, Arr, Var]: Suru.Compiler.Types
+    [Type, Prim, Named, Arr, Var, primType, namedType, arrType, varType]: Suru.Compiler.Types
 }
 
 // equalType — structural equality of two `Type` values.
@@ -96,6 +96,265 @@ fn equalArgs(xs Array<Type>, ys Array<Type>) bool {
     let i i64: 0
     while i.lt(xs.len()) {
         if not equalType(xs.at(i), ys.at(i)) { return false }
+        i: i.add(1)
+    }
+    return true
+}
+
+// ─── substitute ─────────────────────────────────────────────────────────────────
+//
+// `substitute` replaces type variables with concrete types throughout a `Type`,
+// keyed by variable NAME. It is the structured replacement for the string-based
+// `substituteType` in semantic/mono/monoSubst.suru (which pairs a `paramNames`
+// array with a `concreteTypes` array); a later task (1.8) rebuilds that mangler on
+// top of this op, and the `unify` solver (1.6) produces the very bindings fed in
+// here. See todo.md §1.5.
+
+// Binding — one `var name -> Type` mapping. A list of these (`Array<Binding>`) IS
+// the "Bindings" carrier the design names; Suru has no map type and no type-alias
+// syntax, so the ordered-list form mirrors `substituteType`'s parallel arrays.
+// Lookup is by `name`, so `Var` payloads with no source name (pure inference vars,
+// id-keyed) simply never match a binding here.
+export type Binding: { name String, ty Type }
+
+// binding — convenience constructor so call sites and tests read clearly:
+// `binding("T", parseType("Token"))`.
+export fn binding(name String, ty Type) Binding {
+    return { name: name, ty: ty }
+}
+
+// substitute — return a fresh `Type` with every bound type variable replaced by
+// the type it is bound to in `bindings`; everything else is copied unchanged.
+//
+//   substitute(Var "T", [T -> i64])        -> Prim "i64"
+//   substitute(Var "U", [T -> i64])        -> Var "U"            (unbound: unchanged)
+//   substitute(List<T>, [T -> Token])      -> List<Token>        (recurses into args)
+//   substitute(Pair<T, U>, [T->i64, U->String]) -> Pair<i64, String>
+//   substitute(Array<T>, [T -> bool])      -> Array<bool>
+//   substitute(i64, anything)              -> i64                (no var: deep copy)
+//
+// The result is ALWAYS a fresh deep copy — it never aliases `t` or any bound
+// `ty` inside `bindings`, so the caller can drop the result and the inputs
+// independently with no double-free. This is why every leaf clones its name
+// string (`primType`/`namedType`/`varType` store the ref they are handed) and the
+// bound-type hit is cloned via a no-op substitution rather than returned directly.
+//
+// `bindings` is read-only / borrowed (like `substituteType`'s arrays); `bindings.at(i)`
+// yields a borrowed `Binding`, so its `ty` is cloned, never moved or dropped.
+export fn substitute(t Type, bindings Array<Binding>) Type {
+    match t {
+        Prim: {
+            let p Prim: t
+            return primType(p.name.clone())
+        }
+        Named: {
+            let n Named: t
+            return namedType(n.name.clone(), substituteArgs(n.args, bindings))
+        }
+        Arr: {
+            let a Arr: t
+            return arrType(substitute(a.elem, bindings))
+        }
+        Var: {
+            let v Var: t
+            return substituteVar(v, bindings)
+        }
+    }
+}
+
+// substituteVar — resolve a single type variable against `bindings`. On a name
+// hit, return a DEEP CLONE of the bound type (cloneType, below) so the result is
+// independent of `bindings`. On a miss, rebuild the variable unchanged (fresh
+// name string). Single-pass by design: the bound type is copied, NOT re-substituted,
+// so a degenerate binding like `T -> T` cannot loop.
+fn substituteVar(v Var, bindings Array<Binding>) Type {
+    let i i64: 0
+    while i.lt(bindings.len()) {
+        let b Binding: bindings.at(i)
+        if b.name.equals(v.name) { return cloneType(b.ty) }
+        i: i.add(1)
+    }
+    return varType(v.id, v.name.clone())
+}
+
+// substituteArgs — map each type argument through `substitute`, building a fresh
+// `Array<Type>`. Mirrors `parseArgs`/`equalArgs`: no manual drops, the returned
+// array is auto-dropped by the caller's scope.
+fn substituteArgs(args Array<Type>, bindings Array<Binding>) Array<Type> {
+    let out Array<Type>: []
+    let i i64: 0
+    while i.lt(args.len()) {
+        out.add(substitute(args.at(i), bindings))
+        i: i.add(1)
+    }
+    return out
+}
+
+// cloneType — deep-copy a `Type`. Implemented as a substitution with no bindings,
+// so it reuses the same fresh-copy walk: nothing matches, every node is rebuilt.
+fn cloneType(t Type) Type {
+    let empty Array<Binding>: []
+    return substitute(t, empty)
+}
+
+// ─── unify ────────────────────────────────────────────────────────────────────────
+//
+// `unify` is the keystone op for Phase 2 (todo.md §1.6, design §4.A / §C). It takes a
+// PATTERN type — one that may contain type variables (`Var`) — and a (typically
+// concrete) type, and SOLVES for the variables: the bindings that, fed to
+// `substitute`, make the pattern equal the target. In Phase 2 the resolver unifies a
+// callee's parameter/return signature (vars = the generic params) against the
+// argument/`expected` types to recover the concrete type arguments of a generic call.
+//
+// `unify` is the inverse of `substitute`: where `substitute(pattern, bindings)` APPLIES
+// a solution, `unify(pattern, target)` FINDS one. By design, for any successful result
+// `equalType(substitute(a, unify(a, b).bindings), b)` holds (the tests verify exactly
+// this round-trip).
+//
+// Bindings are NAME-keyed (reusing the §1.5 `Binding`), so the solution drops straight
+// into `substitute`. A `Var` is matched on EITHER side, so `unify(Token, ?0)` is
+// symmetric to `unify(?0, Token)`. No occurs-check is performed (a degenerate
+// `T = List<T>` records `T -> List<T>` rather than diverging) — consistent with
+// `substitute`'s single-pass, non-looping stance and sufficient for the well-formed
+// signatures the resolver feeds in.
+
+// UnifyResult — the solver's verdict. `ok` is false on any structural conflict (name,
+// shape, arity, or an inconsistent re-binding of the same variable); on success
+// `bindings` is the name -> Type solution, ready for `substitute`. On failure
+// `bindings` holds whatever partial solution had accumulated and should be ignored.
+export type UnifyResult: { ok bool, bindings Array<Binding> }
+
+// unify — solve `a` (the pattern) against `b`. Seeds an empty accumulator, runs the
+// recursive solver into it, and packages the result. See section header above.
+export fn unify(a Type, b Type) UnifyResult {
+    let acc Array<Binding>: []
+    let ok bool: solveUnify(a, b, acc)
+    return { ok: ok, bindings: acc }
+}
+
+// solveUnify — recursive solver, accumulating bindings into the shared `acc` (the
+// by-reference accumulator pattern used by `collectConcreteSumTypesAt` in
+// monoPass.suru — `acc.add(...)` mutates the caller's array). Returns whether the two
+// types unify.
+//
+// A `Var` on EITHER side is bound to the opposing type first (so the var case is
+// symmetric); only when both sides are non-vars do the shapes have to match, mirroring
+// `equalType`'s structure: `Prim`/`Prim` by name, `Named`/`Named` by name + pairwise
+// args, `Arr`/`Arr` by element. Any shape mismatch is a unification failure.
+fn solveUnify(a Type, b Type, acc Array<Binding>) bool {
+    // Variable on the left: bind it to the whole of `b`.
+    match a {
+        Var: {
+            let va Var: a
+            return bindVar(va, b, acc)
+        }
+        _: {}
+    }
+    // Variable on the right (and `a` is not a var): bind it to the whole of `a`.
+    match b {
+        Var: {
+            let vb Var: b
+            return bindVar(vb, a, acc)
+        }
+        _: {}
+    }
+    // Both sides concrete: shapes must match.
+    match a {
+        Prim: {
+            match b {
+                Prim: {
+                    let pa Prim: a
+                    let pb Prim: b
+                    return pa.name.equals(pb.name)
+                }
+                _: { return false }
+            }
+        }
+        Named: {
+            match b {
+                Named: {
+                    let na Named: a
+                    let nb Named: b
+                    if not na.name.equals(nb.name) { return false }
+                    return unifyArgs(na.args, nb.args, acc)
+                }
+                _: { return false }
+            }
+        }
+        Arr: {
+            match b {
+                Arr: {
+                    let aa Arr: a
+                    let ab Arr: b
+                    return solveUnify(aa.elem, ab.elem, acc)
+                }
+                _: { return false }
+            }
+        }
+        Var: { return false }
+    }
+}
+
+// bindVar — bind type variable `v` (matched in `solveUnify`) to type `t`:
+//   - Trivial self-binding (`t` is the very same `Var`): nothing to record, succeed.
+//   - Already bound: `v.name` has a binding in `acc`, so `t` must AGREE with it —
+//     recursively unify the existing bound type against `t`. This is the consistency
+//     check: `Pair<?0, ?0> = Pair<i64, String>` binds T->i64 then unifies i64 vs
+//     String, which fails.
+//   - Fresh: append `binding(v.name, cloneType(t))`. The deep clone keeps the result
+//     independent of `t` (same ownership discipline as `substitute`), so the caller can
+//     drop inputs and result separately with no double-free.
+fn bindVar(v Var, t Type, acc Array<Binding>) bool {
+    // A variable trivially unifies with itself — no binding needed.
+    match t {
+        Var: {
+            let vt Var: t
+            if vt.id.equals(v.id) {
+                if vt.name.equals(v.name) { return true }
+            }
+        }
+        _: {}
+    }
+    if hasBinding(acc, v.name) {
+        // Already constrained: the new target must agree with the recorded one.
+        return solveUnify(lookupBinding(acc, v.name), t, acc)
+    }
+    acc.add(binding(v.name, cloneType(t)))
+    return true
+}
+
+// hasBinding — whether `name` is already bound in `acc`. Split from lookupBinding so a
+// miss is an honest false rather than a sentinel value the caller must decode.
+fn hasBinding(acc Array<Binding>, name String) bool {
+    let i i64: 0
+    while i.lt(acc.len()) {
+        if acc.at(i).name.equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+// lookupBinding — return a deep clone of the type bound to `name` in `acc`. Only called
+// when `hasBinding` is true, so the trailing fallback (an unreachable empty `Prim`) is a
+// formality the type checker requires, never a real result.
+fn lookupBinding(acc Array<Binding>, name String) Type {
+    let i i64: 0
+    while i.lt(acc.len()) {
+        let b Binding: acc.at(i)
+        if b.name.equals(name) { return cloneType(b.ty) }
+        i: i.add(1)
+    }
+    return primType("")
+}
+
+// unifyArgs — unify two type-argument lists element-wise. Unequal lengths fail (arity
+// check: `Pair<i64, String>` vs `Pair<i64>`); equal lengths unify each pair by
+// position, threading the shared `acc`. Mirrors `equalArgs`.
+fn unifyArgs(xs Array<Type>, ys Array<Type>, acc Array<Binding>) bool {
+    if not xs.len().equals(ys.len()) { return false }
+    let i i64: 0
+    while i.lt(xs.len()) {
+        if not solveUnify(xs.at(i), ys.at(i), acc) { return false }
         i: i.add(1)
     }
     return true
