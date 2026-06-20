@@ -1,0 +1,88 @@
+namespace Suru.Compiler.Semantic.ResolveCallUnify
+
+import {
+    ast: Suru.Compiler.Parser.Ast
+    [Type, Prim]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [printSuruType]: Suru.Compiler.Types.Print
+    [unify, UnifyResult, substitute, varizeType, Binding]: Suru.Compiler.Types.Ops
+}
+
+fn rtIsNoExpect(t Type) bool {
+    match t {
+        Prim: {
+            let p Prim: t
+            return p.name.equals("")
+        }
+        _: {}
+    }
+    return false
+}
+
+fn rtHasBinding(bindings Array<Binding>, name String) bool {
+    let i i64: 0
+    while i.lt(bindings.len()) {
+        if bindings.at(i).name.equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}
+
+fn rtAppendBinding(bindings Array<Binding>, name String, dst Array<Type>) {
+    let i i64: 0
+    while i.lt(bindings.len()) {
+        let b Binding: bindings.at(i)
+        if b.name.equals(name) {
+            let empty Array<Binding>: []
+            dst.add(substitute(b.ty, empty))
+            return
+        }
+        i: i.add(1)
+    }
+}
+
+export fn rtCallUnify(typed CallNode, expectedTy Type, tparams Array<String>, retAnn String) bool {
+    // Gate: need a real expectation to solve a (possibly zero-arg) generic.
+    if rtIsNoExpect(expectedTy) { return false }
+    if retAnn.equals("") { return false }
+
+    // Return template: parse the source-form return annotation, then promote the
+    // type-param names to type variables, e.g. "List<T>" -> Named List [Var T].
+    let retParsed Type: parseType(retAnn)
+    let retTmpl Type: varizeType(retParsed, tparams)
+
+    // Solve template vs expected. newList has zero params, so return-vs-expected
+    // is the sole binding source; param-vs-arg unification is left to a later
+    // task — when the return doesn't bind every type param we fail closed below.
+    let res UnifyResult: unify(retTmpl, expectedTy)
+    if not res.ok { return false }
+
+    // Every type param must be solved; otherwise the recorded args would be
+    // incomplete — fail closed (before any mutation) and let mono handle it.
+    let allBound bool: true
+    let i i64: 0
+    while i.lt(tparams.len()) {
+        if not rtHasBinding(res.bindings, tparams.at(i)) { allBound: false }
+        i: i.add(1)
+    }
+    if not allBound { return false }
+
+    // Commit. `node` is a writable alias of the CallNode (the resolver's in-place
+    // mutation idiom). Append one concrete Type per type param, in declaration
+    // order, into the node's existing (parser-initialised empty) typeArgs array
+    // — an in-place append, not a whole-array field assignment.
+    let node CallNode: typed
+    let dst Array<Type>: node.typeArgs
+    let j i64: 0
+    while j.lt(tparams.len()) {
+        rtAppendBinding(res.bindings, tparams.at(j), dst)
+        j: j.add(1)
+    }
+
+    // Concrete resolved return type, e.g. printSuruType(Named List [Token]) =
+    // "List-Token" (the legacy codegen encoding the rest of the pass expects).
+    let concrete Type: substitute(retTmpl, res.bindings)
+    let s String: printSuruType(concrete)
+    node.resolvedType: s
+    return true
+}

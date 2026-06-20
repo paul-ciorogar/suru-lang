@@ -1,0 +1,26 @@
+// callunify_let_newlist.suru — fixture for the §2.2 type-arg unification test.
+//
+// The keystone case: a generic zero-arg `newList()` initialised through a `let`
+// whose annotation carries a USER element type (`List<Token>`). The resolver's
+// CallNode arm (rtCallUnify) unifies the return template `List<T>` against the
+// expected `List<Token>`, binding `T = Token` and recording it on the call node.
+//
+// `localId()` is a NON-generic call used to assert the fallback path is intact
+// (no typeArgs recorded, plain `i64` resolvedType).
+
+namespace Test.Unit.Compiler.Fixtures.CallUnifyLetNewList
+
+import { [List, newList]: Suru.Stdlib.List }
+
+type Token: { kind String }
+
+fn localId() i64 {
+    return 1
+}
+
+fn main() {
+    let toks List<Token>: newList()
+    let n i64: localId()
+    printLn(n.toString())
+    drop(toks)
+}

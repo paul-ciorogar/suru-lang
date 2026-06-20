@@ -18,6 +18,7 @@ import {
     [substituteTypeTests]: Test.Unit.Compiler.SubstituteType
     [collectGenericAppTests]: Test.Unit.Compiler.CollectGenericApp
     [callNodeTypeArgsTests]: Test.Unit.Compiler.CallNodeTypeArgs
+    [callUnifyTypeArgsTests]: Test.Unit.Compiler.CallUnifyTypeArgs
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
@@ -189,6 +190,8 @@ fn main(args Array<String>) {
     failed: failed.add(collectGenAppFailed)
     let callTypeArgsFailed i64: reportResults("call-node-typeargs", callNodeTypeArgsTests())
     failed: failed.add(callTypeArgsFailed)
+    let callUnifyFailed i64: reportResults("call-unify-typeargs", callUnifyTypeArgsTests())
+    failed: failed.add(callUnifyFailed)
     let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())

@@ -1,0 +1,98 @@
+// callUnifyTypeArgsTest.suru — in-process test for §2.2 (bind generic type
+// arguments at the CallNode arm by unification).
+//
+// Drives the keystone fixture through the pipeline stopped at the "resolve1"
+// pass (the pass that runs the edited resolver arm) and inspects the resolved
+// AST directly: the `newList()` call inside `main` must carry the concrete type
+// argument `Token` and a concrete `List-Token` resolvedType. A second,
+// non-generic call (`localId()`) asserts the legacy fallback is untouched
+// (no typeArgs, plain `i64`).
+//
+// We stop at "resolve1" deliberately: it is the tightest scope that runs the new
+// binding, before monomorphization rewrites call-site names.
+
+namespace Test.Unit.Compiler.CallUnifyTypeArgs
+
+import {
+    [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AstNode, FnDeclNode, LetNode, CallNode]: Suru.Compiler.Parser.Ast
+    [printAnnotation]: Suru.Compiler.Types.Print
+}
+
+// emptyCall — sentinel CallNode returned when the search finds nothing, so the
+// assertions fail with readable values rather than crashing on a missing node.
+fn emptyCall() CallNode {
+    let noArgs Array<AstNode>: []
+    let noTypeArgs Array<Type>: []
+    return { name: "", args: noArgs, typeArgs: noTypeArgs, line: 0, col: 0, resolvedType: "" }
+}
+
+// findCallInMain — within the merged post-resolve stmts, locate the FnDeclNode
+// named "main" and return the CallNode that is the value of the first `let`
+// whose callee name equals `callee`. Returns emptyCall() if not found.
+fn findCallInMain(stmts Array<AstNode>, callee String) CallNode {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let node AstNode: stmts.at(i)
+        match node {
+            FnDeclNode: {
+                let fd FnDeclNode: node
+                if fd.name.equals("main") {
+                    let body Array<AstNode>: fd.body
+                    let j i64: 0
+                    while j.lt(body.len()) {
+                        let s AstNode: body.at(j)
+                        match s {
+                            LetNode: {
+                                let ln LetNode: s
+                                let v AstNode: ln.value
+                                match v {
+                                    CallNode: {
+                                        let cn CallNode: v
+                                        if cn.name.equals(callee) { return cn }
+                                    }
+                                    _: {}
+                                }
+                            }
+                            _: {}
+                        }
+                        j: j.add(1)
+                    }
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return emptyCall()
+}
+
+// firstTypeArgAnnotation — source-form annotation of a call's first recorded
+// type argument, or "" when none were recorded.
+fn firstTypeArgAnnotation(cn CallNode) String {
+    let ta Array<Type>: cn.typeArgs
+    if ta.len().equals(0) { return "" }
+    return printAnnotation(ta.at(0))
+}
+
+export fn callUnifyTypeArgsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    let path String: "/work/tests/unit/compiler/fixtures/callunify_let_newlist.suru"
+    let res DebugResult: runPipelineDebug(path, "resolve1")
+    let stmts Array<AstNode>: res.stmts
+
+    // ─── Generic call: `let toks List<Token>: newList()` ─────────────────────
+    let newListCall CallNode: findCallInMain(stmts, "newList")
+    results.add(assertEqI64("newList records 1 type arg", newListCall.typeArgs.len(), 1))
+    results.add(assertEqStr("newList type arg is Token", firstTypeArgAnnotation(newListCall), "Token"))
+    results.add(assertEqStr("newList resolvedType is List-Token", newListCall.resolvedType, "List-Token"))
+
+    // ─── Non-generic call: `let n i64: localId()` (fallback path intact) ──────
+    let localCall CallNode: findCallInMain(stmts, "localId")
+    results.add(assertEqI64("localId records 0 type args", localCall.typeArgs.len(), 0))
+    results.add(assertEqStr("localId resolvedType is i64", localCall.resolvedType, "i64"))
+
+    return results
+}

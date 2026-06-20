@@ -30,24 +30,31 @@ export type Scope: {
     fn lookup(name String) String
 }
 
-export type FunctionSig: { 
+export type FunctionSig: {
     name String
     paramTypes Array<String>
     returnType String
     srcPath String
-    fn paramCount() i64 
+    typeParams Array<String>
+    fn paramCount() i64
 }
 
-export fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String) FunctionSig {
-    return { 
+// typeParams holds the callee's generic type-parameter names (e.g. ["T"] for
+// `newList<T>()`), empty for non-generic fns. The resolver's CallNode arm needs
+// them to varize the callee signature before unifying type args (refactor §2.2).
+// We clone the array so the sig owns its copy independent of the FnDeclNode it
+// was registered from; it is dropped when the registry is dropped.
+export fn newFunctionSig(name String, paramTypes Array<String>, returnType String, srcPath String, typeParams Array<String>) FunctionSig {
+    return {
         name: name
         paramTypes: paramTypes
         returnType: returnType
         srcPath: srcPath
+        typeParams: clone(typeParams)
 
-        fn paramCount() i64 { 
-            return this.paramTypes.len() 
-        } 
+        fn paramCount() i64 {
+            return this.paramTypes.len()
+        }
     }
 }
 
@@ -62,6 +69,7 @@ type FunctionRegistry: {
     fn returnType(name String) String
     fn paramCount(name String) i64
     fn paramType(name String, idx i64) String
+    fn typeParams(name String) Array<String>
 }
 
 fn newFunctionRegistry() FunctionRegistry {
@@ -147,6 +155,15 @@ fn newFunctionRegistry() FunctionRegistry {
             let pts Array<String>: this.signatures.at(i).paramTypes
             if idx.lt(pts.len()) { return pts.at(idx) }
             return ""
+        }
+
+        // typeParams — the generic type-param names of the first signature named
+        // `name`, or [] when undefined. Used by the resolver to detect a generic
+        // callee and varize its signature for type-arg unification (§2.2).
+        fn typeParams(name String) Array<String> {
+            let i i64: this.findIndexByName(name)
+            if i.lt(0) { return [] }
+            return this.signatures.at(i).typeParams
         }
     }
 }

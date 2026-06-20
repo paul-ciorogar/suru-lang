@@ -422,7 +422,7 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
             state.addError("unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"), stmt.line, stmt.col)
         }
     }
-    let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, stmt.srcPath)
+    let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, stmt.srcPath, typeParams)
     state.functions.add(sig)
     return state
 }
@@ -449,7 +449,8 @@ fn registerExternFnDecl(state AnalyzerState, stmt ExternFnNode) AnalyzerState {
     if not validReturn {
         state.addError("unknown return type '".append(returnType).append("' for extern fn '").append(stmt.name).append("'"), 0, 0)
     }
-    let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, "")
+    let externTypeParams Array<String>: []
+    let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, "", externTypeParams)
     state.functions.add(sig)
     return state
 }

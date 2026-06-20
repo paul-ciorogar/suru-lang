@@ -39,6 +39,9 @@ import {
     passes: Suru.Compiler.Semantic.Passes
     exprs: Suru.Compiler.Semantic.Exprs
     tyh: Suru.Compiler.Codegen.TypeHelpers
+    [primType]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [rtCallUnify]: Suru.Compiler.Semantic.ResolveCallUnify
 }
 
 // ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
@@ -274,11 +277,14 @@ fn rtNodeResolvedType(expr AstNode) String {
 
 // ─── Array / struct / arm / call-arg recursion helpers ───────────────────────
 
-// rtResolveArrayElems — resolve each element with `elemExpected`.
+// rtResolveArrayElems — resolve each element with `elemExpected`. Array elements
+// pass the no-expectation sentinel for the structured `expectedTy` (binding a
+// generic call from an array element type is out of scope for §2.2).
 fn rtResolveArrayElems(state AnalyzerState, elems Array<AstNode>, elemExpected String) AnalyzerState {
+    let noTy Type: primType("")
     let i i64: 0
     while i.lt(elems.len()) {
-        resolveExpr(state, elems.at(i), elemExpected)
+        resolveExpr(state, elems.at(i), elemExpected, noTy)
         i: i.add(1)
     }
     return state
@@ -293,7 +299,8 @@ fn rtResolveObjectFields(state AnalyzerState, fields Array<ObjectFieldNode>, dec
         let field ObjectFieldNode: fields.at(i)
         let annot String: rtLookupFieldType(decl, field.name)
         let expected String: tyh.makeSuruType(annot)
-        resolveExpr(state, field.value, expected)
+        let expectedTy Type: parseType(annot)
+        resolveExpr(state, field.value, expected, expectedTy)
         i: i.add(1)
     }
     return state
@@ -320,7 +327,8 @@ fn rtResolveObjectMethods(state AnalyzerState, fields Array<ObjectFieldNode>, st
                 pj: pj.add(1)
             }
             let expectedReturn String: tyh.makeSuruType(field.methodRet)
-            rtResolveBody(state, field.methodBody, expectedReturn)
+            let expectedReturnTy Type: parseType(field.methodRet)
+            rtResolveBody(state, field.methodBody, expectedReturn, expectedReturnTy)
             state.popScope()
         }
         i: i.add(1)
@@ -330,14 +338,15 @@ fn rtResolveObjectMethods(state AnalyzerState, fields Array<ObjectFieldNode>, st
 
 // rtResolveMatchArms — resolve each arm body with the outer-match expected
 // type. Pattern expressions are resolved with no expectation.
-fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String) AnalyzerState {
+fn rtResolveMatchArms(state AnalyzerState, arms Array<MatchArm>, expected String, expectedTy Type) AnalyzerState {
+    let noTy Type: primType("")
     let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchArm: arms.at(i)
         if not arm.isWildcard {
-            resolveExpr(state, arm.pattern, "")
+            resolveExpr(state, arm.pattern, "", noTy)
         }
-        resolveExpr(state, arm.body, expected)
+        resolveExpr(state, arm.body, expected, expectedTy)
         i: i.add(1)
     }
     return state
@@ -352,7 +361,8 @@ fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String) An
     while i.lt(args.len()) {
         let paramAnn String: state.functions.paramType(fnName, i)
         let expected String: tyh.makeSuruType(paramAnn)
-        resolveExpr(state, args.at(i), expected)
+        let expectedTy Type: parseType(paramAnn)
+        resolveExpr(state, args.at(i), expected, expectedTy)
         i: i.add(1)
     }
     return state
@@ -367,9 +377,13 @@ fn rtResolveCallArgs(state AnalyzerState, args Array<AstNode>, fnName String) An
 // rtResolveMethodCallNode — resolve the receiver and args of a method call,
 // enforce private-method privacy, and set the call's resolvedType from either
 // the user-declared method signature or the builtin method table.
-fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected String) AnalyzerState {
+// `expectedTy` is the structured form of `expected` (the surrounding-context
+// type). It is threaded here for symmetry with the CallNode arm; method-call
+// return-type unification against it lands in §2.3.
+fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected String, expectedTy Type) AnalyzerState {
     let rcv AstNode: typed.receiver
-    resolveExpr(state, rcv, "")
+    let noTy Type: primType("")
+    resolveExpr(state, rcv, "", noTy)
     // `arr.add(x)` on an Array<T> receiver: x is expected to be T.
     // Without this, an object-literal argument (e.g. params.add({...}))
     // resolves with expected "" → resolvedType "" → codegen emits a
@@ -463,7 +477,8 @@ fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected S
 // privacy, and look up the field's declared type on the receiver's struct.
 fn rtResolveFieldAccessNode(state AnalyzerState, typed FieldAccessNode) AnalyzerState {
     let rcv AstNode: typed.receiver
-    resolveExpr(state, rcv, "")
+    let noTy Type: primType("")
+    resolveExpr(state, rcv, "", noTy)
     let rcvType String: rtNodeResolvedType(rcv)
     let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
     // Privacy check: private data fields (declared with `_ name Type`) may
@@ -479,7 +494,7 @@ fn rtResolveFieldAccessNode(state AnalyzerState, typed FieldAccessNode) Analyzer
 
 // rtResolveArrayLitNode — derive an element-type expectation, resolve each
 // element under it, and tag the literal with "Array:<elem>".
-fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected String) AnalyzerState {
+fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected String, expectedTy Type) AnalyzerState {
     let elems Array<AstNode>: typed.elems
     // Element-type expectation: prefer the surrounding context's
     // "Array:T" form; otherwise peek the first element (after first
@@ -487,7 +502,8 @@ fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected Strin
     let elemType String: ""
     if tyh.isArraySuruType(expected) { elemType: tyh.elemSuruType(expected) }
     if elemType.equals("") and elems.len().gt(0) {
-        resolveExpr(state, elems.at(0), "")
+        let noTy Type: primType("")
+        resolveExpr(state, elems.at(0), "", noTy)
         elemType: rtNodeResolvedType(elems.at(0))
     }
     // Empty arrays without context default to i64 — matches the
@@ -501,7 +517,10 @@ fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected Strin
 // rtResolveObjectLitNode — tag with the expected type, verify field/method
 // completeness against the declared SemTypeEntry, augment with private
 // members from this literal, then resolve fields and method bodies.
-fn rtResolveObjectLitNode(state AnalyzerState, typed ObjectLitNode, expected String) AnalyzerState {
+// `expectedTy` (structured form of `expected`) is accepted for call-site
+// symmetry with resolveExpr's dispatch; object-literal resolution keys off the
+// canonical-string `expected`, so it is not consulted here.
+fn rtResolveObjectLitNode(state AnalyzerState, typed ObjectLitNode, expected String, expectedTy Type) AnalyzerState {
     typed.resolvedType: expected
     let fields Array<ObjectFieldNode>: typed.fields
     let decl SemTypeEntry: rtLookupTypeEntry(state, expected)
@@ -531,11 +550,18 @@ fn rtResolveObjectLitNode(state AnalyzerState, typed ObjectLitNode, expected Str
 // expectation down.
 //
 // `expected = ""` means "no surrounding expectation; resolve bottom-up only".
-// For literal / var-ref / call / method-call / field-access / unary / binary
-// nodes the expected value is unused — those produce their own type from
-// scope or a fixed table. It matters for ArrayLitNode, ObjectLitNode and
-// MatchExprNode, where the surrounding context picks the type.
-fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState {
+// For literal / var-ref / field-access / unary / binary nodes the expected
+// value is unused — those produce their own type from scope or a fixed table.
+// It matters for ArrayLitNode, ObjectLitNode and MatchExprNode (which pick the
+// type from context) and for CallNode (which unifies its generic type args
+// against the expectation).
+//
+// `expectedTy` is the STRUCTURED form of the same expectation (a `Type`), used
+// by the CallNode arm to bind generic type arguments by unification (§2.2). At
+// contexts with no expectation it is the sentinel `primType("")`. Threading the
+// structured value — rather than re-parsing the lossy `makeSuruType` string —
+// is the point of the refactor: type information stays a value, not a string.
+fn resolveExpr(state AnalyzerState, expr AstNode, expected String, expectedTy Type) AnalyzerState {
     match expr {
         BoolLitNode: {
             let typed BoolLitNode: expr
@@ -583,13 +609,30 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
                 typed.resolvedType: "String"
             } else {
                 let raw String: state.functions.returnType(name)
-                typed.resolvedType: tyh.makeSuruType(raw)
+                // §2.2: for an unambiguous generic callee with a known
+                // expectation, bind its type arguments by unifying the (varized)
+                // return template against `expectedTy`, recording concrete
+                // `typeArgs` and the concrete `resolvedType` on the node. We
+                // extract the callee's type params + return annotation here
+                // (where AnalyzerState access is cheap) and hand them to the
+                // pure rtCallUnify. It fails closed; on a miss we keep the legacy
+                // template-typed behavior and let monomorphization bind later.
+                let bound bool: false
+                if state.functions.nameCount(name).equals(1) {
+                    let tparams Array<String>: state.functions.typeParams(name)
+                    if tparams.len().gt(0) {
+                        bound: rtCallUnify(typed, expectedTy, tparams, raw)
+                    }
+                }
+                if not bound {
+                    typed.resolvedType: tyh.makeSuruType(raw)
+                }
             }
         }
 
         MethodCallNode: {
             let typed MethodCallNode: expr
-            rtResolveMethodCallNode(state, typed, expected)
+            rtResolveMethodCallNode(state, typed, expected, expectedTy)
         }
 
         FieldAccessNode: {
@@ -599,20 +642,21 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 
         ArrayLitNode: {
             let typed ArrayLitNode: expr
-            rtResolveArrayLitNode(state, typed, expected)
+            rtResolveArrayLitNode(state, typed, expected, expectedTy)
         }
 
         ObjectLitNode: {
             let typed ObjectLitNode: expr
-            rtResolveObjectLitNode(state, typed, expected)
+            rtResolveObjectLitNode(state, typed, expected, expectedTy)
         }
 
         MatchExprNode: {
             let typed MatchExprNode: expr
             let cond AstNode: typed.condition
-            resolveExpr(state, cond, "")
+            let noTy Type: primType("")
+            resolveExpr(state, cond, "", noTy)
             let arms Array<MatchArm>: typed.arms
-            rtResolveMatchArms(state, arms, expected)
+            rtResolveMatchArms(state, arms, expected, expectedTy)
             if expected.equals("") and arms.len().gt(0) {
                 typed.resolvedType: rtNodeResolvedType(arms.at(0).body)
             } else {
@@ -622,7 +666,8 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 
         UnaryNode: {
             let typed UnaryNode: expr
-            resolveExpr(state, typed.operand, "")
+            let noTy Type: primType("")
+            resolveExpr(state, typed.operand, "", noTy)
             // The only unary operator today is logical `not`; semantic.suru's
             // inferType already returns "bool" for every UnaryNode.
             typed.resolvedType: "bool"
@@ -630,8 +675,9 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 
         BinaryNode: {
             let typed BinaryNode: expr
-            resolveExpr(state, typed.left, "")
-            resolveExpr(state, typed.right, "")
+            let noTy Type: primType("")
+            resolveExpr(state, typed.left, "", noTy)
+            resolveExpr(state, typed.right, "", noTy)
             // Mirrors the current inferType behaviour: every binary operator
             // produces bool. Expanded to arithmetic in a future task.
             typed.resolvedType: "bool"
@@ -655,24 +701,26 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String) AnalyzerState
 // rtResolveBody — walk a list of statements inside a function body, threading
 // `expectedReturn` down to ReturnNodes. Manages its own scope frames so that
 // VarRef lookups resolve correctly inside loops and if/else branches.
-fn rtResolveBody(state AnalyzerState, stmts Array<AstNode>, expectedReturn String) AnalyzerState {
+fn rtResolveBody(state AnalyzerState, stmts Array<AstNode>, expectedReturn String, expectedReturnTy Type) AnalyzerState {
     let i i64: 0
     while i.lt(stmts.len()) {
-        rtResolveStmt(state, stmts.at(i), expectedReturn)
+        rtResolveStmt(state, stmts.at(i), expectedReturn, expectedReturnTy)
         i: i.add(1)
     }
     return state
 }
 
 // rtResolveStmt — dispatch one statement, picking the right expected type for
-// each contained expression.
-fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) AnalyzerState {
+// each contained expression. `expectedReturnTy` is the structured form of
+// `expectedReturn`, threaded to ReturnNode for generic-call type-arg binding.
+fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String, expectedReturnTy Type) AnalyzerState {
     match stmt {
         LetNode: {
             let typed LetNode: stmt
             let expected String: tyh.makeSuruType(typed.typeName)
+            let expectedTy Type: parseType(typed.typeName)
             let val AstNode: typed.value
-            resolveExpr(state, val, expected)
+            resolveExpr(state, val, expected, expectedTy)
             // Declare the symbol so later VarRefs inside this scope resolve.
             // collectTypeDeclarations doesn't touch state.scopes, and the
             // statement-analysis pass runs after us — but it re-declares the
@@ -687,14 +735,16 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
             let typed AssignNode: stmt
             let varType String: state.lookupSymbol(typed.name)
             let expected String: tyh.makeSuruType(varType)
+            let expectedTy Type: parseType(varType)
             let val AstNode: typed.value
-            resolveExpr(state, val, expected)
+            resolveExpr(state, val, expected, expectedTy)
         }
 
         FieldAssignNode: {
             let typed FieldAssignNode: stmt
             let rcv AstNode: typed.receiver
-            resolveExpr(state, rcv, "")
+            let noTy Type: primType("")
+            resolveExpr(state, rcv, "", noTy)
             let rcvType String: rtNodeResolvedType(rcv)
             let decl SemTypeEntry: rtLookupTypeEntry(state, rcvType)
             // Privacy check: private data fields may only be written via `this`.
@@ -704,55 +754,60 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
             }
             let annot String: rtLookupFieldType(decl, typed.fieldName)
             let expected String: tyh.makeSuruType(annot)
+            let expectedTy Type: parseType(annot)
             let val AstNode: typed.value
-            resolveExpr(state, val, expected)
+            resolveExpr(state, val, expected, expectedTy)
         }
 
         ReturnNode: {
             let typed ReturnNode: stmt
             if typed.hasValue {
-                resolveExpr(state, typed.value, expectedReturn)
+                resolveExpr(state, typed.value, expectedReturn, expectedReturnTy)
             }
         }
 
         WhileNode: {
             let typed WhileNode: stmt
-            resolveExpr(state, typed.condition, "bool")
+            let noTy Type: primType("")
+            resolveExpr(state, typed.condition, "bool", noTy)
             state.pushScope()
-            rtResolveBody(state, typed.body, expectedReturn)
+            rtResolveBody(state, typed.body, expectedReturn, expectedReturnTy)
             state.popScope()
         }
 
         IfNode: {
             let typed IfNode: stmt
-            resolveExpr(state, typed.condition, "bool")
+            let noTy Type: primType("")
+            resolveExpr(state, typed.condition, "bool", noTy)
             let thenBlock BlockNode: typed.thenBranch
             state.pushScope()
-            rtResolveBody(state, thenBlock.stmts, expectedReturn)
+            rtResolveBody(state, thenBlock.stmts, expectedReturn, expectedReturnTy)
             state.popScope()
             let elseBlock BlockNode: typed.elseBranch
             let elseStmts Array<AstNode>: elseBlock.stmts
             if elseStmts.len().gt(0) {
                 state.pushScope()
-                rtResolveBody(state, elseStmts, expectedReturn)
+                rtResolveBody(state, elseStmts, expectedReturn, expectedReturnTy)
                 state.popScope()
             }
         }
 
         MatchStmtNode: {
             let typed MatchStmtNode: stmt
-            resolveExpr(state, typed.condition, "")
-            rtResolveMatchStmtArms(state, typed.arms, expectedReturn)
+            let noTy Type: primType("")
+            resolveExpr(state, typed.condition, "", noTy)
+            rtResolveMatchStmtArms(state, typed.arms, expectedReturn, expectedReturnTy)
         }
 
         BlockNode: {
             let typed BlockNode: stmt
-            rtResolveBody(state, typed.stmts, expectedReturn)
+            rtResolveBody(state, typed.stmts, expectedReturn, expectedReturnTy)
         }
 
         ExprStmtNode: {
             let typed ExprStmtNode: stmt
-            resolveExpr(state, typed.expr, "")
+            let noTy Type: primType("")
+            resolveExpr(state, typed.expr, "", noTy)
         }
 
         _: {}
@@ -763,15 +818,16 @@ fn rtResolveStmt(state AnalyzerState, stmt AstNode, expectedReturn String) Analy
 // rtResolveMatchStmtArms — iterate MatchStmtNode arms; each arm body is a
 // statement list (not a single expression) so we recurse via rtResolveBody.
 // Pattern expressions are resolved with no expectation.
-fn rtResolveMatchStmtArms(state AnalyzerState, arms Array<MatchStmtArm>, expectedReturn String) AnalyzerState {
+fn rtResolveMatchStmtArms(state AnalyzerState, arms Array<MatchStmtArm>, expectedReturn String, expectedReturnTy Type) AnalyzerState {
+    let noTy Type: primType("")
     let i i64: 0
     while i.lt(arms.len()) {
         let arm MatchStmtArm: arms.at(i)
         if not arm.isWildcard {
-            resolveExpr(state, arm.pattern, "")
+            resolveExpr(state, arm.pattern, "", noTy)
         }
         state.pushScope()
-        rtResolveBody(state, arm.stmts, expectedReturn)
+        rtResolveBody(state, arm.stmts, expectedReturn, expectedReturnTy)
         state.popScope()
         i: i.add(1)
     }
@@ -795,7 +851,8 @@ fn rtResolveFnDecl(state AnalyzerState, stmt FnDeclNode) AnalyzerState {
     }
     let returnType String: stmt.returnType
     let expectedReturn String: tyh.makeSuruType(returnType)
-    rtResolveBody(state, stmt.body, expectedReturn)
+    let expectedReturnTy Type: parseType(returnType)
+    rtResolveBody(state, stmt.body, expectedReturn, expectedReturnTy)
     state.popScope()
     return state
 }
@@ -838,7 +895,8 @@ export fn resolveModuleTypes(state AnalyzerState, stmts Array<AstNode>) Analyzer
                 // Module-level constants — same shape as inside a function
                 // body. rtResolveStmt declares the symbol so later top-level
                 // VarRefs resolve.
-                rtResolveStmt(state, stmt, "")
+                let noTy Type: primType("")
+                rtResolveStmt(state, stmt, "", noTy)
             }
             _: {}
         }
