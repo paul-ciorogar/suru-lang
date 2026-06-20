@@ -11,6 +11,7 @@ import {
     [semanticTypeMismatchTests]: Test.Unit.Compiler.SemanticTypeMismatch
     [monoInstantiationTests]: Test.Unit.Compiler.MonoInstantiation
     [typeValueTests]: Test.Unit.Compiler.TypeValue
+    [typeParseTests]: Test.Unit.Compiler.TypeParse
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
@@ -168,6 +169,8 @@ fn main(args Array<String>) {
     failed: failed.add(monoInstFailed)
     let typeValueFailed i64: reportResults("type-value", typeValueTests())
     failed: failed.add(typeValueFailed)
+    let typeParseFailed i64: reportResults("type-parse", typeParseTests())
+    failed: failed.add(typeParseFailed)
     let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())

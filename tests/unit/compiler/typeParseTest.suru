@@ -1,0 +1,97 @@
+// typeParseTest.suru — unit tests for parseType (task 1.2).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// typeParseTests() and reports the returned results. Covers every input shape
+// parseType accepts: bare names (incl. a type-variable name, which stays a Prim),
+// single- and multi-arg source generics, nested and nested-multi-arg generics
+// (the depth-aware comma split), and both built-in array encodings (source
+// `Array<i64>` and colon `Array:i64`, incl. nested colon).
+//
+// Assertions read fields via the unchecked-downcast idiom (also used by
+// typeValueTest.suru): a value typed as the base sum `Type` is bound to a
+// specific variant (`let n Named: <type value>`) to read its fields, and
+// `Named.args.at(i)` returns a `Type` which is downcast again for nested cases.
+
+namespace Test.Unit.Compiler.TypeParse
+
+import {
+    [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert
+    [Type, Prim, Named, Arr]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+}
+
+// typeParseTests — one TestResult per assertion.
+export fn typeParseTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // Bare primitive name -> Prim.
+    let pInt Prim: parseType("i64")
+    results.add(assertEqStr("parseType('i64') -> Prim.name", pInt.name, "i64"))
+
+    // Bare type-variable name -> Prim (parseType is context-free; it has no way
+    // to know 'T' is a type parameter, so it stays a Prim until the resolver
+    // mints a Var with the params in scope).
+    let pVar Prim: parseType("T")
+    results.add(assertEqStr("parseType('T') -> Prim.name", pVar.name, "T"))
+
+    // Single-arg source generic: List<Token>.
+    let listTok Named: parseType("List<Token>")
+    results.add(assertEqStr("List<Token>.name", listTok.name, "List"))
+    results.add(assertEqI64("List<Token>.args.len", listTok.args.len(), 1))
+    let listArg Prim: listTok.args.at(0)
+    results.add(assertEqStr("List<Token>.args[0].name", listArg.name, "Token"))
+
+    // Multi-arg source generic with a space after the comma: Pair<i64, String>.
+    // The leading space on the second arg must be trimmed.
+    let pair Named: parseType("Pair<i64, String>")
+    results.add(assertEqStr("Pair<..>.name", pair.name, "Pair"))
+    results.add(assertEqI64("Pair<i64, String>.args.len", pair.args.len(), 2))
+    let pairA Prim: pair.args.at(0)
+    let pairB Prim: pair.args.at(1)
+    results.add(assertEqStr("Pair.args[0].name", pairA.name, "i64"))
+    results.add(assertEqStr("Pair.args[1].name (trimmed)", pairB.name, "String"))
+
+    // Nested generic: List<Option<Token>> — arg0 is itself a Named with one arg.
+    let nested Named: parseType("List<Option<Token>>")
+    results.add(assertEqI64("List<Option<Token>>.args.len", nested.args.len(), 1))
+    let opt Named: nested.args.at(0)
+    results.add(assertEqStr("nested.args[0].name", opt.name, "Option"))
+    results.add(assertEqI64("Option<Token>.args.len", opt.args.len(), 1))
+    let optArg Prim: opt.args.at(0)
+    results.add(assertEqStr("Option<Token>.args[0].name", optArg.name, "Token"))
+
+    // Nested MULTI-arg generic: Pair<Map<i64, String>, bool> — the keystone for
+    // the depth-aware split. The comma inside Map<...> must NOT split the outer
+    // arg list, so the outer Pair has exactly two args.
+    let outer Named: parseType("Pair<Map<i64, String>, bool>")
+    results.add(assertEqI64("Pair<Map<..>, bool>.args.len", outer.args.len(), 2))
+    let mapArg Named: outer.args.at(0)
+    results.add(assertEqStr("outer.args[0].name", mapArg.name, "Map"))
+    results.add(assertEqI64("Map<i64, String>.args.len", mapArg.args.len(), 2))
+    let boolArg Prim: outer.args.at(1)
+    results.add(assertEqStr("outer.args[1].name (trimmed)", boolArg.name, "bool"))
+
+    // Built-in array, source form: Array<i64> -> Arr with a Prim elem.
+    let arrSrc Arr: parseType("Array<i64>")
+    let arrSrcElem Prim: arrSrc.elem
+    results.add(assertEqStr("Array<i64>.elem.name", arrSrcElem.name, "i64"))
+
+    // Built-in array, colon form: Array:i64 -> the same Arr shape.
+    let arrCol Arr: parseType("Array:i64")
+    let arrColElem Prim: arrCol.elem
+    results.add(assertEqStr("Array:i64.elem.name", arrColElem.name, "i64"))
+
+    // Nested colon array: Array:Array:i64 -> Arr(Arr(Prim "i64")).
+    let arrNest Arr: parseType("Array:Array:i64")
+    let arrInner Arr: arrNest.elem
+    let arrInnerElem Prim: arrInner.elem
+    results.add(assertEqStr("Array:Array:i64 inner elem.name", arrInnerElem.name, "i64"))
+
+    // Array of a generic, source form: Array<List<Token>> -> Arr(Named "List").
+    let arrGen Arr: parseType("Array<List<Token>>")
+    let arrGenElem Named: arrGen.elem
+    results.add(assertEqStr("Array<List<Token>>.elem.name", arrGenElem.name, "List"))
+    results.add(assertEqI64("Array<List<Token>>.elem.args.len", arrGenElem.args.len(), 1))
+
+    return results
+}

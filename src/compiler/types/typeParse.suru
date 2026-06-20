@@ -1,0 +1,134 @@
+// typeParse.suru — parse a type-annotation string into a structured `Type`.
+//
+// This is the boundary operation of the type-system refactor (todo.md §1.2,
+// design in semantic_analysis_architecture_rd.md §4.A): it turns the raw string
+// forms the compiler carries today into the single structured `Type` value
+// declared in type.suru, so every later operation (printSymbol, equalType,
+// substitute, unify) works on structure instead of re-parsing strings.
+//
+// Two input encodings are accepted:
+//   - source form:  `List<Token>`, `Pair<i64, String>`, nested `List<Option<T>>`
+//   - colon form:   `Array:i64`, nested `Array:Array:i64`  (built-in arrays only)
+// The hyphen-mangled form (`List-Token`) is NOT parsed here — it is the inverse
+// direction, produced by printSymbol (task 1.3).
+//
+// `parseType` is deliberately PURELY SYNTACTIC / context-free: a bare name always
+// becomes a `Prim`, INCLUDING a type-variable name like `T`. The signature (fixed
+// by §4.A) takes only the string, so — like the OCaml/Haskell/Rust parsers — it
+// cannot tell a type parameter `T` from a concrete type `Token` from the string
+// alone. A `Var` ("a type not yet solved") is minted later, by the steps that DO
+// know the parameters: the resolver pushing `T -> Var` on entering a generic body
+// (§4.B) and the unifier creating fresh inference vars at call sites (§4.C).
+// `Var.name` preserves the source name so the link to `T` survives.
+//
+// This file lives in its own namespace (not Suru.Compiler.Types) because the
+// namespace registry maps each namespace to exactly one file (nsRegistry.suru);
+// two files sharing a namespace would leave one of them undiscoverable.
+//
+// Coverage: tests/unit/compiler/typeParseTest.suru.
+
+namespace Suru.Compiler.Types.Parse
+
+import {
+    [Type, primType, namedType, arrType]: Suru.Compiler.Types
+}
+
+// ─── String scanning helpers ───────────────────────────────────────────────────
+//
+// Re-implemented locally (mirroring monoSubst.suru) rather than imported: the
+// `types/` tree is the foundational layer that monomorphization will later be
+// rebuilt on top of (tasks 1.7–1.9), so importing from semantic/mono here would
+// invert the dependency.
+
+// indexOfLT — index of the first '<' in s, or s.len() when absent.
+fn indexOfLT(s String) i64 {
+    let i i64: 0
+    while i.lt(s.len()) {
+        if s.at(i).equals("<") { return i }
+        i: i.add(1)
+    }
+    return s.len()
+}
+
+// trimLeft — strip leading ASCII spaces from s (annotations split out of a
+// comma-separated argument list arrive as " String").
+fn trimLeft(s String) String {
+    let i i64: 0
+    while i.lt(s.len()) {
+        if not s.at(i).equals(" ") { return s.slice(i, s.len()) }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// hasArrayColonPrefix — true when s is the colon array form `Array:<elem>`, which
+// always has at least one element character after the 6-char "Array:" prefix.
+fn hasArrayColonPrefix(s String) bool {
+    if not s.len().gt(6) { return false }
+    return s.slice(0, 6).equals("Array:")
+}
+
+// ─── Parser ─────────────────────────────────────────────────────────────────────
+
+// parseType — parse a type annotation into a structured `Type`.
+//   "i64"                    -> Prim "i64"
+//   "T"                      -> Prim "T"        (context-free; see file header)
+//   "List<Token>"            -> Named "List" [Prim "Token"]
+//   "Pair<i64, String>"      -> Named "Pair" [Prim "i64", Prim "String"]
+//   "List<Option<Token>>"    -> Named "List" [Named "Option" [Prim "Token"]]
+//   "Array<i64>" / "Array:i64" -> Arr (Prim "i64")
+//   "Array:Array:i64"        -> Arr (Arr (Prim "i64"))
+export fn parseType(annotation String) Type {
+    let s String: trimLeft(annotation)
+
+    // Colon array form: `Array:<elem>` — recurse on the element so nested arrays
+    // (`Array:Array:i64`) fold correctly into the dedicated `Arr` shape.
+    if hasArrayColonPrefix(s) {
+        return arrType(parseType(s.slice(6, s.len())))
+    }
+
+    // No '<' anywhere: a bare name (primitive, user struct, or a type variable).
+    let ltIdx i64: indexOfLT(s)
+    if ltIdx.equals(s.len()) {
+        return primType(s)
+    }
+
+    // Generic application `Base<args>`. The inner span runs from just after the
+    // first '<' to just before the final '>' (dropped via the len-1 `take(1)`
+    // idiom). parseArgs is depth-aware so nested multi-arg generics split right.
+    let base String: s.slice(0, ltIdx)
+    let inner String: s.slice(ltIdx.add(1), s.len().take(1))
+    let args Array<Type>: parseArgs(inner)
+
+    // The built-in array gets the dedicated `Arr` shape rather than a `Named`.
+    if base.equals("Array") {
+        return arrType(args.at(0))
+    }
+    return namedType(base, args)
+}
+
+// parseArgs — split a generic argument list on top-level commas (commas inside a
+// nested `<...>` are skipped by tracking angle-bracket depth) and parse each part.
+// A naive comma split would mangle `Map<i64, String>, bool` — hence the depth
+// counter, which the legacy `splitByComma` lacks.
+fn parseArgs(inner String) Array<Type> {
+    let args Array<Type>: []
+    if inner.len().equals(0) { return args }
+    let depth i64: 0
+    let start i64: 0
+    let i i64: 0
+    while i.lt(inner.len()) {
+        let c String: inner.at(i)
+        if c.equals("<") { depth: depth.add(1) }
+        if c.equals(">") { depth: depth.take(1) }
+        if c.equals(",") {
+            if depth.equals(0) {
+                args.add(parseType(inner.slice(start, i)))
+                start: i.add(1)
+            }
+        }
+        i: i.add(1)
+    }
+    args.add(parseType(inner.slice(start, inner.len())))
+    return args
+}
