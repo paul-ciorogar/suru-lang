@@ -1,4 +1,4 @@
-// mono_let_newlist.suru — regression-oracle fixture (Phase 0, task 0.1).
+// monoLetNewlist.suru — regression-oracle fixture.
 //
 // The WORKING case: a generic zero-arg `newList()` initialised through a `let`
 // binding whose annotation carries the concrete element type (`List<i64>`).

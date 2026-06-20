@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Monomorphization prefers recorded `typeArgs`
+
+- Fixes the long-standing bug where a generic zero-arg constructor used as an object/struct
+  literal *field value* (e.g. `type Container: { items List<i64> }` then `{ items: newList() }`)
+  was never monomorphized — mono inferred type arguments syntactically from call *arguments*, so
+  a no-arg call like `newList()` produced no instantiation and the program failed at compile
+  time with `undefined function 'newList'`. `monoInfer` now reads the structured `typeArgs` the
+  resolver already records on `CallNode`/`MethodCallNode` (the §2.2 resolver threads each field's
+  declared type as the expected type via `rtResolveObjectFields`, binding `T=i64`), falling back
+  to the syntactic arm only when no `typeArgs` were recorded. A new
+  `requestFromTypeArgs(genericName, typeArgs, registry)` helper builds the `InstantiationRequest`
+  directly (concrete types via `printAnnotation`); the existing fixed-point worklist
+  (`instantiateAll`) then derives the transitively-needed `List-i64` from `newList-i64`'s return
+  type, so no change to `monoInstantiate.suru` was needed. The working `let`-annotation case is
+  byte-identical (the recorded request dedups against the annotation-arm request by mangled key);
+  the self-hosting bootstrap fixed point is unchanged (C2==C3). Coverage: Phase-0 oracle
+  `tests/unit/compiler/mono_instantiation_test.suru` — the pinned object-field assertions flip
+  from "absent" to "present".
+
 ### Bind generic type args at the MethodCallNode arm 
 
 - The resolver now binds a generic callee's type arguments for namespace-aliased calls written

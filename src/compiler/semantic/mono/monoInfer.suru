@@ -16,6 +16,8 @@ import {
     inst: Suru.Compiler.Semantic.Mono.Instantiate
     subst: Suru.Compiler.Semantic.Mono.Subst
     collect: Suru.Compiler.Semantic.Mono.Collect
+    [Type]: Suru.Compiler.Types
+    [printAnnotation]: Suru.Compiler.Types.Print
 }
 
 // ─── Type-name string helpers ─────────────────────────────────────────────────
@@ -200,12 +202,45 @@ fn inferFromGenericFnCall(fnName String, args Array<AstNode>, registry GenericRe
     return result
 }
 
-// inferFromCallSite — if callNode.name matches a registered generic function,
-// unify its declared param types against the arg resolvedTypes to bind each
-// type variable.  Only bare type-variable params (e.g. typeName = "T") are
-// handled; nested forms like "Array<T>" are skipped.  Returns [] if the
-// function is not generic or any binding is unresolved.
+// requestFromTypeArgs — build an InstantiationRequest from the resolver-recorded
+// typeArgs on a generic call node (§2.4).  genericName is the callee's base name;
+// concreteTypes are the source-form annotations of each recorded Type (e.g.
+// printAnnotation(Prim "i64") = "i64", which mangleGenericName/deduplicateRequests
+// re-parse, so the mangled key matches the syntactic path's key exactly).  The
+// resolver only records typeArgs for generic callees, but the registry guard keeps
+// bogus names out of the request set (and mirrors inferFromGenericFnCall's drop
+// discipline for the unused `empty` array).  Returns [] when the name is not a
+// registered generic function.
+fn requestFromTypeArgs(genericName String, typeArgs Array<Type>, registry GenericRegistry) Array<InstantiationRequest> {
+    let empty Array<InstantiationRequest>: []
+    let fnIdx i64: registry.findFn(genericName)
+    if fnIdx.equals(registry.fns.len()) { return empty }
+    drop(empty)
+    let def GenericFnDef: registry.fns.at(fnIdx)
+    let concretes Array<String>: []
+    let i i64: 0
+    while i.lt(typeArgs.len()) {
+        concretes.add(printAnnotation(typeArgs.at(i)))
+        i: i.add(1)
+    }
+    // concretes transfers into req.concreteTypes; do not drop it separately.
+    let req InstantiationRequest: { genericName: clone(def.name), concreteTypes: concretes }
+    let result Array<InstantiationRequest>: []
+    result.add(req)
+    return result
+}
+
+// inferFromCallSite — prefer the resolver-recorded typeArgs when present (§2.4):
+// the resolver already bound the call's type variables by unifying the callee
+// return template against the expected type, so use that binding directly (this
+// also covers zero-arg generics like newList() whose type args cannot be derived
+// from argument resolvedTypes).  Falls back to the syntactic arm — unify declared
+// param types against arg resolvedTypes — when no typeArgs were recorded.  Returns
+// [] if the callee is not generic or no binding is available.
 fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<InstantiationRequest> {
+    if callNode.typeArgs.len().gt(0) {
+        return requestFromTypeArgs(callNode.name, callNode.typeArgs, registry)
+    }
     return inferFromGenericFnCall(callNode.name, callNode.args, registry)
 }
 
@@ -409,9 +444,17 @@ fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<Instantiation
             // generic fn call on mcn.methodName.
             let recvType String: resolvedTypeOf(mcn.receiver)
             if recvType.equals("") {
-                let fromFnCall Array<InstantiationRequest>: inferFromGenericFnCall(mcn.methodName, mcn.args, registry)
-                out: appendAll(fromFnCall, out)
-                drop(fromFnCall)
+                // Prefer resolver-recorded typeArgs (§2.4), else fall back to
+                // syntactic arg-type binding.
+                if mcn.typeArgs.len().gt(0) {
+                    let fromTypeArgs Array<InstantiationRequest>: requestFromTypeArgs(mcn.methodName, mcn.typeArgs, registry)
+                    out: appendAll(fromTypeArgs, out)
+                    drop(fromTypeArgs)
+                } else {
+                    let fromFnCall Array<InstantiationRequest>: inferFromGenericFnCall(mcn.methodName, mcn.args, registry)
+                    out: appendAll(fromFnCall, out)
+                    drop(fromFnCall)
+                }
             }
             out: inferFromExpr(mcn.receiver, registry, out)
             out: inferFromExprs(mcn.args, registry, out)

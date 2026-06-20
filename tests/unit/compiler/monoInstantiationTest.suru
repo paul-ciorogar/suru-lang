@@ -1,4 +1,4 @@
-// mono_instantiation_test.suru — in-process REGRESSION ORACLE for the
+// monoInstantiationTest.suru — in-process REGRESSION ORACLE for the
 // monomorphization pass (Phase 0, task 0.1 of the type-system refactor; see
 // semantic_analysis_architecture_rd.md).
 //
@@ -20,8 +20,8 @@
 // at mono lets the failing fixture run cleanly and simply show the absence.
 //
 // Two fixtures (tests/unit/compiler/fixtures/):
-//   mono_let_newlist.suru      — `let arr List<i64>: newList()`  → List-i64 instantiated (works)
-//   mono_objfield_newlist.suru — `items List<i64>: newList()`    → List-i64 NOT instantiated (bug)
+//   monoLetNewlist.suru      — `let arr List<i64>: newList()`  → List-i64 instantiated (works)
+//   monoObjfieldNewlist.suru — `items List<i64>: newList()`    → List-i64 NOT instantiated (bug)
 
 namespace Test.Unit.Compiler.MonoInstantiation
 
@@ -87,16 +87,17 @@ export fn monoInstantiationTests() Array<TestResult> {
     // ─── Working case: `let arr List<i64>: newList()` ─────────────────────────
     // The let annotation gives monoInfer the concrete element type, so both the
     // List-i64 struct and the newList-i64 function get instantiated.
-    let letNames Array<String>: namesFor("mono_let_newlist.suru")
+    let letNames Array<String>: namesFor("monoLetNewlist.suru")
     results.add(assertEqI64("let-case instantiates List-i64", countEq(letNames, "List-i64"), 1))
     results.add(assertEqI64("let-case instantiates newList-i64", countEq(letNames, "newList-i64"), 1))
 
-    // ─── Bug case (pinned): `items List<i64>: newList()` in an object literal ──
-    // monoInfer has no object-literal-field arm, so neither List-i64 nor
-    // newList-i64 is instantiated. Phase 2.4 of the refactor flips these to 1.
-    let objNames Array<String>: namesFor("mono_objfield_newlist.suru")
-    results.add(assertEqI64("object-field does NOT instantiate List-i64 (bug)", countEq(objNames, "List-i64"), 0))
-    results.add(assertEqI64("object-field does NOT instantiate newList-i64 (bug)", countEq(objNames, "newList-i64"), 0))
+    // ─── Object-field case (FIXED in §2.4): `items List<i64>: newList()` ───────
+    // The resolver records typeArgs=[i64] on the newList() call from the field's
+    // declared type; monoInfer now reads that binding (instead of re-deriving from
+    // args), so both List-i64 and newList-i64 are instantiated.
+    let objNames Array<String>: namesFor("monoObjfieldNewlist.suru")
+    results.add(assertEqI64("object-field instantiates List-i64", countEq(objNames, "List-i64"), 1))
+    results.add(assertEqI64("object-field instantiates newList-i64", countEq(objNames, "newList-i64"), 1))
 
     return results
 }

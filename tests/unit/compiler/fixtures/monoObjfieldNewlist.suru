@@ -1,0 +1,23 @@
+// monoObjfieldNewlist.suru — regression-oracle fixture (Phase 0, task 0.1).
+//
+// The (formerly failing) case: the generic zero-arg `newList()` initialising an
+// object-literal FIELD whose declared type is `List<i64>`. 
+// threads the field's declared type as the expected type and records typeArgs=[i64]
+// on the `newList()` call; 
+// monomorphizer now instantiates `List-i64` / `newList-i64`.
+//
+// This pinned the known bug described in semantic_analysis_architecture_rd.md §0,
+// the oracle assertion now expects the instantiations
+// "present" (previously "absent").
+
+namespace Test.Unit.Compiler.Fixtures.MonoObjFieldNewList
+
+import { [List, newList]: Suru.Stdlib.List }
+
+type Container: { items List<i64> }
+
+fn main() {
+    let c Container: { items: newList() }
+    printLn(c.items.len().toString())
+    drop(c)
+}
