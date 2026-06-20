@@ -1,0 +1,102 @@
+// mono_instantiation_test.suru — in-process REGRESSION ORACLE for the
+// monomorphization pass (Phase 0, task 0.1 of the type-system refactor; see
+// todo.md and semantic_analysis_architecture_rd.md).
+//
+// Purpose: pin down TODAY's set of monomorphized (mangled) declarations, INCLUDING
+// the known object-literal-field bug, so every later phase of the refactor can
+// prove it did not change behavior unintentionally. This file asserts reality, not
+// a guess — if the compiler's output changes, the assertions here are what light up.
+//
+// Mechanism: drive each fixture through the pipeline stopped at the "mono" pass via
+// runPipelineDebug(path, "mono"). The returned DebugResult.stmts holds the
+// post-mono statement list — concrete declarations plus freshly injected
+// monomorphized nodes, with generic templates stripped. We collect the names of
+// every FnDecl/TypeDecl/SumTypeDecl and assert membership of the mangled forms.
+// Mangled names use a single hyphen separator (e.g. `List-i64`, `newList-i64`),
+// per mangleGenericName in monoInstantiate.suru.
+//
+// We stop at "mono" (not "semantic") deliberately: the object-field bug surfaces
+// as an `undefined function 'newList'` error only in pass-3, AFTER mono. Stopping
+// at mono lets the failing fixture run cleanly and simply show the absence.
+//
+// Two fixtures (tests/unit/compiler/fixtures/):
+//   mono_let_newlist.suru      — `let arr List<i64>: newList()`  → List-i64 instantiated (works)
+//   mono_objfield_newlist.suru — `items List<i64>: newList()`    → List-i64 NOT instantiated (bug)
+
+namespace Test.Unit.Compiler.MonoInstantiation
+
+import {
+    [TestResult, assertTrue, assertEqI64]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AstNode, FnDeclNode, TypeDeclNode, SumTypeDeclNode]: Suru.Compiler.Parser.Ast
+}
+
+// collectMangledNames — gather the `name` of every top-level declaration node
+// (functions, structs, sum types) in a post-mono statement list. Mirrors the
+// match-over-node-kind iteration used in monoCollect.suru / monoPass.suru.
+fn collectMangledNames(stmts Array<AstNode>) Array<String> {
+    let names Array<String>: []
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let node AstNode: stmts.at(i)
+        match node {
+            FnDeclNode: {
+                let fd FnDeclNode: node
+                names.add(fd.name)
+            }
+            TypeDeclNode: {
+                let td TypeDeclNode: node
+                names.add(td.name)
+            }
+            SumTypeDeclNode: {
+                let sd SumTypeDeclNode: node
+                names.add(sd.name)
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return names
+}
+
+// countEq — number of entries in `names` exactly equal to `target`. Lets the
+// "present" / "absent" assertions both go through assertEqI64 (1 vs 0) without
+// needing a dedicated assertFalse helper.
+fn countEq(names Array<String>, target String) i64 {
+    let count i64: 0
+    let i i64: 0
+    while i.lt(names.len()) {
+        if names.at(i).equals(target) { count: count.add(1) }
+        i: i.add(1)
+    }
+    return count
+}
+
+// namesFor — run a fixture through the pipeline up to the "mono" pass and return
+// the collected declaration names. `file` is a name under fixtures/, addressed by
+// its Docker-cwd absolute path (/work/...), matching the other unit suites.
+fn namesFor(file String) Array<String> {
+    let path String: "/work/tests/unit/compiler/fixtures/".append(file)
+    let res DebugResult: runPipelineDebug(path, "mono")
+    return collectMangledNames(res.stmts)
+}
+
+export fn monoInstantiationTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ─── Working case: `let arr List<i64>: newList()` ─────────────────────────
+    // The let annotation gives monoInfer the concrete element type, so both the
+    // List-i64 struct and the newList-i64 function get instantiated.
+    let letNames Array<String>: namesFor("mono_let_newlist.suru")
+    results.add(assertEqI64("let-case instantiates List-i64", countEq(letNames, "List-i64"), 1))
+    results.add(assertEqI64("let-case instantiates newList-i64", countEq(letNames, "newList-i64"), 1))
+
+    // ─── Bug case (pinned): `items List<i64>: newList()` in an object literal ──
+    // monoInfer has no object-literal-field arm, so neither List-i64 nor
+    // newList-i64 is instantiated. Phase 2.4 of the refactor flips these to 1.
+    let objNames Array<String>: namesFor("mono_objfield_newlist.suru")
+    results.add(assertEqI64("object-field does NOT instantiate List-i64 (bug)", countEq(objNames, "List-i64"), 0))
+    results.add(assertEqI64("object-field does NOT instantiate newList-i64 (bug)", countEq(objNames, "newList-i64"), 0))
+
+    return results
+}

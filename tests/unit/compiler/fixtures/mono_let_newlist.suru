@@ -1,0 +1,18 @@
+// mono_let_newlist.suru — regression-oracle fixture (Phase 0, task 0.1).
+//
+// The WORKING case: a generic zero-arg `newList()` initialised through a `let`
+// binding whose annotation carries the concrete element type (`List<i64>`).
+// monoInfer's annotation arm binds T=i64, so the monomorphizer instantiates the
+// `List-i64` struct and the `newList-i64` function. The oracle test asserts those
+// mangled names are present after the "mono" pass.
+
+namespace Test.Unit.Compiler.Fixtures.MonoLetNewList
+
+import { [List, newList]: Suru.Stdlib.List }
+
+fn main() {
+    let arr List<i64>: newList()
+    arr.add(42)
+    printLn(arr.at(0).toString())
+    drop(arr)
+}

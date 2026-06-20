@@ -9,6 +9,7 @@ import {
     [sizeExprTests]: Test.Unit.Compiler.SizeExpr
     [ptrLoadStoreTests]: Test.Unit.Compiler.PtrLoadStore
     [semanticTypeMismatchTests]: Test.Unit.Compiler.SemanticTypeMismatch
+    [monoInstantiationTests]: Test.Unit.Compiler.MonoInstantiation
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
@@ -162,6 +163,8 @@ fn main(args Array<String>) {
     failed: failed.add(ptrLoadStoreFailed)
     let semMismatchFailed i64: reportResults("semantic-type-mismatch", semanticTypeMismatchTests())
     failed: failed.add(semMismatchFailed)
+    let monoInstFailed i64: reportResults("mono-instantiation", monoInstantiationTests())
+    failed: failed.add(monoInstFailed)
     let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())
