@@ -1,0 +1,44 @@
+// typeParamEnvTest.suru — in-process test for §3.1 (type parameters live in the
+// type environment).
+//
+// Two groups:
+//
+//   1. Direct env test — exercise the new AnalyzerState methods in isolation:
+//      pushTypeParams binds each name to a fresh type variable; isTypeParamInScope
+//      reports membership; popTypeParams removes the binding.
+//
+//   2. Guard-replacement test — drive a generic fixture through the pipeline
+//      stopped at "resolve1" (which runs the pre-pass `registerFnDecl`). The
+//      function's `T` param/return must validate with ZERO analysis errors,
+//      proving the env lookup accepts `T` exactly as the deleted `isTypeParam`
+//      string guard did. If the guard removal regressed, `T` would be flagged
+//      "unknown type" and the error count would be non-zero.
+
+namespace Test.Unit.Compiler.TypeParamEnv
+
+import {
+    [TestResult, assertTrue, assertEqI64]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AnalyzerState, makeAnalyzerState]: Suru.Compiler.Semantic
+}
+
+export fn typeParamEnvTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ─── 1. Direct env test ──────────────────────────────────────────────────
+    let state AnalyzerState: makeAnalyzerState()
+    let names Array<String>: ["T", "U"]
+    state.pushTypeParams(names)
+    results.add(assertTrue("T is in scope after push", state.isTypeParamInScope("T")))
+    results.add(assertTrue("U is in scope after push", state.isTypeParamInScope("U")))
+    results.add(assertTrue("V is not a type param", not state.isTypeParamInScope("V")))
+    state.popTypeParams()
+    results.add(assertTrue("T is out of scope after pop", not state.isTypeParamInScope("T")))
+
+    // ─── 2. Guard-replacement test ───────────────────────────────────────────
+    let path String: "/work/tests/unit/compiler/fixtures/typeParamEnvGeneric.suru"
+    let res DebugResult: runPipelineDebug(path, "resolve1")
+    results.add(assertEqI64("generic T param/return yields no errors", res.state.errors.len(), 0))
+
+    return results
+}

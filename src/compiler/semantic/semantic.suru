@@ -213,8 +213,13 @@ export type AnalyzerState: {
     exportedNames         Array<String>
     currentModuleImports  Array<String>
     moduleImportRegistry  Array<SrcModImports>
+    typeParamScopes       Array<Scope>
+    typeVarCounter        i64
     fn pushScope()
     fn popScope()
+    fn pushTypeParams(names Array<String>)
+    fn popTypeParams()
+    fn isTypeParamInScope(name String) bool
     fn declareSymbol(name String, typeName String)
     fn lookupSymbolAt(name String, idx i64) String
     fn lookupSymbol(name String) String
@@ -249,6 +254,8 @@ export fn makeAnalyzerState() AnalyzerState {
         exportedNames: [],
         currentModuleImports: [],
         moduleImportRegistry: [],
+        typeParamScopes: [],
+        typeVarCounter: 0,
 
         // ─── Scope stack ─────────────────────────────────────────────────────
 
@@ -268,6 +275,55 @@ export fn makeAnalyzerState() AnalyzerState {
             let newLen i64: scopes.len().take(1)
             let newScopes Array<Scope>: scopes.slice(0, newLen)
             this.scopes: newScopes
+        }
+
+        // ─── Type-parameter environment ───────────────────────────────────────
+        //
+        // A parallel scope stack, kept separate from the value `scopes` stack, that
+        // holds the generic type parameters (`T`, `U`, …) currently in scope. Each
+        // `T` is bound to a fresh type variable — realized as the symbol "?N" (N from
+        // typeVarCounter) stored in the reused Scope/SymbolEntry. The "?N" symbol is
+        // never emitted into IR; it exists only so `T` resolves like any other name
+        // (architecture §4.B), replacing the old scattered `isTypeParam` string guard.
+
+        // pushTypeParams — push a fresh type-param scope binding each name in `names`
+        // to a fresh "?N" type variable. An empty `names` pushes an empty scope (a
+        // no-op for lookups), so it is safe to call unconditionally on every fn body.
+        fn pushTypeParams(names Array<String>) {
+            let scope Scope: newScope(-1)
+            let symbols Array<SymbolEntry>: scope.symbols
+            let i i64: 0
+            while i.lt(names.len()) {
+                let varSym String: "?".append(this.typeVarCounter.toString())
+                let entry SymbolEntry: { name: names.at(i), typeName: varSym }
+                symbols.add(entry)
+                this.typeVarCounter: this.typeVarCounter.add(1)
+                i: i.add(1)
+            }
+            let scopes Array<Scope>: this.typeParamScopes
+            scopes.add(scope)
+        }
+
+        // popTypeParams — drop the innermost type-param scope. Always paired with a
+        // prior pushTypeParams, so the stack is never empty here (mirrors popScope).
+        fn popTypeParams() {
+            let scopes Array<Scope>: this.typeParamScopes
+            let newLen i64: scopes.len().take(1)
+            let newScopes Array<Scope>: scopes.slice(0, newLen)
+            this.typeParamScopes: newScopes
+        }
+
+        // isTypeParamInScope — true when `name` is a type parameter currently in
+        // scope. Flat-scans the live type-param scopes: exactly one scope is live per
+        // generic signature/body, so no parent-chain walk is needed.
+        fn isTypeParamInScope(name String) bool {
+            let scopes Array<Scope>: this.typeParamScopes
+            let i i64: 0
+            while i.lt(scopes.len()) {
+                if not scopes.at(i).lookup(name).equals("") { return true }
+                i: i.add(1)
+            }
+            return false
         }
 
         // ─── Symbol declaration ───────────────────────────────────────────────

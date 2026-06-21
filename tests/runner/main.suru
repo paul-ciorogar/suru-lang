@@ -20,6 +20,7 @@ import {
     [callNodeTypeArgsTests]: Test.Unit.Compiler.CallNodeTypeArgs
     [callUnifyTypeArgsTests]: Test.Unit.Compiler.CallUnifyTypeArgs
     [methodCallUnifyTypeArgsTests]: Test.Unit.Compiler.MethodCallUnifyTypeArgs
+    [typeParamEnvTests]: Test.Unit.Compiler.TypeParamEnv
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
@@ -195,6 +196,8 @@ fn main(args Array<String>) {
     failed: failed.add(callUnifyFailed)
     let methodUnifyFailed i64: reportResults("method-call-unify-typeargs", methodCallUnifyTypeArgsTests())
     failed: failed.add(methodUnifyFailed)
+    let typeParamEnvFailed i64: reportResults("type-param-env", typeParamEnvTests())
+    failed: failed.add(typeParamEnvFailed)
     let suruStrOrderFailed i64: reportResults("surustring-order", suruStringOrderTests())
     failed: failed.add(suruStrOrderFailed)
     let sbNumFailed i64: reportResults("stringbuilder-num", stringBuilderNumTests())

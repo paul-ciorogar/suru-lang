@@ -131,6 +131,12 @@ export fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) Analy
     // 2. Push a fresh scope so param names and body locals are scoped to this function.
     state.pushScope()
 
+    // 2b. Push the function's generic type parameters into the type-param environment
+    //     so a type reference to `T` inside the body resolves like any name (§4.B).
+    //     Inert for concrete fns (typeParams == []); generic templates are stripped
+    //     before this pass runs, so this is the forward-looking hook for §3.2/§3.4.
+    state.pushTypeParams(stmt.typeParams)
+
     // 3. Inject parameters as symbols in the new scope.
     let params Array<Param>: stmt.params
     let pi i64: 0
@@ -158,7 +164,8 @@ export fn analyzeFunctionDeclaration(state AnalyzerState, stmt FnDeclNode) Analy
         state.addError("function '".append(stmt.name).append("' has no return statement"), stmt.line, stmt.col)
     }
 
-    // 7. Pop function scope and restore context for the enclosing scope.
+    // 7. Pop function scope and the type-param scope, then restore enclosing context.
+    state.popTypeParams()
     state.popScope()
     state.currentReturnType: savedReturnType
     state.insideFunction: savedInsideFunction

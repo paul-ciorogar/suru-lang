@@ -1,0 +1,18 @@
+// typeParamEnvGeneric.suru — fixture for the §3.1 type-param environment test.
+//
+// A generic function whose parameter AND return type both name the type
+// parameter `T`. During the pre-pass `registerFnDecl`, `T` is no longer an
+// "unknown type": it is recognised through the type-parameter environment
+// (`pushTypeParams` + `isTypeParamInScope`) that replaced the old `isTypeParam`
+// string guard. A clean run therefore records ZERO analysis errors at resolve1.
+
+namespace Test.Unit.Compiler.Fixtures.TypeParamEnvGeneric
+
+fn idT<T>(x T) T {
+    return x
+}
+
+fn main() {
+    let n i64: idT(5)
+    printLn(n.toString())
+}

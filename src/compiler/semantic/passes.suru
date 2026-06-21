@@ -185,17 +185,6 @@ export fn resolveTypeName(state AnalyzerState, name String) bool {
     return false
 }
 
-// isTypeParam — true when name matches one of the type-param names in typeParams.
-// Used by registerFnDecl to skip validation for generic parameter/return types.
-fn isTypeParam(name String, typeParams Array<String>) bool {
-    let i i64: 0
-    while i.lt(typeParams.len()) {
-        if typeParams.at(i).equals(name) { return true }
-        i: i.add(1)
-    }
-    return false
-}
-
 // ─── Pass 1: collect type declarations ───────────────────────────────────────
 
 // isCTypeNamed — true if `typeName` names a registered cType. Used by the
@@ -396,17 +385,20 @@ export fn collectTypeDeclarations(state AnalyzerState, stmts Array<AstNode>) Ana
 
 // registerFnDecl — validate and register one FnDeclNode into state.functions.
 // Emits errors for unknown param/return types but still registers the signature.
-// typeParams holds the generic type-param names for this function; any param or
-// return type that matches one of them is accepted without a resolveTypeName check.
+// typeParams holds the generic type-param names for this function; they are pushed
+// into the type-parameter environment for the duration of validation so any param or
+// return type naming one of them resolves through isTypeParamInScope (architecture
+// §4.B) without a resolveTypeName check.
 fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>) AnalyzerState {
     state.currentSrcPath: stmt.srcPath
+    state.pushTypeParams(typeParams)
     let paramTypes Array<String>: []
     let params Array<Param>: stmt.params
     let pi i64: 0
     while pi.lt(params.len()) {
         let p Param: params.at(pi)
         let pType String: p.typeName
-        if pType.equals("ptr") or resolveTypeName(state, pType) or isTypeParam(pType, typeParams) {
+        if pType.equals("ptr") or resolveTypeName(state, pType) or state.isTypeParamInScope(pType) {
             paramTypes.add(pType)
         } else {
             state.addError("unknown type '".append(pType).append("' in parameter '").append(p.name).append("' of function '").append(stmt.name).append("'"), stmt.line, stmt.col)
@@ -417,11 +409,12 @@ fn registerFnDecl(state AnalyzerState, stmt FnDeclNode, typeParams Array<String>
     if returnType.equals("ptr") {
         state.addError("type 'ptr' is not allowed as a regular function return type; use extern fn for C interop", stmt.line, stmt.col)
     } else {
-        let validReturn bool: returnType.equals("void") or resolveTypeName(state, returnType) or isTypeParam(returnType, typeParams)
+        let validReturn bool: returnType.equals("void") or resolveTypeName(state, returnType) or state.isTypeParamInScope(returnType)
         if not validReturn {
             state.addError("unknown return type '".append(returnType).append("' for function '").append(stmt.name).append("'"), stmt.line, stmt.col)
         }
     }
+    state.popTypeParams()
     let sig FunctionSig: newFunctionSig(stmt.name, paramTypes, returnType, stmt.srcPath, typeParams)
     state.functions.add(sig)
     return state
