@@ -394,7 +394,7 @@ fn rewriteQualNameExpr(node AstNode, nsExports Array<NsExportEntry>) AstNode {
         ObjectLitNode: {
             let sln ObjectLitNode: node
             let newFields Array<ObjectFieldNode>: rewriteQualNameObjectFields(sln.fields, nsExports)
-            let result ObjectLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+            let result ObjectLitNode: { fields: newFields, typeArgs: sln.typeArgs, resolvedType: sln.resolvedType, line: 0, col: 0 }
             return result
         }
         MatchExprNode: {

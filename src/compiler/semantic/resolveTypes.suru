@@ -41,7 +41,7 @@ import {
     tyh: Suru.Compiler.Codegen.TypeHelpers
     [primType]: Suru.Compiler.Types
     [parseType]: Suru.Compiler.Types.Parse
-    [rtCallUnify, rtMethodUnify]: Suru.Compiler.Semantic.ResolveCallUnify
+    [rtCallUnify, rtMethodUnify, rtObjectLitRecord, rtRecordArgBindings]: Suru.Compiler.Semantic.ResolveCallUnify
 }
 
 // ─── SemTypeEntry / field-type lookup ────────────────────────────────────────
@@ -253,6 +253,31 @@ fn isThisReceiver(expr AstNode) bool {
 // rtNodeResolvedType — reads the resolvedType field by pattern-matching the
 // AstNode variant. Returns "" for non-expression variants (statements,
 // wildcards) — those have no value type.
+// rtCollectParamAnns — the callee's declared parameter type annotations, in order,
+// for as many params as the call supplies arguments. Cloned so the returned array
+// owns its strings (the registry hands back borrowed refs).
+fn rtCollectParamAnns(state AnalyzerState, name String, n i64) Array<String> {
+    let out Array<String>: []
+    let i i64: 0
+    while i.lt(n) {
+        out.add(state.functions.paramType(name, i).clone())
+        i: i.add(1)
+    }
+    return out
+}
+
+// rtCollectArgTys — each argument's resolved Type (parsed from its resolvedType
+// string) for §3.2 param-vs-arg type-arg recording.
+fn rtCollectArgTys(args Array<AstNode>) Array<Type> {
+    let out Array<Type>: []
+    let i i64: 0
+    while i.lt(args.len()) {
+        out.add(parseType(rtNodeResolvedType(args.at(i))))
+        i: i.add(1)
+    }
+    return out
+}
+
 fn rtNodeResolvedType(expr AstNode) String {
     match expr {
         BoolLitNode:     { let t BoolLitNode: expr     return t.resolvedType }
@@ -441,6 +466,14 @@ fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected S
             if mtparams.len().gt(0) {
                 let mret String: state.functions.returnType(typed.methodName)
                 if rtMethodUnify(typed, expectedTy, mtparams, mret) { return state }
+                // §3.2: arg-driven type-arg recording for a namespace-aliased
+                // generic free function (mirror of the CallNode arm). Records
+                // typeArgs only — resolvedType is left to the resolution below.
+                let mParamAnns Array<String>: rtCollectParamAnns(state, typed.methodName, typed.args.len())
+                let mArgTys Array<Type>: rtCollectArgTys(typed.args)
+                rtRecordArgBindings(typed.typeArgs, mtparams, mParamAnns, mArgTys)
+                drop(mParamAnns)
+                drop(mArgTys)
             }
         }
     }
@@ -538,11 +571,14 @@ fn rtResolveArrayLitNode(state AnalyzerState, typed ArrayLitNode, expected Strin
 // rtResolveObjectLitNode — tag with the expected type, verify field/method
 // completeness against the declared SemTypeEntry, augment with private
 // members from this literal, then resolve fields and method bodies.
-// `expectedTy` (structured form of `expected`) is accepted for call-site
-// symmetry with resolveExpr's dispatch; object-literal resolution keys off the
-// canonical-string `expected`, so it is not consulted here.
+// `expectedTy` (structured form of `expected`) drives the §3.2 generic-arg
+// recording (rtObjectLitRecord); field/method resolution otherwise keys off the
+// canonical-string `expected`.
 fn rtResolveObjectLitNode(state AnalyzerState, typed ObjectLitNode, expected String, expectedTy Type) AnalyzerState {
     typed.resolvedType: expected
+    // §3.2: record the concrete type args of a generic literal (e.g. Box<i64> -> [i64])
+    // so monomorphization reads the instantiation directly. No-op for plain structs.
+    rtObjectLitRecord(typed, expectedTy)
     let fields Array<ObjectFieldNode>: typed.fields
     let decl SemTypeEntry: rtLookupTypeEntry(state, expected)
     // When `expected` is "" or names an unknown type, `decl.name` is
@@ -643,6 +679,19 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String, expectedTy Ty
                     let tparams Array<String>: state.functions.typeParams(name)
                     if tparams.len().gt(0) {
                         bound: rtCallUnify(typed, expectedTy, tparams, raw)
+                        // §3.2: when return-vs-expected didn't bind (the type var
+                        // appears only in a parameter, e.g. elemBytes<T>(dummy T) i64,
+                        // or the call has no return expectation), record the type
+                        // args from param-vs-arg unification so monomorphization can
+                        // read them. This does NOT set resolvedType — the fallback
+                        // below preserves the pass's existing IR.
+                        if not bound {
+                            let paramAnns Array<String>: rtCollectParamAnns(state, name, typed.args.len())
+                            let argTys Array<Type>: rtCollectArgTys(typed.args)
+                            rtRecordArgBindings(typed.typeArgs, tparams, paramAnns, argTys)
+                            drop(paramAnns)
+                            drop(argTys)
+                        }
                     }
                 }
                 if not bound {

@@ -2,10 +2,10 @@ namespace Suru.Compiler.Semantic.ResolveCallUnify
 
 import {
     ast: Suru.Compiler.Parser.Ast
-    [Type, Prim]: Suru.Compiler.Types
+    [Type, Prim, Named]: Suru.Compiler.Types
     [parseType]: Suru.Compiler.Types.Parse
     [printSuruType]: Suru.Compiler.Types.Print
-    [unify, UnifyResult, substitute, varizeType, Binding]: Suru.Compiler.Types.Ops
+    [unify, UnifyResult, substitute, varizeType, Binding, binding]: Suru.Compiler.Types.Ops
 }
 
 fn rtIsNoExpect(t Type) bool {
@@ -90,6 +90,95 @@ fn rtSolveReturnArgs(dst Array<Type>, expectedTy Type, tparams Array<String>, re
     // "List-Token" (the legacy codegen encoding the rest of the pass expects).
     let concrete Type: substitute(retTmpl, res.bindings)
     return printSuruType(concrete)
+}
+
+// rtMergeBindings — fold the bindings produced by one unify into an accumulator,
+// keeping the first binding seen for each type-param name (later unifications must
+// agree; the first-wins rule mirrors the old monoInfer arg scan). Each kept binding
+// is deep-copied (substitute with empty bindings) so `acc` owns its Types.
+fn rtMergeBindings(acc Array<Binding>, src Array<Binding>) Array<Binding> {
+    let i i64: 0
+    while i.lt(src.len()) {
+        let b Binding: src.at(i)
+        if not rtHasBinding(acc, b.name) {
+            let empty Array<Binding>: []
+            acc.add(binding(b.name.clone(), substitute(b.ty, empty)))
+        }
+        i: i.add(1)
+    }
+    return acc
+}
+
+// rtRecordArgBindings — §3.2 param-vs-arg type-arg recorder. Binds the callee's
+// type params by unifying each declared parameter-type template (varized) against
+// the corresponding argument's resolved Type, and — when EVERY type param is bound
+// — appends the concrete args, in declaration order, to `dst` (the node's typeArgs).
+//
+// Unlike rtSolveReturnArgs this deliberately does NOT set resolvedType: it only
+// fills the binding monomorphization reads, so the pass's existing resolvedType and
+// emitted IR are byte-identical. It is the source for arg-driven generics whose type
+// var appears only in a parameter (e.g. `elemBytes<T>(dummy T) i64`) or that are
+// called with no return expectation (e.g. `printLn(identity("x"))`) — the cases
+// §2.2's return-vs-expected solve left to monomorphization.
+//
+// No-op when `dst` is already populated (return-vs-expected solved it) or when the
+// callee is non-generic. Fails closed (records nothing) when any type param is
+// unbound, exactly like the old `allBound` guard.
+export fn rtRecordArgBindings(dst Array<Type>, tparams Array<String>, paramAnns Array<String>, argTys Array<Type>) {
+    if dst.len().gt(0) { return }
+    if tparams.len().equals(0) { return }
+    let acc Array<Binding>: []
+    let i i64: 0
+    while i.lt(argTys.len()) {
+        if i.lt(paramAnns.len()) {
+            let pTmpl Type: varizeType(parseType(paramAnns.at(i)), tparams)
+            let r UnifyResult: unify(pTmpl, argTys.at(i))
+            if r.ok { acc: rtMergeBindings(acc, r.bindings) }
+        }
+        i: i.add(1)
+    }
+    let allBound bool: true
+    let k i64: 0
+    while k.lt(tparams.len()) {
+        if not rtHasBinding(acc, tparams.at(k)) { allBound: false }
+        k: k.add(1)
+    }
+    if allBound {
+        let j i64: 0
+        while j.lt(tparams.len()) {
+            rtAppendBinding(acc, tparams.at(j), dst)
+            j: j.add(1)
+        }
+    }
+    drop(acc)
+}
+
+// rtObjectLitRecord — §3.2 recorder for a generic struct/sum-type literal. Unlike
+// a call site, an object literal has no type variables to solve: the expected type
+// is already concrete (e.g. `let b Box<i64>: { value: 42 }` gives expectedTy =
+// Named "Box" [i64]). So this just copies the expected type's args onto the node's
+// typeArgs, letting monomorphization read the instantiation (`Box<i64>`) directly
+// instead of re-parsing the mangled resolvedType.
+//
+// Each arg is deep-copied via `substitute(.., empty)` (the rtAppendBinding idiom)
+// so the node owns its Types and never aliases expectedTy.  Guarded on an empty
+// typeArgs so a node resolved in both pass 1 and pass 2 records exactly once — the
+// pass-1 recording is the one mono reads.  A non-Named or arg-less expected type
+// (a plain struct like `Point`, or the no-expectation sentinel) records nothing.
+export fn rtObjectLitRecord(typed ObjectLitNode, expectedTy Type) {
+    if typed.typeArgs.len().gt(0) { return }
+    match expectedTy {
+        Named: {
+            let n Named: expectedTy
+            let i i64: 0
+            while i.lt(n.args.len()) {
+                let empty Array<Binding>: []
+                typed.typeArgs.add(substitute(n.args.at(i), empty))
+                i: i.add(1)
+            }
+        }
+        _: {}
+    }
 }
 
 // rtCallUnify — §2.2 entry point for the resolver's CallNode arm. Solves the

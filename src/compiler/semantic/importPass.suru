@@ -538,7 +538,7 @@ fn rewriteExpr(node AstNode, subst SubstTable) AstNode {
         ObjectLitNode: {
             let sln ObjectLitNode: node
             let newFields Array<ObjectFieldNode>: rewriteObjectFields(sln.fields, subst)
-            let result ObjectLitNode: { fields: newFields, resolvedType: sln.resolvedType, line: 0, col: 0 }
+            let result ObjectLitNode: { fields: newFields, typeArgs: sln.typeArgs, resolvedType: sln.resolvedType, line: 0, col: 0 }
             return result
         }
         MatchExprNode: {

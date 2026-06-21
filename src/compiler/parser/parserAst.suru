@@ -240,7 +240,11 @@ export type CallNode:        { name String, args Array<AstNode>, typeArgs Array<
 export type MethodCallNode:  { receiver AstNode, methodName String, args Array<AstNode>, typeArgs Array<Type>, line i64, col i64, resolvedType String }
 export type FieldAccessNode: { receiver AstNode, fieldName String, line i64, col i64, resolvedType String }
 export type ArrayLitNode:    { elems Array<AstNode>, resolvedType String }
-export type ObjectLitNode:   { fields Array<ObjectFieldNode>, resolvedType String, line i64, col i64 }
+// ObjectLitNode carries `typeArgs`: the concrete type arguments of the generic
+// struct/sum type this literal constructs (e.g. `Box<i64>` literal → [i64]).
+// The resolver records them from the expected type; the parser
+// initializes `[]`. Lets monomorphization read the instantiation directly.
+export type ObjectLitNode:   { fields Array<ObjectFieldNode>, typeArgs Array<Type>, resolvedType String, line i64, col i64 }
 export type MatchExprNode:   { condition AstNode, arms Array<MatchArm>, line i64, col i64, resolvedType String }
 export type UnaryNode:       { op i64, operand AstNode, resolvedType String }
 export type BinaryNode:      { op i64, left AstNode, right AstNode, resolvedType String }

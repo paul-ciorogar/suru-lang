@@ -869,7 +869,8 @@ fn newParser(tokens Array<Token>, srcPath String) Parser {
                 this.consumeIf(TOK_COMMA)
             }
             this.consume(TOK_RBRACE)
-            let n ObjectLitNode: { fields: fields, resolvedType: "", line: lbraceTok.line, col: lbraceTok.col }
+            let emptyTypeArgs Array<Type>: []
+            let n ObjectLitNode: { fields: fields, typeArgs: emptyTypeArgs, resolvedType: "", line: lbraceTok.line, col: lbraceTok.col }
             return n
         }
 

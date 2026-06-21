@@ -1,0 +1,74 @@
+// monoMechanicalTest.suru — in-process test for §3.2 (monoInfer is a mechanical
+// collector driven by recorded typeArgs + structured annotation reading).
+//
+// Drives monoMechanical.suru through the "mono" pass and asserts that the generic
+// instantiation sites WITHOUT a generic-function call — a direct generic struct
+// literal, a multi-arg generic literal, and a concrete function's generic
+// parameter annotation — are still collected and instantiated:
+//   Box-i64, Pair-i64-String, Result-i64-String.
+//
+// These are exactly the cases that motivated the resolver work (rtObjectLitRecord)
+// and the structured collectGenericAppFromType reading: instantiateAll's transitive
+// worklist never re-scans top-level concrete code, so monoInfer must catch them.
+
+namespace Test.Unit.Compiler.MonoMechanical
+
+import {
+    [TestResult, assertEqI64]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AstNode, FnDeclNode, TypeDeclNode, SumTypeDeclNode]: Suru.Compiler.Parser.Ast
+}
+
+// collectMangledNames — names of every top-level declaration in a post-mono list.
+fn collectMangledNames(stmts Array<AstNode>) Array<String> {
+    let names Array<String>: []
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let node AstNode: stmts.at(i)
+        match node {
+            FnDeclNode: {
+                let fd FnDeclNode: node
+                names.add(fd.name)
+            }
+            TypeDeclNode: {
+                let td TypeDeclNode: node
+                names.add(td.name)
+            }
+            SumTypeDeclNode: {
+                let sd SumTypeDeclNode: node
+                names.add(sd.name)
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return names
+}
+
+// countEq — number of entries in `names` exactly equal to `target`.
+fn countEq(names Array<String>, target String) i64 {
+    let count i64: 0
+    let i i64: 0
+    while i.lt(names.len()) {
+        if names.at(i).equals(target) { count: count.add(1) }
+        i: i.add(1)
+    }
+    return count
+}
+
+export fn monoMechanicalTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    let path String: "/work/tests/unit/compiler/fixtures/monoMechanical.suru"
+    let res DebugResult: runPipelineDebug(path, "mono")
+    let names Array<String>: collectMangledNames(res.stmts)
+
+    // Direct generic struct literal — driven by ObjectLit typeArgs / let annotation.
+    results.add(assertEqI64("direct literal instantiates Box-i64", countEq(names, "Box-i64"), 1))
+    // Multi-arg generic literal — driven by the let annotation (structured walk).
+    results.add(assertEqI64("multi-arg literal instantiates Pair-i64-String", countEq(names, "Pair-i64-String"), 1))
+    // Concrete fn's generic parameter annotation — driven by the FnDecl scan.
+    results.add(assertEqI64("concrete-fn param instantiates Result-i64-String", countEq(names, "Result-i64-String"), 1))
+
+    return results
+}

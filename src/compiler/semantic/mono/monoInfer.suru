@@ -1,11 +1,17 @@
 // monoInfer.suru — Collect InstantiationRequests from a resolved statement list.
 //
-// Runs after the first resolveModuleTypes pass so every expression node has its
-// resolvedType field populated.  Walks all statements and expressions to find:
-//   - explicit generic type annotations in LetNode.typeName, FnDeclNode.returnType,
-//     Param.typeName  (handled by inferFromAnnotation)
-//   - generic function call sites where arg resolvedTypes bind type vars
-//     (handled by inferFromCallSite)
+// Runs after the first resolveModuleTypes pass.  This is a purely
+// MECHANICAL collector — it performs NO type-variable inference of its own.  Two
+// structured sources feed it, both produced by the resolver:
+//
+//   1. Recorded `typeArgs` on call / method / object-literal nodes.  The resolver
+//      (rtCallUnify / rtMethodUnify / rtRecordArgBindings / rtObjectLitRecord)
+//      already solved the call's type variables and stored the concrete `Type`
+//      arguments on the node; we just turn them into InstantiationRequests.
+//
+//   2. Explicit generic type annotations (LetNode.typeName, concrete-fn
+//      param/return types).  These are read through the structured
+//      `collectGenericAppFromType` (parseType → walk `Type`)
 //
 // The entry point is collectInstantiations; it returns a deduplicated
 // Array<InstantiationRequest>.  Used by monoPass.suru.
@@ -20,72 +26,11 @@ import {
     [printAnnotation]: Suru.Compiler.Types.Print
 }
 
-// ─── Type-name string helpers ─────────────────────────────────────────────────
-
-// extractBaseTypeName — return the portion of typeName before the first '<'.
-// "Pair<i64, String>" → "Pair";  "i64" → "i64".
-export fn extractBaseTypeName(typeName String) String {
-    return typeName.slice(0, subst.indexOfLT(typeName))
-}
-
-// collectTrimmedArgs — trim leading spaces from each element of args and return a new array.
-fn collectTrimmedArgs(args Array<String>) Array<String> {
-    let out Array<String>: []
-    let i i64: 0
-    while i.lt(args.len()) {
-        out.add(subst.trimLeft(args.at(i)))
-        i: i.add(1)
-    }
-    return out
-}
-
-// extractTypeArgs — parse the concrete type argument list from a generic
-// type-name annotation string.
-//   "Pair<i64, String>" → ["i64", "String"]
-//   "Array<i64>"        → ["i64"]
-//   "i64"               → []
-fn extractTypeArgs(typeName String) Array<String> {
-    let ltIdx i64: subst.indexOfLT(typeName)
-    let empty Array<String>: []
-    if ltIdx.equals(typeName.len()) { return empty }
-    drop(empty)
-    // inner = content between '<' and the closing '>'
-    let inner String: typeName.slice(ltIdx.add(1), typeName.len().take(1))
-    let raw Array<String>: subst.splitByComma(inner)
-    drop(inner)
-    let result Array<String>: collectTrimmedArgs(raw)
-    // trimLeft produces new independent strings, so raw elements don't alias result elements.
-    drop(raw)
-    return result
-}
-
-// ─── inferFromAnnotation ──────────────────────────────────────────────────────
-
-// inferFromAnnotation — if typeName is a generic application whose base name
-// appears in the registry as a struct type or sum type, return one
-// InstantiationRequest.  Otherwise return an empty array.
-export fn inferFromAnnotation(typeName String, registry GenericRegistry) Array<InstantiationRequest> {
-    let empty Array<InstantiationRequest>: []
-    // Quick exit: no '<' means not a generic annotation.
-    let ltIdx i64: subst.indexOfLT(typeName)
-    if ltIdx.equals(typeName.len()) { return empty }
-    let base String: extractBaseTypeName(typeName)
-    // Return empty unless the base name is a generic struct type or sum type.
-    if not registry.hasType(base) {
-        if not registry.hasSumType(base) { return empty }
-    }
-    drop(empty)
-    let concretes Array<String>: extractTypeArgs(typeName)
-    let req InstantiationRequest: { genericName: base, concreteTypes: concretes }
-    let result Array<InstantiationRequest>: []
-    result.add(req)
-    return result
-}
-
 // ─── resolvedTypeOf ───────────────────────────────────────────────────────────
 
 // resolvedTypeOf — extract the resolvedType String from any expression AstNode.
-// Returns "" for non-expression variants (statements, WildcardNode).
+// Returns "" for non-expression variants (statements, WildcardNode).  Used to
+// detect a namespace-qualified method call (whose receiver resolvedType is "").
 export fn resolvedTypeOf(node AstNode) String {
     return match node {
         BoolLitNode:      node.resolvedType
@@ -107,112 +52,17 @@ export fn resolvedTypeOf(node AstNode) String {
     }
 }
 
-// ─── inferFromCallSite ────────────────────────────────────────────────────────
-
-// suruCanonToAnnotation — convert the suru canonical form "Array:X" to the
-// annotation form "Array<X>" so that monoInfer produces requests that match
-// what inferFromAnnotation generates from explicit type annotations.
-// Non-array types pass through unchanged (they're already in annotation form
-// or are plain mangled names like "Option-i64").
-fn suruCanonToAnnotation(t String) String {
-    let len i64: t.len()
-    if len.gt(5) {
-        if t.slice(0, 6).equals("Array:") {
-            return "Array<".append(t.slice(6, len)).append(">")
-        }
-    }
-    return clone(t)
-}
-
-// collectArgTypes — return the type of each arg, normalised to annotation form.
-// resolvedTypeOf returns the suru canonical form (e.g. "Array:i64"); we
-// convert that to annotation form ("Array<i64>") so the resulting
-// InstantiationRequest matches requests inferred from explicit annotations.
-export fn collectArgTypes(args Array<AstNode>) Array<String> {
-    let out Array<String>: []
-    let i i64: 0
-    while i.lt(args.len()) {
-        let raw String: clone(resolvedTypeOf(args.at(i)))
-        let normalized String: suruCanonToAnnotation(raw)
-        drop(raw)
-        out.add(normalized)
-        i: i.add(1)
-    }
-    return out
-}
-
-// findBindingForVar — search params for the first param whose typeName equals
-// typeVar (bare type-variable match).  Return the corresponding argTypes element,
-// or "" if not found.
-fn findBindingForVar(typeVar String, params Array<Param>, argTypes Array<String>) String {
-    let i i64: 0
-    while i.lt(params.len()) {
-        if params.at(i).typeName.equals(typeVar) { return argTypes.at(i) }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// buildConcreteTypes — for each typeParam, find its binding and append to out.
-export fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Array<String>, out Array<String>) Array<String> {
-    let j i64: 0
-    while j.lt(typeParams.len()) {
-        let binding String: findBindingForVar(typeParams.at(j), params, argTypes)
-        out.add(clone(binding))
-        j: j.add(1)
-    }
-    return out
-}
-
-// allBound — true if every element of concretes is non-empty.
-export fn allBound(concretes Array<String>) bool {
-    let i i64: 0
-    while i.lt(concretes.len()) {
-        if concretes.at(i).equals("") { return false }
-        i: i.add(1)
-    }
-    return true
-}
-
-// inferFromGenericFnCall — shared logic for inferring an instantiation request
-// from a generic function call.  Given the function name and arg list, looks up
-// the function in the registry, unifies arg resolvedTypes against declared param
-// types, and returns a single-element request array when all type vars bind.
-// Returns [] when the function is not registered as generic or any binding is
-// unresolved.
-fn inferFromGenericFnCall(fnName String, args Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
-    let empty Array<InstantiationRequest>: []
-    let fnIdx i64: registry.findFn(fnName)
-    if fnIdx.equals(registry.fns.len()) { return empty }
-    let def GenericFnDef: registry.fns.at(fnIdx)
-    let argTypes Array<String>: collectArgTypes(args)
-    let concretesOut Array<String>: []
-    let concretes Array<String>: buildConcreteTypes(def.typeParams(), def.node.params, argTypes, concretesOut)
-    if not allBound(concretes) {
-        drop(argTypes)
-        drop(concretes)
-        return empty
-    }
-    drop(empty)
-    drop(argTypes)
-    // concretes transfers into req.concreteTypes; do not drop it separately.
-    let req InstantiationRequest: { genericName: clone(def.name), concreteTypes: concretes }
-    let result Array<InstantiationRequest>: []
-    result.add(req)
-    return result
-}
+// ─── Request construction from recorded typeArgs ──────────────────────────────
 
 // requestFromTypeArgs — build an InstantiationRequest from the resolver-recorded
-// typeArgs on a generic call node (§2.4).  genericName is the callee's base name;
-// concreteTypes are the source-form annotations of each recorded Type (e.g.
-// printAnnotation(Prim "i64") = "i64", which mangleGenericName/deduplicateRequests
-// re-parse, so the mangled key matches the syntactic path's key exactly).  The
-// resolver only records typeArgs for generic callees, but the registry guard keeps
-// bogus names out of the request set (and mirrors inferFromGenericFnCall's drop
-// discipline for the unused `empty` array).  Returns [] when the name is not a
-// registered generic function.
+// typeArgs on a generic CALL node.  genericName is the callee's name; concreteTypes
+// are the source-form annotations of each recorded Type (printAnnotation(Prim "i64")
+// = "i64", which the downstream mangler re-parses).  The registry guard keeps bogus
+// names out of the request set.  Returns [] when the name is not a registered
+// generic function or no typeArgs were recorded.
 fn requestFromTypeArgs(genericName String, typeArgs Array<Type>, registry GenericRegistry) Array<InstantiationRequest> {
     let empty Array<InstantiationRequest>: []
+    if typeArgs.len().equals(0) { return empty }
     let fnIdx i64: registry.findFn(genericName)
     if fnIdx.equals(registry.fns.len()) { return empty }
     drop(empty)
@@ -230,18 +80,48 @@ fn requestFromTypeArgs(genericName String, typeArgs Array<Type>, registry Generi
     return result
 }
 
-// inferFromCallSite — prefer the resolver-recorded typeArgs when present (§2.4):
-// the resolver already bound the call's type variables by unifying the callee
-// return template against the expected type, so use that binding directly (this
-// also covers zero-arg generics like newList() whose type args cannot be derived
-// from argument resolvedTypes).  Falls back to the syntactic arm — unify declared
-// param types against arg resolvedTypes — when no typeArgs were recorded.  Returns
-// [] if the callee is not generic or no binding is available.
-fn inferFromCallSite(callNode CallNode, registry GenericRegistry) Array<InstantiationRequest> {
-    if callNode.typeArgs.len().gt(0) {
-        return requestFromTypeArgs(callNode.name, callNode.typeArgs, registry)
+// baseBeforeHyphen — the portion of a mangled type name before the first '-'.
+// "Box-i64" → "Box";  "Pair-i64-String" → "Pair";  "Point" → "Point".  Type
+// argument segments are hyphen-separated and base names are plain identifiers
+// (no '-'), so the first hyphen reliably ends the base name.  Returns an owned
+// String.
+fn baseBeforeHyphen(s String) String {
+    let i i64: 0
+    while i.lt(s.len()) {
+        if s.at(i).equals("-") { return s.slice(0, i) }
+        i: i.add(1)
     }
-    return inferFromGenericFnCall(callNode.name, callNode.args, registry)
+    return clone(s)
+}
+
+// requestFromObjectTypeArgs — build an InstantiationRequest for a generic struct /
+// sum-type LITERAL from its resolver-recorded typeArgs.  The literal's
+// resolvedType is the mangled concrete name (e.g. "Box-i64"); its base is the
+// generic type name and the recorded typeArgs are the concrete arguments.  Guarded
+// by the registry (hasType / hasSumType) so only real generic types produce a
+// request.  Returns [] when no typeArgs were recorded or the base is not generic.
+fn requestFromObjectTypeArgs(resolvedType String, typeArgs Array<Type>, registry GenericRegistry) Array<InstantiationRequest> {
+    let empty Array<InstantiationRequest>: []
+    if typeArgs.len().equals(0) { return empty }
+    let base String: baseBeforeHyphen(resolvedType)
+    if not registry.hasType(base) {
+        if not registry.hasSumType(base) {
+            drop(base)
+            return empty
+        }
+    }
+    drop(empty)
+    let concretes Array<String>: []
+    let i i64: 0
+    while i.lt(typeArgs.len()) {
+        concretes.add(printAnnotation(typeArgs.at(i)))
+        i: i.add(1)
+    }
+    // base transfers into req.genericName; concretes into req.concreteTypes.
+    let req InstantiationRequest: { genericName: base, concreteTypes: concretes }
+    let result Array<InstantiationRequest>: []
+    result.add(req)
+    return result
 }
 
 // ─── Accumulator helpers ──────────────────────────────────────────────────────
@@ -274,18 +154,6 @@ fn inferFromExprs(exprs Array<AstNode>, registry GenericRegistry, out Array<Inst
     let i i64: 0
     while i.lt(exprs.len()) {
         out: inferFromExpr(exprs.at(i), registry, out)
-        i: i.add(1)
-    }
-    return out
-}
-
-// inferFromParams — run inferFromAnnotation on each Param.typeName.
-fn inferFromParams(params Array<Param>, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let i i64: 0
-    while i.lt(params.len()) {
-        let fromAnnot Array<InstantiationRequest>: inferFromAnnotation(params.at(i).typeName, registry)
-        out: appendAll(fromAnnot, out)
-        drop(fromAnnot)
         i: i.add(1)
     }
     return out
@@ -332,96 +200,6 @@ fn inferFromMatchStmtArms(arms Array<MatchStmtArm>, registry GenericRegistry, ou
     return out
 }
 
-// ─── Zero-arg generic function inference ─────────────────────────────────────
-//
-// Some generic functions take no parameters (e.g. fn newList<T>() List<T>).
-// Their type variable T cannot be bound from call arguments, but it can be bound
-// from the expected return type when the call appears as a let-binding value:
-//
-//   let arr List<i64>: newList()
-//
-// matchReturnTypeSingle matches the fn's declared return type against the
-// annotation to extract the single type-variable binding.  Only handles the
-// single-type-param case (one level of generic application).
-
-// matchReturnTypeSingle — for a single type parameter, match returnType against
-// expected and return the bound concrete type, or "" when no match.
-// Handles:
-//   returnType = "T"             → expected                    (bare var)
-//   returnType = "Base<T>"       → inner of expected           (one-level generic)
-export fn matchReturnTypeSingle(returnType String, expected String, typeParam String) String {
-    if returnType.equals(typeParam) { return clone(expected) }
-    let rtLt i64: subst.indexOfLT(returnType)
-    if rtLt.equals(returnType.len()) { return "" }
-    let exLt i64: subst.indexOfLT(expected)
-    if exLt.equals(expected.len()) { return "" }
-    let rtBase String: returnType.slice(0, rtLt)
-    let exBase String: expected.slice(0, exLt)
-    let basesMatch bool: rtBase.equals(exBase)
-    drop(rtBase)
-    drop(exBase)
-    if not basesMatch { return "" }
-    let rtInner String: returnType.slice(rtLt.add(1), returnType.len().take(1))
-    let innerIsParam bool: rtInner.equals(typeParam)
-    drop(rtInner)
-    if not innerIsParam { return "" }
-    return expected.slice(exLt.add(1), expected.len().take(1))
-}
-
-// inferZeroArgFnFromAnnotation — if fnName is a registered zero-param generic
-// function whose return type matches expectedType under a single type binding,
-// return one InstantiationRequest for that concrete instantiation.
-// Used for let-binding patterns: let arr List<i64>: newList()
-fn inferZeroArgFnFromAnnotation(fnName String, expectedType String, registry GenericRegistry) Array<InstantiationRequest> {
-    let empty Array<InstantiationRequest>: []
-    let fnIdx i64: registry.findFn(fnName)
-    if fnIdx.equals(registry.fns.len()) { return empty }
-    let def GenericFnDef: registry.fns.at(fnIdx)
-    if not def.node.params.len().equals(0) { return empty }
-    let typeParams Array<String>: def.typeParams()
-    if not typeParams.len().equals(1) { return empty }
-    let bound String: matchReturnTypeSingle(def.node.returnType, expectedType, typeParams.at(0))
-    if bound.equals("") { return empty }
-    drop(empty)
-    let concretes Array<String>: []
-    concretes.add(clone(bound))
-    drop(bound)
-    let req InstantiationRequest: { genericName: clone(def.name), concreteTypes: concretes }
-    let result Array<InstantiationRequest>: []
-    result.add(req)
-    return result
-}
-
-// inferZeroArgFnsFromAnnotation — scan ALL zero-param generic functions in
-// registry and return InstantiationRequests for any that can produce expectedType.
-// This avoids pattern-matching on the call expression's AstNode variant tag,
-// which can be unreliable across bootstrap binary versions.
-// Safe to call for any LetNode annotation — spurious matches are prevented by
-// deduplication and the `allBound` guard inside instantiateAll.
-fn inferZeroArgFnsFromAnnotation(expectedType String, registry GenericRegistry, out Array<InstantiationRequest>) Array<InstantiationRequest> {
-    let ltIdx i64: subst.indexOfLT(expectedType)
-    if ltIdx.equals(expectedType.len()) { return out }
-    let i i64: 0
-    while i.lt(registry.fns.len()) {
-        let def GenericFnDef: registry.fns.at(i)
-        if def.node.params.len().equals(0) {
-            let typeParams Array<String>: def.typeParams()
-            if typeParams.len().equals(1) {
-                let bound String: matchReturnTypeSingle(def.node.returnType, expectedType, typeParams.at(0))
-                if not bound.equals("") {
-                    let concretes Array<String>: []
-                    concretes.add(clone(bound))
-                    drop(bound)
-                    let req InstantiationRequest: { genericName: clone(def.name), concreteTypes: concretes }
-                    out.add(req)
-                }
-            }
-        }
-        i: i.add(1)
-    }
-    return out
-}
-
 // ─── Expression walker ────────────────────────────────────────────────────────
 
 // inferFromExpr — walk an expression node and collect all generic
@@ -430,30 +208,26 @@ fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<Instantiation
     match expr {
         CallNode: {
             let cn CallNode: expr
-            let fromCall Array<InstantiationRequest>: inferFromCallSite(cn, registry)
-            out: appendAll(fromCall, out)
-            drop(fromCall)
+            // The resolver recorded the callee's bound type args; read them.
+            if cn.typeArgs.len().gt(0) {
+                let fromCall Array<InstantiationRequest>: requestFromTypeArgs(cn.name, cn.typeArgs, registry)
+                out: appendAll(fromCall, out)
+                drop(fromCall)
+            }
             out: inferFromExprs(cn.args, registry, out)
             return out
         }
         MethodCallNode: {
             let mcn MethodCallNode: expr
             // Namespace-qualified generic call (e.g. opt.some(42)): the receiver
-            // is a VarRefNode with resolvedType "" because namespace prefixes are
-            // not local variables.  In that case, treat the call as a direct
-            // generic fn call on mcn.methodName.
+            // is a QualifiedNameNode with resolvedType "" (not a local variable).
+            // The resolver records typeArgs for it as for a plain CallNode.
             let recvType String: resolvedTypeOf(mcn.receiver)
             if recvType.equals("") {
-                // Prefer resolver-recorded typeArgs (§2.4), else fall back to
-                // syntactic arg-type binding.
                 if mcn.typeArgs.len().gt(0) {
                     let fromTypeArgs Array<InstantiationRequest>: requestFromTypeArgs(mcn.methodName, mcn.typeArgs, registry)
                     out: appendAll(fromTypeArgs, out)
                     drop(fromTypeArgs)
-                } else {
-                    let fromFnCall Array<InstantiationRequest>: inferFromGenericFnCall(mcn.methodName, mcn.args, registry)
-                    out: appendAll(fromFnCall, out)
-                    drop(fromFnCall)
                 }
             }
             out: inferFromExpr(mcn.receiver, registry, out)
@@ -472,9 +246,9 @@ fn inferFromExpr(expr AstNode, registry GenericRegistry, out Array<Instantiation
         }
         ObjectLitNode: {
             let sln ObjectLitNode: expr
-            // resolvedType may be a generic application (e.g. set by top-down
-            // propagation from a LetNode annotation).
-            let fromSln Array<InstantiationRequest>: inferFromAnnotation(sln.resolvedType, registry)
+            // A direct generic struct/sum literal carries the concrete type args
+            // recorded by the resolver (rtObjectLitRecord), e.g. Box<i64> → [i64].
+            let fromSln Array<InstantiationRequest>: requestFromObjectTypeArgs(sln.resolvedType, sln.typeArgs, registry)
             out: appendAll(fromSln, out)
             drop(fromSln)
             out: inferFromObjectFields(sln.fields, registry, out)
@@ -510,31 +284,32 @@ fn inferFromStmt(stmt AstNode, registry GenericRegistry, out Array<Instantiation
     match stmt {
         LetNode: {
             let ln LetNode: stmt
-            let fromLet Array<InstantiationRequest>: inferFromAnnotation(ln.typeName, registry)
-            out: appendAll(fromLet, out)
-            drop(fromLet)
-            // Zero-arg generic function inference from the let annotation.
-            // Scans all zero-param generic fns in the registry to find any that
-            // can produce ln.typeName — avoids matching on ln.value's AstNode
-            // variant tag (which is unreliable across bootstrap binary versions).
-            // E.g. let arr List<i64>: newList() → {newList, ["i64"]}
-            out: inferZeroArgFnsFromAnnotation(ln.typeName, registry, out)
+            // Explicit generic annotation, e.g. `let xs List<i64>: …` → {List,[i64]}.
+            // Read structurally (parseType → walk Type); covers generic struct/sum
+            // types named in the annotation but not produced by a generic call.
+            out: inst.collectGenericAppFromType(ln.typeName, registry, out)
             out: inferFromExpr(ln.value, registry, out)
             return out
         }
         FnDeclNode: {
             let fd FnDeclNode: stmt
-            // Skip generic function templates: walking their annotations/bodies
-            // produces garbage requests like {genericName:"Some", concreteTypes:["T"]}
-            // that instantiate dead "Some-T" / "Option-T" types.  Concrete
-            // requests are generated from the call sites and annotations in
-            // user code instead.
+            // Skip generic function templates: their annotations/bodies still
+            // mention type params (T), which would produce garbage requests like
+            // {Some,[T]}.  Concrete requests come from call sites + concrete-fn
+            // annotations in user code; the transitive worklist in instantiateAll
+            // re-scans instantiated generic-fn bodies.
             let isGeneric bool: fd.typeParams.len().gt(0)
             if not isGeneric {
-                let fromFd Array<InstantiationRequest>: inferFromAnnotation(fd.returnType, registry)
-                out: appendAll(fromFd, out)
-                drop(fromFd)
-                out: inferFromParams(fd.params, registry, out)
+                // Generic types named in a concrete function's signature (e.g.
+                // `fn describeResult(x Result<i64,String>)`) are only reachable
+                // here — instantiateAll never re-scans top-level concrete fns.
+                out: inst.collectGenericAppFromType(fd.returnType, registry, out)
+                let params Array<Param>: fd.params
+                let pi i64: 0
+                while pi.lt(params.len()) {
+                    out: inst.collectGenericAppFromType(params.at(pi).typeName, registry, out)
+                    pi: pi.add(1)
+                }
                 out: inferFromStmts(fd.body, registry, out)
             }
             return out
@@ -618,11 +393,106 @@ fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationReque
     return out
 }
 
+// ─── Retained helpers for the monoPass call-site rewriter ──
+//
+// These syntactic string helpers are no longer used by the collector above (it is
+// now mechanical), but the monoPass call-site rewriter (rewriteCallName /
+// rewriteZeroArgCallName / rewriteZeroArgFnFromAnnotation) still computes mangled
+// names with them.  
+
+// extractBaseTypeName — the portion of a generic annotation before the first '<'.
+// "Pair<i64, String>" → "Pair";  "i64" → "i64".
+export fn extractBaseTypeName(typeName String) String {
+    return typeName.slice(0, subst.indexOfLT(typeName))
+}
+
+// suruCanonToAnnotation — convert the suru canonical form "Array:X" to annotation
+// form "Array<X>"; other forms pass through (already annotation form or a plain
+// mangled name like "Option-i64").
+fn suruCanonToAnnotation(t String) String {
+    let len i64: t.len()
+    if len.gt(5) {
+        if t.slice(0, 6).equals("Array:") {
+            return "Array<".append(t.slice(6, len)).append(">")
+        }
+    }
+    return clone(t)
+}
+
+// collectArgTypes — the type of each arg, normalised to annotation form.
+export fn collectArgTypes(args Array<AstNode>) Array<String> {
+    let out Array<String>: []
+    let i i64: 0
+    while i.lt(args.len()) {
+        let raw String: clone(resolvedTypeOf(args.at(i)))
+        let normalized String: suruCanonToAnnotation(raw)
+        drop(raw)
+        out.add(normalized)
+        i: i.add(1)
+    }
+    return out
+}
+
+// findBindingForVar — the argTypes element of the first param whose typeName equals
+// typeVar (bare type-variable match), or "" if none.
+fn findBindingForVar(typeVar String, params Array<Param>, argTypes Array<String>) String {
+    let i i64: 0
+    while i.lt(params.len()) {
+        if params.at(i).typeName.equals(typeVar) { return argTypes.at(i) }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// buildConcreteTypes — for each typeParam, find its binding and append to out.
+export fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Array<String>, out Array<String>) Array<String> {
+    let j i64: 0
+    while j.lt(typeParams.len()) {
+        let binding String: findBindingForVar(typeParams.at(j), params, argTypes)
+        out.add(clone(binding))
+        j: j.add(1)
+    }
+    return out
+}
+
+// allBound — true if every element of concretes is non-empty.
+export fn allBound(concretes Array<String>) bool {
+    let i i64: 0
+    while i.lt(concretes.len()) {
+        if concretes.at(i).equals("") { return false }
+        i: i.add(1)
+    }
+    return true
+}
+
+// matchReturnTypeSingle — for a single type parameter, match returnType against
+// expected and return the bound concrete type, or "" when no match.
+//   returnType = "T"        → expected            (bare var)
+//   returnType = "Base<T>"  → inner of expected   (one-level generic)
+export fn matchReturnTypeSingle(returnType String, expected String, typeParam String) String {
+    if returnType.equals(typeParam) { return clone(expected) }
+    let rtLt i64: subst.indexOfLT(returnType)
+    if rtLt.equals(returnType.len()) { return "" }
+    let exLt i64: subst.indexOfLT(expected)
+    if exLt.equals(expected.len()) { return "" }
+    let rtBase String: returnType.slice(0, rtLt)
+    let exBase String: expected.slice(0, exLt)
+    let basesMatch bool: rtBase.equals(exBase)
+    drop(rtBase)
+    drop(exBase)
+    if not basesMatch { return "" }
+    let rtInner String: returnType.slice(rtLt.add(1), returnType.len().take(1))
+    let innerIsParam bool: rtInner.equals(typeParam)
+    drop(rtInner)
+    if not innerIsParam { return "" }
+    return expected.slice(exLt.add(1), expected.len().take(1))
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 // collectInstantiations — walk all stmts, collect every generic instantiation
 // site, and return a deduplicated Array<InstantiationRequest>.
-// Call this after resolveModuleTypes so resolvedType fields are populated.
+// Call this after resolveModuleTypes so resolvedType/typeArgs fields are populated.
 export fn collectInstantiations(stmts Array<AstNode>, registry GenericRegistry) Array<InstantiationRequest> {
     let raw Array<InstantiationRequest>: []
     raw: inferFromStmts(stmts, registry, raw)

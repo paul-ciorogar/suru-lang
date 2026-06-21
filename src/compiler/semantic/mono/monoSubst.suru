@@ -391,7 +391,10 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         ObjectLitNode: {
             let sln ObjectLitNode: node
             let newFields Array<ObjectFieldNode>: substObjectFields(sln.fields, paramNames, concreteTypes)
-            let result ObjectLitNode: { fields: newFields, resolvedType: substituteType(sln.resolvedType, paramNames, concreteTypes), line: 0, col: 0 }
+            // typeArgs propagated verbatim (mirrors the CallNode/MethodCallNode handling
+            // above): monomorphization reads ObjectLit typeArgs only from the pass-1-resolved
+            // nodes, never from these instantiated clones, so substitution is unnecessary.
+            let result ObjectLitNode: { fields: newFields, typeArgs: sln.typeArgs, resolvedType: substituteType(sln.resolvedType, paramNames, concreteTypes), line: 0, col: 0 }
             return result
         }
         MatchExprNode: {

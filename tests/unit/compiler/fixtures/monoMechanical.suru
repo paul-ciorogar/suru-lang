@@ -1,0 +1,32 @@
+// monoMechanical.suru — fixture for §3.2 monoMechanicalTest.
+//
+// Exercises the generic instantiation sites that are NOT produced by a generic
+// function call and so are NOT covered by instantiateAll's transitive worklist —
+// the cases that the mechanical monoInfer must still collect:
+//   - a direct generic struct literal:        let b Box<i64>: { value: 42 }
+//   - a direct multi-arg generic literal:      let p Pair<i64, String>: { … }
+//   - a concrete fn carrying a generic param:  fn describe(x Result<i64, String>) …
+//
+// Expected mangled instantiations after the "mono" pass: Box-i64,
+// Pair-i64-String, Result-i64-String.
+
+namespace Test.Unit.Compiler.Fixtures.MonoMechanical
+
+import { [Result]: Suru.Stdlib.Result }
+
+type Box<T>: { value T }
+type Pair<T, U>: { first T, second U }
+
+// Concrete (non-generic) function whose parameter type is a generic application.
+// Never called — its annotation alone must drive Result<i64, String> instantiation.
+fn describe(x Result<i64, String>) i64 {
+    return 0
+}
+
+fn main() {
+    let b Box<i64>: { value: 42 }
+    let p Pair<i64, String>: { first: 1, second: "x" }
+    printLn(b.value.toString())
+    printLn(p.first.toString())
+    printLn(p.second)
+}

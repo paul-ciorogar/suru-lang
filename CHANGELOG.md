@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `monoInfer` is now a mechanical collector (no type inference of its own)
+
+- Monomorphization's instantiation collector (`monoInfer.suru`) no longer performs type-variable
+  *inference*. It reads the structured `typeArgs` the resolver records on call / method / object
+  nodes, and reads explicit generic annotations (`let` / concrete-fn param/return types) through
+  the structured `collectGenericAppFromType` (parse → walk `Type`) instead of ad-hoc string
+  surgery. The old unification arms (`inferFromGenericFnCall`, the zero-arg return-vs-annotation
+  matchers, `inferFromAnnotation`) are gone.
+- The inference they did moved into the resolver. **`rtRecordArgBindings`** adds the §2.2-deferred
+  **param-vs-arg** unification: it binds a callee's type params by unifying each declared
+  parameter-type template against the argument's resolved `Type`, recording the concrete
+  `typeArgs` for monomorphization — *without* changing `resolvedType`, so emitted IR is unchanged
+  (this is what covers `elemBytes<T>(dummy T) i64` and `printLn(identity("x"))`).
+- `ObjectLitNode` gains a `typeArgs Array<Type>` field. The resolver (**`rtObjectLitRecord`**)
+  copies a generic literal's concrete type args from the expected type (e.g. `Box<i64>` → `[i64]`),
+  so a direct struct/sum literal with no constructor call is monomorphized from the recorded
+  binding rather than the (mangled, previously no-op) `resolvedType` string.
+- The syntactic helpers `collectArgTypes` / `buildConcreteTypes` / `allBound` /
+  `matchReturnTypeSingle` / `extractBaseTypeName` are retained for now — the `monoPass` call-site
+  rewriter still uses them; a later phase migrates that rewriter to `node.typeArgs` and removes
+  them. Phase-0 oracle byte-identical; full suite green (104 passed, 0 memcheck); bootstrap fixed
+  point confirmed (C2==C3). Coverage: `tests/unit/compiler/objectLitTypeArgsTest.suru` and
+  `tests/unit/compiler/monoMechanicalTest.suru`.
+
 ### Monomorphization prefers recorded `typeArgs`
 
 - Fixes the long-standing bug where a generic zero-arg constructor used as an object/struct

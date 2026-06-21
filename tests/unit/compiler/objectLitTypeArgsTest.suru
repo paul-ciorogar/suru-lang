@@ -1,0 +1,86 @@
+// objectLitTypeArgsTest.suru — in-process test for §3.2 (record generic type
+// arguments on a struct/sum literal at the resolver).
+//
+// Drives objectlit_box.suru through the pipeline stopped at "resolve1" (the pass
+// that runs rtObjectLitRecord) and inspects the resolved AST: the `{ value: 42 }`
+// literal bound to `Box<i64>` must carry the concrete type argument `i64`.
+//
+// Stopping at "resolve1" is the tightest scope that runs the new recording, before
+// monomorphization rewrites/strips anything.
+
+namespace Test.Unit.Compiler.ObjectLitTypeArgs
+
+import {
+    [TestResult, assertEqI64, assertEqStr]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AstNode, FnDeclNode, LetNode, ObjectLitNode]: Suru.Compiler.Parser.Ast
+    [printAnnotation]: Suru.Compiler.Types.Print
+}
+
+// emptyLit — sentinel ObjectLitNode so a missing node fails with readable values.
+fn emptyLit() ObjectLitNode {
+    let noFields Array<ObjectFieldNode>: []
+    let noTypeArgs Array<Type>: []
+    return { fields: noFields, typeArgs: noTypeArgs, resolvedType: "", line: 0, col: 0 }
+}
+
+// findObjectLitInMain — locate the FnDeclNode named "main" and return the
+// ObjectLitNode that is the value of its first `let`. Returns emptyLit() if none.
+fn findObjectLitInMain(stmts Array<AstNode>) ObjectLitNode {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let node AstNode: stmts.at(i)
+        match node {
+            FnDeclNode: {
+                let fd FnDeclNode: node
+                if fd.name.equals("main") {
+                    let body Array<AstNode>: fd.body
+                    let j i64: 0
+                    while j.lt(body.len()) {
+                        let s AstNode: body.at(j)
+                        match s {
+                            LetNode: {
+                                let ln LetNode: s
+                                let v AstNode: ln.value
+                                match v {
+                                    ObjectLitNode: {
+                                        let sln ObjectLitNode: v
+                                        return sln
+                                    }
+                                    _: {}
+                                }
+                            }
+                            _: {}
+                        }
+                        j: j.add(1)
+                    }
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return emptyLit()
+}
+
+// firstTypeArgAnnotation — source-form annotation of a literal's first recorded
+// type argument, or "" when none were recorded.
+fn firstTypeArgAnnotation(sln ObjectLitNode) String {
+    let ta Array<Type>: sln.typeArgs
+    if ta.len().equals(0) { return "" }
+    return printAnnotation(ta.at(0))
+}
+
+export fn objectLitTypeArgsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    let path String: "/work/tests/unit/compiler/fixtures/objectlit_box.suru"
+    let res DebugResult: runPipelineDebug(path, "resolve1")
+    let stmts Array<AstNode>: res.stmts
+
+    let lit ObjectLitNode: findObjectLitInMain(stmts)
+    results.add(assertEqI64("Box<i64> literal records 1 type arg", lit.typeArgs.len(), 1))
+    results.add(assertEqStr("Box<i64> literal type arg is i64", firstTypeArgAnnotation(lit), "i64"))
+
+    return results
+}

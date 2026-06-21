@@ -1,0 +1,14 @@
+// objectlit_box.suru — fixture for §3.2 objectLitTypeArgsTest.
+//
+// A direct generic struct literal: `let b Box<i64>: { value: 42 }`.  The resolver
+// (rtObjectLitRecord) must record typeArgs=[i64] on the ObjectLitNode from the
+// expected type, so monomorphization can read the Box<i64> instantiation directly.
+
+namespace Test.Unit.Compiler.Fixtures.ObjectlitBox
+
+type Box<T>: { value T }
+
+fn main() {
+    let b Box<i64>: { value: 42 }
+    printLn(b.value.toString())
+}
