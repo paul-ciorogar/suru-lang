@@ -1,6 +1,6 @@
 # Suru
 
-A minimalist, library-driven, general-purpose programming language — statically typed, no garbage collection.
+A minimalist, library-driven, general-purpose, data oriented programming language — statically typed, no garbage collection.
 
 ## Table of contents
 

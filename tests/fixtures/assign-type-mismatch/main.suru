@@ -1,0 +1,15 @@
+namespace Test.AssignTypeMismatch
+
+// compileError fixture for the assignment type-mismatch check.
+//
+// `s` is declared String, then reassigned the Array<i64> result of makeArray().
+// The analyzer must reject the reassignment with a "type mismatch" diagnostic.
+fn makeArray() Array<i64> {
+    return []
+}
+
+fn main(args Array<String>) {
+    let s String: "hello"
+    s: makeArray()
+    printLn("done")
+}

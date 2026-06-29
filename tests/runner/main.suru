@@ -26,6 +26,7 @@ import {
     [suruStringOrderTests]: Test.Unit.Stdlib.String
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
+    [assignabilityTests]: Test.Unit.Compiler.Assignability
     [reportResults]: Test.Unit.Assert
 }
 
@@ -109,6 +110,8 @@ fn main(args Array<String>) {
         { name: "lex-error",      source: "tests/fixtures/lex-error",      args: "", expected: readFile("/work/tests/fixtures/lex-error/expected.txt"),      xfail: false, compileError: true },
         { name: "parse-error",    source: "tests/fixtures/parse-error",    args: "", expected: readFile("/work/tests/fixtures/parse-error/expected.txt"),    xfail: false, compileError: true },
         { name: "dup-type-error",              source: "tests/fixtures/dup-type-error",              args: "", expected: readFile("/work/tests/fixtures/dup-type-error/expected.txt"),              xfail: false, compileError: true },
+        { name: "let-type-mismatch",           source: "tests/fixtures/let-type-mismatch",           args: "", expected: readFile("/work/tests/fixtures/let-type-mismatch/expected.txt"),           xfail: false, compileError: true },
+        { name: "assign-type-mismatch",        source: "tests/fixtures/assign-type-mismatch",        args: "", expected: readFile("/work/tests/fixtures/assign-type-mismatch/expected.txt"),        xfail: false, compileError: true },
         { name: "struct-missing-field-error", source: "tests/fixtures/struct-missing-field-error", args: "", expected: readFile("/work/tests/fixtures/struct-missing-field-error/expected.txt"), xfail: false, compileError: true },
         { name: "struct-undeclared-method-error", source: "tests/fixtures/struct-undeclared-method-error", args: "", expected: readFile("/work/tests/fixtures/struct-undeclared-method-error/expected.txt"), xfail: false, compileError: true },
         { name: "ctype-method-error",     source: "tests/fixtures/ctype-method-error",     args: "", expected: readFile("/work/tests/fixtures/ctype-method-error/expected.txt"),     xfail: false, compileError: true },
@@ -210,6 +213,8 @@ fn main(args Array<String>) {
     failed: failed.add(sbNumFailed)
     let strFromConvFailed i64: reportResults("string-from-conv", stringFromConvTests())
     failed: failed.add(strFromConvFailed)
+    let assignabilityFailed i64: reportResults("assignability", assignabilityTests())
+    failed: failed.add(assignabilityFailed)
     printLn("")
 
     while i.lt(cases.len()) {

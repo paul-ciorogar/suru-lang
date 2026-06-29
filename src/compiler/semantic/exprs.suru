@@ -188,6 +188,60 @@ fn analyzeObjectFieldsAt(state AnalyzerState, fields Array<ObjectFieldNode>) Ana
     return state
 }
 
+// inferTypeForMismatchCheck — inferType, but returns "" (unknown → skip) for the
+// expression kinds whose inferred type is a heuristic that is unreliable for
+// user-defined types, so a value-flow mismatch check never rejects valid code on
+// a guessed type:
+//   - MethodCallNode: inferTypeFromMethod hardcodes toString→String, equals→bool,
+//     len→i64, … which is correct for builtins but WRONG for user methods
+//     (e.g. StringBuilder.toString() actually returns SuruString). Resolving the
+//     true return type needs receiver-type + method-signature lookup, which the
+//     heuristic does not do.
+//   - MatchExprNode: its type is sampled from the first arm's body, which may
+//     itself be one of the unreliable kinds.
+// This wrapper is used ONLY by the mismatch checks; inferType itself (and the
+// codegen resolvedType path in resolveTypes.suru) is unchanged. Reliable kinds
+// (literals, VarRefNode → symbol table, CallNode → function registry) flow
+// through, so free-function return mismatches — the class that caused the
+// List<Token>/Array<Token> segfault — are still caught.
+export fn inferTypeForMismatchCheck(state AnalyzerState, expr AstNode) String {
+    match expr {
+        MethodCallNode: { return "" }
+        MatchExprNode:  { return "" }
+        _: {}
+    }
+    return inferType(state, expr)
+}
+
+// isIntegerFamilyName — the fixed-width integer types that are mutually
+// assignable. Integer literals infer as `i64` (see inferType) but validly
+// initialize `i32`/`char` slots too (`let c i32: 0`, hex literals → char), and
+// codegen adapts the value to the slot width — so a mismatch *within* this family
+// is not a type error. `f64` is deliberately excluded: Suru has no implicit
+// int↔float conversion, so `let x f64: 0` should still be rejected.
+fn isIntegerFamilyName(name String) bool {
+    return name.equals("i64") or name.equals("i32") or name.equals("char")
+}
+
+// isAssignable — the single "can a value of type `actual` be bound to a slot of
+// type `expected`?" predicate, shared by every value-flow site (return, call
+// args, let bindings, assignments, field assignments, object-literal fields).
+//
+// A value is assignable when its type matches exactly, when it is a declared
+// variant of the expected sum type, when both sides are in the String family
+// (`Str` borrowed static literal ↔ owned `String`; codegen materializes a heap
+// copy at the boundary when an owned String is required), or when both sides are
+// in the integer family (literal/width adaptation — see isIntegerFamilyName).
+//
+// Callers must gate on both types being known (non-"") before reporting an error
+// — `inferType` returns "" for anything it cannot pin down, and an unknown type
+// must be skipped rather than falsely rejected.
+export fn isAssignable(state AnalyzerState, expected String, actual String) bool {
+    let strInterop bool: isStringFamilyName(expected) and isStringFamilyName(actual)
+    let intInterop bool: isIntegerFamilyName(expected) and isIntegerFamilyName(actual)
+    return actual.equals(expected) or state.isSumVariant(expected, actual) or strInterop or intInterop
+}
+
 // checkCallArgTypesAt — validates argument types against declared parameter
 // types for function fnName.
 // Emits "argument type mismatch: expected X, got Y" when both types are known
@@ -200,10 +254,7 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
         let argType String: inferType(state, args.at(i))
-        // String family: `Str` (borrowed static literal) is assignable to a
-        // `String` (owned) parameter and vice-versa; codegen materializes a heap
-        // copy at the boundary when an owned String is required. (see isAssignable)
-        if not isAssignable(state, expected, argType) {
+        if not expected.equals("") and not argType.equals("") and not isAssignable(state, expected, argType) {
             state.addError("argument type mismatch: expected ".append(expected).append(", got ").append(argType), callLine, callCol)
         }
         i: i.add(1)

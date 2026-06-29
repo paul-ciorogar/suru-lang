@@ -1,0 +1,16 @@
+namespace Test.LetTypeMismatch
+
+// compileError fixture for the let-binding type-mismatch check.
+//
+// makeArray() returns Array<i64>, but it is bound to a String-annotated let.
+// This is exactly the class of mismatch that previously compiled clean and
+// segfaulted at runtime (a List<Token> value bound to an Array<Token> slot).
+// The analyzer must now reject it with a "type mismatch" diagnostic.
+fn makeArray() Array<i64> {
+    return []
+}
+
+fn main(args Array<String>) {
+    let s String: makeArray()
+    printLn("done")
+}

@@ -209,6 +209,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   single-error count — covering all ten mismatch diagnostics.
 - Fixed a latent typo surfaced by the new struct-literal check: `alloc-stress`
   declared a field as lowercase `string` (it holds a `String`).
+### Semantic analyzer now type-checks `let` bindings and assignments
+
+- A `let x T: expr` whose initializer type is not assignable to `T`, and an
+  `x: expr` reassignment whose value type is not assignable to `x`'s declared
+  type, are now compile errors ("type mismatch: variable 'x' declared T but
+  initialized with U" / "… has type T but assigned U"). Previously neither site
+  was checked: a `List<Token>` value bound to an `Array<Token>` slot (two
+  distinct generic types both erased to `ptr`) compiled clean and **segfaulted**
+  at runtime — the compiler failing its job of diagnosing a type-incorrect
+  program. This closes that class of silent failure.
+- The "can a value of type `actual` be bound to a slot of type `expected`?"
+  predicate is now a single shared helper `isAssignable` (in
+  `semantic/exprs.suru`): exact match, declared sum-type variant, the String
+  family (`Str` ↔ `String`), or the integer family (`i64`/`i32`/`char` — integer
+  literals infer as `i64` but validly initialize narrower slots; `f64` is
+  excluded, as Suru has no implicit int↔float conversion). The two pre-existing
+  checks (return statement, call arguments) were refactored to call it, so all
+  value-flow sites share one definition.
+- Checks gate on a *reliably* inferred initializer type via
+  `inferTypeForMismatchCheck`, which returns "" (skip) for expression kinds whose
+  type is a name-based heuristic that is wrong for user types — notably
+  `MethodCallNode` (`toString → String` is correct for builtins but
+  `StringBuilder.toString()` returns `SuruString`) and `MatchExprNode`. `inferType`
+  itself (and the codegen `resolvedType` path) is untouched.
+- New `assignability` in-process unit suite (`tests/unit/compiler/assignability_test.suru`)
+  and `compileError` fixtures `let-type-mismatch` / `assign-type-mismatch` lock the
+  behavior in. Front-end only (no codegen change); fixed point (C2 == C3) re-verified.
+- Known remaining gaps (same predicate, not yet wired in): field assignment
+  (`obj.f: expr`), object-literal fields (`{ f: expr }`), and match-arm result
+  agreement — each needs field-type resolution and is a mechanical follow-up.
 
 ### `export` is now a declaration prefix (the `export { }` block is removed)
 

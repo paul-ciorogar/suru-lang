@@ -87,16 +87,16 @@ fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
     markConstantIfModuleScope(state, stmt.name, isDuplicate)
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
-    // Type-mismatch: the RHS value must be assignable to the declared type. Only
-    // checked when the annotation resolves (an unknown type already errored
-    // above). The actual type is the value's resolved type (context-narrowed),
-    // compared against the canonical form of the declared annotation.
-    if typeResolved {
-        let expected String: tyh.makeSuruType(stmt.typeName)
-        let actual String: exprs.nodeResolvedType(val)
-        if not exprs.isAssignable(state, expected, actual) {
-            state.addError("let binding type mismatch: expected ".append(stmt.typeName).append(", got ").append(actual), stmt.line, stmt.col)
-        }
+    // Type-mismatch check: the initializer's inferred type must be assignable to
+    // the declared annotation. Only reported when the declaration is otherwise
+    // valid (resolved, non-duplicate) and both types are known —
+    // inferTypeForMismatchCheck returns "" for anything it cannot reliably pin
+    // down (object/array literals, field access, method calls, …), which is
+    // skipped rather than falsely rejected.
+    let actual String: exprs.inferTypeForMismatchCheck(state, val)
+    let known bool: not stmt.typeName.equals("") and not actual.equals("")
+    if not isDuplicate and typeResolved and known and not exprs.isAssignable(state, stmt.typeName, actual) {
+        state.addError("type mismatch: variable '".append(stmt.name).append("' declared ").append(stmt.typeName).append(" but initialized with ").append(actual), stmt.line, stmt.col)
     }
     // Re-binding a name clears any prior moved state for that variable.
     if not isDuplicate { state.clearMoved(stmt.name) }
@@ -114,14 +114,14 @@ fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerStat
     }
     let val AstNode: stmt.value
     exprs.analyzeExpr(state, val)
-    // Type-mismatch: the RHS must be assignable to the variable's declared type.
-    if isDefined {
-        let varType String: state.lookupSymbol(stmt.name)
-        let expected String: tyh.makeSuruType(varType)
-        let actual String: exprs.nodeResolvedType(val)
-        if not exprs.isAssignable(state, expected, actual) {
-            state.addError("assignment type mismatch: expected ".append(varType).append(", got ").append(actual), stmt.line, stmt.col)
-        }
+    // Type-mismatch check: the new value must be assignable to the variable's
+    // declared type. Same conservative rules as the let-binding check (only when
+    // the variable is defined and both types are reliably known).
+    let declaredType String: state.lookupSymbol(stmt.name)
+    let actual String: exprs.inferTypeForMismatchCheck(state, val)
+    let known bool: not declaredType.equals("") and not actual.equals("")
+    if isDefined and not isConst and known and not exprs.isAssignable(state, declaredType, actual) {
+        state.addError("type mismatch: variable '".append(stmt.name).append("' has type ").append(declaredType).append(" but assigned ").append(actual), stmt.line, stmt.col)
     }
     // Re-assigning a variable clears its moved state (it has a new value now).
     if not isConst and isDefined { state.clearMoved(stmt.name) }
@@ -171,9 +171,8 @@ export fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerS
         exprs.analyzeExpr(state, val)
         let retType String: exprs.inferType(state, val)
         let expected String: state.currentReturnType
-        // void functions never carry a return value type to compare against;
-        // isAssignable handles the unknown-type ("") cases.
-        if not expected.equals("void") and not exprs.isAssignable(state, expected, retType) {
+        let typesKnown bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
+        if typesKnown and not exprs.isAssignable(state, expected, retType) {
             state.addError("return type mismatch: expected ".append(expected).append(", got ").append(retType), stmt.line, stmt.col)
         }
     } else {

@@ -1,0 +1,3 @@
+/work/tests/fixtures/let-type-mismatch/main.suru:14:9: error: type mismatch: variable 's' declared String but initialized with Array<i64>
+  14 |     let s String: makeArray()
+               ^

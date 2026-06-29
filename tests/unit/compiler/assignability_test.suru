@@ -1,0 +1,55 @@
+// assignability_test.suru — unit tests for isAssignable, the single
+// "can a value of type `actual` be bound to a slot of type `expected`?" predicate
+// shared by every value-flow mismatch check (let / assign / field-assign /
+// object-field / return / call-arg) in the semantic analyzer.
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// assignabilityTests() and folds the failures into the suite tally. These guard
+// the regression that started this work: a `List<Token>` value silently bound to
+// an `Array<Token>` slot (two distinct generic types erased to `ptr`) compiled
+// clean and segfaulted at runtime. isAssignable must reject that pair while still
+// accepting exact matches, the String family, and the integer family.
+
+namespace Test.Unit.Compiler.Assignability
+
+import {
+    [TestResult, assertTrue]: Test.Unit.Assert
+    [makeAnalyzerState]: Suru.Compiler.Semantic
+    [isAssignable]: Suru.Compiler.Semantic.Exprs
+}
+
+export fn assignabilityTests() Array<TestResult> {
+    let results Array<TestResult>: []
+    let state AnalyzerState: makeAnalyzerState()
+
+    // Exact match → assignable.
+    results.add(assertTrue("i64 <- i64",       isAssignable(state, "i64", "i64")))
+    results.add(assertTrue("String <- String", isAssignable(state, "String", "String")))
+    results.add(assertTrue("Array:i64 <- Array:i64", isAssignable(state, "Array<i64>", "Array<i64>")))
+
+    // Integer family → mutually assignable (int literals infer as i64 but
+    // initialize i32/char slots; codegen adapts the width).
+    results.add(assertTrue("i32 <- i64",  isAssignable(state, "i32", "i64")))
+    results.add(assertTrue("char <- i64", isAssignable(state, "char", "i64")))
+    results.add(assertTrue("i64 <- i32",  isAssignable(state, "i64", "i32")))
+
+    // String family → Str borrowed literal ↔ owned String, both directions.
+    results.add(assertTrue("String <- Str", isAssignable(state, "String", "Str")))
+    results.add(assertTrue("Str <- String", isAssignable(state, "Str", "String")))
+
+    // ── Mismatches that must be REJECTED ──────────────────────────────────────
+    // The regression that caused the segfault: distinct generic named types.
+    results.add(assertTrue("REJECT Array<Token> <- List<Token>",
+        not isAssignable(state, "Array<Token>", "List<Token>")))
+    // Unrelated families.
+    results.add(assertTrue("REJECT i64 <- String", not isAssignable(state, "i64", "String")))
+    results.add(assertTrue("REJECT String <- i64", not isAssignable(state, "String", "i64")))
+    results.add(assertTrue("REJECT bool <- i64",   not isAssignable(state, "bool", "i64")))
+    // f64 is deliberately NOT in the integer family (no implicit int↔float).
+    results.add(assertTrue("REJECT f64 <- i64",    not isAssignable(state, "f64", "i64")))
+    // Distinct user types.
+    results.add(assertTrue("REJECT SuruString <- String",
+        not isAssignable(state, "SuruString", "String")))
+
+    return results
+}
