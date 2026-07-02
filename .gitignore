@@ -1,0 +1,21 @@
+# .gitignore — keep build artifacts and the Dockerized dev caches out of git.
+#
+# docker-compose dev service; none of it belongs in version control.
+
+# --- .NET build output -------------------------------------------------------
+# Per-project intermediate (obj/) and final (bin/) output. Emitted next to each
+# .csproj by `dotnet build`; fully reproducible from source.
+bin/
+obj/
+
+# --- Dockerized dev caches ---------------------------------------------------
+# docker-compose.yml redirects HOME and the .NET/NuGet/XDG caches into a
+# host-owned .cache/ under the repo (so a non-root container user has writable
+# caches and NuGet restores persist across runs). It is pure machine state.
+.cache/
+
+# --- IDE / tooling scratch ---------------------------------------------------
+# Visual Studio / Rider per-user project options and solution caches.
+*.user
+.vs/
+.idea/

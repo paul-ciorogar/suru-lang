@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Suru.Compiler.Tests — the unit-test project for the compiler library.
+
+    xUnit test project (scaffolded with `dotnet new xunit` under the pinned .NET
+    SDK 10, then trimmed/documented). It references Suru.Compiler and exercises
+    its public API (Compiler.Compile, CompileResult). `scripts/test` runs it via
+    `dotnet test`. For now it holds a single placeholder test pinning the
+    current behaviour of the compile placeholder; real tests grow alongside the
+    lexer/parser/codegen.
+
+    TargetFramework tracks docs/toolchain.md (net10.0). The test packages are
+    managed-only (no native lockstep like LLVMSharp), so they are pinned here to
+    the SDK's template versions rather than in docs/toolchain.md.
+  -->
+  <PropertyGroup>
+    <!-- .NET SDK 10.0 (LTS) — matches Suru.Compiler / docs/toolchain.md. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- A test assembly is never packaged/shipped. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test host + xUnit runner/adapter (versions from the SDK 10 template). -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The system under test: the compiler library. -->
+    <ProjectReference Include="../Suru.Compiler/Suru.Compiler.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Make xUnit's attributes/asserts available without per-file usings. -->
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

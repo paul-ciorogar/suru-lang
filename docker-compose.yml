@@ -1,0 +1,88 @@
+# docker-compose.yml
+#
+# The single dev environment for the Suru compiler. One service, `dev`, built
+# from the Dockerfile (the `suru-dev` image: .NET SDK 10 + native LLVM 20). The
+# repo is bind-mounted into the container so edits made on the host compile
+# inside the container with zero host toolchain — Docker is the only host
+# dependency (Stage 0 exit criterion in todo.md).
+#
+# Two usage shapes, both backed by this one service:
+#   - One-off command:   docker compose run --rm dev <cmd>
+#                        e.g. `docker compose run --rm dev bash tools/smoke/run.sh`
+#                        Later the scripts/ wrappers map `<name>` to a CLI
+#                        subcommand, so `docker compose run --rm dev build`, etc.
+#   - Long-running shell: docker compose up -d dev   (stays up via `sleep
+#                        infinity`), then `docker compose exec dev <cmd>` or
+#                        `docker compose exec dev bash` for an interactive shell.
+#
+# Compose v2+ ignores the legacy top-level `version:` key, so it is omitted.
+
+services:
+  dev:
+    # Build the image from the repo's Dockerfile and tag it `suru-dev`, matching
+    # the name the smoke test and docs already reference. `docker compose build`
+    # (or `run --build`) refreshes it; a plain `run`/`up` reuses the existing tag.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: suru-dev
+
+    # Run as the host user (defaults to the common 1000:1000) rather than the
+    # image's root. This keeps everything the build writes into the bind-mounted
+    # repo — bin/, obj/, and the .cache dir below — owned by you on the host
+    # instead of root, so no sudo is ever needed to clean or edit them. Override
+    # for a different host account with, e.g.:
+    #   SURU_UID=$(id -u) SURU_GID=$(id -g) docker compose run --rm dev <cmd>
+    user: "${SURU_UID:-1000}:${SURU_GID:-1000}"
+
+    # The Dockerfile already sets WORKDIR /workspace; restate it here so the
+    # mount target and the working directory are obvious in one place.
+    working_dir: /workspace
+
+    # Bind-mount the whole repo. This is what makes host edits visible in the
+    # container with no rebuild — the container compiles the live working tree.
+    volumes:
+      - .:/workspace
+
+    environment:
+      # As a non-root user the image's default $HOME (/root) is not writable, and
+      # .NET/NuGet need a writable HOME plus a package cache. Point all three at a
+      # host-owned, git-ignored directory inside the bind-mounted repo: it is
+      # created as the host user on first write (the repo dir is writable, so no
+      # root-owned mountpoint problem), persists across `run`/`down` cycles so
+      # NuGet restores are not repeated, and never leaks into a separate volume.
+      # (.cache/ is covered by .gitignore / .dockerignore — see todo.md.)
+      HOME: /workspace/.cache/home
+      DOTNET_CLI_HOME: /workspace/.cache/dotnet
+      NUGET_PACKAGES: /workspace/.cache/nuget
+      # Pin the XDG base dirs under .cache too. NuGet writes a migrations marker
+      # to LocalApplicationData ($HOME/.local/share) — if $HOME does not yet
+      # exist .NET silently falls back to the CWD and leaks a `.local/` into the
+      # repo root, so keep these inside .cache as well as creating HOME below.
+      XDG_DATA_HOME: /workspace/.cache/home/.local/share
+      XDG_CACHE_HOME: /workspace/.cache/home/.cache
+      # Keep first-run telemetry and the SDK banner out of script/CLI output.
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+
+    # Guarantee the host-owned cache dirs exist before any command runs, then
+    # exec the requested command (the `run`/`up` args land in "$@"; "--" is the
+    # $0 placeholder). Without this, the very first command can race the cache
+    # dirs into existence and leak stray dirs into the repo (see XDG note above).
+    entrypoint:
+      - /bin/bash
+      - -c
+      # `$$` escapes Compose's own variable interpolation so these expand in the
+      # container shell at runtime (against the env: above), not at YAML parse
+      # time against the host environment.
+      - 'mkdir -p "$$HOME" "$$NUGET_PACKAGES" "$$DOTNET_CLI_HOME" "$$XDG_DATA_HOME" "$$XDG_CACHE_HOME"; exec "$$@"'
+      - --
+
+    # PID 1 reaper so signals (Ctrl-C) and zombie processes are handled cleanly
+    # under the `sleep infinity` keep-alive and any child processes a build spawns.
+    init: true
+
+    # Default command keeps the service alive for `docker compose up -d` +
+    # `exec`. A one-off `docker compose run --rm dev <cmd>` overrides this, so the
+    # keep-alive only applies to the long-running `up` shape.
+    command: ["sleep", "infinity"]

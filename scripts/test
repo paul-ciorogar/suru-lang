@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#
+# scripts/test — run the compiler test suite (scripts/ wrapper).
+#
+# Runs `dotnet test` across the solution, which builds and executes the xUnit
+# project src/Suru.Compiler.Tests. Meant to run INSIDE the suru-dev container:
+#
+#   docker compose run --rm dev scripts/test
+#
+# The compose entrypoint execs its args at WORKDIR /workspace, so the relative
+# path `scripts/test` resolves directly. Extra args are forwarded to
+# `dotnet test` (e.g. `scripts/test --filter FullyQualifiedName~Compile`).
+#
+# Exit code: propagated from `dotnet test` (non-zero if any test fails).
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "${here}/.." && pwd)"
+cd "${root}"
+
+exec dotnet test Suru.slnx -c Release "$@"

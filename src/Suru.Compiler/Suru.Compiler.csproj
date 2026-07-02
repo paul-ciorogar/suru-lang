@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Suru.Compiler — the compiler proper, packaged as a class LIBRARY.
+
+    This project holds all language logic (lexer, parser, semantic analysis,
+    LLVM IR codegen) as it lands in later stages. It has no entry point of its
+    own; the Suru.Cli executable references it and drives it through the public
+    API exposed here (see Compiler.cs). Keeping the compiler as a library keeps
+    it independently testable and reusable (e.g. from a test project or a future
+    language server) without dragging in CLI concerns.
+
+    Versions here MUST track docs/toolchain.md — the .NET SDK (via
+    TargetFramework) and the LLVMSharp major (which must equal the native
+    libLLVM major the dev image provides, 20).
+  -->
+  <PropertyGroup>
+    <!-- .NET SDK 10.0 (LTS) — see docs/toolchain.md. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Treat nullable reference warnings as first-class from day one. -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- LLVMSharp.Interop's LLVM-C entry points take raw pointers; codegen
+         in later stages needs unsafe blocks to call them. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Managed LLVM bindings; major MUST equal the native libLLVM major (20)
+         the dev image ships. Pinned to the exact patch in docs/toolchain.md. -->
+    <PackageReference Include="LLVMSharp" Version="20.1.2" />
+  </ItemGroup>
+
+</Project>

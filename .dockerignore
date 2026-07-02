@@ -1,0 +1,25 @@
+# .dockerignore — trim the build context sent to the Docker daemon.
+#
+# Stage 0 §6 (todo.md). The Dockerfile has no COPY step (the repo is
+# bind-mounted at runtime by docker-compose, not baked into the image), so this
+# only shrinks the context tarball uploaded on `docker compose build` — it does
+# NOT affect what the running container sees through the /workspace mount.
+#
+# Excluding these avoids shipping large, machine-local trees (git history and
+# the dev caches can be hundreds of MB) on every image build.
+
+# Version-control metadata — never needed to build the image.
+.git/
+.gitignore
+
+# .NET build output (regenerated inside the container).
+bin/
+obj/
+
+# Host-owned HOME + NuGet/.NET/XDG caches created by the dev service.
+.cache/
+
+# IDE / tooling scratch.
+*.user
+.vs/
+.idea/

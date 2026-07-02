@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Suru.Cli — the command-line front end (an executable).
+
+    This is the `suru` binary the scripts/ wrappers invoke inside the container.
+    It owns no language logic: it parses argv, dispatches the subcommands
+    (run / build / test / ir), and calls into the Suru.Compiler library for the
+    actual work. Keeping all compiler logic in the referenced library keeps the
+    CLI thin and the compiler independently testable.
+
+    Versions here MUST track docs/toolchain.md (TargetFramework <-> .NET SDK).
+    Note: no LLVMSharp PackageReference is needed here — the CLI reaches LLVM
+    only transitively through Suru.Compiler.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- .NET SDK 10.0 (LTS) — see docs/toolchain.md. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The eventual `suru` binary is invoked as `suru <subcommand>`. -->
+    <AssemblyName>suru</AssemblyName>
+    <RootNamespace>Suru.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- All language logic lives in the library; the CLI only drives it. -->
+    <ProjectReference Include="../Suru.Compiler/Suru.Compiler.csproj" />
+  </ItemGroup>
+
+</Project>
