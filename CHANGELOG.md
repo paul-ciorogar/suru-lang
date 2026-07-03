@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Lexer.** `Lexer.Tokenize(string)` scans Suru source into a
+  `LexResult` — a token stream terminated by an end-of-file token, plus a list of
+  structured `Diagnostic`s. It handles integer literals, the `+ - * /` operators,
+  `( ) { }` brackets, identifiers, and the `extern`/`fn` keywords (`main` stays an
+  ordinary identifier). Unexpected characters are reported as located diagnostics and
+  skipped rather than thrown, so lexing continues. New files: `Lexer.cs`, `Token.cs`
+  (`TokenKind`/`Token`), and `Diagnostics.cs` (reusable `SourceSpan` with
+  line+column+offset and `Diagnostic`), with `LexerTests.cs` covering the example
+  program, keyword classification, position tracking, and error recovery.
+- **Token text interning.** A `Tokens` collection (`Tokens.cs`) is the lexer's output
+  buffer. `AddToken` interns the variable-spelling lexemes — identifiers and int
+  literals — through an internal registry so all tokens with the same text share one
+  `string` instance (distinct-string allocations are bounded by the number of distinct
+  lexemes, not tokens); the lexer feeds it source `ReadOnlySpan<char>` slices, so a
+  repeated identifier allocates no string at all after its first occurrence.
+  Fixed-spelling tokens (operators, brackets, the `extern`/`fn` keywords, end-of-file)
+  go through `AddFixedToken` with the kind's compile-time constant text (`Token.FixedText`)
+  and never touch the registry. `Tokens` implements `IReadOnlyList<Token>`, so it doubles
+  as the `LexResult` token stream. Covered by `TokensTests.cs` / `TokenTests.cs`.
+
 ### Added Development environment
 
 - **Development environment.** Everything builds and runs inside a
