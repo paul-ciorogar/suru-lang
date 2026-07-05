@@ -259,7 +259,7 @@ public static class Lexer
             }
         }
 
-        // --- Character classes (ASCII-only; the Stage 1 language is ASCII). ---
+        // --- Character classes (ASCII-only; the language is currently ASCII). ---
 
         private static bool IsWhitespace(char c) => c is ' ' or '\t' or '\r' or '\n';
 

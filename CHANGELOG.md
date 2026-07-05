@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AST node types.** A mutable-class node hierarchy in `Parsing/Ast.cs`
+  (`Suru.Compiler.Parsing`) models the full grammar: an `AstNode` base carrying
+  a `SourceSpan` and a settable `ResolvedType` annotation slot, a value-node base
+  `Expression`, and the leaf/structural nodes `IntLiteral`, `IdentifierExpression`,
+  `BinaryExpression` (with a `BinaryOperator` enum), `CallExpression`, `Block`,
+  `ExternDeclaration`, `FunctionDefinition`, and the root `ProgramNode`. Nodes are
+  mutable classes (not immutable records) so later passes annotate them in place:
+  structural fields are get-only, the `ResolvedType` slot is settable. An empty
+  placeholder `SuruType` (root `Suru.Compiler` namespace, `SuruType.cs`) types that slot
+  until the type system lands. The parser's tests will exercise these nodes.
 - **Lexer.** `Lexer.Tokenize(string)` scans Suru source into a
   `LexResult` — a token stream terminated by an end-of-file token, plus a list of
   structured `Diagnostic`s. It handles integer literals, the `+ - * /` operators,
