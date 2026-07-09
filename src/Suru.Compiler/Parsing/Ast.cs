@@ -173,15 +173,27 @@ public sealed class FunctionDefinition(string name, Block body, SourceSpan span)
 }
 
 /// <summary>
-/// The result of parsing — a whole Suru program. .
+/// The result of parsing — a whole Suru program: its extern declarations and its
+/// function definitions. A program may define any number of functions; the one named
+/// <see cref="EntryPointName"/> is its entry point, surfaced as <see cref="Main"/>.
 /// </summary>
 /// <param name="externs">The program's extern declarations, in source order.</param>
-/// <param name="main">The program's sole function definition (the <c>main</c> entry point).</param>
-public sealed class SuruProgram(IReadOnlyList<ExternDeclaration> externs, FunctionDefinition main)
+/// <param name="functions">Every function the program defines, in source order.</param>
+/// <param name="main">The entry-point function (the one named <see cref="EntryPointName"/>).</param>
+public sealed class SuruProgram(
+    IReadOnlyList<ExternDeclaration> externs,
+    IReadOnlyList<FunctionDefinition> functions,
+    FunctionDefinition main)
 {
+    /// <summary>The name of the entry-point function every program must define.</summary>
+    public const string EntryPointName = "main";
+
     /// <summary>The program's extern declarations.</summary>
     public IReadOnlyList<ExternDeclaration> Externs { get; } = externs;
 
-    /// <summary>The program's entry point.</summary>
+    /// <summary>Every function the program defines, in source order.</summary>
+    public IReadOnlyList<FunctionDefinition> Functions { get; } = functions;
+
+    /// <summary>The program's entry point — the function named <see cref="EntryPointName"/>.</summary>
     public FunctionDefinition Main { get; } = main;
 }

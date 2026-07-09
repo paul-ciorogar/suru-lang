@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Parser.** `Parser.Parse(IReadOnlyList<Token>)` turns the lexer's token stream into a
+  `SuruProgram` AST, returning a `ParseResult` (the parsed program — `null` when none
+  could be recovered — plus every diagnostic). A hand-written recursive-descent parser
+  over the Stage 1 grammar: `extern` declarations, `fn IDENT() { … }`, a bare call, and
+  flat left-to-right arithmetic (no operator precedence, so `1 + 2 * 3` nests as
+  `((1 + 2) * 3)`; parentheses are the only regrouping). A program may define any number
+  of functions; the one named `main` is its entry point (`SuruProgram.Main`), and a
+  missing or duplicated `main` is a located diagnostic. Malformed input is recovered
+  from, not fatal: an unexpected token records a located diagnostic and unwinds (via an
+  internal `ParseError`) to the nearest recovery boundary — the declaration loop and the
+  statement loop — where `Synchronize` resynchronises and parsing continues, so one pass
+  reports every independent mistake. New files: `Parsing/Parser.cs`, with `ParserTests.cs`
+  covering the example program, left-to-right nesting, parenthesised regrouping, extern
+  collection, and multi-error recovery.
 - **AST node types.** A mutable-class node hierarchy in `Parsing/Ast.cs`
   (`Suru.Compiler.Parsing`) models the full grammar: an `AstNode` base carrying
   a `SourceSpan` and a settable `ResolvedType` annotation slot, a value-node base
