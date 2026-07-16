@@ -11,7 +11,7 @@ namespace Suru.Compiler.Tests;
 public class ParserTests
 {
     private const string ExampleProgram =
-        "extern exit\n" +
+        "extern fn exit(i32)\n" +
         "\n" +
         "fn main() {\n" +
         "    exit(1 + 2 * 3)\n" +
@@ -115,11 +115,100 @@ public class ParserTests
         Assert.Equal(255, literal.Value);
     }
 
+    /// <summary>
+    /// A full signature is captured: the parameter types in order and the explicit return
+    /// type.
+    /// </summary>
+    [Fact]
+    public void Parse_ExternSignature_CapturesParametersAndReturn()
+    {
+        ParseResult result = Parse("extern fn add(i32, i32) i32\nfn main() { go(1) }\n");
+
+        Assert.Empty(result.Diagnostics);
+        ExternDeclaration ext = Assert.Single(AssertProgram(result).Externs);
+        Assert.Equal("add", ext.Name);
+        Assert.Equal(new[] { "i32", "i32" }, ext.Parameters.Select(p => p.Name));
+        Assert.Equal("i32", ext.ReturnType.Name);
+    }
+
+    /// <summary>An omitted return type is recorded as an explicit <c>void</c>.</summary>
+    [Fact]
+    public void Parse_ExternWithoutReturnType_DefaultsToVoid()
+    {
+        ParseResult result = Parse("extern fn exit(i32)\nfn main() { go(1) }\n");
+
+        Assert.Empty(result.Diagnostics);
+        ExternDeclaration ext = Assert.Single(AssertProgram(result).Externs);
+        Assert.Equal("void", ext.ReturnType.Name);
+    }
+
+    /// <summary>An empty parameter list parses to no parameters.</summary>
+    [Fact]
+    public void Parse_ExternEmptyParameterList_HasNoParameters()
+    {
+        ParseResult result = Parse("extern fn flush()\nfn main() { go(1) }\n");
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(Assert.Single(AssertProgram(result).Externs).Parameters);
+    }
+
+    /// <summary>A call collects each comma-separated argument, in order.</summary>
+    [Fact]
+    public void Parse_MultiArgumentCall_CollectsAllArguments()
+    {
+        CallExpression call = Assert.IsType<CallExpression>(
+            ((ExpressionStatement)ParseSingleStatement("fn main() { f(1, 2) }")).Expression);
+
+        Assert.Equal(2, call.Arguments.Count);
+    }
+
+    /// <summary>A zero-argument call parses to an empty argument list.</summary>
+    [Fact]
+    public void Parse_ZeroArgumentCall_HasNoArguments()
+    {
+        CallExpression call = Assert.IsType<CallExpression>(
+            ((ExpressionStatement)ParseSingleStatement("fn main() { flush() }")).Expression);
+
+        Assert.Empty(call.Arguments);
+    }
+
+    /// <summary>A trailing comma in the parameter list is a located error.</summary>
+    [Fact]
+    public void Parse_TrailingCommaInParameters_ReportsLocatedError()
+    {
+        ParseResult result = Parse("extern fn f(i32,)\nfn main() { go(1) }\n");
+
+        Diagnostic diag = Assert.Single(result.Diagnostics);
+        Assert.Equal("expected a type name", diag.Message);
+    }
+
+    /// <summary>A non-type token where a parameter type belongs is a located error.</summary>
+    [Fact]
+    public void Parse_NonTypeInParameterList_ReportsLocatedError()
+    {
+        ParseResult result = Parse("extern fn f(foo)\nfn main() { go(1) }\n");
+
+        Diagnostic diag = Assert.Single(result.Diagnostics);
+        Assert.Equal("expected a type name", diag.Message);
+    }
+
+    /// <summary>
+    /// The type keywords are reserved: <c>i32</c> cannot name a function, proving the lexer
+    /// classifies it as a type keyword rather than an identifier.
+    /// </summary>
+    [Fact]
+    public void Parse_TypeKeyword_CannotBeUsedAsFunctionName()
+    {
+        ParseResult result = Parse("fn i32() { go(1) }\n");
+
+        Assert.Contains(result.Diagnostics, d => d.Message == "expected a function name");
+    }
+
     /// <summary>Zero, one, or many <c>extern</c> declarations all parse, in source order.</summary>
     [Theory]
     [InlineData("fn main() { go(1) }", 0)]
-    [InlineData("extern a\nfn main() { go(1) }", 1)]
-    [InlineData("extern a\nextern b\nextern c\nfn main() { go(1) }", 3)]
+    [InlineData("extern fn a(i32)\nfn main() { go(1) }", 1)]
+    [InlineData("extern fn a(i32)\nextern fn b(i32)\nextern fn c(i32)\nfn main() { go(1) }", 3)]
     public void Parse_ExternCount_CollectsAllInOrder(string source, int expectedCount)
     {
         ParseResult result = Parse(source);
@@ -174,7 +263,7 @@ public class ParserTests
     [Fact]
     public void Parse_NoFunction_ReportsMissingFunctionDefinition()
     {
-        ParseResult result = Parse("extern exit\n");
+        ParseResult result = Parse("extern fn exit(i32)\n");
 
         Assert.Null(result.Program);
         Diagnostic diag = Assert.Single(result.Diagnostics);
@@ -224,14 +313,18 @@ public class ParserTests
         Assert.All(result.Diagnostics, d => Assert.NotEqual(0, d.Span.Line));
     }
 
-    /// <summary>An <c>extern</c> with no name reports a located diagnostic.</summary>
+    /// <summary>
+    /// An <c>extern</c> not followed by <c>fn</c> (the old bare-name form) is a located
+    /// error, and the valid <c>main</c> after it is still recovered.
+    /// </summary>
     [Fact]
-    public void Parse_ExternWithoutName_ReportsLocatedError()
+    public void Parse_ExternMissingFn_ReportsLocatedError()
     {
-        ParseResult result = Parse("extern\nfn main() { go(1) }");
+        ParseResult result = Parse("extern exit\nfn main() { go(1) }");
 
         Diagnostic diag = Assert.Single(result.Diagnostics);
-        Assert.Equal("expected an identifier after 'extern'", diag.Message);
+        Assert.Equal("expected 'fn' after 'extern'", diag.Message);
+        Assert.Equal("main", AssertProgram(result).Main.Name);
     }
 
     /// <summary>A non-expression token where an argument belongs is a located error.</summary>
@@ -253,11 +346,11 @@ public class ParserTests
     [Fact]
     public void Parse_MultipleIndependentErrors_AllReportedInOnePass()
     {
-        // First extern has no name; the call in main has no closing paren. Two distinct,
-        // independently-recoverable mistakes.
+        // First extern is missing its 'fn'; the call in main has no closing paren. Two
+        // distinct, independently-recoverable mistakes, with a valid extern between them.
         string source =
             "extern\n" +
-            "extern write\n" +
+            "extern fn write(i32)\n" +
             "fn main() { exit(9 }\n";
 
         ParseResult result = Parse(source);
@@ -298,6 +391,6 @@ public class ParserTests
         Statement stmt = ParseSingleStatement($"fn main() {{ {call} }}");
         CallExpression callExpr = Assert.IsType<CallExpression>(
             Assert.IsType<ExpressionStatement>(stmt).Expression);
-        return callExpr.Argument;
+        return Assert.Single(callExpr.Arguments);
     }
 }

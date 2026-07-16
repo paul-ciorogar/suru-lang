@@ -105,23 +105,20 @@ public sealed class BinaryExpression(
 }
 
 /// <summary>
-/// A call of a named function with a single argument, e.g. <c>exit(9)</c>.
-///
-/// The callee is kept as an <see cref="IdentifierExpression"/> rather than a bare
-/// string so it carries its own <see cref="SourceSpan"/> — the semantic pass reports
-/// "unknown callee" pointing at the name, not the whole call.
+/// A call of a named function.
 /// </summary>
 /// <param name="callee">The name being called.</param>
-/// <param name="argument">The single argument expression.</param>
+/// <param name="arguments">The argument expressions, in source order (may be empty).</param>
 /// <param name="span">Where in the source the whole call is.</param>
 public sealed class CallExpression(
-    IdentifierExpression callee, Expression argument, SourceSpan span) : Expression(span)
+    IdentifierExpression callee, IReadOnlyList<Expression> arguments, SourceSpan span)
+    : Expression(span)
 {
     /// <summary>The name being called.</summary>
     public IdentifierExpression Callee { get; } = callee;
 
-    /// <summary>The single argument expression.</summary>
-    public Expression Argument { get; } = argument;
+    /// <summary>The argument expressions, in source order (possibly empty).</summary>
+    public IReadOnlyList<Expression> Arguments { get; } = arguments;
 }
 
 /// <summary>
@@ -149,14 +146,43 @@ public sealed class Block(IReadOnlyList<Statement> statements, SourceSpan span) 
 }
 
 /// <summary>
-/// An <c>extern IDENT</c> declaration: it brings a C function into scope by name so the
-/// program can call it.
+/// A written reference to a type in a signature — the <c>i32</c> in
+/// <c>extern fn exit(i32)</c>, or the return type. The parser records the spelling and
+/// where it was written; the semantic pass resolves it to a <see cref="SuruType"/> and
+/// stamps it onto the inherited <see cref="AstNode.ResolvedType"/> slot.
+/// </summary>
+/// <param name="name">The type's written spelling, e.g. <c>"i32"</c> or <c>"void"</c>.</param>
+/// <param name="span">Where in the source the type reference is.</param>
+public sealed class TypeReference(string name, SourceSpan span) : AstNode(span)
+{
+    /// <summary>The type's written spelling, e.g. <c>"i32"</c> or <c>"void"</c>.</summary>
+    public string Name { get; } = name;
+}
+
+/// <summary>
+/// An <c>extern fn IDENT(Type, …) Type</c> declaration: it brings a C function into scope
+/// with a full signature so the program can call it and the semantic pass can check arity
+/// and stamp the call's result type. A missing return type in the source is represented as
+/// an explicit <c>void</c> <see cref="TypeReference"/> synthesised by the parser, so
+/// <see cref="ReturnType"/> is never null.
 /// </summary>
 /// <param name="name">The declared external name.</param>
+/// <param name="parameters">The declared parameter types, in source order (may be empty).</param>
+/// <param name="returnType">The declared return type (an explicit <c>void</c> when omitted).</param>
 /// <param name="span">Where in the source the declaration is.</param>
-public sealed class ExternDeclaration(string name, SourceSpan span) : AstNode(span)
+public sealed class ExternDeclaration(
+    string name,
+    IReadOnlyList<TypeReference> parameters,
+    TypeReference returnType,
+    SourceSpan span) : AstNode(span)
 {
     public string Name { get; } = name;
+
+    /// <summary>The declared parameter types, in source order (possibly empty).</summary>
+    public IReadOnlyList<TypeReference> Parameters { get; } = parameters;
+
+    /// <summary>The declared return type (an explicit <c>void</c> when the source omits one).</summary>
+    public TypeReference ReturnType { get; } = returnType;
 }
 
 /// <summary>

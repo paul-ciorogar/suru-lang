@@ -163,12 +163,51 @@ public static class Parser
             return new SuruProgram(externs, functions, main);
         }
 
-        /// <summary>Parse <c>extern IDENT</c>.</summary>
+        /// <summary>
+        /// Parse extern declaration.
+        /// </summary>
         private ExternDeclaration ParseExtern()
         {
             Token externKw = Expect(TokenKind.Extern, "'extern'");
-            Token name = Expect(TokenKind.Identifier, "an identifier after 'extern'");
-            return new ExternDeclaration(name.Text, SpanFrom(externKw, name));
+            Expect(TokenKind.Fn, "'fn' after 'extern'");
+            Token name = Expect(TokenKind.Identifier, "a function name after 'fn'");
+            Expect(TokenKind.LParen, "'(' after the function name");
+
+            List<TypeReference> parameters = new();
+            if (!Check(TokenKind.RParen))
+            {
+                do
+                {
+                    parameters.Add(ParseType());
+                }
+                while (Match(TokenKind.Comma));
+            }
+
+            Token close = Expect(TokenKind.RParen, "')' to close the parameter list");
+
+            // The return type is optional; when the source omits it the extern returns void.
+            // The synthesised reference carries the close-paren span for any later diagnostic.
+            TypeReference returnType = IsBuiltInTypeKind(Peek().Kind)
+                ? ParseType()
+                : new TypeReference("void", close.Span);
+
+            return new ExternDeclaration(
+                name.Text, parameters, returnType, SpanFrom(externKw.Span, returnType.Span));
+        }
+
+        /// <summary>
+        /// Parse a type reference — one of the reserved type keywords. A non-type token here
+        /// (e.g. a stray identifier) is where an unknown/misspelled type is caught.
+        /// </summary>
+        private TypeReference ParseType()
+        {
+            if (!IsBuiltInTypeKind(Peek().Kind))
+            {
+                throw Error(Peek(), "expected a type name");
+            }
+
+            Token token = Advance();
+            return new TypeReference(token.Text, token.Span);
         }
 
         /// <summary>
@@ -219,15 +258,24 @@ public static class Parser
             return new ExpressionStatement(call, call.Span);
         }
 
-        /// <summary>Parse <c>IDENT '(' Expr ')'</c>.</summary>
         private CallExpression ParseCall()
         {
             Token name = Expect(TokenKind.Identifier, "a function name to call");
             IdentifierExpression callee = new(name.Text, name.Span);
             Expect(TokenKind.LParen, "'(' after the callee");
-            Expression argument = ParseExpr();
+
+            List<Expression> arguments = new();
+            if (!Check(TokenKind.RParen))
+            {
+                do
+                {
+                    arguments.Add(ParseExpr());
+                }
+                while (Match(TokenKind.Comma));
+            }
+
             Token close = Expect(TokenKind.RParen, "')' to close the call");
-            return new CallExpression(callee, argument, SpanFrom(name, close));
+            return new CallExpression(callee, arguments, SpanFrom(name, close));
         }
 
         /// <summary>
@@ -341,6 +389,22 @@ public static class Parser
         private bool Check(TokenKind kind) => Peek().Kind == kind;
 
         /// <summary>
+        /// Consume the current token and return true if it is of <paramref name="kind"/>;
+        /// otherwise leave it in place and return false. The optional-consume counterpart to
+        /// <see cref="Expect"/>, used to drive the comma-separated parameter/argument loops.
+        /// </summary>
+        private bool Match(TokenKind kind)
+        {
+            if (Check(kind))
+            {
+                Advance();
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Consume the current token if it is of <paramref name="kind"/>; otherwise record
         /// a diagnostic pointing at it and unwind via <see cref="ParseError"/> to the
         /// nearest recovery boundary.
@@ -390,6 +454,18 @@ public static class Parser
                 default: op = default; return false;
             }
         }
+
+        /// <summary>
+        /// True when <paramref name="kind"/> is one of the built-in type keywords
+        /// (<c>i8 … u64 void</c>) — any of which may open a type reference.
+        /// </summary>
+        private static bool IsBuiltInTypeKind(TokenKind kind) => kind switch
+        {
+            TokenKind.I8 or TokenKind.I16 or TokenKind.I32 or TokenKind.I64
+                or TokenKind.U8 or TokenKind.U16 or TokenKind.U32 or TokenKind.U64
+                or TokenKind.Void => true,
+            _ => false,
+        };
 
         /// <summary>Span covering two tokens, from the start of the first to the end of the last.</summary>
         private static SourceSpan SpanFrom(Token start, Token end) => SpanFrom(start.Span, end.Span);

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typed `extern fn` signatures.** Extern declarations carry a full C-FFI signature —
+  `extern fn name(type, type) return` — instead of a bare name. The parameter list is a
+  comma-separated list of types (possibly empty) and the return type is optional (a missing
+  one means `void`); e.g. `extern fn exit(i32)`, `extern fn add(i32, i32) i32`,
+  `extern fn flush()`. `i8 i16 i32 i64 u8 u16 u32 u64 void` are now reserved type keywords
+  (lexed as a single `TypeName` token) and can no longer be identifiers, so a misspelled
+  type is a parse error. `SuruType` grows a singleton per integer width plus `Void` and a
+  `TryResolve(name)`; the AST gains a `TypeReference` node, and `ExternDeclaration` gains
+  `Parameters`/`ReturnType` while `CallExpression` now holds an `Arguments` list. The
+  semantic pass resolves each signature's types (rejecting `void` in parameter position),
+  checks call **arity** against the declared parameter count, and stamps each call's
+  `ResolvedType` with the extern's return type. New token kinds `Comma`/`TypeName`; covered
+  by new `ParserTests`/`SemanticTests` cases (signature parsing, empty/multi params, zero-
+  and multi-argument calls, arity mismatches, void-in-param, reserved-keyword enforcement,
+  and return-type stamping). Per-argument value-type checking is deferred until a second
+  value type exists.
 - **Parser.** `Parser.Parse(IReadOnlyList<Token>)` turns the lexer's token stream into a
   `SuruProgram` AST, returning a `ParseResult` (the parsed program — `null` when none
   could be recovered — plus every diagnostic). A hand-written recursive-descent parser

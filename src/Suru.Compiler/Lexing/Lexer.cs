@@ -123,8 +123,7 @@ public static class Lexer
         }
 
         /// <summary>
-        /// Consume an identifier run and classify it as a keyword
-        /// (<c>extern</c>/<c>fn</c>) or an ordinary <see cref="TokenKind.Identifier"/>.
+        /// Consume an identifier run and classify it. 
         /// </summary>
         private void ScanIdentifierOrKeyword()
         {
@@ -144,13 +143,21 @@ public static class Lexer
             {
                 "extern" => TokenKind.Extern,
                 "fn" => TokenKind.Fn,
-                // Note: "main" is deliberately NOT a keyword — it falls through here.
+                "i8" => TokenKind.I8,
+                "i16" => TokenKind.I16,
+                "i32" => TokenKind.I32,
+                "i64" => TokenKind.I64,
+                "u8" => TokenKind.U8,
+                "u16" => TokenKind.U16,
+                "u32" => TokenKind.U32,
+                "u64" => TokenKind.U64,
+                "void" => TokenKind.Void,
                 _ => TokenKind.Identifier,
             };
 
-            // A real identifier is user-written text worth interning; the keywords
-            // have fixed spellings, so they take the non-interning path.
-            if (kind == TokenKind.Identifier)
+            // Only identifiers are text-carrying (interned); every keyword — including the
+            // built-in type names — has a single fixed spelling, so it takes the non-interning path.
+            if (kind is TokenKind.Identifier)
             {
                 Emit(kind, startOffset, startLine, startColumn);
             }
@@ -182,6 +189,7 @@ public static class Lexer
                 ')' => TokenKind.RParen,
                 '{' => TokenKind.LBrace,
                 '}' => TokenKind.RBrace,
+                ',' => TokenKind.Comma,
                 _ => null,
             };
 

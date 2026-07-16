@@ -14,7 +14,18 @@ public enum TokenKind
     RParen,
     LBrace,
     RBrace,
+    Comma,
     Identifier,
+
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    Void,
     Extern,
     Fn,
     EndOfFile,
@@ -48,7 +59,7 @@ public abstract record Token(TokenKind Kind, SourceSpan Span)
     /// <param name="kind">A fixed-text token kind.</param>
     /// <returns>The canonical spelling for <paramref name="kind"/>.</returns>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// Thrown for the variable-text kinds (<see cref="TokenKind.IntLiteral"/>,
+    /// Thrown for the variable-text kinds (<see cref="TokenKind.IntLiteral"/> and
     /// <see cref="TokenKind.Identifier"/>), whose lexeme must come from the source.
     /// </exception>
     public static string FixedText(TokenKind kind) => kind switch
@@ -61,6 +72,16 @@ public abstract record Token(TokenKind Kind, SourceSpan Span)
         TokenKind.RParen => ")",
         TokenKind.LBrace => "{",
         TokenKind.RBrace => "}",
+        TokenKind.Comma => ",",
+        TokenKind.I8 => "i8",
+        TokenKind.I16 => "i16",
+        TokenKind.I32 => "i32",
+        TokenKind.I64 => "i64",
+        TokenKind.U8 => "u8",
+        TokenKind.U16 => "u16",
+        TokenKind.U32 => "u32",
+        TokenKind.U64 => "u64",
+        TokenKind.Void => "void",
         TokenKind.Extern => "extern",
         TokenKind.Fn => "fn",
         TokenKind.EndOfFile => "",
