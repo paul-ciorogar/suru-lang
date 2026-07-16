@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **LLVM codegen.** `CodeGenerator.Generate(SuruProgram)` lowers a semantically-analysed
+  program into an in-memory LLVM module (returned in a disposable `CodegenResult` that owns
+  the module + its context and exposes `ToIrString()` for the `ir` subcommand). It emits a
+  `declare` for every extern (mapping each `i8…u64`/`void` to its LLVM width) and a
+  `define i32 @main()` whose body lowers each call's arguments and invokes the extern, then
+  terminates with `ret i32 0`. Arithmetic lowers to `add`/`sub`/`mul`/`sdiv` following the
+  parser's left-to-right tree shape; because Stage 1 operands are all constants, LLVM's
+  builder constant-folds the expression, so `exit(1 + 2 * 3)` emits `call void @exit(i32 9)`
+  — the folded value proving the no-precedence left-to-right evaluation (`= 9`, not `7`).
+  Built with LLVMSharp's managed handle wrappers (`LLVMModuleRef`/`LLVMBuilderRef`/…) over
+  the `LLVMSharp.Interop` binding. `CodegenTests` covers the example program, parenthesised
+  regrouping, subtraction/division, a bare-literal call, extern return types, unused-extern
+  declaration, and the null guard. `Compiler.Compile` stays the placeholder — the passes are
+  wired end to end later.
 - **Typed `extern fn` signatures.** Extern declarations carry a full C-FFI signature —
   `extern fn name(type, type) return` — instead of a bare name. The parameter list is a
   comma-separated list of types (possibly empty) and the return type is optional (a missing
