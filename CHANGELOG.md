@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`SourcePath` value object.** A source file path is now validated once, at the edge:
+  `SourcePath.Create(path)` rejects a blank path or one that names no file and resolves the
+  rest to an absolute path, exposing `FullPath`/`Directory`/`Stem`. `BuildLayout.ForSource`
+  takes a `SourcePath` instead of a `string`, so by the time a path reaches the emit stage it
+  is known to be well formed and nothing downstream re-checks it. Validation still never
+  touches the filesystem — a path to a file that is not there is valid; existence is a
+  separate question for whoever reads the file.
+- **Project-rooted build layout.** `BuildLayout` now places every artifact in a single
+  `build/` folder at the **project root**, producing one object and one executable per
+  project rather than per source file. The root is the nearest ancestor directory holding a
+  `.suru-project` marker file (presence only — its contents are not read, so it may be
+  empty); the nearest marker wins, so a nested project roots at itself. With no marker
+  anywhere above it, a source file is its own project and is rooted at its own directory, so
+  a bare `suru run hello.suru` still works with no ceremony. Artifacts take the project
+  root's directory name (`myproj/src/main.suru` → `myproj/build/myproj`) or, for a
+  standalone file, the source stem (`examples/exit9.suru` → `examples/build/exit9`).
+  Deriving a layout now reads the filesystem to probe for the marker, but still writes
+  nothing and still requires no path to exist.
 - **LLVM codegen.** `CodeGenerator.Generate(SuruProgram)` lowers a semantically-analysed
   program into an in-memory LLVM module (returned in a disposable `CodegenResult` that owns
   the module + its context and exposes `ToIrString()` for the `ir` subcommand). It emits a

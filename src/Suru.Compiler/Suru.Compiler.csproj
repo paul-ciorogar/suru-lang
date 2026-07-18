@@ -17,8 +17,8 @@
   <PropertyGroup>
     <!-- .NET SDK 10.0 (LTS) — see docs/toolchain.md. -->
     <TargetFramework>net10.0</TargetFramework>
-    <!-- Treat nullable reference warnings as first-class from day one. -->
-    <Nullable>enable</Nullable>
+    <!-- Nullable reference types (and nullable warnings as errors) come from
+         Directory.Build.props, which applies them repo-wide. -->
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- LLVMSharp.Interop's LLVM-C entry points take raw pointers; codegen
          in later stages needs unsafe blocks to call them. -->

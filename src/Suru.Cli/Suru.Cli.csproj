@@ -17,7 +17,7 @@
     <OutputType>Exe</OutputType>
     <!-- .NET SDK 10.0 (LTS) — see docs/toolchain.md. -->
     <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
+    <!-- Nullable settings are inherited from Directory.Build.props. -->
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The eventual `suru` binary is invoked as `suru <subcommand>`. -->
     <AssemblyName>suru</AssemblyName>

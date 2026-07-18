@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    Repo-wide MSBuild defaults. MSBuild imports this automatically into every
+    project beneath it (src/*, tools/*), so settings that must hold for the
+    WHOLE repo live here rather than being copy-pasted into each .csproj — a new
+    project added in a later stage inherits them instead of silently missing them.
+
+    Per-project concerns (TargetFramework, OutputType, package references,
+    AllowUnsafeBlocks) stay in the individual .csproj files, which document their
+    own reasons for them.
+  -->
+  <PropertyGroup>
+    <!--
+      Nullable reference types, repo-wide: an unadorned `string` is a promise the
+      value is never null, and `string?` is the explicit opt-in for one that can be.
+    -->
+    <Nullable>enable</Nullable>
+
+    <!--
+      Promote every nullable violation (CS86xx) from a warning to a build error.
+      Enabling the feature alone only *reports* violations, and a warning that
+      does not break the build is a warning that accumulates until the annotations
+      no longer mean anything. Making them errors is what turns "nullable is on"
+      into an actual guarantee that null appears only where a `?` says it may.
+
+      Deliberately scoped to Nullable rather than TreatWarningsAsErrors=true: an
+      unused variable should not stop a build mid-refactor, but a null-safety hole
+      should.
+    -->
+    <WarningsAsErrors>Nullable</WarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

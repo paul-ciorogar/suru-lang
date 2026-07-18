@@ -31,21 +31,25 @@ public static class Compiler
     }
 }
 
-/// <summary>
-/// The outcome of a <see cref="Compiler.Compile"/> call.
-///
-/// A small immutable record so callers can branch on success without exceptions
-/// for the ordinary "it didn't compile" case. The set of states is intentionally
-/// minimal — success plus a message — and will grow (diagnostics, output
-/// artifacts) as the pipeline is built out.
-/// </summary>
-/// <param name="Succeeded">True if compilation produced output.</param>
-/// <param name="Message">A human-readable description of the outcome.</param>
-public readonly record struct CompileResult(bool Succeeded, string Message)
+
+public readonly record struct CompileResult(
+    bool Succeeded,
+    string Message,
+    string? OutputPath = null,
+    IReadOnlyList<Diagnostic>? Diagnostics = null)
 {
-    /// <summary>
-    /// Construct the "pipeline not built yet" result: not a success, but not an
-    /// error the caller did anything wrong to cause.
-    /// </summary>
+
+    public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Diagnostics ?? [];
+
+
     public static CompileResult NotImplemented(string message) => new(false, message);
+
+
+    public static CompileResult Success(
+        string outputPath, string message, IReadOnlyList<Diagnostic>? diagnostics = null) =>
+        new(true, message, outputPath, diagnostics);
+
+
+    public static CompileResult Failure(string message, IReadOnlyList<Diagnostic>? diagnostics = null) =>
+        new(false, message, null, diagnostics);
 }
