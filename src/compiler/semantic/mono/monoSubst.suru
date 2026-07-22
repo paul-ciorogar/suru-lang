@@ -103,6 +103,39 @@ export fn substituteType(typeName String, paramNames Array<String>, concreteType
     return out
 }
 
+// substTypeArgs — the structured counterpart of substituteType for the
+// resolver-recorded `typeArgs` carried by CallNode / MethodCallNode /
+// ObjectLitNode.  Returns a new array holding an owned, substituted copy of each
+// element; the input array is borrowed and left untouched.
+//
+// This MUST run when a generic body is cloned.  Inside a generic template the
+// resolver records the enclosing type parameter itself — `newList()` in
+// `List<T>.clone()` carries typeArgs `[T]` — and mono reads typeArgs as the
+// authoritative binding for both instantiation and call-site renaming.  Left
+// verbatim, the concrete copy `List-i64.clone()` would still ask for `newList-T`,
+// a name that is never instantiated, and the program would fail to compile with
+// "undefined function 'newList'".
+//
+// Same three steps as substituteType, minus the string boundary: varizeType
+// promotes the type-parameter `Prim` leaves to `Var` (substitute only rewrites
+// `Var`), then substitute applies the paramName ↦ concreteType bindings.  An
+// already-concrete argument (`[i64]` on a call in non-generic code) has no `Var`
+// to rewrite and so is copied unchanged.
+export fn substTypeArgs(typeArgs Array<Type>, paramNames Array<String>, concreteTypes Array<String>) Array<Type> {
+    let out Array<Type>: []
+    if typeArgs.len().equals(0) { return out }
+    let bindings Array<Binding>: buildBindings(paramNames, concreteTypes)
+    let i i64: 0
+    while i.lt(typeArgs.len()) {
+        let varized Type: varizeType(typeArgs.at(i), paramNames)
+        out.add(substitute(varized, bindings))
+        drop(varized)
+        i: i.add(1)
+    }
+    drop(bindings)
+    return out
+}
+
 // ─── Param / MethodSig substitution ──────────────────────────────────────────
 
 // substParam — produce a new Param with its typeName rewritten.
@@ -366,14 +399,16 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         CallNode: {
             let cn CallNode: node
             let newArgs Array<AstNode>: substExprs(cn.args, paramNames, concreteTypes)
-            let result CallNode: { name: cn.name, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: substituteType(cn.resolvedType, paramNames, concreteTypes) }
+            let newTypeArgs Array<Type>: substTypeArgs(cn.typeArgs, paramNames, concreteTypes)
+            let result CallNode: { name: cn.name, args: newArgs, typeArgs: newTypeArgs, line: cn.line, col: cn.col, resolvedType: substituteType(cn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         MethodCallNode: {
             let mcn MethodCallNode: node
             let newRec AstNode: substExpr(mcn.receiver, paramNames, concreteTypes)
             let newArgs Array<AstNode>: substExprs(mcn.args, paramNames, concreteTypes)
-            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, typeArgs: mcn.typeArgs, line: mcn.line, col: mcn.col, resolvedType: substituteType(mcn.resolvedType, paramNames, concreteTypes) }
+            let newTypeArgs Array<Type>: substTypeArgs(mcn.typeArgs, paramNames, concreteTypes)
+            let result MethodCallNode: { receiver: newRec, methodName: mcn.methodName, args: newArgs, typeArgs: newTypeArgs, line: mcn.line, col: mcn.col, resolvedType: substituteType(mcn.resolvedType, paramNames, concreteTypes) }
             return result
         }
         FieldAccessNode: {
@@ -391,10 +426,11 @@ fn substExpr(node AstNode, paramNames Array<String>, concreteTypes Array<String>
         ObjectLitNode: {
             let sln ObjectLitNode: node
             let newFields Array<ObjectFieldNode>: substObjectFields(sln.fields, paramNames, concreteTypes)
-            // typeArgs propagated verbatim (mirrors the CallNode/MethodCallNode handling
-            // above): monomorphization reads ObjectLit typeArgs only from the pass-1-resolved
-            // nodes, never from these instantiated clones, so substitution is unnecessary.
-            let result ObjectLitNode: { fields: newFields, typeArgs: sln.typeArgs, resolvedType: substituteType(sln.resolvedType, paramNames, concreteTypes), line: 0, col: 0 }
+            // Substituted for the same reason as the CallNode/MethodCallNode arms
+            // above: a literal inside a generic body records the enclosing type
+            // parameter, which must become the concrete argument in the clone.
+            let newTypeArgs Array<Type>: substTypeArgs(sln.typeArgs, paramNames, concreteTypes)
+            let result ObjectLitNode: { fields: newFields, typeArgs: newTypeArgs, resolvedType: substituteType(sln.resolvedType, paramNames, concreteTypes), line: 0, col: 0 }
             return result
         }
         MatchExprNode: {

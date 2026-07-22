@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The generic call-site rewriter reads `typeArgs` (and `typeArgs` are now substituted)
+
+- `monoPass.rewriteCallName` now prefers the resolver-recorded structured `typeArgs` over the
+  syntactic argument-binding helpers, via a new `mangleFromTypeArgs` that mirrors monoInfer's
+  `requestFromTypeArgs` exactly (`printAnnotation` → `mangleGenericName`) so the rewritten call
+  name is byte-identical to the instantiated definition's name. This closes the second half of
+  the object-literal-field bug: the field value `{ items: newList() }` has neither a call
+  argument nor a `let` annotation, so every syntactic binding arm returned the name unchanged
+  even after monoInfer had correctly instantiated `newList-i64`. The syntactic helpers
+  (`collectArgTypes` / `buildConcreteTypes` / `allBound`, and the annotation-driven
+  `rewriteZeroArgCallName` / `rewriteZeroArgFnFromAnnotation`) are retained as a fallback for
+  calls with no recorded `typeArgs`; removing them is a later phase.
+- **`monoSubst` now substitutes `typeArgs` when cloning a generic body** (new `substTypeArgs`,
+  wired into the `CallNode` / `MethodCallNode` / `ObjectLitNode` arms). They were previously
+  propagated verbatim, which was harmless only while `typeArgs` were advisory. Inside a template
+  the resolver records the enclosing type parameter itself — `List<T>.clone()`'s inner
+  `let result List<T>: newList()` carries `typeArgs=[T]` — so once the rewriter reads them as
+  authoritative, the `List-i64` copy asked for `newList-T`, a name that is never instantiated.
+  This broke the `list-basic` / `list-string` / `list-toarray` fixtures. Implemented with the
+  same three steps as `substituteType` minus the string boundary (`varizeType` → `substitute`),
+  so an already-concrete argument is copied unchanged.
+- Coverage: `tests/unit/compiler/monoCallSiteRewriteTest.suru` asserts the post-`mono` AST names
+  the mangled callee at both binding sites — the `let`-annotation path (which the syntactic
+  fallback already handled, pinned so a later removal cannot silently regress it) and the
+  object-literal-field path, which only `typeArgs` can resolve. The existing
+  `mono_instantiation_test.suru` oracle pins the complementary half (that `newList-i64` is
+  emitted at all). Full suite green (106 passed, 0 failed, 0 memcheck); bootstrap fixed point
+  confirmed (C2 == C3).
+
+### Fixed: duplicate `isAssignable` left the compiler unable to build itself
+
+- `semantic/exprs.suru` carried **two** `export fn isAssignable` definitions, so every build
+  failed with `error: function 'isAssignable' is already declared`. They were merged into a
+  single predicate that is the union of both rule sets — no call site can gain a false error
+  relative to either — combining the newer version's integer family (`i64`/`i32`/`char`
+  mutually assignable; `f64` still excluded) with the older version's unknown-type guard
+  (`""` on either side → assignable), `makeSuruType` canonicalization of both sides, and the
+  sum→variant direction that the compiler's own typed-bridge downcast idiom
+  (`let n MatchStmtNode: someAstNode`) depends on. The unknown-type guard has to live inside the
+  predicate because the field-assignment, object-literal-field and array-element sites call it
+  ungated with raw `nodeResolvedType` output.
+- Refreshed the two stale `semantic_type_mismatch_test.suru` assertions that still expected the
+  pre-rewording let/assign diagnostics (`let binding type mismatch: expected …`); the messages
+  are now `type mismatch: variable 'x' declared i64 but initialized with bool` and
+  `… has type i64 but assigned bool`, matching the `let-type-mismatch` / `assign-type-mismatch`
+  fixtures.
+
 ### `monoInfer` is now a mechanical collector (no type inference of its own)
 
 - Monomorphization's instantiation collector (`monoInfer.suru`) no longer performs type-variable

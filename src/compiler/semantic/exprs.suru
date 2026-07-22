@@ -225,21 +225,44 @@ fn isIntegerFamilyName(name String) bool {
 
 // isAssignable — the single "can a value of type `actual` be bound to a slot of
 // type `expected`?" predicate, shared by every value-flow site (return, call
-// args, let bindings, assignments, field assignments, object-literal fields).
+// args, let bindings, assignments, field assignments, object-literal fields,
+// array elements).  This is the one place to extend when a legitimate subtyping
+// relation must be permitted.
 //
-// A value is assignable when its type matches exactly, when it is a declared
-// variant of the expected sum type, when both sides are in the String family
-// (`Str` borrowed static literal ↔ owned `String`; codegen materializes a heap
-// copy at the boundary when an owned String is required), or when both sides are
-// in the integer family (literal/width adaptation — see isIntegerFamilyName).
+// An unknown type on either side ("") is assignable — `inferType` /
+// `nodeResolvedType` return "" for anything they cannot pin down, and an
+// un-inferred node must be skipped rather than falsely rejected.  Call sites may
+// additionally gate on non-"" before *reporting*, which some do to keep their
+// diagnostic text honest; the guard here is what makes the ungated sites (array
+// elements, object-literal fields, plain-call args) safe.
 //
-// Callers must gate on both types being known (non-"") before reporting an error
-// — `inferType` returns "" for anything it cannot pin down, and an unknown type
-// must be skipped rather than falsely rejected.
+// Beyond that, a value is assignable when:
+//   - the canonicalized types are identical.  Both sides go through
+//     `makeSuruType` so a substituted-but-unmangled generic annotation
+//     ("Option<i64>") compares equal to its registered mangled form; the
+//     function is idempotent on already-canonical names ("Array:i64", "List");
+//   - `actual` is a declared variant of the sum type `expected` (a `Some<i64>`
+//     value flowing into an `Option<i64>` slot);
+//   - `expected` is a declared variant of the sum type `actual` — the compiler's
+//     own "typed bridge" downcast idiom (`let n MatchStmtNode: someAstNode`),
+//     which narrows a sum value to one variant for field access.  Codegen relies
+//     on this being permitted;
+//   - both sides are in the String family (`Str` borrowed static literal ↔ owned
+//     `String`; codegen materializes a heap copy at the boundary when an owned
+//     String is required);
+//   - both sides are in the integer family (literal/width adaptation — see
+//     isIntegerFamilyName).
 export fn isAssignable(state AnalyzerState, expected String, actual String) bool {
-    let strInterop bool: isStringFamilyName(expected) and isStringFamilyName(actual)
-    let intInterop bool: isIntegerFamilyName(expected) and isIntegerFamilyName(actual)
-    return actual.equals(expected) or state.isSumVariant(expected, actual) or strInterop or intInterop
+    if expected.equals("") { return true }
+    if actual.equals("") { return true }
+    let exp String: tyh.makeSuruType(expected)
+    let act String: tyh.makeSuruType(actual)
+    if act.equals(exp) { return true }
+    if state.isSumVariant(exp, act) { return true }
+    if state.isSumVariant(act, exp) { return true }
+    if isStringFamilyName(exp) and isStringFamilyName(act) { return true }
+    if isIntegerFamilyName(exp) and isIntegerFamilyName(act) { return true }
+    return false
 }
 
 // checkCallArgTypesAt — validates argument types against declared parameter
@@ -293,36 +316,6 @@ fn checkFnCallArgTypes(state AnalyzerState, fnName String, args Array<AstNode>, 
 // True for the string family: owned heap `String` or borrowed static `Str`.
 export fn isStringFamilyName(name String) bool {
     return name.equals("String") or name.equals("Str")
-}
-
-// isAssignable — the single assignability rule shared by every type-mismatch
-// check (argument, return, let, assignment, field assignment, struct-literal
-// field, array element). Returns true (does NOT flag) when:
-//   - either type is unknown ("") — avoid false positives on un-inferred nodes;
-//   - the types are identical;
-//   - `actual` is a declared variant of the sum type `expected`;
-//   - both are in the String family (`String`/`Str` interop at the boundary).
-// This is the one place to extend when a legitimate subtyping relation must be
-// permitted.
-export fn isAssignable(state AnalyzerState, expected String, actual String) bool {
-    if expected.equals("") { return true }
-    if actual.equals("") { return true }
-    // Canonicalize generic annotations to their mangled form so the identity
-    // and sum-variant checks work for monomorphized generics: a concrete copy
-    // may still carry substituted-but-unmangled types like "Some<i64>" /
-    // "Option<i64>", while the registered sum type is "Some__i64" / "Option__i64".
-    // makeSuruType is idempotent on already-canonical names ("Array:i64", "List").
-    let exp String: tyh.makeSuruType(expected)
-    let act String: tyh.makeSuruType(actual)
-    if act.equals(exp) { return true }
-    // Variant -> sum (a `Some<i64>` value where an `Option<i64>` is expected).
-    if state.isSumVariant(exp, act) { return true }
-    // Sum -> variant (the compiler's own "typed bridge" downcast idiom:
-    // `let n MatchStmtNode: someAstNode`). The language permits narrowing a sum
-    // value to one of its variants for field access; codegen relies on it.
-    if state.isSumVariant(act, exp) { return true }
-    if isStringFamilyName(exp) and isStringFamilyName(act) { return true }
-    return false
 }
 
 // nodeResolvedType — the canonical Suru type that resolveTypes (pass 2) annotated

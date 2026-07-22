@@ -22,6 +22,7 @@ import {
     inst: Suru.Compiler.Semantic.Mono.Instantiate
     nodes: Suru.Compiler.Parser.Nodes
     [Type]: Suru.Compiler.Types
+    [printAnnotation]: Suru.Compiler.Types.Print
 }
 
 // ─── Result type ─────────────────────────────────────────────────────────────
@@ -125,9 +126,33 @@ export fn filterGenericDefs(stmts Array<AstNode>) Array<AstNode> {
 // each CallNode whose name matches a generic function in the registry, replaces
 // the name with the mangled form inferred from the arg resolvedTypes.
 
+// mangleFromTypeArgs — the mangled name for a generic call, built from the
+// resolver-recorded structured `typeArgs` (Phase 2, mechanical path).  Mirrors
+// monoInfer's requestFromTypeArgs exactly (printAnnotation → mangleGenericName)
+// so the rewritten call name is byte-identical to the instantiated def name.
+// Returns "" when there are no recorded typeArgs or `name` is not a generic fn.
+fn mangleFromTypeArgs(name String, typeArgs Array<Type>, registry GenericRegistry) String {
+    if typeArgs.len().equals(0) { return "" }
+    let fnIdx i64: registry.findFn(name)
+    if fnIdx.equals(registry.fns.len()) { return "" }
+    let concretes Array<String>: []
+    let i i64: 0
+    while i.lt(typeArgs.len()) {
+        concretes.add(printAnnotation(typeArgs.at(i)))
+        i: i.add(1)
+    }
+    let mangled String: inst.mangleGenericName(name, concretes)
+    drop(concretes)
+    return mangled
+}
+
 // rewriteCallName — return the (possibly mangled) name for a call.
-// Reuses monoInfer's binding helpers: collectArgTypes, buildConcreteTypes, allBound.
+// Prefers the resolver-recorded structured `typeArgs` (mangleFromTypeArgs); falls
+// back to monoInfer's syntactic binding helpers (collectArgTypes /
+// buildConcreteTypes / allBound) only when no typeArgs were recorded.
 fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
+    let fromTypeArgs String: mangleFromTypeArgs(cn.name, cn.typeArgs, registry)
+    if not fromTypeArgs.equals("") { return fromTypeArgs }
     let fnIdx i64: registry.findFn(cn.name)
     if fnIdx.equals(registry.fns.len()) { return cn.name }
     let def GenericFnDef: registry.fns.at(fnIdx)

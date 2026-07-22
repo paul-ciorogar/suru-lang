@@ -1,0 +1,150 @@
+// monoCallSiteRewriteTest.suru — in-process test for the generic CALL-SITE
+// rewriter reading the resolver-recorded structured `typeArgs`.
+//
+// Background.  Monomorphization is two halves that must agree byte-for-byte:
+//   1. monoInfer/monoInstantiate emit a concrete copy under a mangled name
+//      (`newList` + [i64] → `newList-i64`);
+//   2. monoPass.rewriteCallSites renames each generic call site to that same
+//      mangled name.
+// If (1) fires and (2) does not, the program fails to compile with
+// "undefined function 'newList'" — the generic template was filtered out but the
+// call still names it.
+//
+// The oracle `monoInstantiationTest.suru` pins half (1) only: it asserts that
+// `newList-i64` / `List-i64` are instantiated for the object-literal-field
+// fixture.  This file pins half (2) — that the call site itself was renamed —
+// for both binding paths:
+//
+//   monoLetNewlist.suru      `let arr List<i64>: newList()`   — the let-annotation
+//                            path, which the syntactic fallback
+//                            (rewriteZeroArgCallName) could already mangle.
+//   monoObjfieldNewlist.suru `{ items: newList() }`           — an object-literal
+//                            FIELD value.  There is no let annotation and no
+//                            call argument here, so every syntactic binding arm
+//                            fails; the only available binding is the `typeArgs`
+//                            the resolver recorded from the field's declared
+//                            type.  This asserts `rewriteCallName`'s
+//                            `mangleFromTypeArgs` path.
+//
+// Both fixtures are driven through `runPipelineDebug(path, "mono")`, which stops
+// after rewriteCallSites (see pipeline.suru), so the statement list returned is
+// exactly the post-rewrite AST.
+
+namespace Test.Unit.Compiler.MonoCallSiteRewrite
+
+import {
+    [TestResult, assertEqStr]: Test.Unit.Assert
+    [runPipelineDebug, DebugResult]: Suru.Compiler.Pipeline
+    [AstNode, FnDeclNode, LetNode, ObjectLitNode, ObjectFieldNode, CallNode]: Suru.Compiler.Parser.Ast
+}
+
+// callNameOf — the callee name when `expr` is a CallNode, else "".  Used so an
+// assertion failure reports the name that was actually there ("newList") rather
+// than a bare boolean.
+fn callNameOf(expr AstNode) String {
+    match expr {
+        CallNode: {
+            let cn CallNode: expr
+            return cn.name
+        }
+        _: {}
+    }
+    return ""
+}
+
+// letValueCallName — scan `stmts` for the first LetNode whose value is a
+// CallNode and return that callee's name.  Covers the `let arr List<i64>:
+// newList()` shape.  Returns "" when no such statement exists.
+fn letValueCallName(stmts Array<AstNode>) String {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            LetNode: {
+                let ln LetNode: stmt
+                let name String: callNameOf(ln.value)
+                if not name.equals("") { return name }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// objFieldCallName — scan `stmts` for the first LetNode whose value is an
+// ObjectLitNode, then return the callee name of that literal's first field whose
+// value is a CallNode.  Covers the `let c Container: { items: newList() }` shape.
+// Returns "" when no such statement exists.
+fn objFieldCallName(stmts Array<AstNode>) String {
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            LetNode: {
+                let ln LetNode: stmt
+                match ln.value {
+                    ObjectLitNode: {
+                        let ol ObjectLitNode: ln.value
+                        let f i64: 0
+                        while f.lt(ol.fields.len()) {
+                            let field ObjectFieldNode: ol.fields.at(f)
+                            let name String: callNameOf(field.value)
+                            if not name.equals("") { return name }
+                            f: f.add(1)
+                        }
+                    }
+                    _: {}
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return ""
+}
+
+// mainBodyOf — the body of the top-level `main` function in `stmts`, or an empty
+// list when there is none.  The fixtures put every interesting call inside main.
+fn mainBodyOf(stmts Array<AstNode>) Array<AstNode> {
+    let empty Array<AstNode>: []
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let stmt AstNode: stmts.at(i)
+        match stmt {
+            FnDeclNode: {
+                let fd FnDeclNode: stmt
+                if fd.name.equals("main") { return fd.body }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return empty
+}
+
+export fn monoCallSiteRewriteTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // ── Path 1: let annotation (`let arr List<i64>: newList()`) ───────────────
+    // Already handled before typeArgs existed, via the syntactic
+    // rewriteZeroArgCallName fallback.  Pinned here so a later removal of that
+    // fallback cannot silently regress it.
+    let letPath String: "/work/tests/unit/compiler/fixtures/monoLetNewlist.suru"
+    let letRes DebugResult: runPipelineDebug(letPath, "mono")
+    let letBody Array<AstNode>: mainBodyOf(letRes.stmts)
+    results.add(assertEqStr("let-annotation call site is mangled",
+        letValueCallName(letBody), "newList-i64"))
+
+    // ── Path 2: object-literal field (`{ items: newList() }`) ─────────────────
+    // No annotation and no arguments, so every syntactic binding arm returns the
+    // name unchanged.  Only the resolver-recorded typeArgs can mangle this, so
+    // this assertion is the direct test of mangleFromTypeArgs.
+    let objPath String: "/work/tests/unit/compiler/fixtures/monoObjfieldNewlist.suru"
+    let objRes DebugResult: runPipelineDebug(objPath, "mono")
+    let objBody Array<AstNode>: mainBodyOf(objRes.stmts)
+    results.add(assertEqStr("object-field call site is mangled",
+        objFieldCallName(objBody), "newList-i64"))
+
+    return results
+}

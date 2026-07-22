@@ -75,11 +75,11 @@ export fn semanticTypeMismatchTests() Array<TestResult> {
 
     let letErrs Array<AnalysisError>: runErrors("let_mismatch.suru")
     results.add(assertEqI64("let count", letErrs.len(), 1))
-    results.add(assertTrue("let msg", hasErrorMsg(letErrs, "let binding type mismatch: expected i64, got bool")))
+    results.add(assertTrue("let msg", hasErrorMsg(letErrs, "type mismatch: variable 'x' declared i64 but initialized with bool")))
 
     let assignErrs Array<AnalysisError>: runErrors("assign_mismatch.suru")
     results.add(assertEqI64("assign count", assignErrs.len(), 1))
-    results.add(assertTrue("assign msg", hasErrorMsg(assignErrs, "assignment type mismatch: expected i64, got bool")))
+    results.add(assertTrue("assign msg", hasErrorMsg(assignErrs, "type mismatch: variable 'x' has type i64 but assigned bool")))
 
     let fieldErrs Array<AnalysisError>: runErrors("field_assign_mismatch.suru")
     results.add(assertEqI64("field-assign count", fieldErrs.len(), 1))
