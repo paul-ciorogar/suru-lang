@@ -36,6 +36,26 @@ fn main(args Array<String>) {
     printLn(sub)             // ell
     drop(sub)
 
+    // ── Owned element slots (B2) ─────────────────────────────────────────────
+    // Array elements participate in the array's deep drop, so an element slot is
+    // owned and its type is `String` even though every element here is a literal
+    // (which now infers as `Str`). The array must therefore carry elem_tag 6 and
+    // type Array:String — NOT elem_tag 8 / Array:Str, which is what element-0
+    // type inference would have produced unnormalized. Valgrind is the real
+    // assertion: a wrong element type picks the wrong per-element drop helper.
+    let names Array<String>: ["alpha", "beta"]
+    names.add("gamma")
+    printLn(names.len())     // 3
+    printLn(names.at(0))     // alpha
+    printLn(names.at(2))     // gamma
+    drop(names)
+
+    // A literal bound to a String slot: accepted by the string family, and the
+    // value in an owned slot is an owned heap copy.
+    let owned String: "copied"
+    printLn(owned)           // copied
+    drop(owned)
+
     drop(s)                  // no-op (borrowed static)
     printLn("done")
 }

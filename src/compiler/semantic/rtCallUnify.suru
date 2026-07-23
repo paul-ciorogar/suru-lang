@@ -2,7 +2,7 @@ namespace Suru.Compiler.Semantic.ResolveCallUnify
 
 import {
     ast: Suru.Compiler.Parser.Ast
-    [Type, Prim, Named]: Suru.Compiler.Types
+    [Type, Prim, Named, primType]: Suru.Compiler.Types
     [parseType]: Suru.Compiler.Types.Parse
     [printSuruType]: Suru.Compiler.Types.Print
     [unify, UnifyResult, substitute, varizeType, Binding, binding]: Suru.Compiler.Types.Ops
@@ -28,13 +28,52 @@ fn rtHasBinding(bindings Array<Binding>, name String) bool {
     return false
 }
 
+// rtIsStrPrim — is this solved type argument the borrowed `Str`, i.e. does it need
+// normalizing to its OWNED form before being recorded? (String-split B2.)
+//
+// A type argument names the type stored in a generic's slot, and a generic
+// container deep-drops what it stores (`Option<T>`, `List<T>`, `Result<T,E>` all
+// clone/drop their payload). So a type-argument slot is an owned slot, and the
+// borrowed `Str` can never be a legitimate type argument.
+//
+// It reaches here because inference reads the ARGUMENT's type, and a string
+// literal now infers as `Str`: `res.err("oops")` would bind E := Str and ask
+// monomorphization for `err-Str` / `Result-i64-Str` — instantiations that no
+// annotation ever names (the declared type is `Result<i64, String>`), so the
+// mangled call name and the mangled declaration diverge and the build fails.
+// Normalizing at the single point where a binding becomes a recorded type
+// argument keeps every caller — return-vs-expected and param-vs-arg alike —
+// consistent. The value side is reconciled by B3, which materializes an owned
+// heap copy where a `Str` flows into an owned slot.
+//
+// Only the top level is checked: `Str` is produced solely by literal inference,
+// which is always a bare type, never nested inside an application.
+fn rtIsStrPrim(t Type) bool {
+    match t {
+        Prim: {
+            let p Prim: t
+            return p.name.equals("Str")
+        }
+        _: {}
+    }
+    return false
+}
+
 fn rtAppendBinding(bindings Array<Binding>, name String, dst Array<Type>) {
     let i i64: 0
     while i.lt(bindings.len()) {
         let b Binding: bindings.at(i)
         if b.name.equals(name) {
             let empty Array<Binding>: []
-            dst.add(substitute(b.ty, empty))
+            let solved Type: substitute(b.ty, empty)
+            // Owned-form normalization (see rtIsStrPrim above): the solved Type is
+            // replaced, so the discarded one is dropped here rather than leaked.
+            if rtIsStrPrim(solved) {
+                drop(solved)
+                dst.add(primType("String"))
+            } else {
+                dst.add(solved)
+            }
             return
         }
         i: i.add(1)

@@ -517,7 +517,13 @@ fn rtResolveMethodCallNode(state AnalyzerState, typed MethodCallNode, expected S
             handled: true
         }
         if not handled and typed.methodName.equals("clone") and not rcvType.equals("") {
-            typed.resolvedType: rcvType
+            // `clone()` is the explicit "give me an owned copy" request, so it is
+            // the one method whose result type is not simply the receiver's:
+            // cloning a borrowed `Str` produces an OWNED heap `String`
+            // (suru_string_clone mallocs a fresh tag-6 header + buffer). Every
+            // other receiver type clones to itself.
+            let cloneRet String: match rcvType.equals("Str") { true: "String", _: rcvType }
+            typed.resolvedType: cloneRet
             handled: true
         }
         if not handled {
@@ -639,8 +645,12 @@ fn resolveExpr(state AnalyzerState, expr AstNode, expected String, expectedTy Ty
         }
 
         StrLitNode: {
+            // String-split B2: a literal is a BORROWED static (`Str`), not an owned
+            // heap `String`. Both are in the string family (isStringFamily in
+            // semantic/assignable.suru), so `let s String: "x"` is still accepted —
+            // codegen materializes an owned copy at that boundary.
             let typed StrLitNode: expr
-            typed.resolvedType: "String"
+            typed.resolvedType: "Str"
         }
 
         CharLitNode: {

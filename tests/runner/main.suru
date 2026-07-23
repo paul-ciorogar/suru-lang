@@ -30,6 +30,7 @@ import {
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
     [assignabilityTests]: Test.Unit.Compiler.Assignability
     [passesTypeNameTests]: Test.Unit.Compiler.PassesTypeName
+    [strLiteralTypeTests]: Test.Unit.Compiler.StrLiteralType
     [reportResults]: Test.Unit.Assert
 }
 
@@ -224,6 +225,8 @@ fn main(args Array<String>) {
     failed: failed.add(assignabilityFailed)
     let passesTypeNameFailed i64: reportResults("passes-type-name", passesTypeNameTests())
     failed: failed.add(passesTypeNameFailed)
+    let strLitTypeFailed i64: reportResults("str-literal-type", strLiteralTypeTests())
+    failed: failed.add(strLitTypeFailed)
     printLn("")
 
     while i.lt(cases.len()) {

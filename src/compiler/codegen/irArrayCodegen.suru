@@ -67,6 +67,23 @@ export fn elemSizeBytes(suruType String) i64 {
     }
 }
 
+// Element type of an OWNED element slot (String-split B2).
+//
+// An array deep-drops its elements (@suru_array_drop_<T> walks the buffer applying
+// the element's drop symbol), so an element slot is by definition an owned slot and
+// its type can never be the borrowed `Str`. A literal element now infers as `Str`,
+// so the inferred type must be normalized back to `String` before it is used as the
+// array's element type — otherwise `let a Array<String>: ["x"]` would record
+// elem_tag 8, an `Array:Str` type, and a `@suru_array_clone_Str` helper symbol, none
+// of which match the array's declared type.
+//
+// B3 makes the value side agree with the slot: each `Str` element is materialized
+// into an owned heap String before it is stored.
+export fn ownedElemSuruType(suruType String) String {
+    if suruType.equals("Str") { return "String" }
+    return suruType
+}
+
 // ─── Element encode / decode ──────────────────────────────────────────────────
 // Mirrors struct field encoding (irStructCodegen) but targets buffer storage types
 // rather than a uniform i64 slot.  No heap allocation for any scalar type.

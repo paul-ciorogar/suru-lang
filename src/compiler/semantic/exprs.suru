@@ -87,7 +87,7 @@ export fn inferType(state AnalyzerState, expr AstNode) String {
         BoolLitNode:    { return "bool"    }
         IntLitNode:     { return "i64"   }
         FloatLitNode:   { return "f64" }
-        StrLitNode:     { return "String"  }
+        StrLitNode:     { return "Str"     }
         CharLitNode:    { return "char"    }
         VarRefNode: {
             let typed VarRefNode: expr

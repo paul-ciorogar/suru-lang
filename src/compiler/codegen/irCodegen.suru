@@ -256,7 +256,9 @@ export fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType 
         // Evaluate first element BEFORE malloc'ing rawData (preserves SSA ordering invariant).
         let firstValR CodegenResult: emitValue(ctx, elems.at(0))
         ctx: firstValR.ctx
-        actualElemSuruType: firstValR.suruType
+        // Array elements live in an owned slot, so a borrowed `Str` literal element
+        // contributes `String` as the element type (irArr.ownedElemSuruType).
+        actualElemSuruType: irArr.ownedElemSuruType(firstValR.suruType)
         let storeType String: irArr.elemStorageLlvmType(actualElemSuruType)
         let elemBytes i64: irArr.elemSizeBytes(actualElemSuruType)
         // malloc raw data buffer: count * elemBytes.
@@ -2007,6 +2009,10 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                             // allocation. "at" is excluded because
                             // Array<String>.at() returns a borrowed element
                             // pointer — dropping it would cause double-free.
+                            // The test is deliberately EXACT ("String"), not
+                            // tyh.isStringType: this is an OWNERSHIP question, not a
+                            // family question. A `Str` is a borrowed static and must
+                            // never be dropped here.
                             if ar.suruType.equals("String") {
                                 let shouldDrop bool: false
                                 match printArg {

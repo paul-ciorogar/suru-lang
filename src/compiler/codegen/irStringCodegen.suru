@@ -63,13 +63,19 @@ fn emitExtractStringLen(ctx IrCodegenContext, seqVal String) CodegenResult {
 //   @.str_N      — [K x i8] constant holding the raw bytes (incl. null terminator)
 //   @.str_hdr_N  — %suru.String constant { type_tag=7, len, ptr @.str_N }
 //
-// type_tag=7 marks the header as a static literal so suru_string_drop skips freeing it.
+// type_tag=8 marks the header as a static literal so suru_string_drop skips freeing it.
 // Returning a ptr to the global constant costs zero at runtime — no malloc, no memcpy.
+//
+// The result's suruType is `Str`, not `String` (String-split B2): a literal is a
+// BORROWED pointer into .rodata, and the type system now says so. `Str` and `String`
+// share the %suru.String layout and every read-only operation; they differ only in
+// ownership. Codegen materializes an owned heap copy (suru_string_clone) wherever a
+// `Str` enters a slot that participates in deep drop — see materializeStr below.
 export fn emitStringLiteralValue(ctx IrCodegenContext, text String) CodegenResult {
     // internString emits both @.str_N and @.str_hdr_N (idempotent).
     ctx: strIntern.internString(ctx, text)
     let hdrName String: strIntern.lookupStrHdrGlobal(ctx, text)
-    return { ctx: ctx, name: hdrName, llvmType: "ptr", suruType: "String" }
+    return { ctx: ctx, name: hdrName, llvmType: "ptr", suruType: "Str" }
 }
 
 // ─── String instance methods ──────────────────────────────────────────────────

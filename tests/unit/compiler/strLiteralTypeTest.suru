@@ -1,0 +1,79 @@
+// strLiteralTypeTest.suru — unit tests for the String-split B2 flip: a string
+// literal is typed `Str` (borrowed static), not `String` (owned heap).
+//
+// Why this needs pinning:
+//
+//   1. TWO inference paths must agree. `resolveTypes.suru` writes `resolvedType`
+//      on the AST node (codegen reads it); `exprs.suru inferType` answers the same
+//      question for the value-flow mismatch checks. If only one flips, a literal is
+//      simultaneously `Str` and `String` depending on who asks, and the ownership
+//      decisions built on top of it (which value gets dropped, which gets
+//      materialized) diverge.
+//   2. `let s String: "x"` must STILL be accepted. The two types are in the same
+//      family (isStringFamily, semantic/assignable.suru) precisely so this keeps
+//      compiling; B3 turns that accepted pair into a heap materialization rather
+//      than a rejection. If the family relation ever narrows, every string literal
+//      in the compiler's own source stops compiling.
+//   3. An OWNED element slot can never hold a `Str`. An array deep-drops its
+//      elements, so `let a Array<String>: ["x"]` must record `String` as the
+//      element type even though element 0 now infers as `Str` — otherwise the
+//      array carries elem_tag 8, type `Array:Str`, and a `@suru_array_clone_Str`
+//      helper symbol, none of which match its declared type. That normalization is
+//      `irArr.ownedElemSuruType`, called from `emitArrayLit`.
+//
+// Run in-process by the test runner (tests/runner/main.suru).
+
+namespace Test.Unit.Compiler.StrLiteralType
+
+import {
+    [TestResult, assertTrue, assertEqStr]: Test.Unit.Assert
+    [makeAnalyzerState]: Suru.Compiler.Semantic
+    [inferType]: Suru.Compiler.Semantic.Exprs
+    [isAssignable]: Suru.Compiler.Semantic.Assignable
+    [ownedElemSuruType]: Suru.Compiler.Codegen.Array
+    [isStringType, suruTypeTag, makeSuruType]: Suru.Compiler.Codegen.TypeHelpers
+    [AstNode, StrLitNode]: Suru.Compiler.Parser.Ast
+}
+
+export fn strLiteralTypeTests() Array<TestResult> {
+    let results Array<TestResult>: []
+    let state AnalyzerState: makeAnalyzerState()
+
+    // ─── 1. inferType on a literal ───────────────────────────────────────────────
+    // The semantic half of the flip. resolveTypes.suru's StrLitNode arm writes the
+    // same name onto the node; the two are kept in step by hand, so a divergence
+    // here is the first symptom.
+    let lit StrLitNode: { text: "hello", resolvedType: "" }
+    let inferred String: inferType(state, lit)
+    results.add(assertEqStr("literal infers as Str", "Str", inferred))
+
+    // ─── 2. The family relation survives the flip ────────────────────────────────
+    // `let s String: "x"` (the overwhelmingly common case, including in this
+    // compiler's own source) and the reverse `let s Str: someOwnedString()`.
+    results.add(assertTrue("String slot accepts Str value", isAssignable(state, "String", "Str")))
+    results.add(assertTrue("Str slot accepts String value", isAssignable(state, "Str", "String")))
+    // The family is exactly two members — it must not have widened.
+    results.add(assertTrue("REJECT Str <- i64",        not isAssignable(state, "Str", "i64")))
+    results.add(assertTrue("REJECT Str <- SuruString", not isAssignable(state, "Str", "SuruString")))
+
+    // ─── 3. Owned element slots normalize Str away ───────────────────────────────
+    results.add(assertEqStr("owned elem: Str → String", "String", ownedElemSuruType("Str")))
+    // Every other element type passes through untouched — the normalization is a
+    // single-purpose ownership fix, not a general type rewrite.
+    results.add(assertEqStr("owned elem: String → String", "String", ownedElemSuruType("String")))
+    results.add(assertEqStr("owned elem: i64 → i64",       "i64",    ownedElemSuruType("i64")))
+    results.add(assertEqStr("owned elem: Token → Token",   "Token",  ownedElemSuruType("Token")))
+    results.add(assertEqStr("owned elem: Array:i64 kept",  "Array:i64", ownedElemSuruType("Array:i64")))
+
+    // ─── 4. Str is a first-class type name through the codegen helpers ───────────
+    // A `Str` now reaches every place a suruType string reaches, so the helpers
+    // that classify one must all recognize it.
+    results.add(assertTrue("Str is in the string family", isStringType("Str")))
+    results.add(assertTrue("String is in the string family", isStringType("String")))
+    results.add(assertEqStr("Str tags as static literal (8)", "8", suruTypeTag("Str")))
+    results.add(assertEqStr("String tags as heap string (6)", "6", suruTypeTag("String")))
+    // parseType/printSuruType round-trip: `Str` is a plain Prim and survives intact.
+    results.add(assertEqStr("makeSuruType Str round-trips", "Str", makeSuruType("Str")))
+
+    return results
+}

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### String split B2 — a string literal is typed `Str`, not `String`
+
+`Str` (the borrowed static-string type) has existed as a full string-family member
+since B1, but literals were never given it: `resolveTypes.suru` annotated every
+`StrLitNode` as `String`, so the type system could not tell a `.rodata` global from
+an owned heap allocation. It is the reason `suru_string_drop` still peeks at
+`type_tag == 8` to decide whether freeing is safe — the last `type_tag` **read** in
+the codebase, and the blocker for Step 2 (shrinking the 32-byte header).
+
+- **Literals now infer as `Str`** in both inference paths, which must agree:
+  `resolveTypes.suru`'s `StrLitNode` arm (the `resolvedType` codegen reads) and
+  `exprs.inferType` (the value-flow mismatch checks). `emitStringLiteralValue`
+  reports `Str` as the result's suruType to match.
+- **`x.clone()` on a `Str` resolves to `String`.** `clone()` is the explicit
+  "give me an owned copy" request and is now the one method whose result type is
+  not simply the receiver's — `suru_string_clone` mallocs a fresh tag-6 header and
+  buffer, so typing the result `Str` would have called a heap allocation borrowed.
+- **Owned slots normalize `Str` away.** Two places infer a type *from a value* and
+  store the answer in a slot that participates in deep drop, so both had to be
+  taught that a borrow cannot be the slot's type:
+  - `emitArrayLit` took the array's element type from element 0, so
+    `let a Array<String>: ["x"]` would have recorded `elem_tag` 8, type `Array:Str`
+    and a `@suru_array_clone_Str` helper — none of which match the declared type.
+    New `irArr.ownedElemSuruType` normalizes it.
+  - Type-argument inference reads the *argument's* type, so `res.err("oops")` bound
+    `E := Str` and asked monomorphization for `err-Str` / `Result-i64-Str`,
+    instantiations no annotation ever names; the mangled call name and the mangled
+    declaration diverged and the build failed. Normalized at `rtAppendBinding`, the
+    single funnel through which every solved binding becomes a recorded type
+    argument, so return-vs-expected and param-vs-arg agree.
+- The `type_tag == 8` net in `runtime/string.c` is **deliberately untouched**: a
+  `Str` still reaches owned slots un-materialized, and the net is what keeps that
+  safe. Removing it is B3, together with materializing `Str` → `String` at the
+  ownership boundaries.
+- Coverage: new `tests/unit/compiler/strLiteralTypeTest.suru` (15 assertions —
+  literal inference, the family relation in both directions and its two rejections,
+  owned-element normalization per shape, and `Str`'s round-trip through the codegen
+  type helpers); `tests/fixtures/str-type/` gains the owned-slot cases (array
+  literal + `add` + read-back + drop, and a literal bound to a `String` slot).
+  Full suite green (106 passed, 0 failed, 0 memcheck); bootstrap fixed point
+  confirmed (C2 == C3).
+
 ### §3.4 — `isAssignable` compares `Type` values, and the last duplicated mangler is gone
 
 The two string-surgery hubs left in the semantic layer after monomorphization was
