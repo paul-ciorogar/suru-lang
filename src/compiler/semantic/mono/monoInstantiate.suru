@@ -244,31 +244,50 @@ fn findInstFn(registry GenericRegistry, genericName String, concreteTypes Array<
 // seen is the same deduplication set used by instantiateAll so variant
 // structs are not added twice when the same generic struct is also inferred
 // from a direct type annotation.
+// Reimplemented as substitute → parseType → read the `Named` structurally,
+// replacing the last hand-rolled indexOfLT/slice/splitByComma re-parse in the mono
+// layer (same boundary pattern as collectGenericAppFromType below). Besides the
+// uniformity this fixes the depth-blind comma split: a variant whose argument is
+// itself multi-arg ("Some<Pair<i64, String>>") used to be cut at the INNER comma,
+// yielding the two bogus args ["Pair<i64", "String>"] and a mangled name that no
+// call site could ever match.
 fn instantiateVariantTypes(registry GenericRegistry, rawVariants Array<String>, paramNames Array<String>, concreteTypes Array<String>, out Array<AstNode>, seen Array<String>) {
     let i i64: 0
     while i.lt(rawVariants.len()) {
-        let raw String: rawVariants.at(i)
-        let ltIdx i64: subst.indexOfLT(raw)
-        // Only process generic variants (those with '<' in raw template form).
-        if not ltIdx.equals(raw.len()) {
-            // Substitute type params in the full variant expression, then
-            // re-parse to extract base name and concrete arg list.
-            // E.g. "Some<T>" + {T→i64} → "Some<i64>" → base="Some", args=["i64"]
-            let substituted String: subst.substituteType(raw, paramNames, concreteTypes)
-            let subLtIdx i64: subst.indexOfLT(substituted)
-            if not subLtIdx.equals(substituted.len()) {
-                let baseName String: substituted.slice(0, subLtIdx)
-                let inner String: substituted.slice(subLtIdx.add(1), substituted.len().take(1))
-                let variantArgs Array<String>: subst.splitByComma(inner)
-                let mangledVariant String: mangleGenericName(baseName, variantArgs)
-                // Skip if already instantiated (prevents duplicate TypeDeclNodes).
-                if not alreadySeen(seen, mangledVariant) {
-                    seen.add(mangledVariant)
-                    findInstType(registry, baseName, variantArgs, out)
-                }
-            }
-        }
+        // E.g. "Some<T>" + {T→i64} → "Some<i64>" → base "Some", args ["i64"].
+        // A non-generic arm ("None") substitutes to itself and parses to a node
+        // with no type arguments, which instantiateVariantFromType skips.
+        let substituted String: subst.substituteType(rawVariants.at(i), paramNames, concreteTypes)
+        let t Type: parseType(substituted)
+        drop(substituted)
+        instantiateVariantFromType(registry, t, out, seen)
+        drop(t)
         i: i.add(1)
+    }
+}
+
+// instantiateVariantFromType — instantiate the concrete variant struct named by a
+// substituted variant `Type`.  Only a `Named` carrying type arguments is a generic
+// variant arm; a plain name ("None"), a `Prim` and an `Arr` contribute nothing.
+// `t` is borrowed (the unchecked-downcast idiom), so the caller keeps ownership;
+// the mangled name is handed to `seen` on the instantiating path and dropped on the
+// already-seen path.
+fn instantiateVariantFromType(registry GenericRegistry, t Type, out Array<AstNode>, seen Array<String>) {
+    match t {
+        Named: {
+            let n Named: t
+            if n.args.len().equals(0) { return }
+            let variantArgs Array<String>: annotationArgs(n.args)
+            let mangledVariant String: mangleGenericName(n.name, variantArgs)
+            // Skip if already instantiated (prevents duplicate TypeDeclNodes).
+            if alreadySeen(seen, mangledVariant) {
+                drop(mangledVariant)
+                return
+            }
+            seen.add(mangledVariant)
+            findInstType(registry, n.name, variantArgs, out)
+        }
+        _: {}
     }
 }
 

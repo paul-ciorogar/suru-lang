@@ -25,6 +25,8 @@ import {
     semantic: Suru.Compiler.Semantic
     passes: Suru.Compiler.Semantic.Passes
     exprs: Suru.Compiler.Semantic.Exprs
+    assign: Suru.Compiler.Semantic.Assignable
+    ntype: Suru.Compiler.Semantic.NodeType
     tyh: Suru.Compiler.Codegen.TypeHelpers
 }
 
@@ -95,7 +97,7 @@ fn analyzeLetStatement(state AnalyzerState, stmt LetNode) AnalyzerState {
     // skipped rather than falsely rejected.
     let actual String: exprs.inferTypeForMismatchCheck(state, val)
     let known bool: not stmt.typeName.equals("") and not actual.equals("")
-    if not isDuplicate and typeResolved and known and not exprs.isAssignable(state, stmt.typeName, actual) {
+    if not isDuplicate and typeResolved and known and not assign.isAssignable(state, stmt.typeName, actual) {
         state.addError("type mismatch: variable '".append(stmt.name).append("' declared ").append(stmt.typeName).append(" but initialized with ").append(actual), stmt.line, stmt.col)
     }
     // Re-binding a name clears any prior moved state for that variable.
@@ -120,7 +122,7 @@ fn analyzeAssignmentStatement(state AnalyzerState, stmt AssignNode) AnalyzerStat
     let declaredType String: state.lookupSymbol(stmt.name)
     let actual String: exprs.inferTypeForMismatchCheck(state, val)
     let known bool: not declaredType.equals("") and not actual.equals("")
-    if isDefined and not isConst and known and not exprs.isAssignable(state, declaredType, actual) {
+    if isDefined and not isConst and known and not assign.isAssignable(state, declaredType, actual) {
         state.addError("type mismatch: variable '".append(stmt.name).append("' has type ").append(declaredType).append(" but assigned ").append(actual), stmt.line, stmt.col)
     }
     // Re-assigning a variable clears its moved state (it has a new value now).
@@ -147,11 +149,11 @@ fn analyzeFieldAssignmentStatement(state AnalyzerState, stmt FieldAssignNode) An
     // rcvType is "" for receivers whose type can't be resolved (e.g. a not-yet-
     // tracked `this`), which leaves the field annotation empty → isAssignable
     // treats it as a skip.
-    let rcvType String: exprs.nodeResolvedType(rcv)
+    let rcvType String: ntype.nodeResolvedType(rcv)
     let annot String: state.lookupFieldType(rcvType, stmt.fieldName)
     let expectedFieldType String: tyh.makeSuruType(annot)
-    let actual String: exprs.nodeResolvedType(val)
-    if not exprs.isAssignable(state, expectedFieldType, actual) {
+    let actual String: ntype.nodeResolvedType(val)
+    if not assign.isAssignable(state, expectedFieldType, actual) {
         state.addError("field assignment type mismatch: expected ".append(annot).append(", got ").append(actual), stmt.line, stmt.col)
     }
     return state
@@ -172,7 +174,7 @@ export fn analyzeReturnStatement(state AnalyzerState, stmt ReturnNode) AnalyzerS
         let retType String: exprs.inferType(state, val)
         let expected String: state.currentReturnType
         let typesKnown bool: not retType.equals("") and not expected.equals("") and not expected.equals("void")
-        if typesKnown and not exprs.isAssignable(state, expected, retType) {
+        if typesKnown and not assign.isAssignable(state, expected, retType) {
             state.addError("return type mismatch: expected ".append(expected).append(", got ").append(retType), stmt.line, stmt.col)
         }
     } else {

@@ -26,6 +26,8 @@ namespace Suru.Compiler.Semantic.Exprs
 import {
     semantic: Suru.Compiler.Semantic
     passes: Suru.Compiler.Semantic.Passes
+    assign: Suru.Compiler.Semantic.Assignable
+    ntype: Suru.Compiler.Semantic.NodeType
     tyh: Suru.Compiler.Codegen.TypeHelpers
 }
 
@@ -213,57 +215,11 @@ export fn inferTypeForMismatchCheck(state AnalyzerState, expr AstNode) String {
     return inferType(state, expr)
 }
 
-// isIntegerFamilyName — the fixed-width integer types that are mutually
-// assignable. Integer literals infer as `i64` (see inferType) but validly
-// initialize `i32`/`char` slots too (`let c i32: 0`, hex literals → char), and
-// codegen adapts the value to the slot width — so a mismatch *within* this family
-// is not a type error. `f64` is deliberately excluded: Suru has no implicit
-// int↔float conversion, so `let x f64: 0` should still be rejected.
-fn isIntegerFamilyName(name String) bool {
-    return name.equals("i64") or name.equals("i32") or name.equals("char")
-}
-
-// isAssignable — the single "can a value of type `actual` be bound to a slot of
-// type `expected`?" predicate, shared by every value-flow site (return, call
-// args, let bindings, assignments, field assignments, object-literal fields,
-// array elements).  This is the one place to extend when a legitimate subtyping
-// relation must be permitted.
-//
-// An unknown type on either side ("") is assignable — `inferType` /
-// `nodeResolvedType` return "" for anything they cannot pin down, and an
-// un-inferred node must be skipped rather than falsely rejected.  Call sites may
-// additionally gate on non-"" before *reporting*, which some do to keep their
-// diagnostic text honest; the guard here is what makes the ungated sites (array
-// elements, object-literal fields, plain-call args) safe.
-//
-// Beyond that, a value is assignable when:
-//   - the canonicalized types are identical.  Both sides go through
-//     `makeSuruType` so a substituted-but-unmangled generic annotation
-//     ("Option<i64>") compares equal to its registered mangled form; the
-//     function is idempotent on already-canonical names ("Array:i64", "List");
-//   - `actual` is a declared variant of the sum type `expected` (a `Some<i64>`
-//     value flowing into an `Option<i64>` slot);
-//   - `expected` is a declared variant of the sum type `actual` — the compiler's
-//     own "typed bridge" downcast idiom (`let n MatchStmtNode: someAstNode`),
-//     which narrows a sum value to one variant for field access.  Codegen relies
-//     on this being permitted;
-//   - both sides are in the String family (`Str` borrowed static literal ↔ owned
-//     `String`; codegen materializes a heap copy at the boundary when an owned
-//     String is required);
-//   - both sides are in the integer family (literal/width adaptation — see
-//     isIntegerFamilyName).
-export fn isAssignable(state AnalyzerState, expected String, actual String) bool {
-    if expected.equals("") { return true }
-    if actual.equals("") { return true }
-    let exp String: tyh.makeSuruType(expected)
-    let act String: tyh.makeSuruType(actual)
-    if act.equals(exp) { return true }
-    if state.isSumVariant(exp, act) { return true }
-    if state.isSumVariant(act, exp) { return true }
-    if isStringFamilyName(exp) and isStringFamilyName(act) { return true }
-    if isIntegerFamilyName(exp) and isIntegerFamilyName(act) { return true }
-    return false
-}
+// The value-flow assignability predicate (`isAssignable`) lives in
+// semantic/assignable.suru — it is imported here as `assign.isAssignable` and used
+// by the two call-argument checks below. It moved out in §3.4 when it stopped
+// comparing canonicalized type STRINGS and started comparing structured `Type`
+// values; see that file's header for the full rule set.
 
 // checkCallArgTypesAt — validates argument types against declared parameter
 // types for function fnName.
@@ -277,7 +233,7 @@ fn checkCallArgTypesAt(state AnalyzerState, fnName String, args Array<AstNode>, 
     while i.lt(args.len()) {
         let expected String: state.functions.paramType(fnName, i)
         let argType String: inferType(state, args.at(i))
-        if not expected.equals("") and not argType.equals("") and not isAssignable(state, expected, argType) {
+        if not expected.equals("") and not argType.equals("") and not assign.isAssignable(state, expected, argType) {
             state.addError("argument type mismatch: expected ".append(expected).append(", got ").append(argType), callLine, callCol)
         }
         i: i.add(1)
@@ -300,8 +256,8 @@ fn checkFnCallArgTypes(state AnalyzerState, fnName String, args Array<AstNode>, 
     while i.lt(args.len()) {
         let paramAnn String: state.functions.paramType(fnName, i)
         let expected String: tyh.makeSuruType(paramAnn)
-        let actual String: nodeResolvedType(args.at(i))
-        if not isAssignable(state, expected, actual) {
+        let actual String: ntype.nodeResolvedType(args.at(i))
+        if not assign.isAssignable(state, expected, actual) {
             state.addError("argument type mismatch: expected ".append(paramAnn).append(", got ").append(actual), callLine, callCol)
         }
         i: i.add(1)
@@ -310,42 +266,6 @@ fn checkFnCallArgTypes(state AnalyzerState, fnName String, args Array<AstNode>, 
 }
 
 // ─── Expression analysis ──────────────────────────────────────────────────────
-
-// isBuiltinTypeName — true for the static type-receiver names that appear as
-// VarRefNode without being declared in scope (e.g. i64.from, bool.toString).
-// True for the string family: owned heap `String` or borrowed static `Str`.
-export fn isStringFamilyName(name String) bool {
-    return name.equals("String") or name.equals("Str")
-}
-
-// nodeResolvedType — the canonical Suru type that resolveTypes (pass 2) annotated
-// on an expression node, or "" when the node carries none. This is the actual
-// type used by every type-mismatch check: unlike the context-free inferType, it
-// reflects context-sensitive narrowing (an integer literal under an `i32`
-// expectation resolves to "i32"; a method call resolves to its real return
-// type), which keeps the checks free of false positives. The semantic pass runs
-// after pass-2 resolution, so these annotations are populated.
-export fn nodeResolvedType(expr AstNode) String {
-    match expr {
-        BoolLitNode:     { let t BoolLitNode: expr     return t.resolvedType }
-        IntLitNode:      { let t IntLitNode: expr      return t.resolvedType }
-        FloatLitNode:    { let t FloatLitNode: expr    return t.resolvedType }
-        StrLitNode:      { let t StrLitNode: expr      return t.resolvedType }
-        CharLitNode:     { let t CharLitNode: expr     return t.resolvedType }
-        VarRefNode:      { let t VarRefNode: expr      return t.resolvedType }
-        CallNode:        { let t CallNode: expr        return t.resolvedType }
-        MethodCallNode:  { let t MethodCallNode: expr  return t.resolvedType }
-        FieldAccessNode: { let t FieldAccessNode: expr return t.resolvedType }
-        ArrayLitNode:    { let t ArrayLitNode: expr    return t.resolvedType }
-        ObjectLitNode:   { let t ObjectLitNode: expr   return t.resolvedType }
-        MatchExprNode:   { let t MatchExprNode: expr   return t.resolvedType }
-        UnaryNode:       { let t UnaryNode: expr       return t.resolvedType }
-        BinaryNode:        { let t BinaryNode: expr        return t.resolvedType }
-        QualifiedNameNode: { let t QualifiedNameNode: expr return t.resolvedType }
-        _: {}
-    }
-    return ""
-}
 
 fn isBuiltinTypeName(name String) bool {
     return name.equals("i32")
@@ -516,8 +436,8 @@ export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
             if tyh.isArraySuruType(typed.resolvedType) { elemType: tyh.elemSuruType(typed.resolvedType) }
             let ei i64: 0
             while ei.lt(elems.len()) {
-                let actual String: nodeResolvedType(elems.at(ei))
-                if not isAssignable(state, elemType, actual) {
+                let actual String: ntype.nodeResolvedType(elems.at(ei))
+                if not assign.isAssignable(state, elemType, actual) {
                     state.addError("array element type mismatch: expected ".append(elemType).append(", got ").append(actual), 0, 0)
                 }
                 ei: ei.add(1)
@@ -538,8 +458,8 @@ export fn analyzeExpr(state AnalyzerState, expr AstNode) AnalyzerState {
                 if not field.isMethod {
                     let annot String: state.lookupFieldType(typeName, field.name)
                     let expectedFieldType String: tyh.makeSuruType(annot)
-                    let actual String: nodeResolvedType(field.value)
-                    if not isAssignable(state, expectedFieldType, actual) {
+                    let actual String: ntype.nodeResolvedType(field.value)
+                    if not assign.isAssignable(state, expectedFieldType, actual) {
                         state.addError("struct literal field '".append(field.name).append("' type mismatch: expected ").append(annot).append(", got ").append(actual), typed.line, typed.col)
                     }
                 }

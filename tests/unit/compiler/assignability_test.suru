@@ -15,7 +15,7 @@ namespace Test.Unit.Compiler.Assignability
 import {
     [TestResult, assertTrue]: Test.Unit.Assert
     [makeAnalyzerState]: Suru.Compiler.Semantic
-    [isAssignable]: Suru.Compiler.Semantic.Exprs
+    [isAssignable]: Suru.Compiler.Semantic.Assignable
 }
 
 export fn assignabilityTests() Array<TestResult> {
@@ -50,6 +50,40 @@ export fn assignabilityTests() Array<TestResult> {
     // Distinct user types.
     results.add(assertTrue("REJECT SuruString <- String",
         not isAssignable(state, "SuruString", "String")))
+
+    // ── Applied ↔ mangled: the same type under its two names (§3.4) ───────────
+    // After monomorphization a slot may still carry the annotation the programmer
+    // wrote (`Box<i64>`) while the value carries the instantiated declaration name
+    // (`Box-i64`). Both directions must be assignable — this is what canonType
+    // makes structural, and what the old string comparison achieved by collapsing
+    // both sides to the mangled string.
+    results.add(assertTrue("Box<i64> <- Box-i64", isAssignable(state, "Box<i64>", "Box-i64")))
+    results.add(assertTrue("Box-i64 <- Box<i64>", isAssignable(state, "Box-i64", "Box<i64>")))
+    // Multi-arg generic: the argument list must mangle at the right depth.
+    results.add(assertTrue("Pair<i64, String> <- Pair-i64-String",
+        isAssignable(state, "Pair<i64, String>", "Pair-i64-String")))
+    // Nested generic: every level flattens.
+    results.add(assertTrue("Option<Array<i64>> <- Option-Array-i64",
+        isAssignable(state, "Option<Array<i64>>", "Option-Array-i64")))
+    // The built-in array's two spellings (source form vs the canonical colon form
+    // that nodeResolvedType hands back).
+    results.add(assertTrue("Array<i64> <- Array:i64", isAssignable(state, "Array<i64>", "Array:i64")))
+    results.add(assertTrue("Array:i64 <- Array<i64>", isAssignable(state, "Array:i64", "Array<i64>")))
+
+    // ...and the duality must not become a hole: different arguments, different
+    // argument ORDER, and different base names all still reject.
+    results.add(assertTrue("REJECT Box<i64> <- Box-bool",
+        not isAssignable(state, "Box<i64>", "Box-bool")))
+    results.add(assertTrue("REJECT Pair<i64, String> <- Pair<String, i64>",
+        not isAssignable(state, "Pair<i64, String>", "Pair<String, i64>")))
+    results.add(assertTrue("REJECT Array<i64> <- Array<bool>",
+        not isAssignable(state, "Array<i64>", "Array<bool>")))
+    results.add(assertTrue("REJECT List<i64> <- Box<i64>",
+        not isAssignable(state, "List<i64>", "Box<i64>")))
+
+    // ── The unknown-type guard (ungated call sites depend on it) ──────────────
+    results.add(assertTrue("unknown expected → skip", isAssignable(state, "", "i64")))
+    results.add(assertTrue("unknown actual → skip",   isAssignable(state, "i64", "")))
 
     return results
 }

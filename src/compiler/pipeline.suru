@@ -24,6 +24,7 @@ import {
     fns: Suru.Compiler.Semantic.Fns
     semresolve: Suru.Compiler.Semantic.ResolveTypes
     monoPass: Suru.Compiler.Semantic.Mono
+    variantArms: Suru.Compiler.Semantic.Mono.VariantArms
     collect: Suru.Compiler.Semantic.Mono.Collect
     infer: Suru.Compiler.Semantic.Mono.Infer
     inst: Suru.Compiler.Semantic.Mono.Instantiate
@@ -1263,7 +1264,7 @@ fn compileOneFileWithRequests(sourcePath String, outDir String, reg NamespaceReg
     semresolve.resolveModuleTypes(state, stmts)
     // Rewrite generic call sites and variant arm patterns.
     stmts: monoPass.rewriteCallSites(stmts, globalRegistry)
-    stmts: monoPass.rewriteVariantArms(stmts)
+    stmts: variantArms.rewriteVariantArms(stmts)
     // Lower object literals to vtable + synthetic method FnDeclNodes.
     let preLowerLen i64: stmts.len()
     lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
@@ -1494,7 +1495,7 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     // Rewrite match-arm pattern names from unmangled base names (e.g. "Some")
     // to the concrete mangled variant names (e.g. "Some-i64") so the codegen
     // can resolve the correct variant index for generic sum types.
-    stmts: monoPass.rewriteVariantArms(stmts)
+    stmts: variantArms.rewriteVariantArms(stmts)
     // ─────────────────────────────────────────────────────────────────────────
 
     lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
@@ -1571,7 +1572,7 @@ export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     passes.registerImportedExterns(state, resolved.externFns)
     semresolve.resolveModuleTypes(state, stmts)
     stmts: monoPass.rewriteCallSites(stmts, registry)
-    stmts: monoPass.rewriteVariantArms(stmts)
+    stmts: variantArms.rewriteVariantArms(stmts)
     // ─────────────────────────────────────────────────────────────────────────
 
     if stopPass.equals("mono") { return { stmts: stmts, state: state } }

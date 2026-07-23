@@ -28,17 +28,41 @@ namespace Suru.Compiler.Semantic.Passes
 import {
     sem: Suru.Compiler.Semantic
     parser: Suru.Compiler.Parser
+    [Type, Named, Arr]: Suru.Compiler.Types
+    [parseType]: Suru.Compiler.Types.Parse
+    [printSymbol]: Suru.Compiler.Types.Print
 }
 
 // ─── Type resolution ──────────────────────────────────────────────────────────
+//
+// Every type-name question below is answered by parsing the annotation once into a
+// structured `Type` and inspecting its SHAPE (§3.4). Before that, this section held
+// a second copy of the mono pass's string mangler (indexOfAngle / ltrimStr /
+// flattenPassTypeArg / appendMangledArgsAt / mangleAnnotation), kept alive only
+// because passes.suru sits on a different include chain — ~90 lines that
+// `parseType` + `printSymbol` already do, recursively and at the right nesting depth.
 
-// isArrayGeneric — true when name is a generic Array type like "Array<i64>".
-// The Suru parser stores generic type annotations as flat strings ("Array<T>"),
-// so we check the first 5 characters for "Array" when the name is long enough.
+// isArrayGeneric — true when `name` is the built-in array type, in either the
+// source form ("Array<i64>", "Array<T>") or the colon form ("Array:i64").
+// parseType folds both into the dedicated `Arr` shape, so this is a shape test.
+//
+// It is also a shape test in the strict sense the old prefix scan was not: that
+// version accepted any name longer than five characters starting with "Array",
+// so a user type such as `ArrayLitNode` (a real AST node in this compiler) was
+// classified as a built-in array by isBuiltinType.
 fn isArrayGeneric(name String) bool {
-    return match name.len().gt(5) {
-        true: name.slice(0, 5).equals("Array")
-        _: false
+    let t Type: parseType(name)
+    let result bool: isArrShape(t)
+    drop(t)
+    return result
+}
+
+// isArrShape — whether a parsed `Type` is the built-in array. Split out so both
+// isArrayGeneric and isUserGenericAnnotation read the shape without re-parsing.
+fn isArrShape(t Type) bool {
+    match t {
+        Arr: { return true }
+        _:   { return false }
     }
 }
 
@@ -71,104 +95,41 @@ fn typeNameExistsAt(typeNames Array<String>, name String) bool {
 // These helpers let resolveTypeName recognise user-defined generic annotations
 // like "Box<i64>" by looking up their mangled form "Box-i64" in typeNames.
 
-// indexOfAngle — index of the first '<' in s, or s.len() when absent.
-fn indexOfAngle(s String) i64 {
-    let i i64: 0
-    while i.lt(s.len()) {
-        if s.at(i).equals("<") { return i }
-        i: i.add(1)
-    }
-    return s.len()
-}
-
-// ltrimStr — strip leading ASCII space characters from s.
-fn ltrimStr(s String) String {
-    let i i64: 0
-    while i.lt(s.len()) {
-        if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// flattenPassTypeArg — recursively flatten a type-name string to an
-// identifier-safe form (duplicated from monoInstantiate because passes.suru
-// is a separate include chain).
-//   "Array<i64>"          → "Array-i64"
-//   "Option<i64>"         → "Option-i64"
-//   "Option<Array<i64>>"  → "Option-Array-i64"
-//   plain names             → trimmed clone
-fn flattenPassTypeArg(typeName String) String {
-    let trimmed String: ltrimStr(typeName)
-    let ltIdx i64: indexOfAngle(trimmed)
-    if ltIdx.equals(trimmed.len()) { return trimmed }
-    let base String: trimmed.slice(0, ltIdx)
-    let inner String: trimmed.slice(ltIdx.add(1), trimmed.len().take(1))
-    let acc String: base
-    let start i64: 0
-    let i i64: 0
-    while i.lt(inner.len()) {
-        if inner.at(i).equals(",") {
-            let seg String: flattenPassTypeArg(inner.slice(start, i))
-            let next String: acc.append("-").append(seg)
-            drop(seg)
-            drop(acc)
-            acc: next
-            i: i.add(1)
-            start: i
-        } else {
-            i: i.add(1)
-        }
-    }
-    let seg String: flattenPassTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("-").append(seg)
-    drop(seg)
-    drop(acc)
-    return result
-}
-
-// appendMangledArgsAt — scan inner for comma-separated type arguments and
-// append "-<flattenPassTypeArg(arg)>" for each to acc.  Used by mangleAnnotation.
-// Calls flattenPassTypeArg so nested generics like "Array<i64>" become
-// "Array-i64" in the resulting identifier rather than the raw annotation string.
-fn appendMangledArgsAt(inner String, start i64, acc String) String {
-    let i i64: start
-    while i.lt(inner.len()) {
-        if inner.at(i).equals(",") {
-            let seg String: flattenPassTypeArg(inner.slice(start, i))
-            let next String: acc.append("-").append(seg)
-            drop(seg)
-            drop(acc)
-            acc: next
-            i: i.add(1)
-            start: i
-        } else {
-            i: i.add(1)
-        }
-    }
-    let seg String: flattenPassTypeArg(inner.slice(start, inner.len()))
-    let result String: acc.append("-").append(seg)
-    drop(seg)
-    drop(acc)
-    return result
-}
-
-// mangleAnnotation — convert a generic type annotation string to its mangled
-// form.  "Box<i64>" → "Box-i64", "Pair<i64, String>" → "Pair-i64-String".
+// mangleAnnotation — the mangled identifier for a type annotation:
+//   "Box<i64>"           → "Box-i64"
+//   "Pair<i64, String>"  → "Pair-i64-String"
+//   "Option<Array<i64>>" → "Option-Array-i64"   (nested args flatten too)
+//   "i64"                → "i64"                (bare name: a clone of itself)
+// This is `printSymbol` — the one mangling rule, shared with the mono pass that
+// produces the instantiated declaration names being looked up.
 fn mangleAnnotation(name String) String {
-    let ltIdx i64: indexOfAngle(name)
-    let base String: name.slice(0, ltIdx)
-    let inner String: name.slice(ltIdx.add(1), name.len().take(1))
-    return appendMangledArgsAt(inner, 0, base)
+    let t Type: parseType(name)
+    let out String: printSymbol(t)
+    drop(t)
+    return out
 }
 
-// isUserGenericAnnotation — true when name is a generic type annotation for a
-// user-defined type (i.e. contains '<' but is not the builtin Array<T> form).
+// isUserGenericAnnotation — true when `name` is a generic APPLICATION of a
+// user-defined type: a `Named` carrying at least one type argument. A bare name
+// parses to `Prim` (not an application) and the built-in array to `Arr` (not
+// user-defined), so both are excluded by shape.
 fn isUserGenericAnnotation(name String) bool {
-    let ltIdx i64: indexOfAngle(name)
-    if ltIdx.equals(name.len()) { return false }
-    if isArrayGeneric(name)     { return false }
-    return true
+    let t Type: parseType(name)
+    let result bool: isAppliedNamed(t)
+    drop(t)
+    return result
+}
+
+// isAppliedNamed — whether a parsed `Type` is a `Named` with arguments. A `Named`
+// with zero args is a generic name awaiting application, not an application.
+fn isAppliedNamed(t Type) bool {
+    match t {
+        Named: {
+            let n Named: t
+            return n.args.len().gt(0)
+        }
+        _: { return false }
+    }
 }
 
 // resolveTypeName — true when name is a built-in or a user-declared type.
@@ -181,7 +142,12 @@ fn isUserGenericAnnotation(name String) bool {
 export fn resolveTypeName(state AnalyzerState, name String) bool {
     let typeNames Array<String>: state.typeNames
     if isBuiltinType(name) or typeNameExistsAt(typeNames, name) { return true }
-    if isUserGenericAnnotation(name) { return typeNameExistsAt(typeNames, mangleAnnotation(name)) }
+    if isUserGenericAnnotation(name) {
+        let mangled String: mangleAnnotation(name)
+        let found bool: typeNameExistsAt(typeNames, mangled)
+        drop(mangled)
+        return found
+    }
     return false
 }
 
@@ -223,21 +189,16 @@ fn isCAbiPrimitive(typeName String) bool {
 
 // normalizeGenericTypeName — convert a generic-application return type like
 // "DynArray<i64>" to its mangled form "DynArray-i64" for hasCustomLifecycle
-// comparison.  Handles single-level generics only (all clone() return types
-// are necessarily single-level — a type clones itself, not a nested wrapper).
-// Plain types without '<' are returned unchanged.
+// comparison.  Plain types without type arguments come back as a clone of
+// themselves, so the caller can always drop the result.
+//
+// This is `mangleAnnotation` under a name that says where it is used; it is kept
+// as a separate export because it is called from outside the semantic layer.
+// §3.4 note: the previous hand-rolled version mangled the OUTER application only,
+// so "Option<Array<i64>>" became "Option-Array<i64>" — a name the mono pass never
+// emits. printSymbol flattens every level, matching the instantiated declaration.
 export fn normalizeGenericTypeName(typeName String) String {
-    let len i64: typeName.len()
-    let i i64: 0
-    while i.lt(len) {
-        if typeName.at(i).equals("<") {
-            let base String: typeName.slice(0, i)
-            let inner String: typeName.slice(i.add(1), len.take(1))
-            return base.append("-").append(inner)
-        }
-        i: i.add(1)
-    }
-    return clone(typeName)
+    return mangleAnnotation(typeName)
 }
 
 // recordTypeDecl — copy a parser TypeDeclNode into a semantic-layer

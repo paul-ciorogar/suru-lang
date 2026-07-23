@@ -1,0 +1,139 @@
+// variantInstantiationTest.suru — unit tests for the generic sum type's VARIANT
+// struct instantiation (instantiateVariantTypes in semantic/mono/monoInstantiate.suru).
+//
+// Run in-process by the test runner (tests/runner/main.suru), which calls
+// variantInstantiationTests() and reports the returned results.
+//
+// When a generic sum type is instantiated (`Option<T>` → `Option-i64`), each of its
+// generic variant arms must be instantiated too (`Some<T>` → `Some-i64`), because
+// field access inside a match arm reads the concrete variant struct.  That arm-level
+// instantiation used to re-parse the substituted arm with hand-rolled string surgery
+// (indexOfLT / slice / splitByComma) and so split a MULTI-arg type argument at the
+// wrong comma: `Some<Pair<i64, String>>` was cut into the two bogus arguments
+// "Pair<i64" and " String>", producing a mangled variant name no call site could
+// match.  It now parses the substituted arm into a structured `Type` and reads the
+// base name and arguments off the `Named`.
+//
+// These tests drive the public entry point `instantiateAll` against a hand-built
+// registry (Option<T> as a generic sum type with arms `Some<T>` / `None`, and Some<T>
+// as the generic variant struct) and pin the names of the produced declarations.
+
+namespace Test.Unit.Compiler.VariantInstantiation
+
+import {
+    [TestResult, assertEqStr]: Test.Unit.Assert
+    [instantiateAll, InstantiationRequest]: Suru.Compiler.Semantic.Mono.Instantiate
+    [GenericRegistry, GenericFnDef, GenericTypeDef, GenericSumTypeDef, newGenericRegistry, newGenericTypeDef]: Suru.Compiler.Semantic.Mono.Collect
+    [AstNode, TypeDeclNode, SumTypeDeclNode, Param, MethodSig]: Suru.Compiler.Parser.Ast
+}
+
+// ─── Registry builders ───────────────────────────────────────────────────────────
+
+// someType — the generic variant struct `type Some<T>: { value T }`.  The single `T`
+// field is what makes substitution observable; only its name reaches the assertions.
+fn someType() TypeDeclNode {
+    let fields Array<Param>: []
+    let valueField Param: { name: "value", typeName: "T" }
+    fields.add(valueField)
+    let methods Array<MethodSig>: []
+    let tp Array<String>: ["T"]
+    return { name: "Some", fields: fields, methods: methods, typeParams: tp, isCType: false, line: 0, col: 0 }
+}
+
+// optionSum — the generic sum type `type Option<T>: Some<T>, None`.  The arms are
+// stored in template form, exactly as the parser records them; instantiateVariantTypes
+// substitutes and instantiates each one.
+fn optionSum() SumTypeDeclNode {
+    let variants Array<String>: ["Some<T>", "None"]
+    let tp Array<String>: ["T"]
+    return { name: "Option", variants: variants, typeParams: tp, line: 0, col: 0 }
+}
+
+// buildRegistry — Some<T> as a generic struct, Option<T> as a generic sum type.
+// GenericSumTypeDef is built as an object literal because newGenericSumTypeDef is
+// private to monoCollect.suru; the inline typeParams() body mirrors the constructor.
+fn buildRegistry() GenericRegistry {
+    let fns Array<GenericFnDef>: []
+    let types Array<GenericTypeDef>: []
+    types.add(newGenericTypeDef("Some", someType()))
+    let sums Array<GenericSumTypeDef>: []
+    let optDef GenericSumTypeDef: { name: "Option", node: optionSum(), fn typeParams() Array<String> { return this.node.typeParams } }
+    sums.add(optDef)
+    return newGenericRegistry(fns, types, sums)
+}
+
+// ─── Rendering ───────────────────────────────────────────────────────────────────
+
+// declName — the declared name of one produced node, prefixed by its kind, so a
+// single assertEqStr pins both what was produced and in what order.  Nodes of other
+// kinds render as "?" (none are expected here).
+fn declName(node AstNode) String {
+    match node {
+        TypeDeclNode: {
+            let td TypeDeclNode: node
+            return "type ".append(td.name)
+        }
+        SumTypeDeclNode: {
+            let sd SumTypeDeclNode: node
+            return "sum ".append(sd.name)
+        }
+        _: {}
+    }
+    return "?"
+}
+
+// renderNodes — render the produced declarations as "kind Name;kind Name…".
+fn renderNodes(nodes Array<AstNode>) String {
+    let s String: ""
+    let i i64: 0
+    while i.lt(nodes.len()) {
+        let sep String: match i.gt(0) { true: ";", _: "" }
+        let piece String: declName(nodes.at(i))
+        let next String: s.append(sep).append(piece)
+        drop(piece)
+        drop(s)
+        s: next
+        i: i.add(1)
+    }
+    return s
+}
+
+// instantiateStr — instantiate `Option` with one concrete type argument and render
+// the resulting declarations.  The produced node list is dropped here; the returned
+// summary is consumed by assertEqStr.
+fn instantiateStr(arg String) String {
+    let registry GenericRegistry: buildRegistry()
+    let concretes Array<String>: []
+    concretes.add(clone(arg))
+    let req InstantiationRequest: { genericName: "Option", concreteTypes: concretes }
+    let requests Array<InstantiationRequest>: []
+    requests.add(req)
+    let out Array<AstNode>: instantiateAll(registry, requests)
+    let s String: renderNodes(out)
+    drop(out)
+    drop(requests)
+    drop(registry)
+    return s
+}
+
+export fn variantInstantiationTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // Single-argument case: the sum type and its one generic arm are instantiated,
+    // the non-generic arm (`None`) contributes nothing.
+    results.add(assertEqStr("Option<i64> instantiates Some-i64",
+        instantiateStr("i64"), "sum Option-i64;type Some-i64"))
+
+    // A generic argument nests one level: the arm mangles through the inner type.
+    results.add(assertEqStr("Option<Option<i64>> nests the arm",
+        instantiateStr("Option<i64>"), "sum Option-Option-i64;type Some-Option-i64"))
+
+    // The regression this rewrite fixes: a MULTI-arg type argument must not be split
+    // at its inner comma.  The old depth-blind splitByComma produced the two bogus
+    // arguments "Pair<i64" / " String>" here and mangled the arm name accordingly.
+    results.add(assertEqStr("Option<Pair<i64, String>> splits at the right depth",
+        instantiateStr("Pair<i64, String>"),
+        "sum Option-Pair-i64-String;type Some-Pair-i64-String"))
+
+    return results
+}

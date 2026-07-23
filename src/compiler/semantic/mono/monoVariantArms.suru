@@ -1,0 +1,157 @@
+// monoVariantArms.suru — Rewrite match-arm patterns to mangled variant names.
+//
+// The last step of monomorphization, run from pipeline.suru right after
+// monoPass.rewriteCallSites.  Split out of monoPass.suru to keep both files under
+// the 500-line limit; it shares nothing with the call-site rewriter but the pass
+// order.
+//
+// rewriteVariantArms is the entry point.
+
+namespace Suru.Compiler.Semantic.Mono.VariantArms
+
+import {
+    infer: Suru.Compiler.Semantic.Mono.Infer
+}
+
+// ─── Variant arm rewriting ────────────────────────────────────────────────────
+// After pass 2 and rewriteCallSites, match arm patterns still use the
+// unmangled base names (e.g. "Some", "None") as written by the programmer.
+// rewriteVariantArms resolves each arm pattern to the mangled variant name
+// stored in the concrete SumTypeDeclNode (e.g. "Some" → "Some-i64") by
+// looking up the matched expression's resolvedType.
+
+// collectConcreteSumTypesAt — append every concrete SumTypeDeclNode in
+// stmts[i..] (typeParams empty) to out; skip generic templates.
+fn collectConcreteSumTypesAt(stmts Array<AstNode>, out Array<SumTypeDeclNode>, i i64) {
+    if not i.lt(stmts.len()) { return }
+    match stmts.at(i) {
+        SumTypeDeclNode: {
+            let sd SumTypeDeclNode: stmts.at(i)
+            let tp Array<String>: sd.typeParams
+            if tp.len().equals(0) { out.add(sd) }
+        }
+        _: {}
+    }
+    collectConcreteSumTypesAt(stmts, out, i.add(1))
+}
+
+// getVariantsForAt — return the variants of sumTypes[i..] whose name equals
+// `name`, or an empty array if not found.
+fn getVariantsForAt(sumTypes Array<SumTypeDeclNode>, name String, i i64) Array<String> {
+    let empty Array<String>: []
+    if not i.lt(sumTypes.len()) { return empty }
+    if sumTypes.at(i).name.equals(name) { return sumTypes.at(i).variants }
+    return getVariantsForAt(sumTypes, name, i.add(1))
+}
+
+// resolveVariantNameAt — scan variants[i..] for one that equals armName (exact)
+// or starts with "armName-" (prefix).  Returns armName unchanged if not found.
+fn resolveVariantNameAt(armName String, variants Array<String>, i i64) String {
+    if not i.lt(variants.len()) { return armName }
+    let v String: variants.at(i)
+    // Exact match (e.g. "None" in ["Some-i64","None"]).
+    if v.equals(armName) { return v }
+    // Prefix match: variant starts with "armName-".
+    let prefix String: armName.append("-")
+    let prefixLen i64: prefix.len()
+    if prefixLen.lt(v.len().add(1)) {
+        if v.slice(0, prefixLen).equals(prefix) { return v }
+    }
+    return resolveVariantNameAt(armName, variants, i.add(1))
+}
+
+// rewriteArmPat — if pat is a VarRefNode, rewrite its name to the mangled
+// variant; otherwise return pat unchanged.
+fn rewriteArmPat(pat AstNode, variants Array<String>) AstNode {
+    match pat {
+        VarRefNode: {
+            let vr VarRefNode: pat
+            let newName String: resolveVariantNameAt(vr.name, variants, 0)
+            let r VarRefNode: { name: newName, line: vr.line, col: vr.col, resolvedType: vr.resolvedType }
+            return r
+        }
+        _: { return pat }
+    }
+    return pat
+}
+
+// rewriteStmtArmsAt — deep-clone arms[i..] rewriting non-wildcard patterns.
+fn rewriteStmtArmsAt(arms Array<MatchStmtArm>, variants Array<String>, out Array<MatchStmtArm>, i i64, sumTypes Array<SumTypeDeclNode>) Array<MatchStmtArm> {
+    if not i.lt(arms.len()) { return out }
+    let arm MatchStmtArm: arms.at(i)
+    if arm.isWildcard {
+        // Wildcard arm: recurse into body stmts only.
+        let newStmts Array<AstNode>: []
+        let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(arm.stmts, sumTypes, newStmts, 0)
+        let newArm MatchStmtArm: { isWildcard: arm.isWildcard, pattern: arm.pattern, stmts: rewritten }
+        out.add(newArm)
+    } else {
+        let newPat AstNode: rewriteArmPat(arm.pattern, variants)
+        let newStmts Array<AstNode>: []
+        let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(arm.stmts, sumTypes, newStmts, 0)
+        let newArm MatchStmtArm: { isWildcard: arm.isWildcard, pattern: newPat, stmts: rewritten }
+        out.add(newArm)
+    }
+    return rewriteStmtArmsAt(arms, variants, out, i.add(1), sumTypes)
+}
+
+// rewriteVariantArmsInStmt — rewrite one statement, recursing into sub-bodies.
+fn rewriteVariantArmsInStmt(stmt AstNode, sumTypes Array<SumTypeDeclNode>) AstNode {
+    match stmt {
+        MatchStmtNode: {
+            let mn MatchStmtNode: stmt
+            let condType String: infer.resolvedTypeOf(mn.condition)
+            let variants Array<String>: getVariantsForAt(sumTypes, condType, 0)
+            let outArms Array<MatchStmtArm>: []
+            let newArms Array<MatchStmtArm>: rewriteStmtArmsAt(mn.arms, variants, outArms, 0, sumTypes)
+            let result MatchStmtNode: { condition: mn.condition, arms: newArms }
+            return result
+        }
+        FnDeclNode: {
+            let fd FnDeclNode: stmt
+            let newBody Array<AstNode>: []
+            let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(fd.body, sumTypes, newBody, 0)
+            let r FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: rewritten, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
+            return r
+        }
+        WhileNode: {
+            let wn WhileNode: stmt
+            let newBody Array<AstNode>: []
+            let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(wn.body, sumTypes, newBody, 0)
+            let r WhileNode: { condition: wn.condition, body: rewritten, line: wn.line, col: wn.col }
+            return r
+        }
+        IfNode: {
+            let ifn IfNode: stmt
+            let thenStmts Array<AstNode>: []
+            let newThen Array<AstNode>: rewriteVariantArmsInStmtsAt(ifn.thenBranch.stmts, sumTypes, thenStmts, 0)
+            let elseStmts Array<AstNode>: []
+            let newElse Array<AstNode>: rewriteVariantArmsInStmtsAt(ifn.elseBranch.stmts, sumTypes, elseStmts, 0)
+            let newThenBranch BlockNode: { stmts: newThen }
+            let newElseBranch BlockNode: { stmts: newElse }
+            let r IfNode: { condition: ifn.condition, thenBranch: newThenBranch, elseBranch: newElseBranch, line: ifn.line, col: ifn.col }
+            return r
+        }
+        _: { return stmt }
+    }
+    return stmt
+}
+
+// rewriteVariantArmsInStmtsAt — walk stmts[i..] applying rewriteVariantArmsInStmt.
+fn rewriteVariantArmsInStmtsAt(stmts Array<AstNode>, sumTypes Array<SumTypeDeclNode>, out Array<AstNode>, i i64) Array<AstNode> {
+    if not i.lt(stmts.len()) { return out }
+    out.add(rewriteVariantArmsInStmt(stmts.at(i), sumTypes))
+    return rewriteVariantArmsInStmtsAt(stmts, sumTypes, out, i.add(1))
+}
+
+// rewriteVariantArms — entry point called from pipeline.suru after
+// rewriteCallSites.  Builds a concrete sum-type map from the merged statement
+// list and rewrites every match-arm pattern from its unmangled base name to
+// the fully-mangled variant name that the codegen expects.
+export fn rewriteVariantArms(stmts Array<AstNode>) Array<AstNode> {
+    let sumTypes Array<SumTypeDeclNode>: []
+    collectConcreteSumTypesAt(stmts, sumTypes, 0)
+    if sumTypes.len().equals(0) { return stmts }
+    let out Array<AstNode>: []
+    return rewriteVariantArmsInStmtsAt(stmts, sumTypes, out, 0)
+}

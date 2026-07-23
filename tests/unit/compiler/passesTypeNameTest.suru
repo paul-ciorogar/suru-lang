@@ -1,0 +1,106 @@
+// passesTypeNameTest.suru — unit tests for the type-name predicates in
+// semantic/passes.suru after their §3.4 reimplementation on the structured `Type`.
+//
+// Before §3.4 this section carried a second copy of the mono pass's string mangler
+// (indexOfAngle / ltrimStr / flattenPassTypeArg / appendMangledArgsAt), kept alive
+// only because passes.suru sits on a different include chain. It is now
+// parseType + printSymbol, so the rewrite must be pinned on three axes:
+//
+//   1. SHAPE, not prefix — `isBuiltinType` classified any name longer than five
+//      characters beginning with "Array" as the built-in array, so `ArrayLitNode`
+//      (a real AST node in this compiler) came back true. A parsed `Prim` cannot.
+//   2. DEPTH — `normalizeGenericTypeName` mangled the outer application only, so
+//      `Option<Array<i64>>` became `Option-Array<i64>`, a name the mono pass never
+//      emits. printSymbol flattens every level.
+//   3. The unchanged contract — `resolveTypeName` still accepts builtins, declared
+//      names, and generic annotations whose mangled form is registered, and still
+//      rejects everything else.
+//
+// Run in-process by the test runner (tests/runner/main.suru).
+
+namespace Test.Unit.Compiler.PassesTypeName
+
+import {
+    [TestResult, assertTrue, assertEqStr]: Test.Unit.Assert
+    [makeAnalyzerState]: Suru.Compiler.Semantic
+    [isBuiltinType, resolveTypeName, normalizeGenericTypeName]: Suru.Compiler.Semantic.Passes
+}
+
+export fn passesTypeNameTests() Array<TestResult> {
+    let results Array<TestResult>: []
+    let state AnalyzerState: makeAnalyzerState()
+
+    // ─── isBuiltinType ───────────────────────────────────────────────────────────
+
+    results.add(assertTrue("builtin i64",    isBuiltinType("i64")))
+    results.add(assertTrue("builtin bool",   isBuiltinType("bool")))
+    results.add(assertTrue("builtin String", isBuiltinType("String")))
+    results.add(assertTrue("builtin Str",    isBuiltinType("Str")))
+    results.add(assertTrue("builtin ptr",    isBuiltinType("ptr")))
+    // The built-in array in every spelling the compiler carries.
+    results.add(assertTrue("builtin Array",         isBuiltinType("Array")))
+    results.add(assertTrue("builtin Array<i64>",    isBuiltinType("Array<i64>")))
+    results.add(assertTrue("builtin Array<T>",      isBuiltinType("Array<T>")))
+    results.add(assertTrue("builtin Array:i64",     isBuiltinType("Array:i64")))
+    results.add(assertTrue("builtin Array<Array<i64>>", isBuiltinType("Array<Array<i64>>")))
+
+    // FIXED (§3.4): a user type whose name merely STARTS with "Array" is not the
+    // built-in array. The old prefix scan accepted all of these.
+    results.add(assertTrue("NOT builtin ArrayLitNode",  not isBuiltinType("ArrayLitNode")))
+    results.add(assertTrue("NOT builtin ArrayCodegen",  not isBuiltinType("ArrayCodegen")))
+    // A user generic is not a builtin either.
+    results.add(assertTrue("NOT builtin Box<i64>",      not isBuiltinType("Box<i64>")))
+    results.add(assertTrue("NOT builtin Token",         not isBuiltinType("Token")))
+
+    // ─── normalizeGenericTypeName (== the one mangling rule) ────────────────────
+
+    results.add(assertEqStr("mangle plain i64",  normalizeGenericTypeName("i64"), "i64"))
+    results.add(assertEqStr("mangle plain Token", normalizeGenericTypeName("Token"), "Token"))
+    // An already-mangled name is idempotent (it parses as a bare name).
+    results.add(assertEqStr("mangle Box-i64 idempotent", normalizeGenericTypeName("Box-i64"), "Box-i64"))
+    results.add(assertEqStr("mangle Box<i64>", normalizeGenericTypeName("Box<i64>"), "Box-i64"))
+    results.add(assertEqStr("mangle DynArray<i64>",
+        normalizeGenericTypeName("DynArray<i64>"), "DynArray-i64"))
+    results.add(assertEqStr("mangle multi-arg Pair<i64, String>",
+        normalizeGenericTypeName("Pair<i64, String>"), "Pair-i64-String"))
+    results.add(assertEqStr("mangle Array<i64>", normalizeGenericTypeName("Array<i64>"), "Array-i64"))
+    // FIXED (§3.4): nested arguments flatten at every level. The single-level
+    // version produced "Option-Array<i64>" — a name no instantiation ever carries.
+    results.add(assertEqStr("mangle nested Option<Array<i64>>",
+        normalizeGenericTypeName("Option<Array<i64>>"), "Option-Array-i64"))
+    results.add(assertEqStr("mangle nested List<Option<Token>>",
+        normalizeGenericTypeName("List<Option<Token>>"), "List-Option-Token"))
+    // A multi-arg argument splits at the right depth (not at the inner comma).
+    results.add(assertEqStr("mangle Some<Pair<i64, String>>",
+        normalizeGenericTypeName("Some<Pair<i64, String>>"), "Some-Pair-i64-String"))
+
+    // ─── resolveTypeName ────────────────────────────────────────────────────────
+
+    // Builtins resolve with an empty registry.
+    results.add(assertTrue("resolve i64",        resolveTypeName(state, "i64")))
+    results.add(assertTrue("resolve Array<i64>", resolveTypeName(state, "Array<i64>")))
+    // Unknown names do not.
+    results.add(assertTrue("REJECT unknown Token",    not resolveTypeName(state, "Token")))
+    results.add(assertTrue("REJECT unknown Box<i64>", not resolveTypeName(state, "Box<i64>")))
+
+    // Declare a plain type and a mono-instantiated generic, exactly as the mono
+    // pass injects them (the mangled name is what lands in state.typeNames).
+    let typeNames Array<String>: state.typeNames
+    typeNames.add("Token")
+    typeNames.add("Box-i64")
+    typeNames.add("Pair-i64-String")
+
+    results.add(assertTrue("resolve declared Token", resolveTypeName(state, "Token")))
+    // The annotation resolves through its mangled form...
+    results.add(assertTrue("resolve Box<i64> via Box-i64", resolveTypeName(state, "Box<i64>")))
+    results.add(assertTrue("resolve Box-i64 directly",     resolveTypeName(state, "Box-i64")))
+    results.add(assertTrue("resolve Pair<i64, String> via mangled",
+        resolveTypeName(state, "Pair<i64, String>")))
+    // ...and only its own: a different instantiation is still unknown.
+    results.add(assertTrue("REJECT Box<bool> (not instantiated)",
+        not resolveTypeName(state, "Box<bool>")))
+    results.add(assertTrue("REJECT Pair<String, i64> (arg order)",
+        not resolveTypeName(state, "Pair<String, i64>")))
+
+    return results
+}

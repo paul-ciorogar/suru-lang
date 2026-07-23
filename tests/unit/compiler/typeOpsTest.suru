@@ -17,10 +17,12 @@
 namespace Test.Unit.Compiler.TypeOps
 
 import {
-    [TestResult, assertTrue]: Test.Unit.Assert
+    [TestResult, assertTrue, assertEqStr]: Test.Unit.Assert
     [parseType]: Suru.Compiler.Types.Parse
+    [printSuruType]: Suru.Compiler.Types.Print
     [Type, varType, namedType, arrType]: Suru.Compiler.Types
-    [equalType, substitute, binding, Binding, unify, UnifyResult]: Suru.Compiler.Types.Ops
+    [equalType, canonType, substitute, binding, Binding, unify, UnifyResult]: Suru.Compiler.Types.Ops
+    [makeSuruType]: Suru.Compiler.Codegen.TypeHelpers
 }
 
 // typeOpsTests — one TestResult per assertion.
@@ -183,6 +185,58 @@ export fn typeOpsTests() Array<TestResult> {
     results.add(assertTrue("unify Array<?0> = Array<Token> ok", uArr.ok))
     results.add(assertTrue("unify Array<?0> solves ?0=Token",
         equalType(substitute(varT, uArr.bindings), parseType("Token"))))
+
+    // ─── canonType (§3.4) ────────────────────────────────────────────────────────
+    //
+    // The point of canonType: an APPLICATION and its MANGLED name denote one type,
+    // but parse to different shapes (Named vs Prim — parseType does not read the
+    // hyphen form). Canonicalizing folds the application, so equalType sees through
+    // the duality. Each pair below is exactly what isAssignable is handed when a
+    // post-mono annotation meets a registered instantiation name.
+
+    results.add(assertTrue("canon Box<i64> == Box-i64",
+        equalType(canonType(parseType("Box<i64>")), canonType(parseType("Box-i64")))))
+    // Multi-arg: the case a depth-blind comma split used to mangle wrongly.
+    results.add(assertTrue("canon Pair<i64, String> == Pair-i64-String",
+        equalType(canonType(parseType("Pair<i64, String>")), canonType(parseType("Pair-i64-String")))))
+    // Nested: printSymbol flattens every level, so the inner Array folds too.
+    results.add(assertTrue("canon Option<Array<i64>> == Option-Array-i64",
+        equalType(canonType(parseType("Option<Array<i64>>")), canonType(parseType("Option-Array-i64")))))
+    // The built-in array keeps its `Arr` shape (colon and source forms agree)...
+    results.add(assertTrue("canon Array<i64> == Array:i64",
+        equalType(canonType(parseType("Array<i64>")), canonType(parseType("Array:i64")))))
+    // ...and is NOT collapsed to a name, so it stays distinct from a user type
+    // that happens to be called "Array-i64".
+    results.add(assertTrue("canon Array<i64> != Array-i64 (Arr is not folded)",
+        not equalType(canonType(parseType("Array<i64>")), canonType(parseType("Array-i64")))))
+    // A user generic is still distinguished from a different one, and from a bare name.
+    results.add(assertTrue("canon Box<i64> != Box<bool>",
+        not equalType(canonType(parseType("Box<i64>")), canonType(parseType("Box<bool>")))))
+    results.add(assertTrue("canon List<Token> != Array<Token>",
+        not equalType(canonType(parseType("List<Token>")), canonType(parseType("Array<Token>")))))
+    // An array of a generic keeps the Arr wrapper and folds only the element.
+    results.add(assertTrue("canon Array<Box<i64>> == Array:Box-i64",
+        equalType(canonType(parseType("Array<Box<i64>>")), canonType(parseType("Array:Box-i64")))))
+
+    // KEY INVARIANT: canonType is printSuruType-preserving, so routing both sides of
+    // isAssignable through it feeds the string-keyed registries exactly the strings
+    // makeSuruType produced before §3.4.
+    results.add(assertEqStr("canon preserves suruType i64",
+        printSuruType(canonType(parseType("i64"))), makeSuruType("i64")))
+    results.add(assertEqStr("canon preserves suruType Array<i64>",
+        printSuruType(canonType(parseType("Array<i64>"))), makeSuruType("Array<i64>")))
+    results.add(assertEqStr("canon preserves suruType Array:i64",
+        printSuruType(canonType(parseType("Array:i64"))), makeSuruType("Array:i64")))
+    results.add(assertEqStr("canon preserves suruType Box<i64>",
+        printSuruType(canonType(parseType("Box<i64>"))), makeSuruType("Box<i64>")))
+    results.add(assertEqStr("canon preserves suruType Box-i64",
+        printSuruType(canonType(parseType("Box-i64"))), makeSuruType("Box-i64")))
+    results.add(assertEqStr("canon preserves suruType Pair<i64, String>",
+        printSuruType(canonType(parseType("Pair<i64, String>"))), makeSuruType("Pair<i64, String>")))
+    results.add(assertEqStr("canon preserves suruType Option<Array<i64>>",
+        printSuruType(canonType(parseType("Option<Array<i64>>"))), makeSuruType("Option<Array<i64>>")))
+    results.add(assertEqStr("canon preserves suruType Array<Array<i64>>",
+        printSuruType(canonType(parseType("Array<Array<i64>>"))), makeSuruType("Array<Array<i64>>")))
 
     return results
 }

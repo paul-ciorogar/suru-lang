@@ -21,44 +21,6 @@ import {
     [substitute, Binding, binding, varizeType]: Suru.Compiler.Types.Ops
 }
 
-// ─── String helpers ───────────────────────────────────────────────────────────
-
-// indexOfLT — index of first '<' in s, or s.len() when absent.
-export fn indexOfLT(s String) i64 {
-    let i i64: 0
-    while i.lt(s.len()) {
-        if s.at(i).equals("<") { return i }
-        i: i.add(1)
-    }
-    return s.len()
-}
-
-// trimLeft — strip leading ASCII spaces from s.
-export fn trimLeft(s String) String {
-    let i i64: 0
-    while i.lt(s.len()) {
-        if not s.slice(i, i.add(1)).equals(" ") { return s.slice(i, s.len()) }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// splitByComma — split s by ',' into an Array<String>.
-export fn splitByComma(s String) Array<String> {
-    let results Array<String>: []
-    let start i64: 0
-    let i i64: 0
-    while i.lt(s.len()) {
-        if s.at(i).equals(",") {
-            results.add(s.slice(start, i))
-            start: i.add(1)
-        }
-        i: i.add(1)
-    }
-    results.add(s.slice(start, s.len()))
-    return results
-}
-
 // buildBindings — pair each type-parameter name with the parsed concrete type it
 // maps to, producing the `Array<Binding>` `substitute` consumes. Mirrors the
 // parallel-array convention of the legacy substituteType (paramNames[i] ↦

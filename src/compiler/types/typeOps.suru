@@ -2,8 +2,9 @@
 //
 // This file hosts the canonical operations that compare and transform `Type`
 // values (design in semantic_analysis_architecture_rd.md §4.A).
-// It begins with the keystone equality test (`equalType`), then `substitute`
-// (type-variable replacement); a later task adds `unify` alongside.
+// It begins with the keystone equality test (`equalType`), then `canonType`
+// (fold a generic application to its mangled name so equality sees through the
+// applied/mangled duality), `substitute` (type-variable replacement) and `unify`.
 //
 // `equalType` is the single structural-equality rule for the whole compiler. It
 // replaces the per-call-site string comparisons over the three legacy encodings
@@ -22,6 +23,7 @@ namespace Suru.Compiler.Types.Ops
 
 import {
     [Type, Prim, Named, Arr, Var, primType, namedType, arrType, varType]: Suru.Compiler.Types
+    [printSymbol]: Suru.Compiler.Types.Print
 }
 
 // equalType — structural equality of two `Type` values.
@@ -99,6 +101,59 @@ fn equalArgs(xs Array<Type>, ys Array<Type>) bool {
         i: i.add(1)
     }
     return true
+}
+
+// ─── canonType ──────────────────────────────────────────────────────────────────
+//
+// `equalType` alone cannot compare the two forms the compiler carries for the SAME
+// monomorphized type. `parseType` is deliberately not a reader of the hyphen-mangled
+// form (see typeParse.suru's header), so after the mono pass:
+//
+//   "Box<i64>"  parses to  Named "Box" [Prim "i64"]     (the annotation the user wrote)
+//   "Box-i64"   parses to  Prim  "Box-i64"              (the instantiated declaration)
+//
+// Structurally these are a `Named` and a `Prim` — unequal — yet they denote one type.
+// `canonType` removes that duality by folding a generic APPLICATION into the `Prim`
+// that names its instantiation, which is exactly what `printSymbol` computes:
+//
+//   Named "Box" [Prim "i64"]        -> Prim "Box-i64"
+//   Named "Pair" [i64, String]      -> Prim "Pair-i64-String"
+//   Named "Option" [Arr (Prim i64)] -> Prim "Option-Array-i64"   (printSymbol flattens)
+//   Arr (Named "Box" [i64])         -> Arr (Prim "Box-i64")      (recurses; stays an Arr)
+//   Prim / Var                      -> deep copy, unchanged
+//
+// The built-in `Arr` keeps its shape: it is the one generic the codegen still spells
+// positionally (colon form `Array:i64`), and collapsing it would make `Array<i64>`
+// compare equal to a user type literally named `Array-i64`.
+//
+// KEY INVARIANT (asserted in typeOpsTest.suru): canonType is `printSuruType`-preserving,
+// i.e. `printSuruType(canonType(parseType(s)))` equals `printSuruType(parseType(s))` —
+// which is `makeSuruType(s)`. That is what lets `isAssignable` (semantic/assignable.suru)
+// swap its string comparison for `equalType` on canonicalized types with no change in
+// which pairs are accepted, while still handing the legacy string form to the
+// string-keyed registries (`state.isSumVariant`).
+//
+// Result is a fresh deep copy, like `substitute`/`varizeType`: every leaf clones its
+// name string, so the caller may drop the result and the input independently.
+export fn canonType(t Type) Type {
+    match t {
+        Prim: {
+            let p Prim: t
+            return primType(p.name.clone())
+        }
+        Named: {
+            // printSymbol returns a fresh owned String; primType takes ownership of it.
+            return primType(printSymbol(t))
+        }
+        Arr: {
+            let a Arr: t
+            return arrType(canonType(a.elem))
+        }
+        Var: {
+            let v Var: t
+            return varType(v.id, v.name.clone())
+        }
+    }
 }
 
 // ─── substitute ─────────────────────────────────────────────────────────────────

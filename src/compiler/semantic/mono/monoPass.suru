@@ -13,6 +13,10 @@
 // filterGenericDefs strips every FnDeclNode / TypeDeclNode with a non-empty
 // typeParams list from a statement array — used on both the resolved stmts
 // and on ownStmts before analyzeModuleStatements to prevent spurious errors.
+//
+// rewriteCallSites (below) renames each generic call site to the mangled name of
+// the copy that was instantiated for it.  The final mono step — rewriting match-arm
+// patterns to mangled variant names — lives in monoVariantArms.suru.
 
 namespace Suru.Compiler.Semantic.Mono
 
@@ -147,108 +151,17 @@ fn mangleFromTypeArgs(name String, typeArgs Array<Type>, registry GenericRegistr
 }
 
 // rewriteCallName — return the (possibly mangled) name for a call.
-// Prefers the resolver-recorded structured `typeArgs` (mangleFromTypeArgs); falls
-// back to monoInfer's syntactic binding helpers (collectArgTypes /
-// buildConcreteTypes / allBound) only when no typeArgs were recorded.
+// The resolver-recorded structured `typeArgs` are the SOLE binding source: the
+// resolver (rtCallUnify / rtMethodUnify / rtRecordArgBindings) already solved the
+// call's type variables, and monoInfer instantiated from those same typeArgs, so
+// reading them here is what makes the two halves agree byte-for-byte.  A call
+// with no recorded typeArgs is not a generic instantiation site and keeps its
+// name.  (The old syntactic arg-binding fallback is gone — a missing rename now
+// means the resolver failed to record the binding, and belongs fixed there.)
 fn rewriteCallName(cn CallNode, registry GenericRegistry) String {
     let fromTypeArgs String: mangleFromTypeArgs(cn.name, cn.typeArgs, registry)
     if not fromTypeArgs.equals("") { return fromTypeArgs }
-    let fnIdx i64: registry.findFn(cn.name)
-    if fnIdx.equals(registry.fns.len()) { return cn.name }
-    let def GenericFnDef: registry.fns.at(fnIdx)
-    let argTypes Array<String>: infer.collectArgTypes(cn.args)
-    let concretesOut Array<String>: []
-    let concretes Array<String>: infer.buildConcreteTypes(def.typeParams(), def.node.params, argTypes, concretesOut)
-    if not infer.allBound(concretes) { return cn.name }
-    return inst.mangleGenericName(cn.name, concretes)
-}
-
-// rewriteZeroArgCallName — for a zero-param generic CallNode, try to determine
-// the mangled name from the let-binding type annotation (return-type context).
-// Returns cn.name unchanged if no mangling can be determined.
-fn rewriteZeroArgCallName(cn CallNode, annotation String, registry GenericRegistry) String {
-    let fnIdx i64: registry.findFn(cn.name)
-    if fnIdx.equals(registry.fns.len()) { return cn.name }
-    let def GenericFnDef: registry.fns.at(fnIdx)
-    if not def.node.params.len().equals(0) { return cn.name }
-    let typeParams Array<String>: def.typeParams()
-    if not typeParams.len().equals(1) { return cn.name }
-    let bound String: infer.matchReturnTypeSingle(def.node.returnType, annotation, typeParams.at(0))
-    if bound.equals("") { return cn.name }
-    let concretes Array<String>: []
-    concretes.add(clone(bound))
-    drop(bound)
-    let mangled String: inst.mangleGenericName(cn.name, concretes)
-    drop(concretes)
-    return mangled
-}
-
-// rewriteCallInExprWithAnnotation — rewrite a call expression using the
-// expected-type annotation as context for zero-arg generic calls.
-// Falls through to rewriteCallsInExpr for all other expression types.
-fn rewriteCallInExprWithAnnotation(expr AstNode, annotation String, registry GenericRegistry) AstNode {
-    match expr {
-        CallNode: {
-            let cn CallNode: expr
-            let newName String: rewriteCallName(cn, registry)
-            // If arg-based binding failed, try annotation-based binding.
-            let shouldTry bool: newName.equals(cn.name) and not annotation.equals("")
-            let finalName String: match shouldTry {
-                true: rewriteZeroArgCallName(cn, annotation, registry)
-                _: newName
-            }
-            let newArgs Array<AstNode>: rewriteCallsInExprs(cn.args, registry)
-            let result CallNode: { name: finalName, args: newArgs, typeArgs: cn.typeArgs, line: cn.line, col: cn.col, resolvedType: cn.resolvedType }
-            return result
-        }
-        _: { return rewriteCallsInExpr(expr, registry) }
-    }
-    return rewriteCallsInExpr(expr, registry)
-}
-
-// rewriteZeroArgFnFromAnnotation — scan registry for a zero-arg generic function
-// whose return type can produce `annotation`. Returns the mangled name of the
-// first matching function, or "" if none found.
-// Used as a fallback when rewriteCallInExprWithAnnotation cannot match the call
-// expression's variant (bootstrap binary limitation).
-fn rewriteZeroArgFnFromAnnotation(annotation String, resolvedRet String, registry GenericRegistry) String {
-    // Only proceed if annotation is a generic application (has a '<').
-    let annotBase String: infer.extractBaseTypeName(annotation)
-    if annotBase.equals(annotation) { drop(annotBase)  return "" }
-    let i i64: 0
-    while i.lt(registry.fns.len()) {
-        let def GenericFnDef: registry.fns.at(i)
-        if def.node.params.len().equals(0) {
-            let typeParams Array<String>: def.typeParams()
-            if typeParams.len().equals(1) {
-                let defBase String: infer.extractBaseTypeName(def.node.returnType)
-                let baseMatch bool: defBase.equals(annotBase)
-                drop(defBase)
-                if baseMatch {
-                    // Also verify against the expression's resolved return type
-                    // (contains the generic type param, e.g. "List<T>").
-                    let resolvedBase String: infer.extractBaseTypeName(resolvedRet)
-                    let resolvedMatch bool: resolvedBase.equals(annotBase)
-                    drop(resolvedBase)
-                    if resolvedMatch {
-                        let bound String: infer.matchReturnTypeSingle(def.node.returnType, annotation, typeParams.at(0))
-                        if not bound.equals("") {
-                            let concretes Array<String>: []
-                            concretes.add(clone(bound))
-                            drop(bound)
-                            drop(annotBase)
-                            let mangled String: inst.mangleGenericName(def.name, concretes)
-                            drop(concretes)
-                            return mangled
-                        }
-                    }
-                }
-            }
-        }
-        i: i.add(1)
-    }
-    drop(annotBase)
-    return ""
+    return cn.name
 }
 
 // rewriteCallsInExprs — return a new expression array with all generic call names mangled.
@@ -427,28 +340,12 @@ fn rewriteCallsInStmt(node AstNode, registry GenericRegistry) AstNode {
         TypeDeclNode: { return node }
         LetNode: {
             let ln LetNode: node
-            // Pass the annotation as context so zero-arg generic calls can be
-            // mangled even when arg-based binding fails (e.g. newList()).
-            let newVal AstNode: rewriteCallInExprWithAnnotation(ln.value, ln.typeName, registry)
-            // Fallback: if the value has a generic resolved return type that
-            // matches the annotation base (e.g. "List<T>" vs "List<i64>"),
-            // scan registry.fns for a zero-arg function producing that type.
-            // This handles cases where rewriteCallInExprWithAnnotation's match on
-            // the expr's AstNode variant does not fire (bootstrap binary limitation).
-            // resolvedTypeOf returns a borrowed field reference — do NOT drop it.
-            let resolvedRet String: infer.resolvedTypeOf(newVal)
-            if not resolvedRet.equals("") {
-                if not resolvedRet.equals(ln.typeName) {
-                    let mangledName String: rewriteZeroArgFnFromAnnotation(ln.typeName, resolvedRet, registry)
-                    if not mangledName.equals("") {
-                        // mangledName ownership transfers to rewrittenCall.name — do NOT drop.
-                        let emptyArgs Array<AstNode>: []
-                        let emptyTypeArgs Array<Type>: []
-                        let rewrittenCall CallNode: { name: mangledName, args: emptyArgs, typeArgs: emptyTypeArgs, line: 0, col: 0, resolvedType: ln.typeName }
-                        newVal: rewrittenCall
-                    }
-                }
-            }
+            // No annotation threading: a zero-arg generic call such as
+            // `let arr List<i64>: newList()` is bound by the resolver, which
+            // unifies the callee's return template against the annotation and
+            // records the concrete typeArgs on the CallNode.  rewriteCallsInExpr
+            // reads those, so the annotation is not needed a second time here.
+            let newVal AstNode: rewriteCallsInExpr(ln.value, registry)
             let result LetNode: { name: ln.name, typeName: ln.typeName, value: newVal, line: ln.line, col: ln.col, srcPath: ln.srcPath }
             return result
         }
@@ -517,147 +414,4 @@ export fn rewriteCallSites(stmts Array<AstNode>, registry GenericRegistry) Array
     let fns Array<GenericFnDef>: registry.fns
     if fns.len().equals(0) { return stmts }
     return rewriteCallsInStmts(stmts, registry)
-}
-
-// ─── Variant arm rewriting ────────────────────────────────────────────────────
-// After pass 2 and rewriteCallSites, match arm patterns still use the
-// unmangled base names (e.g. "Some", "None") as written by the programmer.
-// rewriteVariantArms resolves each arm pattern to the mangled variant name
-// stored in the concrete SumTypeDeclNode (e.g. "Some" → "Some-i64") by
-// looking up the matched expression's resolvedType.
-
-// collectConcreteSumTypesAt — append every concrete SumTypeDeclNode in
-// stmts[i..] (typeParams empty) to out; skip generic templates.
-fn collectConcreteSumTypesAt(stmts Array<AstNode>, out Array<SumTypeDeclNode>, i i64) {
-    if not i.lt(stmts.len()) { return }
-    match stmts.at(i) {
-        SumTypeDeclNode: {
-            let sd SumTypeDeclNode: stmts.at(i)
-            let tp Array<String>: sd.typeParams
-            if tp.len().equals(0) { out.add(sd) }
-        }
-        _: {}
-    }
-    collectConcreteSumTypesAt(stmts, out, i.add(1))
-}
-
-// getVariantsForAt — return the variants of sumTypes[i..] whose name equals
-// `name`, or an empty array if not found.
-fn getVariantsForAt(sumTypes Array<SumTypeDeclNode>, name String, i i64) Array<String> {
-    let empty Array<String>: []
-    if not i.lt(sumTypes.len()) { return empty }
-    if sumTypes.at(i).name.equals(name) { return sumTypes.at(i).variants }
-    return getVariantsForAt(sumTypes, name, i.add(1))
-}
-
-// resolveVariantNameAt — scan variants[i..] for one that equals armName (exact)
-// or starts with "armName-" (prefix).  Returns armName unchanged if not found.
-fn resolveVariantNameAt(armName String, variants Array<String>, i i64) String {
-    if not i.lt(variants.len()) { return armName }
-    let v String: variants.at(i)
-    // Exact match (e.g. "None" in ["Some-i64","None"]).
-    if v.equals(armName) { return v }
-    // Prefix match: variant starts with "armName-".
-    let prefix String: armName.append("-")
-    let prefixLen i64: prefix.len()
-    if prefixLen.lt(v.len().add(1)) {
-        if v.slice(0, prefixLen).equals(prefix) { return v }
-    }
-    return resolveVariantNameAt(armName, variants, i.add(1))
-}
-
-// rewriteArmPat — if pat is a VarRefNode, rewrite its name to the mangled
-// variant; otherwise return pat unchanged.
-fn rewriteArmPat(pat AstNode, variants Array<String>) AstNode {
-    match pat {
-        VarRefNode: {
-            let vr VarRefNode: pat
-            let newName String: resolveVariantNameAt(vr.name, variants, 0)
-            let r VarRefNode: { name: newName, line: vr.line, col: vr.col, resolvedType: vr.resolvedType }
-            return r
-        }
-        _: { return pat }
-    }
-    return pat
-}
-
-// rewriteStmtArmsAt — deep-clone arms[i..] rewriting non-wildcard patterns.
-fn rewriteStmtArmsAt(arms Array<MatchStmtArm>, variants Array<String>, out Array<MatchStmtArm>, i i64, sumTypes Array<SumTypeDeclNode>) Array<MatchStmtArm> {
-    if not i.lt(arms.len()) { return out }
-    let arm MatchStmtArm: arms.at(i)
-    if arm.isWildcard {
-        // Wildcard arm: recurse into body stmts only.
-        let newStmts Array<AstNode>: []
-        let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(arm.stmts, sumTypes, newStmts, 0)
-        let newArm MatchStmtArm: { isWildcard: arm.isWildcard, pattern: arm.pattern, stmts: rewritten }
-        out.add(newArm)
-    } else {
-        let newPat AstNode: rewriteArmPat(arm.pattern, variants)
-        let newStmts Array<AstNode>: []
-        let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(arm.stmts, sumTypes, newStmts, 0)
-        let newArm MatchStmtArm: { isWildcard: arm.isWildcard, pattern: newPat, stmts: rewritten }
-        out.add(newArm)
-    }
-    return rewriteStmtArmsAt(arms, variants, out, i.add(1), sumTypes)
-}
-
-// rewriteVariantArmsInStmt — rewrite one statement, recursing into sub-bodies.
-fn rewriteVariantArmsInStmt(stmt AstNode, sumTypes Array<SumTypeDeclNode>) AstNode {
-    match stmt {
-        MatchStmtNode: {
-            let mn MatchStmtNode: stmt
-            let condType String: infer.resolvedTypeOf(mn.condition)
-            let variants Array<String>: getVariantsForAt(sumTypes, condType, 0)
-            let outArms Array<MatchStmtArm>: []
-            let newArms Array<MatchStmtArm>: rewriteStmtArmsAt(mn.arms, variants, outArms, 0, sumTypes)
-            let result MatchStmtNode: { condition: mn.condition, arms: newArms }
-            return result
-        }
-        FnDeclNode: {
-            let fd FnDeclNode: stmt
-            let newBody Array<AstNode>: []
-            let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(fd.body, sumTypes, newBody, 0)
-            let r FnDeclNode: { name: fd.name, params: fd.params, returnType: fd.returnType, body: rewritten, srcPath: fd.srcPath, typeParams: fd.typeParams, line: fd.line, col: fd.col }
-            return r
-        }
-        WhileNode: {
-            let wn WhileNode: stmt
-            let newBody Array<AstNode>: []
-            let rewritten Array<AstNode>: rewriteVariantArmsInStmtsAt(wn.body, sumTypes, newBody, 0)
-            let r WhileNode: { condition: wn.condition, body: rewritten, line: wn.line, col: wn.col }
-            return r
-        }
-        IfNode: {
-            let ifn IfNode: stmt
-            let thenStmts Array<AstNode>: []
-            let newThen Array<AstNode>: rewriteVariantArmsInStmtsAt(ifn.thenBranch.stmts, sumTypes, thenStmts, 0)
-            let elseStmts Array<AstNode>: []
-            let newElse Array<AstNode>: rewriteVariantArmsInStmtsAt(ifn.elseBranch.stmts, sumTypes, elseStmts, 0)
-            let newThenBranch BlockNode: { stmts: newThen }
-            let newElseBranch BlockNode: { stmts: newElse }
-            let r IfNode: { condition: ifn.condition, thenBranch: newThenBranch, elseBranch: newElseBranch, line: ifn.line, col: ifn.col }
-            return r
-        }
-        _: { return stmt }
-    }
-    return stmt
-}
-
-// rewriteVariantArmsInStmtsAt — walk stmts[i..] applying rewriteVariantArmsInStmt.
-fn rewriteVariantArmsInStmtsAt(stmts Array<AstNode>, sumTypes Array<SumTypeDeclNode>, out Array<AstNode>, i i64) Array<AstNode> {
-    if not i.lt(stmts.len()) { return out }
-    out.add(rewriteVariantArmsInStmt(stmts.at(i), sumTypes))
-    return rewriteVariantArmsInStmtsAt(stmts, sumTypes, out, i.add(1))
-}
-
-// rewriteVariantArms — entry point called from pipeline.suru after
-// rewriteCallSites.  Builds a concrete sum-type map from the merged statement
-// list and rewrites every match-arm pattern from its unmangled base name to
-// the fully-mangled variant name that the codegen expects.
-export fn rewriteVariantArms(stmts Array<AstNode>) Array<AstNode> {
-    let sumTypes Array<SumTypeDeclNode>: []
-    collectConcreteSumTypesAt(stmts, sumTypes, 0)
-    if sumTypes.len().equals(0) { return stmts }
-    let out Array<AstNode>: []
-    return rewriteVariantArmsInStmtsAt(stmts, sumTypes, out, 0)
 }

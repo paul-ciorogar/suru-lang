@@ -16,8 +16,11 @@
 // for both binding paths:
 //
 //   monoLetNewlist.suru      `let arr List<i64>: newList()`   — the let-annotation
-//                            path, which the syntactic fallback
-//                            (rewriteZeroArgCallName) could already mangle.
+//                            path.  The resolver unifies the callee's return
+//                            template against the annotation and records the
+//                            binding, so this is a `typeArgs` rename too; the
+//                            syntactic fallback that used to cover it
+//                            (rewriteZeroArgCallName) has been removed.
 //   monoObjfieldNewlist.suru `{ items: newList() }`           — an object-literal
 //                            FIELD value.  There is no let annotation and no
 //                            call argument here, so every syntactic binding arm
@@ -127,9 +130,9 @@ export fn monoCallSiteRewriteTests() Array<TestResult> {
     let results Array<TestResult>: []
 
     // ── Path 1: let annotation (`let arr List<i64>: newList()`) ───────────────
-    // Already handled before typeArgs existed, via the syntactic
-    // rewriteZeroArgCallName fallback.  Pinned here so a later removal of that
-    // fallback cannot silently regress it.
+    // Handled before typeArgs existed by the syntactic rewriteZeroArgCallName
+    // fallback; now carried by the resolver-recorded typeArgs alone.  This
+    // assertion is what pinned the behaviour across that fallback's removal.
     let letPath String: "/work/tests/unit/compiler/fixtures/monoLetNewlist.suru"
     let letRes DebugResult: runPipelineDebug(letPath, "mono")
     let letBody Array<AstNode>: mainBodyOf(letRes.stmts)

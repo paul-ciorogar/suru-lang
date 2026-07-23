@@ -20,7 +20,6 @@ namespace Suru.Compiler.Semantic.Mono.Infer
 
 import {
     inst: Suru.Compiler.Semantic.Mono.Instantiate
-    subst: Suru.Compiler.Semantic.Mono.Subst
     collect: Suru.Compiler.Semantic.Mono.Collect
     [Type]: Suru.Compiler.Types
     [printAnnotation]: Suru.Compiler.Types.Print
@@ -391,101 +390,6 @@ fn deduplicateRequests(raw Array<InstantiationRequest>) Array<InstantiationReque
     }
     drop(seen)
     return out
-}
-
-// ─── Retained helpers for the monoPass call-site rewriter ──
-//
-// These syntactic string helpers are no longer used by the collector above (it is
-// now mechanical), but the monoPass call-site rewriter (rewriteCallName /
-// rewriteZeroArgCallName / rewriteZeroArgFnFromAnnotation) still computes mangled
-// names with them.  
-
-// extractBaseTypeName — the portion of a generic annotation before the first '<'.
-// "Pair<i64, String>" → "Pair";  "i64" → "i64".
-export fn extractBaseTypeName(typeName String) String {
-    return typeName.slice(0, subst.indexOfLT(typeName))
-}
-
-// suruCanonToAnnotation — convert the suru canonical form "Array:X" to annotation
-// form "Array<X>"; other forms pass through (already annotation form or a plain
-// mangled name like "Option-i64").
-fn suruCanonToAnnotation(t String) String {
-    let len i64: t.len()
-    if len.gt(5) {
-        if t.slice(0, 6).equals("Array:") {
-            return "Array<".append(t.slice(6, len)).append(">")
-        }
-    }
-    return clone(t)
-}
-
-// collectArgTypes — the type of each arg, normalised to annotation form.
-export fn collectArgTypes(args Array<AstNode>) Array<String> {
-    let out Array<String>: []
-    let i i64: 0
-    while i.lt(args.len()) {
-        let raw String: clone(resolvedTypeOf(args.at(i)))
-        let normalized String: suruCanonToAnnotation(raw)
-        drop(raw)
-        out.add(normalized)
-        i: i.add(1)
-    }
-    return out
-}
-
-// findBindingForVar — the argTypes element of the first param whose typeName equals
-// typeVar (bare type-variable match), or "" if none.
-fn findBindingForVar(typeVar String, params Array<Param>, argTypes Array<String>) String {
-    let i i64: 0
-    while i.lt(params.len()) {
-        if params.at(i).typeName.equals(typeVar) { return argTypes.at(i) }
-        i: i.add(1)
-    }
-    return ""
-}
-
-// buildConcreteTypes — for each typeParam, find its binding and append to out.
-export fn buildConcreteTypes(typeParams Array<String>, params Array<Param>, argTypes Array<String>, out Array<String>) Array<String> {
-    let j i64: 0
-    while j.lt(typeParams.len()) {
-        let binding String: findBindingForVar(typeParams.at(j), params, argTypes)
-        out.add(clone(binding))
-        j: j.add(1)
-    }
-    return out
-}
-
-// allBound — true if every element of concretes is non-empty.
-export fn allBound(concretes Array<String>) bool {
-    let i i64: 0
-    while i.lt(concretes.len()) {
-        if concretes.at(i).equals("") { return false }
-        i: i.add(1)
-    }
-    return true
-}
-
-// matchReturnTypeSingle — for a single type parameter, match returnType against
-// expected and return the bound concrete type, or "" when no match.
-//   returnType = "T"        → expected            (bare var)
-//   returnType = "Base<T>"  → inner of expected   (one-level generic)
-export fn matchReturnTypeSingle(returnType String, expected String, typeParam String) String {
-    if returnType.equals(typeParam) { return clone(expected) }
-    let rtLt i64: subst.indexOfLT(returnType)
-    if rtLt.equals(returnType.len()) { return "" }
-    let exLt i64: subst.indexOfLT(expected)
-    if exLt.equals(expected.len()) { return "" }
-    let rtBase String: returnType.slice(0, rtLt)
-    let exBase String: expected.slice(0, exLt)
-    let basesMatch bool: rtBase.equals(exBase)
-    drop(rtBase)
-    drop(exBase)
-    if not basesMatch { return "" }
-    let rtInner String: returnType.slice(rtLt.add(1), returnType.len().take(1))
-    let innerIsParam bool: rtInner.equals(typeParam)
-    drop(rtInner)
-    if not innerIsParam { return "" }
-    return expected.slice(exLt.add(1), expected.len().take(1))
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

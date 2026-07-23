@@ -1,0 +1,48 @@
+// Semantic Analyzer: Resolved-type accessor
+//
+// One function: `nodeResolvedType`, the read of the `resolvedType` annotation that
+// pass-2 type resolution (semantic/resolveTypes.suru) writes onto every expression
+// node. It is a pure AST accessor — no AnalyzerState, no inference, no imports
+// beyond the parser AST — which is why it lives in its own leaf file rather than in
+// exprs.suru (where it was until §3.4, and where it kept that file over the
+// 500-line limit).
+//
+// Every value-flow mismatch check reads the actual type of a value through this
+// function and hands it to `isAssignable` (semantic/assignable.suru).
+
+namespace Suru.Compiler.Semantic.NodeType
+
+import {
+    parser: Suru.Compiler.Parser
+}
+
+// nodeResolvedType — the canonical Suru type that resolveTypes (pass 2) annotated
+// on an expression node, or "" when the node carries none. This is the actual
+// type used by every type-mismatch check: unlike the context-free inferType, it
+// reflects context-sensitive narrowing (an integer literal under an `i32`
+// expectation resolves to "i32"; a method call resolves to its real return
+// type), which keeps the checks free of false positives. The semantic pass runs
+// after pass-2 resolution, so these annotations are populated.
+//
+// The returned string is BORROWED from the node — callers must not drop it.
+export fn nodeResolvedType(expr AstNode) String {
+    match expr {
+        BoolLitNode:     { let t BoolLitNode: expr     return t.resolvedType }
+        IntLitNode:      { let t IntLitNode: expr      return t.resolvedType }
+        FloatLitNode:    { let t FloatLitNode: expr    return t.resolvedType }
+        StrLitNode:      { let t StrLitNode: expr      return t.resolvedType }
+        CharLitNode:     { let t CharLitNode: expr     return t.resolvedType }
+        VarRefNode:      { let t VarRefNode: expr      return t.resolvedType }
+        CallNode:        { let t CallNode: expr        return t.resolvedType }
+        MethodCallNode:  { let t MethodCallNode: expr  return t.resolvedType }
+        FieldAccessNode: { let t FieldAccessNode: expr return t.resolvedType }
+        ArrayLitNode:    { let t ArrayLitNode: expr    return t.resolvedType }
+        ObjectLitNode:   { let t ObjectLitNode: expr   return t.resolvedType }
+        MatchExprNode:   { let t MatchExprNode: expr   return t.resolvedType }
+        UnaryNode:       { let t UnaryNode: expr       return t.resolvedType }
+        BinaryNode:        { let t BinaryNode: expr        return t.resolvedType }
+        QualifiedNameNode: { let t QualifiedNameNode: expr return t.resolvedType }
+        _: {}
+    }
+    return ""
+}

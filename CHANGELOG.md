@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### §3.4 — `isAssignable` compares `Type` values, and the last duplicated mangler is gone
+
+The two string-surgery hubs left in the semantic layer after monomorphization was
+cleaned out. Both now parse a type once at the boundary and ask the structure.
+
+- **`isAssignable` moved to `src/compiler/semantic/assignable.suru`** and compares
+  structured types. It used to canonicalize *both sides to strings* through
+  `tyh.makeSuruType` and `.equals` them; it now parses both, canonicalizes with the new
+  `canonType`, and compares with `equalType`. The String/integer family predicates moved
+  with it and match on the `Prim` name of the canonical type instead of a raw string.
+  Every documented rule is unchanged — unknown (`""`) on either side still skips, the sum
+  variant relation is still accepted in **both** directions (the compiler's own typed-bridge
+  downcast depends on the sum→variant one), `f64` is still outside the integer family. The
+  sum-type queries stay string-keyed; re-keying the registries is §4.B.
+- **`canonType` (new, `src/compiler/types/typeOps.suru`)** is what makes that comparison
+  correct. `parseType` deliberately does not read the hyphen-mangled form, so after mono a
+  slot's annotation (`Box<i64>` → `Named`) and the instantiated declaration it denotes
+  (`Box-i64` → `Prim`) are structurally different values for one type. `canonType` folds a
+  generic *application* into the `Prim` naming its instantiation (via `printSymbol`),
+  recursing into `Arr` elements but never folding the `Arr` itself — the built-in array is
+  the one generic codegen still spells positionally (`Array:i64`), and folding it would make
+  `Array<i64>` equal to a user type literally named `Array-i64`. It is
+  `printSuruType`-preserving, which is the argument that no accepted pair changed: the
+  string-keyed registries downstream still get exactly what `makeSuruType` produced.
+- **`semantic/passes.suru` lost its copy of the mono mangler.** `indexOfAngle`, `ltrimStr`,
+  `flattenPassTypeArg`, `appendMangledArgsAt` and the hand-rolled `mangleAnnotation` /
+  `isUserGenericAnnotation` / `isArrayGeneric` / `normalizeGenericTypeName` bodies (~90
+  lines, a verbatim duplicate kept alive only because this file sits on a different include
+  chain) are `parseType` + `printSymbol` + shape tests now.
+- Two latent bugs died with it. `isBuiltinType` accepted **any** name longer than five
+  characters beginning with "Array", so the AST node `ArrayLitNode` was classified as the
+  built-in array; a shape test on the parsed type cannot make that mistake.
+  `normalizeGenericTypeName` mangled the outer application only, so `Option<Array<i64>>`
+  became `Option-Array<i64>` — a name the mono pass never emits; `printSymbol` flattens
+  every level.
+- File sizes: `passes.suru` 516 → 477, `exprs.suru` 564 → 484, `typeOps.suru` 485 — all back
+  under the 500-line limit. Getting `exprs.suru` there moved the pure AST accessor
+  `nodeResolvedType` to its own leaf file `semantic/nodeType.suru` (no state, no inference,
+  no imports beyond the parser AST).
+- The lost design document is reconstructed as `semantic_analysis_architecture_rd.md`,
+  which six source files and several tests cite by section number. Sections §0–§3.4 describe
+  what landed; §4.B (registries keyed by `Type`) and §4.C (fresh inference variables at call
+  sites) are marked open.
+- Coverage: `assignability_test.suru` gains the applied↔mangled pairs in both directions
+  (`Box<i64>` ↔ `Box-i64`, `Pair<i64, String>` ↔ `Pair-i64-String`, `Option<Array<i64>>` ↔
+  `Option-Array-i64`, `Array<i64>` ↔ `Array:i64`) plus the rejections that must survive the
+  duality (differing argument, differing argument *order*, differing base name);
+  `typeOpsTest.suru` covers `canonType` per shape and pins the `printSuruType`-preservation
+  invariant against `makeSuruType`; new `passesTypeNameTest.suru` pins `isBuiltinType`,
+  `normalizeGenericTypeName` (including the fixed nesting) and `resolveTypeName`. Full suite
+  green (106 passed, 0 failed, 0 memcheck); bootstrap fixed point confirmed (C2 == C3).
+
+### `typeArgs` are the only binding: the syntactic mono fallbacks are gone
+
+Closes the phase the previous entry opened. Monomorphization's two halves — what gets
+instantiated and what each call site is renamed to — now read the **same** structured
+`typeArgs` the resolver recorded, with no second, syntactic derivation anywhere.
+
+- `monoPass.rewriteCallName` is reduced to `mangleFromTypeArgs`: a call with recorded
+  `typeArgs` is renamed to the mangled name built from them, and a call without them keeps
+  its name. The arg-binding fallback (`collectArgTypes` / `buildConcreteTypes` / `allBound`)
+  is deleted. A missing rename is now, by construction, a resolver bug — the binding belongs
+  recorded in `rtCallUnify` / `rtMethodUnify` / `rtRecordArgBindings`, not re-derived here.
+- The two annotation-driven zero-arg fallbacks are deleted with it: `rewriteZeroArgCallName`
+  (+ the `rewriteCallInExprWithAnnotation` wrapper that threaded the `let` annotation down to
+  it) and `rewriteZeroArgFnFromAnnotation` (the registry scan in the `LetNode` arm, added as a
+  workaround for a bootstrap binary whose match arm did not fire — no longer needed). The
+  `LetNode` arm is now a plain `rewriteCallsInExpr`. `let arr List<i64>: newList()` is renamed
+  through the resolver's return-vs-annotation unification like every other call.
+- `monoInfer`'s "retained helpers" section goes with them (`extractBaseTypeName`,
+  `suruCanonToAnnotation`, `collectArgTypes`, `findBindingForVar`, `buildConcreteTypes`,
+  `allBound`, `matchReturnTypeSingle`) — the last string-surgery type matching in the pass.
+- Coverage: the pinned assertions in `tests/unit/compiler/monoCallSiteRewriteTest.suru` (both
+  the `let`-annotation and object-literal-field binding paths) were written for exactly this
+  removal and still assert `newList-i64`; the Phase-0 oracle `monoInstantiationTest.suru` is
+  unchanged. Full suite green (106 passed, 0 failed, 0 memcheck) after each step; bootstrap
+  fixed point confirmed (C2 == C3), so the emitted IR is byte-identical.
+
+### `instantiateVariantTypes` on the structured `Type` (and a depth-blind comma bug)
+
+- The generic sum type's variant-arm instantiation (`monoInstantiate.suru`) was the last
+  hand-rolled `indexOfLT` / `slice` / `splitByComma` re-parse in the mono layer. It now
+  substitutes the arm, parses it once (`parseType`), and reads the base name and arguments off
+  the resulting `Named` (new `instantiateVariantFromType`) — the same boundary pattern as
+  `collectGenericAppFromType`.
+- This fixes a real bug: a variant arm whose type argument is itself multi-arg
+  (`Some<Pair<i64, String>>`) was split at the **inner** comma, yielding the two bogus
+  arguments `"Pair<i64"` / `" String>"` and a mangled variant name no call site could match.
+- With that, `subst.indexOfLT` / `subst.splitByComma` / `subst.trimLeft` have no callers left
+  anywhere and are deleted: **no string surgery remains in `src/compiler/semantic/mono/`.**
+- Coverage: new `tests/unit/compiler/variantInstantiationTest.suru` drives `instantiateAll`
+  against a hand-built `Option<T>` / `Some<T>` registry and pins the produced declaration names
+  for the single-arg, nested, and multi-arg-argument cases.
+
+### `monoPass.suru` split under the 500-line limit
+
+- The self-contained variant-arm rewriting section moved to
+  `src/compiler/semantic/mono/monoVariantArms.suru` (namespace
+  `Suru.Compiler.Semantic.Mono.VariantArms`); the three `pipeline.suru` call sites are
+  repointed. `monoPass.suru` 663 → 417 lines, `monoInfer.suru` 503 → 407,
+  `monoSubst.suru` 469 → 431. No behaviour change.
+
 ### The generic call-site rewriter reads `typeArgs` (and `typeArgs` are now substituted)
 
 - `monoPass.rewriteCallName` now prefers the resolver-recorded structured `typeArgs` over the

@@ -17,6 +17,7 @@ import {
     [makeSuruTypeTests]: Test.Unit.Compiler.MakeSuruType
     [substituteTypeTests]: Test.Unit.Compiler.SubstituteType
     [collectGenericAppTests]: Test.Unit.Compiler.CollectGenericApp
+    [variantInstantiationTests]: Test.Unit.Compiler.VariantInstantiation
     [callNodeTypeArgsTests]: Test.Unit.Compiler.CallNodeTypeArgs
     [callUnifyTypeArgsTests]: Test.Unit.Compiler.CallUnifyTypeArgs
     [methodCallUnifyTypeArgsTests]: Test.Unit.Compiler.MethodCallUnifyTypeArgs
@@ -28,6 +29,7 @@ import {
     [stringBuilderNumTests]: Test.Unit.Stdlib.StringBuilderNum
     [stringFromConvTests]: Test.Unit.Stdlib.StringFromConv
     [assignabilityTests]: Test.Unit.Compiler.Assignability
+    [passesTypeNameTests]: Test.Unit.Compiler.PassesTypeName
     [reportResults]: Test.Unit.Assert
 }
 
@@ -196,6 +198,8 @@ fn main(args Array<String>) {
     failed: failed.add(substTypeFailed)
     let collectGenAppFailed i64: reportResults("collect-generic-app", collectGenericAppTests())
     failed: failed.add(collectGenAppFailed)
+    let variantInstFailed i64: reportResults("variant-instantiation", variantInstantiationTests())
+    failed: failed.add(variantInstFailed)
     let callTypeArgsFailed i64: reportResults("call-node-typeargs", callNodeTypeArgsTests())
     failed: failed.add(callTypeArgsFailed)
     let callUnifyFailed i64: reportResults("call-unify-typeargs", callUnifyTypeArgsTests())
@@ -218,6 +222,8 @@ fn main(args Array<String>) {
     failed: failed.add(strFromConvFailed)
     let assignabilityFailed i64: reportResults("assignability", assignabilityTests())
     failed: failed.add(assignabilityFailed)
+    let passesTypeNameFailed i64: reportResults("passes-type-name", passesTypeNameTests())
+    failed: failed.add(passesTypeNameFailed)
     printLn("")
 
     while i.lt(cases.len()) {
