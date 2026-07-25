@@ -128,6 +128,28 @@ export fn suruTypeTag(suruType String) String {
     }
 }
 
+// ownedVarType — the type a local variable should be REGISTERED under, given its
+// declared annotation and the actual type of its initializer/assignment value
+// (String-split B3).
+//
+// A local is not a deep-dropped slot, so it is not force-materialized: it simply
+// borrows or owns whatever its value is. The variable's registered type must
+// therefore track the VALUE's ownership within the string family, not the
+// annotation — that is what makes `drop(x)` decide correctly with no runtime tag:
+//
+//   let s String: "hi"            → value is `Str`   → register `Str`   → drop = no-op
+//   let s String: other.clone()   → value is `String`→ register `String`→ drop = free
+//   let s String: builder.build() → value is `String`→ register `String`→ drop = free
+//
+// Only the string family is adjusted; every other slot keeps its annotation (the
+// scalar-unbox path and generic annotations like `Box<i64>` depend on it). A value
+// whose type is unknown ("") also keeps the annotation.
+export fn ownedVarType(annSuruType String, valueSuruType String) String {
+    if valueSuruType.equals("Str")    { return "Str" }
+    if valueSuruType.equals("String") { return "String" }
+    return annSuruType
+}
+
 // True when name is one of the builtin Suru type names (or a generic array).
 export fn isBuiltinSuruType(name String) bool {
     if isArrayTypeName(name) { return true }

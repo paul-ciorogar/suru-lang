@@ -260,6 +260,39 @@ export fn emitStringClone(ctx IrCodegenContext, recv String) CodegenResult {
     return { ctx: ctx, name: r.name, llvmType: "ptr", suruType: "String" }
 }
 
+// ─── Str → String materialization (String-split B3) ───────────────────────────
+
+// materializeStr — give an owned heap copy of `value` when a BORROWED `Str` is
+// entering an OWNED slot; pass the value through untouched otherwise.
+//
+// The invariant this establishes, and the reason the runtime no longer has to
+// guess: a value living in a `String`-typed slot is ALWAYS heap-owned, and a `Str`
+// is ALWAYS a borrowed pointer into .rodata. The two never alias. Before this,
+// `suru_string_drop` had to read `type_tag == 8` at run time to discover which one
+// it had been handed — the last type_tag read in the compiler, and the blocker for
+// shrinking the value header.
+//
+// A slot is "owned" when it participates in deep drop: an object field, an array
+// element, a `String`-annotated let/assign, a `String` return. Call ARGUMENTS are
+// deliberately not owned slots — Suru borrows parameters and never auto-drops them,
+// so materializing there would allocate a copy nobody frees. See the comment at the
+// argument-emission site.
+//
+// Callers pass the slot's DECLARED type, so this is a no-op for every non-string
+// slot and costs nothing to call unconditionally at a boundary.
+export fn materializeStr(ctx IrCodegenContext, value String, valueSuruType String, slotSuruType String) CodegenResult {
+    // Separate ifs, not `and`: Suru's boolean operators are not short-circuit.
+    if not valueSuruType.equals("Str") {
+        return { ctx: ctx, name: value, llvmType: "ptr", suruType: valueSuruType }
+    }
+    if not slotSuruType.equals("String") {
+        return { ctx: ctx, name: value, llvmType: "ptr", suruType: valueSuruType }
+    }
+    // suru_string_clone reads len/data and mallocs a fresh tag-6 header + buffer,
+    // so it already does the right thing with a static literal as its input.
+    return emitStringClone(ctx, value)
+}
+
 // drop(str): deallocate str's data buffer and header.
 // Returns a null placeholder — drop is always used as a statement.
 export fn emitStringDrop(ctx IrCodegenContext, recv String) CodegenResult {

@@ -183,6 +183,14 @@ fn emitUserFnCallSym(ctx IrCodegenContext, lookupName String, llvmSym String, ar
         }
         let pLlvm String: box.llvmTypeOf(pSuruType)
         let finalVal String: ar.name
+        // NO Str → String materialization here, deliberately (String-split B3).
+        // A parameter is NOT an owned slot: Suru borrows parameters and never
+        // auto-drops them, so a heap copy made here would be freed by nobody —
+        // a leak on every call that passes a literal. Passing the borrowed
+        // .rodata pointer straight through is the correct lowering. The
+        // corresponding obligation is on the callee side: a function that wants
+        // to keep a `String` parameter beyond its own frame must `clone()` it,
+        // which is what the return boundary below materializes for.
         if box.isScalarType(pSuruType) and not box.isScalarType(ar.suruType) {
             let ur CodegenResult: box.unboxScalar(ctx, ar.name, pSuruType)
             ctx: ur.ctx
@@ -259,6 +267,11 @@ export fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType 
         // Array elements live in an owned slot, so a borrowed `Str` literal element
         // contributes `String` as the element type (irArr.ownedElemSuruType).
         actualElemSuruType: irArr.ownedElemSuruType(firstValR.suruType)
+        // …and the VALUE is brought up to that owned slot type (B3). Emitted before
+        // the rawData malloc, preserving the "first element evaluated first" SSA
+        // ordering the block below relies on.
+        let firstOwned CodegenResult: irStr.materializeStr(ctx, firstValR.name, firstValR.suruType, actualElemSuruType)
+        ctx: firstOwned.ctx
         let storeType String: irArr.elemStorageLlvmType(actualElemSuruType)
         let elemBytes i64: irArr.elemSizeBytes(actualElemSuruType)
         // malloc raw data buffer: count * elemBytes.
@@ -270,17 +283,20 @@ export fn emitArrayLit(ctx IrCodegenContext, elems Array<AstNode>, elemSuruType 
         // Slot 0: GEP first, then encode firstVal, then store.
         let slot0R IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 0")
         ctx.builder: slot0R.builder
-        let enc0 CodegenResult: irArr.emitElemEncode(ctx, firstValR.name, firstValR.suruType)
+        let enc0 CodegenResult: irArr.emitElemEncode(ctx, firstOwned.name, firstOwned.suruType)
         ctx: enc0.ctx
         ctx.builder: ir.emitStore(ctx.builder, storeType, enc0.name, slot0R.name)
-        // Slots 1..count-1: eval elem, GEP slot, encode, store.
+        // Slots 1..count-1: eval elem, materialize into the owned element slot,
+        // GEP slot, encode, store.
         let i i64: 1
         while i.lt(count) {
             let elemValR CodegenResult: emitValue(ctx, elems.at(i))
             ctx: elemValR.ctx
+            let elemOwned CodegenResult: irStr.materializeStr(ctx, elemValR.name, elemValR.suruType, actualElemSuruType)
+            ctx: elemOwned.ctx
             let slotR IrResult: ir.emitGEP(ctx.builder, storeType, dataPtr, "i64 ".append(i.toString()))
             ctx.builder: slotR.builder
-            let enc CodegenResult: irArr.emitElemEncode(ctx, elemValR.name, elemValR.suruType)
+            let enc CodegenResult: irArr.emitElemEncode(ctx, elemOwned.name, elemOwned.suruType)
             ctx: enc.ctx
             ctx.builder: ir.emitStore(ctx.builder, storeType, enc.name, slotR.name)
             i: i.add(1)
@@ -412,7 +428,11 @@ export fn emitObjectLit(ctx IrCodegenContext, fields Array<ObjectFieldNode>, typ
         } else {
             let fr CodegenResult: emitValue(ctx, fields.at(foundIdx).value)
             ctx: fr.ctx
-            let asI64 CodegenResult: irStruct.structFieldToI64(ctx, fr.name, fr.suruType)
+            // Owned slot: an object field is deep-dropped with the object, so a
+            // borrowed `Str` literal becomes an owned heap copy here (B3).
+            let fm CodegenResult: irStr.materializeStr(ctx, fr.name, fr.suruType, annotation)
+            ctx: fm.ctx
+            let asI64 CodegenResult: irStruct.structFieldToI64(ctx, fm.name, fm.suruType)
             ctx: asI64.ctx
             let dec CodegenResult: irStruct.structFieldFromI64(ctx, asI64.name, annotation)
             ctx: dec.ctx
@@ -499,6 +519,31 @@ fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
                 let entry VarEntry: types.lookupVar(ctx, cur.name)
                 if entry.name.equals("") { return "" }
                 return entry.allocaName
+            }
+            _: { return "" }
+        }
+    }
+    return ""
+}
+
+// appendRootVarName — the NAME of the root local of a `__append` chain (companion
+// to appendRootSlot), or "" when the root is not a bound local. Used to PROMOTE
+// that variable's registered type to `String` after an in-place append: `__append`
+// always produces an owned heap string, so a variable that started as a borrowed
+// `Str` literal (`let buf String: ""`) becomes owned once appended to, and its
+// final `drop` must free rather than no-op (String-split B3).
+fn appendRootVarName(ctx IrCodegenContext, node AstNode) String {
+    let cur AstNode: node
+    while true {
+        match cur {
+            MethodCallNode: {
+                if cur.methodName.equals("__append") { cur: cur.receiver }
+                else { return "" }
+            }
+            VarRefNode: {
+                let entry VarEntry: types.lookupVar(ctx, cur.name)
+                if entry.name.equals("") { return "" }
+                return cur.name
             }
             _: { return "" }
         }
@@ -1061,15 +1106,22 @@ export fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResul
             // is needed.
             let vr CodegenResult: emitValue(ctx, expr.args.at(0))
             ctx: vr.ctx
-            ctx: irArr.emitArrayAdd(ctx, recvVal, vr.name, elemST)
+            // Owned slot: the array deep-drops its elements, so a borrowed `Str`
+            // becomes an owned heap copy before it is appended (B3).
+            let vm CodegenResult: irStr.materializeStr(ctx, vr.name, vr.suruType, elemST)
+            ctx: vm.ctx
+            ctx: irArr.emitArrayAdd(ctx, recvVal, vm.name, elemST)
             return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
         }
         if method.equals("set") {
             let vr CodegenResult: emitValue(ctx, expr.args.at(0))
             ctx: vr.ctx
+            // Owned slot, same as .add() above (B3).
+            let vm CodegenResult: irStr.materializeStr(ctx, vr.name, vr.suruType, elemST)
+            ctx: vm.ctx
             let idxR CodegenResult: emitRawIndex(ctx, expr.args.at(1))
             ctx: idxR.ctx
-            ctx: irArr.emitArraySet(ctx, recvVal, vr.name, elemST, idxR.name)
+            ctx: irArr.emitArraySet(ctx, recvVal, vm.name, elemST, idxR.name)
             return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
         }
         // .slice(from, to) → sub-array via suru_array_slice.
@@ -1093,8 +1145,17 @@ export fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResul
             }
             return { ctx: ctx, name: result.name, llvmType: result.llvmType, suruType: result.suruType }
         }
+        // .clone() on a `Str` deliberately DOES allocate: it is the explicit
+        // "give me an owned copy" request, and its result type is `String`
+        // (rtResolveMethodCallNode agrees). .drop() on a `Str` emits nothing —
+        // see emitDropDyn for why the decision is now static (B3).
         if method.equals("clone")  { return irStr.emitStringClone(ctx, recvVal) }
-        if method.equals("drop")   { return irStr.emitStringDrop(ctx, recvVal) }
+        if method.equals("drop") {
+            if recvSuruType.equals("Str") {
+                return { ctx: ctx, name: "null", llvmType: "ptr", suruType: "void" }
+            }
+            return irStr.emitStringDrop(ctx, recvVal)
+        }
         if method.equals("ord") {
             let result CodegenResult: irStr.emitStringOrd(ctx, recvVal)
             ctx: result.ctx
@@ -1186,11 +1247,25 @@ export fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResul
                     }
                 }
             }
-            // Drop the old receiver value: no-op on type_tag=8 literals,
-            // frees heap strings (bytes already copied into newPtr).
-            let rdr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
-            ctx: rdr.ctx
+            // Drop the old receiver value — but ONLY if it is owned. A borrowed
+            // `Str` receiver (a literal-initialized builder root, `let buf String:
+            // ""`) points into .rodata; its bytes are already copied into newPtr,
+            // and freeing it would corrupt the heap. Before B3 this was a runtime
+            // no-op via the type_tag==8 net; it is now decided statically from the
+            // receiver's type, which is what lets the net be removed.
+            if not recvSuruType.equals("Str") {
+                let rdr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
+                ctx: rdr.ctx
+            }
             if not rootSlot.equals("") { ctx.builder: ir.emitStore(ctx.builder, "ptr", newPtr, rootSlot) }
+            // Promote the root local to `String`: it now owns a heap allocation, so
+            // its eventual `drop` must free (see appendRootVarName).
+            let rootVar String: appendRootVarName(ctx, recv)
+            if not rootVar.equals("") {
+                let rootEntry VarEntry: types.lookupVar(ctx, rootVar)
+                let promoted VarEntry: { name: rootEntry.name, allocaName: rootEntry.allocaName, suruType: "String" }
+                ctx: types.updateVar(ctx, rootVar, promoted)
+            }
             return { ctx: ctx, name: newPtr, llvmType: "ptr", suruType: "String" }
         }
         if method.equals("equals") {
@@ -1838,6 +1913,14 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     _: {
                         let vr CodegenResult: emitValue(ctx, retValueNode)
                         ctx: vr.ctx
+                        // A return value is NOT materialized (String-split B3): a
+                        // function may legitimately return a borrowed `Str` (a
+                        // literal, `return "woof"`), and the caller treats a
+                        // returned `String`/`Str` as borrowed — `printLn(f())` does
+                        // not drop it. Forcing an owned copy here would allocate a
+                        // string nobody frees. Ownership is transferred explicitly
+                        // (a builder returns what it `clone()`d / built), never by
+                        // the return boundary itself.
                         let rawRet String: vr.name
                         // Coerce dynamic ptr to scalar if function return type is scalar.
                         if box.isScalarType(ctx.currentReturnSuruType) and not box.isScalarType(vr.suruType) {
@@ -1916,24 +1999,33 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             let vr CodegenResult: emitValue(ctx, letValueNode)
             ctx: vr.ctx
             let letVal String: vr.name
-            let letType String: vr.suruType
+            // A local is not force-materialized: it borrows or owns whatever its
+            // value is, and is REGISTERED under the value's ownership within the
+            // string family (tyh.ownedVarType) so `drop` decides correctly with no
+            // runtime tag — `let s String: "hi"` registers `Str` (drop no-op),
+            // `let s String: builder.build()` registers `String` (drop frees).
+            let regType String: tyh.ownedVarType(annSuruType, vr.suruType)
             // Annotation-guided unbox: `let x i64: arr.at(0)` returns (ptr, NamedType).
             if box.isScalarType(annSuruType) and not box.isScalarType(vr.suruType) {
                 let ur CodegenResult: box.unboxScalar(ctx, vr.name, annSuruType)
                 ctx: ur.ctx
                 letVal: ur.name
-                letType: annSuruType
             }
             let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, annLlvm)
             ctx.builder: ptrR.builder
             ctx.builder: ir.emitStore(ctx.builder, annLlvm, letVal, ptrR.name)
-            ctx: types.addVar(ctx, stmt.name, ptrR.name, annSuruType)
+            ctx: types.addVar(ctx, stmt.name, ptrR.name, regType)
             return ctx
         }
         AssignNode: {
             let v VarEntry: types.lookupVar(ctx, stmt.name)
             let assignVal String: ""
             let assignLlvm String: box.llvmTypeOf(v.suruType)
+            // The variable's registered type tracks the NEW value's ownership within
+            // the string family, so `drop` stays correct across a reassignment (B3):
+            // `let s String: "a"` (Str) then `s: s.append("x")` (String) promotes `s`
+            // to `String` so the final `drop(s)` frees; the reverse demotes to `Str`.
+            let newRegType String: v.suruType
             // Evaluate the RHS first (may read the current variable value, e.g. s: s.append("x")).
             let assignValueNode AstNode: stmt.value
             match assignValueNode {
@@ -1946,6 +2038,7 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                     let vr CodegenResult: emitValue(ctx, assignValueNode)
                     ctx: vr.ctx
                     assignVal: vr.name
+                    newRegType: tyh.ownedVarType(v.suruType, vr.suruType)
                     if box.isScalarType(v.suruType) and not box.isScalarType(vr.suruType) {
                         let ur CodegenResult: box.unboxScalar(ctx, vr.name, v.suruType)
                         ctx: ur.ctx
@@ -1954,6 +2047,8 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                 }
             }
             ctx.builder: ir.emitStore(ctx.builder, assignLlvm, assignVal, v.allocaName)
+            let updated VarEntry: { name: v.name, allocaName: v.allocaName, suruType: newRegType }
+            ctx: types.updateVar(ctx, stmt.name, updated)
             return ctx
         }
         FieldAssignNode: {

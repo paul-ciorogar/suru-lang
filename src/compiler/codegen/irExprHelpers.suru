@@ -149,6 +149,14 @@ export fn emitDropDyn(ctx IrCodegenContext, val String, suruType String) Codegen
     if box.isScalarType(suruType) {
         return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
     }
+    // `drop` on a borrowed static emits NOTHING (String-split B3). A `Str` points
+    // into .rodata; freeing it corrupts the heap. This used to be decided at RUN
+    // time by suru_string_drop reading `type_tag == 8` — the last type_tag read in
+    // the compiler. It is now decided statically, from the type, which is what
+    // allows that check (and eventually the tag itself) to be deleted.
+    if suruType.equals("Str") {
+        return { ctx: ctx, name: "0", llvmType: "i1", suruType: "bool" }
+    }
     if tyh.isArraySuruType(suruType) {
         ctx: irArr.ensureArrayHelper(ctx, tyh.elemSuruType(suruType))
     } else {

@@ -50,8 +50,9 @@ fn main(args Array<String>) {
     printLn(names.at(2))     // gamma
     drop(names)
 
-    // A literal bound to a String slot: accepted by the string family, and the
-    // value in an owned slot is an owned heap copy.
+    // A literal bound to a String-annotated local: accepted by the string family.
+    // A local is not a deep-dropped slot, so it stays a borrowed `Str` (no copy);
+    // the drop below is therefore a safe no-op.
     let owned String: "copied"
     printLn(owned)           // copied
     drop(owned)

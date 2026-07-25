@@ -40,6 +40,7 @@ import {
     tyh: Suru.Compiler.Codegen.TypeHelpers
     ir: Suru.Compiler.Codegen.Builder
     box: Suru.Compiler.Codegen.Box
+    irStr: Suru.Compiler.Codegen.String
 }
 
 // ─── C ABI layout (cType) ──────────────────────────────────────────────────────
@@ -438,7 +439,12 @@ export fn emitFieldAssignment(ctx IrCodegenContext, recv String, recvSuruType St
     let annotation String: decl.fields.at(fIdx).typeName
     let llvm String: box.llvmTypeOf(annotation)
     let offset i64: suruFieldOffset(decl, fIdx)
-    let asI64 CodegenResult: structFieldToI64(ctx, val, valSuruType)
+    // Owned slot: a field is deep-dropped with its object, so a borrowed `Str`
+    // becomes an owned heap copy before it is stored (B3). Same rule as the
+    // object-literal field store in emitObjectLit.
+    let mat CodegenResult: irStr.materializeStr(ctx, val, valSuruType, annotation)
+    ctx: mat.ctx
+    let asI64 CodegenResult: structFieldToI64(ctx, mat.name, mat.suruType)
     ctx: asI64.ctx
     let dec CodegenResult: structFieldFromI64(ctx, asI64.name, annotation)
     ctx: dec.ctx
