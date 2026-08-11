@@ -151,6 +151,25 @@ the tag is still written, just never read. **All recursive clone/drop leaves are
 
 type_tag encoding (still written; the only surviving READ is `suru_string_drop`'s `== 8` static-literal check): 0=bool 1=i32 2=i64 3=f64 4=Struct 5=Array 6=String(heap) 7=SumType 8=StaticString
 
+**Whole-program type-id table (`codegen/irTypeIds.suru`, refactor task T2)**: the successor
+numbering to `type_tag`, built into `ctx.typeIds` by `emitModule` immediately after
+`registerTypes` (so ids derive from the very registry entries codegen looks up and cannot
+drift). **Nothing reads it yet** — T3 points `suruTypeTag` at it; until then any change here
+must leave emitted IR byte-identical. Two bands: **0–15 reserved builtins** with fixed
+constants (`bool` 0, `i32` 1, `i64` 2, `f64` 3, `char` 4, `String` 5, `Str` 6 — `Str` has
+its own id because it encodes *ownership*, not identity, and outlives the refactor), and
+**≥16 dynamic**, dense and **sorted by mangled name** — every non-`cType` `TypeDecl`, every
+`SumTypeDecl` and its arms, and one id per mangled `Array<T>` name. Sorting is the whole
+determinism story: the table is a function of the *set* of names, never of `stmts` order.
+`cType` and `extern type` are header-less and get **no** id; `lookupTypeId` returns `-1`, a
+sentinel that must never be defaulted. `None` is one shared `TypeDecl` across every
+`Option<T>`, so it gets exactly **one** id that appears in every `Option-*` arm set —
+deliberate, and pinned by `tests/unit/compiler/typeIdsTest.suru`. `Array<T>` needs
+`collectArrayTypeNames` because `ensureArrayHelper` discovers element types lazily during
+emission; it recovers them from type annotations and is deliberately over-inclusive (a
+spurious name wastes an id, a missing one surfaces as `-1`). Design + task order:
+`todo_type_refactor.md`.
+
 ## Memory Management
 
 No garbage collector. All heap values (String, Array, Struct, SumType) use explicit `clone()` and `drop()`. The codegen tracks which expressions produce temporaries that need to be dropped after use.

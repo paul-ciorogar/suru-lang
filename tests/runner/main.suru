@@ -32,6 +32,7 @@ import {
     [passesTypeNameTests]: Test.Unit.Compiler.PassesTypeName
     [strLiteralTypeTests]: Test.Unit.Compiler.StrLiteralType
     [ownedLocalsTests]: Test.Unit.Compiler.OwnedLocals
+    [typeIdsTests]: Test.Unit.Compiler.TypeIds
     [reportResults]: Test.Unit.Assert
 }
 
@@ -230,6 +231,8 @@ fn main(args Array<String>) {
     failed: failed.add(strLitTypeFailed)
     let ownedLocalsFailed i64: reportResults("owned-locals", ownedLocalsTests())
     failed: failed.add(ownedLocalsFailed)
+    let typeIdsFailed i64: reportResults("type-ids", typeIdsTests())
+    failed: failed.add(typeIdsFailed)
     printLn("")
 
     while i.lt(cases.len()) {

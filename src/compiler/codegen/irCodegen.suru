@@ -26,6 +26,7 @@ import {
     passes: Suru.Compiler.Codegen.RegisterPasses
     eh: Suru.Compiler.Codegen.ExprHelpers
     owned: Suru.Compiler.Codegen.OwnedLocals
+    tids: Suru.Compiler.Codegen.TypeIds
 }
 
 // Module-level pre-passes (registerTypes/registerFunctions/registerConstants/
@@ -2400,6 +2401,11 @@ export fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     ctx: types.addDecl(ctx, "declare void @free(ptr)\n")
     ctx: passes.registerTypes(ctx, stmts)
+    // Whole-program type-id assignment.  Built here, from the registry entries
+    // registerTypes just filled, so ids and entries cannot drift apart.  Nothing
+    // reads ctx.typeIds yet — T3 is what points suruTypeTag at it, so this must
+    // leave the emitted IR byte-identical.
+    ctx.typeIds: tids.buildTypeIdTable(ctx.typeDecls, ctx.sumTypes, tids.collectArrayTypeNames(stmts, ctx.typeDecls))
     ctx: passes.registerConstants(ctx, stmts)
     ctx: passes.registerFunctions(ctx, stmts)
     ctx: irCD.emitAllTypeCloneDrop(ctx)

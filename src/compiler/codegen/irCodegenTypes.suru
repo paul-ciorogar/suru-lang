@@ -83,6 +83,19 @@ export type TypeDecl: { name String, fields Array<TypeFieldEntry>, methods Array
 // Populated from the pre-pass; provides variant-index lookup for match dispatch.
 export type SumTypeDecl: { name String, variants Array<String> }
 
+// ─── Whole-program type-id table ──────────────────────────────────────────────
+
+// One (mangled type name → global type id) binding.  See irTypeIds.suru for how
+// the table is built and what the id bands mean; the types live here rather than
+// there so IrCodegenContext can carry a TypeIdTable field without importing the
+// builder module back (which would close an import cycle).
+export type TypeIdEntry: { name String, id i64 }
+
+// The whole program's type-id assignment: dense, deterministic, sorted by mangled
+// name in the dynamic band.  Built once in emitModule right after registerTypes,
+// from the very registry entries codegen looks up, so ids and entries cannot drift.
+export type TypeIdTable: { entries Array<TypeIdEntry> }
+
 // ─── Main context ─────────────────────────────────────────────────────────────
 
 // All state threaded through every codegen function.
@@ -99,6 +112,7 @@ export type SumTypeDecl: { name String, variants Array<String> }
 //   globalVars  — module-level constants (let at module scope)
 //   typeDecls   — struct type declarations for field-offset lookup
 //   sumTypes    — sum type declarations for variant-index and exhaustiveness
+//   typeIds     — whole-program mangled name → global type id (see irTypeIds.suru)
 //   strIndex    — interned string literal text → global name
 //   declares    — dedup set for idempotent addDecl / addSuruDecl
 //
@@ -123,6 +137,9 @@ export type IrCodegenContext: {
     globalVars        Array<GlobalVar>
     typeDecls         Array<TypeDecl>
     sumTypes          Array<SumTypeDecl>
+    // Whole-program type-id assignment, built in emitModule right after
+    // registerTypes.  Nothing reads it yet — T3 points suruTypeTag at it.
+    typeIds           TypeIdTable
     strIndex          Array<StrIndexEntry>
     fnSrcName         Array<String>
     fnSrcPath         Array<String>
@@ -174,6 +191,8 @@ export fn makeIrContext() IrCodegenContext {
     let globalVars  Array<GlobalVar>:    []
     let typeDecls   Array<TypeDecl>:     []
     let sumTypes    Array<SumTypeDecl>:  []
+    let typeIdEntries Array<TypeIdEntry>:[]
+    let typeIds     TypeIdTable:         { entries: typeIdEntries }
     let strIndex    Array<StrIndexEntry>:[]
     let fnSrcName    Array<String>:       []
     let fnSrcPath    Array<String>:       []
@@ -197,6 +216,7 @@ export fn makeIrContext() IrCodegenContext {
         globalVars:        globalVars
         typeDecls:         typeDecls
         sumTypes:          sumTypes
+        typeIds:           typeIds
         strIndex:          strIndex
         fnSrcName:         fnSrcName
         fnSrcPath:         fnSrcPath

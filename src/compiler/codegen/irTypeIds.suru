@@ -1,0 +1,346 @@
+// irTypeIds.suru — the whole-program type-id table (type refactor, T2).
+//
+// ── Why this exists ───────────────────────────────────────────────────────────
+// `type_tag` is a 10-value *kind* enum: every named type is `4`, so it cannot tell
+// `Array<Token>` from `Array<AstNode>`, and the only surviving read of it anywhere
+// is `suru_string_drop`'s `type_tag == 8` ownership check. The refactor promotes it
+// to a global type-id enum in which every heap type gets a unique number, so a
+// static id can name the callee directly and the three indirect dispatch
+// mechanisms ($vtable, clone_fn/drop_fn, variant_idx) can all be deleted.
+//
+// This module builds the numbering. NOTHING READS IT YET — T3 is what points
+// `suruTypeTag` at the table. T2 must therefore leave emitted IR byte-identical.
+//
+// ── Why a plain sort is enough ────────────────────────────────────────────────
+// The ids have to be link-stable: the same type must get the same number wherever
+// it is constructed and wherever it is matched. That used to be the hard part —
+// each module compiled in its own IrCodegenContext, so any declaration-order
+// integer disagreed between main.ll and list.ll. Since 71e3829 there is ONE
+// context, ONE post-mono stmts list and ONE .ll, so link-stability collapses to
+// "deterministic given one input", which sorting by mangled name delivers outright.
+// No hashing, no collision check, and ids stay dense and readable in the IR.
+//
+// The one thing that must still be *proved* rather than assumed is determinism
+// across runs — hence the sort, and hence typeIdsTest.suru asserting that a
+// permuted input yields an identical table.
+//
+// ── Bands ─────────────────────────────────────────────────────────────────────
+// 0–15   reserved builtins, fixed constants independent of the program, so the C
+//        runtime can hardcode them when the header shrinks in Phase 4:
+//          bool 0, i32 1, i64 2, f64 3, char 4, String 5, Str 6.   7–15 unused.
+//        `Str` gets a fixed id of its own because it is an OWNERSHIP bit, not a
+//        type identity: `suru_string_drop`'s "is this pointer in .rodata" check
+//        survives the whole refactor, just with a new constant.
+// >=16   dynamic, dense, sorted by mangled name: every non-cType TypeDecl, every
+//        SumTypeDecl and its variant arms, and one id per mangled Array<T> name.
+//
+// ── What deliberately gets NO id (G8) ─────────────────────────────────────────
+// `cType` (header-less, C-ABI laid out from offset 0) and `extern type` (erased to
+// `ptr`, and already skipped by registerTypes so it never reaches ctx.typeDecls).
+// lookupTypeId returns -1 for them — a sentinel, never a silent default, so a T3
+// lookup that should never have happened fails loudly instead of writing a wrong
+// tag into a header.
+//
+// Include DAG: depends on parserAst.suru, irCodegenTypes.suru (for TypeDecl /
+// SumTypeDecl / TypeIdTable) and irCodegenTypeHelpers.suru. Imported by
+// irCodegen.suru. The TypeIdTable/TypeIdEntry types live in irCodegenTypes.suru
+// rather than here so IrCodegenContext can carry the field without importing this
+// module back and closing a cycle.
+
+namespace Suru.Compiler.Codegen.TypeIds
+
+import {
+    ast: Suru.Compiler.Parser.Ast
+    types: Suru.Compiler.Codegen.Types
+    tyh: Suru.Compiler.Codegen.TypeHelpers
+}
+
+// ─── Reserved builtin band ────────────────────────────────────────────────────
+
+// First id available to the dynamic band. Ids 0-15 are reserved so the runtime can
+// hardcode the builtin kinds; 7-15 are intentionally unallocated headroom.
+export fn firstDynamicTypeId() i64 { return 16 }
+
+// Fixed id for a builtin type name, or -1 if `name` is not a reserved builtin.
+// These values are an ABI contract with runtime/*.c from Phase 4 onward — changing
+// one means changing the C side in the same commit.
+export fn builtinTypeId(name String) i64 {
+    return match name {
+        "bool":   0
+        "i32":    1
+        "i64":    2
+        "f64":    3
+        "char":   4
+        "String": 5
+        "Str":    6
+        _:        -1
+    }
+}
+
+// ─── Table construction ───────────────────────────────────────────────────────
+
+// An empty table. Every lookup against it returns -1.
+export fn makeTypeIdTable() TypeIdTable {
+    let entries Array<TypeIdEntry>: []
+    return { entries: entries }
+}
+
+// Build the whole program's type-id table.
+//
+// typeDecls / sumTypes are the codegen registries as filled by registerTypes, so
+// the ids are derived from the very entries codegen later looks up — the two
+// cannot drift. arrayNames comes from collectArrayTypeNames.
+//
+// Sum-type variant arms are also TypeDeclNodes and so already appear in typeDecls;
+// addUniqueName absorbs the overlap. Note that `None` is a single shared TypeDecl
+// across every Option<T> (it has no type params, so mono never mangles it), which
+// means it gets exactly ONE id and appears in the arm set of Option-i64 and
+// Option-String alike. That is correct — the static type disambiguates and `None`
+// has no payload to clone — but it is a decision, not an accident, so
+// typeIdsTest.suru pins it.
+export fn buildTypeIdTable(typeDecls Array<TypeDecl>, sumTypes Array<SumTypeDecl>, arrayNames Array<String>) TypeIdTable {
+    let names Array<String>: []
+
+    // Named types. cTypes are header-less and get no id (G8).
+    let i i64: 0
+    while i.lt(typeDecls.len()) {
+        let td TypeDecl: typeDecls.at(i)
+        if not td.isCType { names: addUniqueName(names, td.name) }
+        i: i.add(1)
+    }
+
+    // Sum types and every arm.
+    let si i64: 0
+    while si.lt(sumTypes.len()) {
+        let sd SumTypeDecl: sumTypes.at(si)
+        names: addUniqueName(names, sd.name)
+        let vi i64: 0
+        while vi.lt(sd.variants.len()) {
+            names: addUniqueName(names, sd.variants.at(vi))
+            vi: vi.add(1)
+        }
+        si: si.add(1)
+    }
+
+    // Array instantiations, already flattened to mangled form by the collector.
+    let ai i64: 0
+    while ai.lt(arrayNames.len()) {
+        names: addUniqueName(names, arrayNames.at(ai))
+        ai: ai.add(1)
+    }
+
+    // Sorting is the whole determinism story: from here the table depends only on
+    // the SET of names, never on the order registerTypes happened to see them in.
+    names: sortNames(names)
+
+    let entries Array<TypeIdEntry>: []
+    let next i64: firstDynamicTypeId()
+    let k i64: 0
+    while k.lt(names.len()) {
+        let e TypeIdEntry: { name: names.at(k), id: next }
+        entries.add(e)
+        next: next.add(1)
+        k: k.add(1)
+    }
+    return { entries: entries }
+}
+
+// The global id for a mangled type name, or -1 when the name has none.
+//
+// Reserved builtins answer from the fixed band without consulting the table, so a
+// lookup for "i64" is correct even against an empty table. -1 means "this type has
+// no header and must never be tagged" (cType / extern type) or "the collector
+// missed it" — callers must treat it as an error, not substitute a default.
+export fn lookupTypeId(t TypeIdTable, name String) i64 {
+    let b i64: builtinTypeId(name)
+    if b.gte(0) { return b }
+    let i i64: 0
+    while i.lt(t.entries.len()) {
+        let e TypeIdEntry: t.entries.at(i)
+        if e.name.equals(name) { return e.id }
+        i: i.add(1)
+    }
+    return -1
+}
+
+// ─── Array instantiation collection ───────────────────────────────────────────
+
+// Every distinct Array<T> instantiation in the program, as flat mangled names
+// ("Array<Token>" → "Array-Token").
+//
+// Unlike named types there is no registry to read: ensureArrayHelper
+// (irArrayCodegen.suru) discovers element types LAZILY during emission, de-duping
+// through an "@@arrhelp:<flat>" sentinel in ctx.declares, so after registerTypes no
+// list of instantiations exists. This walk builds one from the type ANNOTATIONS in
+// the program — struct fields, method signatures, function signatures, and `let`
+// annotations in bodies.
+//
+// It is deliberately over-inclusive. A name nothing ever allocates costs one wasted
+// id; a name that is missing surfaces at T3 as a -1 from lookupTypeId rather than a
+// wrong tag. Nested arrays register both levels, mirroring ensureArrayHelper's own
+// recursion into the element type.
+export fn collectArrayTypeNames(stmts Array<AstNode>, typeDecls Array<TypeDecl>) Array<String> {
+    let acc Array<String>: []
+
+    // Registered struct fields and declared method signatures.
+    let i i64: 0
+    while i.lt(typeDecls.len()) {
+        let td TypeDecl: typeDecls.at(i)
+        let fi i64: 0
+        while fi.lt(td.fields.len()) {
+            acc: addArrayAnnotation(acc, td.fields.at(fi).typeName)
+            fi: fi.add(1)
+        }
+        let mi i64: 0
+        while mi.lt(td.methods.len()) {
+            let me TypeMethodEntry: td.methods.at(mi)
+            acc: addArrayAnnotation(acc, me.returnType)
+            let pi i64: 0
+            while pi.lt(me.paramTypes.len()) {
+                acc: addArrayAnnotation(acc, me.paramTypes.at(pi))
+                pi: pi.add(1)
+            }
+            mi: mi.add(1)
+        }
+        i: i.add(1)
+    }
+
+    // Top-level declarations: function signatures, their bodies, and the raw
+    // TypeDeclNode/SumTypeDeclNode annotations (which cover types registered
+    // before any reordering as well as any the registry skipped).
+    let j i64: 0
+    while j.lt(stmts.len()) {
+        acc: collectFromStmt(stmts.at(j), acc)
+        j: j.add(1)
+    }
+    return acc
+}
+
+fn collectFromStmt(stmt AstNode, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    match stmt {
+        FnDeclNode: {
+            out: addArrayAnnotation(out, stmt.returnType)
+            out: collectFromParams(stmt.params, out)
+            out: collectFromBody(stmt.body, out)
+        }
+        ExternFnNode: {
+            out: addArrayAnnotation(out, stmt.returnType)
+            out: collectFromParams(stmt.params, out)
+        }
+        TypeDeclNode: {
+            out: collectFromParams(stmt.fields, out)
+            let mi i64: 0
+            while mi.lt(stmt.methods.len()) {
+                let ms MethodSig: stmt.methods.at(mi)
+                out: addArrayAnnotation(out, ms.returnType)
+                out: collectFromParams(ms.params, out)
+                mi: mi.add(1)
+            }
+        }
+        LetNode: { out: addArrayAnnotation(out, stmt.typeName) }
+        _: {}
+    }
+    return out
+}
+
+fn collectFromParams(params Array<Param>, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    let i i64: 0
+    while i.lt(params.len()) {
+        out: addArrayAnnotation(out, params.at(i).typeName)
+        i: i.add(1)
+    }
+    return out
+}
+
+// Statement walk for `let` annotations. Descends only through the forms that can
+// contain a nested `let`; expressions carry no annotation of their own.
+fn collectFromBody(stmts Array<AstNode>, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        let s AstNode: stmts.at(i)
+        match s {
+            LetNode:   { out: addArrayAnnotation(out, s.typeName) }
+            WhileNode: { out: collectFromBody(s.body, out) }
+            BlockNode: { out: collectFromBody(s.stmts, out) }
+            IfNode: {
+                out: collectFromBody(s.thenBranch.stmts, out)
+                out: collectFromBody(s.elseBranch.stmts, out)
+            }
+            MatchStmtNode: {
+                let ai i64: 0
+                while ai.lt(s.arms.len()) {
+                    out: collectFromBody(s.arms.at(ai).stmts, out)
+                    ai: ai.add(1)
+                }
+            }
+            _: {}
+        }
+        i: i.add(1)
+    }
+    return out
+}
+
+// Record `ann` if it names an array, together with every nested level.
+// "Array<Array<i64>>" contributes both "Array-Array-i64" and "Array-i64", matching
+// ensureArrayHelper, which recurses into the element type before emitting.
+fn addArrayAnnotation(acc Array<String>, ann String) Array<String> {
+    let out Array<String>: acc
+    if not tyh.isArrayTypeName(ann) { return out }
+    out: addUniqueName(out, tyh.flatSuruName(tyh.makeSuruType(ann)))
+    return addArrayAnnotation(out, tyh.extractElemType(ann))
+}
+
+// ─── Small helpers ────────────────────────────────────────────────────────────
+
+fn addUniqueName(names Array<String>, name String) Array<String> {
+    if name.equals("") { return names }
+    let i i64: 0
+    while i.lt(names.len()) {
+        if names.at(i).equals(name) { return names }
+        i: i.add(1)
+    }
+    names.add(name)
+    return names
+}
+
+// Insertion sort over `a.compare(b).lt(0)`.
+//
+// Built-in String has `compare` (strcmp sign semantics) but NOT `lt`, and the tree
+// has no sort routine to reuse — this is the first one. O(n^2) is irrelevant at a
+// few hundred types, and an insertion sort is stable and short enough to audit,
+// which matters more here than speed: this ordering IS the id assignment.
+fn sortNames(names Array<String>) Array<String> {
+    let out Array<String>: []
+    let i i64: 0
+    while i.lt(names.len()) {
+        let name String: names.at(i)
+        // Find the first position whose occupant sorts after `name`.
+        let pos i64: 0
+        while pos.lt(out.len()) {
+            if out.at(pos).compare(name).gt(0) { break }
+            pos: pos.add(1)
+        }
+        out: insertAt(out, pos, name)
+        i: i.add(1)
+    }
+    return out
+}
+
+// Array has no insert, so rebuild around the split point.
+fn insertAt(items Array<String>, pos i64, name String) Array<String> {
+    let out Array<String>: []
+    let i i64: 0
+    while i.lt(pos) {
+        out.add(items.at(i))
+        i: i.add(1)
+    }
+    out.add(name)
+    while i.lt(items.len()) {
+        out.add(items.at(i))
+        i: i.add(1)
+    }
+    return out
+}

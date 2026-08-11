@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Whole-program type-id table (type refactor T2)
+
+Groundwork for replacing `type_tag` — a 10-value *kind* enum in which every named
+type is `4` — with a **global type-id enum** where each heap type gets a unique
+number. Static ids are what let a later task name a clone/drop/method callee
+directly and delete all three indirect dispatch mechanisms (`$vtable`,
+`clone_fn`/`drop_fn`, `variant_idx`).
+
+New `src/compiler/codegen/irTypeIds.suru` builds a `TypeIdTable` in two bands:
+
+- **0–15 reserved builtins**, fixed constants independent of the program (`bool` 0,
+  `i32` 1, `i64` 2, `f64` 3, `char` 4, `String` 5, `Str` 6; 7–15 headroom). `Str`
+  gets an id of its own because it encodes *ownership*, not identity —
+  `suru_string_drop`'s "is this pointer in `.rodata`" check outlives the refactor.
+- **≥16 dynamic**, dense and **sorted by mangled name**: every non-`cType`
+  `TypeDecl`, every `SumTypeDecl` and its variant arms, and one id per mangled
+  `Array<T>` name.
+
+The table is built in `emitModule` immediately after `registerTypes`, from the very
+registry entries codegen later looks up, so ids and entries cannot drift. **Nothing
+reads it yet** — pointing `suruTypeTag` at it is the next task — so emitted IR is
+byte-identical (verified by diffing `suru ir` output for all 75 compilable fixtures
+before and after).
+
+Sorting is what makes the numbering link-stable: it depends only on the *set* of
+names, never on the order `registerTypes` walked `stmts`. That mattered enormously
+before "one `.ll` for the whole program" (below), when each module had its own
+`IrCodegenContext` and any declaration-order integer disagreed between `main.ll` and
+`list.ll`; with a single context and a single post-mono statement list it reduces to
+plain determinism, so the planned FNV-1a-hash fallback was dropped and ids stay dense
+and readable.
+
+Two things the table deliberately does *not* do:
+
+- **`cType` and `extern type` get no id.** Both are header-less by design (C-ABI from
+  offset 0; erased to `ptr`), so there is nowhere to put a tag. `lookupTypeId`
+  answers `-1` — a sentinel, never a plausible default — so a lookup that should
+  never have happened fails loudly instead of writing a tag over a caller's field.
+- **`None` gets exactly one id.** It has no type params, so mono never mangles it:
+  one shared `TypeDecl`, index 0 in every `Option-*`. A switch over `Option<i64>`'s
+  arms and one over `Option<String>`'s therefore both contain the same `id(None)`.
+  That is correct — the static type disambiguates and `None` has no payload — but it
+  is a decision rather than an accident, so a unit test pins it.
+
+`Array<T>` needed a new collector: `ensureArrayHelper` discovers element types
+*lazily during emission* (de-duping via an `"@@arrhelp:<flat>"` sentinel), so no list
+of instantiations exists after `registerTypes`. `collectArrayTypeNames` recovers them
+from type *annotations* instead — struct fields, method and function signatures, and
+`let` annotations in bodies — registering both levels of a nested
+`Array<Array<i64>>` to mirror the helper's own recursion. It is deliberately
+over-inclusive: a spurious name wastes one id, a missing one shows up as a `-1`.
+
+Suru has no in-language sort and built-in `String` has no `lt` (only `compare`, with
+`strcmp` sign semantics), so this adds the first one — a short insertion sort, since
+this ordering *is* the id assignment and auditability beats speed at a few hundred
+types.
+
+New unit test `tests/unit/compiler/typeIdsTest.suru` (34 assertions) covers the
+builtin band, density, determinism under permutation, the `None` decision, the
+header-less exclusions, and nested-array collection.
+
 ### One `.ll` for the whole program
 
 Codegen emitted one `.ll` per module and linked them with a shell glob

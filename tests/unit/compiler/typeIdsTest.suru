@@ -1,0 +1,200 @@
+// typeIdsTest.suru — unit tests for the whole-program type-id table (T2).
+//
+// Why this needs pinning:
+//
+//   1. DETERMINISM IS THE WHOLE POINT. The refactor's plan is to write a static id
+//      into every heap header and then dispatch on it — a `match` arm is selected
+//      by comparing the scrutinee's id against the arm's. If the numbering ever
+//      depended on the order registerTypes happened to walk `stmts`, a value
+//      constructed in one place and matched in another would compare unequal, and
+//      the symptom would be a silently mis-taken arm, not a crash. Sorting by
+//      mangled name is what removes the order dependence, so a permuted input
+//      MUST yield an identical table. This is the single most important assertion
+//      in the file.
+//
+//   2. `None` GETS EXACTLY ONE ID (G3). `None` carries no type params, so mono
+//      never mangles it: it is one shared TypeDecl and index 0 in every Option-*.
+//      Under a global enum that means a switch over Option<i64>'s arms and one
+//      over Option<String>'s arms both contain the same id(None). That is correct
+//      — the static type disambiguates and `None` has no payload to clone — but it
+//      is a deliberate decision, and an accidental future change to per-Option
+//      `None` copies would be very hard to spot from the IR. Pin it here.
+//
+//   3. HEADER-LESS TYPES MUST GET NO ID (G8). A `cType` is C-ABI laid out from
+//      offset 0 and an `extern type` erases to `ptr`; neither has anywhere to put
+//      a tag. lookupTypeId must answer -1 for them rather than a plausible
+//      default, so that a T3 lookup which should never have happened fails loudly
+//      instead of writing a tag over a caller's first field.
+//
+//   4. THE BUILTIN BAND IS AN ABI CONTRACT. From Phase 4 the C runtime hardcodes
+//      these constants, so they are not free to renumber alongside everything
+//      else; they answer from the fixed band without consulting the table at all.
+//
+// Nothing in the compiler reads the table yet (T3 points suruTypeTag at it), so
+// these tests are the only thing guarding it until then.
+//
+// Run in-process by the test runner (tests/runner/main.suru).
+
+namespace Test.Unit.Compiler.TypeIds
+
+import {
+    [TestResult, assertTrue, assertEqI64]: Test.Unit.Assert
+    [TypeDecl, SumTypeDecl, TypeIdTable, TypeFieldEntry, TypeMethodEntry]: Suru.Compiler.Codegen.Types
+    [buildTypeIdTable, lookupTypeId, makeTypeIdTable, collectArrayTypeNames, builtinTypeId, firstDynamicTypeId]: Suru.Compiler.Codegen.TypeIds
+    [AstNode]: Suru.Compiler.Parser.Ast
+}
+
+// A data-only TypeDecl with no fields or methods — enough for the numbering,
+// which keys on the name alone.
+fn td(name String, isCType bool) TypeDecl {
+    let fields Array<TypeFieldEntry>: []
+    let methods Array<TypeMethodEntry>: []
+    return { name: name, fields: fields, methods: methods, isCType: isCType, hasCustomLifecycle: false }
+}
+
+export fn typeIdsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+    let noArrays Array<String>: []
+    let noSums Array<SumTypeDecl>: []
+
+    // ─── 1. The reserved builtin band ────────────────────────────────────────────
+    // Fixed constants, independent of the program. These become an ABI contract
+    // with runtime/*.c in Phase 4, so they are asserted by value, not by relation.
+    results.add(assertEqI64("builtin bool", builtinTypeId("bool"), 0))
+    results.add(assertEqI64("builtin i32", builtinTypeId("i32"), 1))
+    results.add(assertEqI64("builtin i64", builtinTypeId("i64"), 2))
+    results.add(assertEqI64("builtin f64", builtinTypeId("f64"), 3))
+    results.add(assertEqI64("builtin char", builtinTypeId("char"), 4))
+    results.add(assertEqI64("builtin String", builtinTypeId("String"), 5))
+    // `Str` is an ownership bit, not a type identity — suru_string_drop's
+    // "is this pointer in .rodata" check outlives the refactor and needs a
+    // constant of its own (G6).
+    results.add(assertEqI64("builtin Str", builtinTypeId("Str"), 6))
+    results.add(assertEqI64("non-builtin name has no fixed id", builtinTypeId("Token"), -1))
+
+    // Builtins answer from the band without consulting the table, so they are
+    // correct even against an empty one.
+    let empty TypeIdTable: makeTypeIdTable()
+    results.add(assertEqI64("builtin resolves against empty table", lookupTypeId(empty, "i64"), 2))
+    results.add(assertEqI64("unknown name in empty table is -1", lookupTypeId(empty, "Token"), -1))
+
+    // ─── 2. Dense dynamic band, sorted by mangled name ───────────────────────────
+    let decls Array<TypeDecl>: []
+    decls.add(td("Zebra", false))
+    decls.add(td("Apple", false))
+    decls.add(td("Mango", false))
+    let t1 TypeIdTable: buildTypeIdTable(decls, noSums, noArrays)
+
+    let base i64: firstDynamicTypeId()
+    results.add(assertEqI64("dynamic band starts at 16", base, 16))
+    results.add(assertEqI64("sorted: Apple first", lookupTypeId(t1, "Apple"), base))
+    results.add(assertEqI64("sorted: Mango second", lookupTypeId(t1, "Mango"), base.add(1)))
+    results.add(assertEqI64("sorted: Zebra third", lookupTypeId(t1, "Zebra"), base.add(2)))
+    results.add(assertEqI64("table has exactly 3 entries", t1.entries.len(), 3))
+
+    // ─── 3. Determinism under permutation ────────────────────────────────────────
+    // The property everything else rests on: the table is a function of the SET of
+    // names, never of the order they were registered in. If this ever fails, a
+    // value constructed in one module and matched in another compares unequal.
+    let permuted Array<TypeDecl>: []
+    permuted.add(td("Mango", false))
+    permuted.add(td("Zebra", false))
+    permuted.add(td("Apple", false))
+    let t2 TypeIdTable: buildTypeIdTable(permuted, noSums, noArrays)
+
+    results.add(assertEqI64("permuted: Apple same id", lookupTypeId(t2, "Apple"), lookupTypeId(t1, "Apple")))
+    results.add(assertEqI64("permuted: Mango same id", lookupTypeId(t2, "Mango"), lookupTypeId(t1, "Mango")))
+    results.add(assertEqI64("permuted: Zebra same id", lookupTypeId(t2, "Zebra"), lookupTypeId(t1, "Zebra")))
+    results.add(assertEqI64("permuted: same size", t2.entries.len(), t1.entries.len()))
+
+    // Duplicate registrations collapse to one id (variant arms reach the builder
+    // both as TypeDecls and through their sum type's variant list).
+    let dupes Array<TypeDecl>: []
+    dupes.add(td("Apple", false))
+    dupes.add(td("Apple", false))
+    let t3 TypeIdTable: buildTypeIdTable(dupes, noSums, noArrays)
+    results.add(assertEqI64("duplicate names collapse to one entry", t3.entries.len(), 1))
+
+    // ─── 4. G3 — `None` is shared across every Option<T> and gets ONE id ─────────
+    // Option-i64 and Option-String each list `None` as an arm, and `None` is also
+    // a TypeDecl in its own right. All three mentions must land on one id.
+    let optDecls Array<TypeDecl>: []
+    optDecls.add(td("Some-i64", false))
+    optDecls.add(td("Some-String", false))
+    optDecls.add(td("None", false))
+
+    let optSums Array<SumTypeDecl>: []
+    let armsI64 Array<String>: []
+    armsI64.add("None")
+    armsI64.add("Some-i64")
+    let armsStr Array<String>: []
+    armsStr.add("None")
+    armsStr.add("Some-String")
+    optSums.add({ name: "Option-i64", variants: armsI64 })
+    optSums.add({ name: "Option-String", variants: armsStr })
+
+    let tOpt TypeIdTable: buildTypeIdTable(optDecls, optSums, noArrays)
+
+    // 5 distinct names: None, Option-String, Option-i64, Some-String, Some-i64.
+    results.add(assertEqI64("Option set has 5 distinct ids", tOpt.entries.len(), 5))
+    let noneId i64: lookupTypeId(tOpt, "None")
+    results.add(assertTrue("None has an id", noneId.gte(firstDynamicTypeId())))
+    // Counted directly, so the assertion cannot be satisfied by lookupTypeId simply
+    // returning the first of two entries.
+    results.add(assertEqI64("None appears exactly once in the table", countEntries(tOpt, "None"), 1))
+    results.add(assertTrue("Some-i64 and Some-String differ",
+        not lookupTypeId(tOpt, "Some-i64").equals(lookupTypeId(tOpt, "Some-String"))))
+    results.add(assertTrue("Option-i64 and Option-String differ",
+        not lookupTypeId(tOpt, "Option-i64").equals(lookupTypeId(tOpt, "Option-String"))))
+
+    // ─── 5. G8 — header-less types get no id ─────────────────────────────────────
+    let g8 Array<TypeDecl>: []
+    g8.add(td("Plain", false))
+    g8.add(td("CPoint", true))
+    let tG8 TypeIdTable: buildTypeIdTable(g8, noSums, noArrays)
+    results.add(assertEqI64("cType is excluded from the table", tG8.entries.len(), 1))
+    results.add(assertEqI64("cType lookup is -1", lookupTypeId(tG8, "CPoint"), -1))
+    // An extern type never reaches ctx.typeDecls at all (registerTypes skips
+    // ExternTypeNode), so it is absent by construction — assert the sentinel.
+    results.add(assertEqI64("extern type lookup is -1", lookupTypeId(tG8, "FILE"), -1))
+    results.add(assertTrue("non-cType neighbour still gets an id", lookupTypeId(tG8, "Plain").gte(0)))
+
+    // ─── 6. Array instantiations, keyed by mangled name ──────────────────────────
+    // ensureArrayHelper discovers element types lazily during emission, so the
+    // table cannot read them off a registry — collectArrayTypeNames recovers them
+    // from type annotations instead.
+    let arrFields Array<TypeFieldEntry>: []
+    arrFields.add({ name: "toks", typeName: "Array<Token>" })
+    arrFields.add({ name: "grid", typeName: "Array<Array<i64>>" })
+    let noMethods Array<TypeMethodEntry>: []
+    let arrDecls Array<TypeDecl>: []
+    arrDecls.add({ name: "Lexer", fields: arrFields, methods: noMethods, isCType: false, hasCustomLifecycle: false })
+
+    let noStmts Array<AstNode>: []
+    let arrNames Array<String>: collectArrayTypeNames(noStmts, arrDecls)
+    let tArr TypeIdTable: buildTypeIdTable(arrDecls, noSums, arrNames)
+
+    results.add(assertTrue("Array<Token> registers as Array-Token", lookupTypeId(tArr, "Array-Token").gte(0)))
+    // Nested arrays register BOTH levels, mirroring ensureArrayHelper's recursion
+    // into the element type before it emits the outer wrapper.
+    results.add(assertTrue("nested outer Array-Array-i64 registers", lookupTypeId(tArr, "Array-Array-i64").gte(0)))
+    results.add(assertTrue("nested inner Array-i64 registers", lookupTypeId(tArr, "Array-i64").gte(0)))
+    // Lexer + the three array names.
+    results.add(assertEqI64("array table size", tArr.entries.len(), 4))
+    // Arrays are ordinary dynamic-band entries; only the seven builtins are fixed.
+    results.add(assertEqI64("a plain scalar name is still builtin-banded", lookupTypeId(tArr, "i64"), 2))
+
+    return results
+}
+
+// Count table entries with the given name, without going through lookupTypeId —
+// so a duplicate hidden behind a first-match lookup is still visible.
+fn countEntries(t TypeIdTable, name String) i64 {
+    let n i64: 0
+    let i i64: 0
+    while i.lt(t.entries.len()) {
+        if t.entries.at(i).name.equals(name) { n: n.add(1) }
+        i: i.add(1)
+    }
+    return n
+}
