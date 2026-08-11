@@ -18,10 +18,8 @@
 // It starts at 0 and threads through ALL types so SSA names like %malloc_0, %cgep_1
 // are globally unique across all helper functions.
 //
-// External types (from included modules) are NOT emitted here — their clone/drop
-// bodies are compiled from the origin .suru file.  Declare stubs for external types
-// are emitted into ctx.extCloneDropDecls by emitObjectLiteralAlloc (ir-struct-codegen)
-// when it detects the type is absent from ctx.typeDecls.
+// One .ll per program, so every type registered in ctx.typeDecls gets its bodies
+// here — there are no external types and no declare stubs.
 //
 // Include DAG: depends on ir-codegen-types.suru.
 // Imported by ir-codegen.suru (the top-level codegen file).
@@ -270,16 +268,6 @@ fn emitTypeCloneDrop(ctx IrCodegenContext, typeName String, cgTmp i64) CloneDrop
     return { ctx: ctx, cgTmp: cgTmp }
 }
 
-// ─── External type declare stubs ──────────────────────────────────────────────
-
-// Append `declare ptr @suru_clone_T(ptr)` and `declare void @suru_drop_T(ptr)`
-// to ctx.extCloneDropDecls for a type that came from an included module.
-// The actual bodies are compiled in the origin .suru file and linked via the linker.
-//
-// Thin wrapper over types.addExtCloneDropDecl (idempotent via declares dedup set).
-fn emitExternalCloneDropDeclare(ctx IrCodegenContext, typeName String) IrCodegenContext {
-    return types.addExtCloneDropDecl(ctx, typeName)
-}
 
 // ─── Custom-lifecycle vtable-dispatch wrappers ────────────────────────────────
 
@@ -322,33 +310,46 @@ fn emitCustomLifecycleCloneDrop(ctx IrCodegenContext, decl TypeDecl, cgTmp i64) 
 // ─── Module-level iteration ───────────────────────────────────────────────────
 
 // Emit @suru_clone_T / @suru_drop_T for every type registered in ctx.typeDecls.
-// Own types (in ctx.ownTypeNames) get full clone/drop body definitions.
-// External types (from included modules) get declare stubs via addExtCloneDropDecl.
+// One .ll per program: every registered type gets its bodies here, no declare stubs.
+//
+// @suru_clone_T / @suru_drop_T are NOT namespace-mangled, so a name emitted twice
+// is a hard LLVM redefinition error.  `emitted` guards against that — both for two
+// modules declaring the same type name and for a duplicate TypeDecl registration
+// from mono.  It is walked in ctx.typeDecls registration order, so output stays
+// deterministic (the bootstrap C2 == C3 fixed point depends on it).
 //
 // The cgTmp counter starts at 0 and threads through all types, producing globally
 // unique SSA names across the entire helpers block.
 //
 export fn emitAllTypeCloneDrop(ctx IrCodegenContext) IrCodegenContext {
     let cgTmp i64: 0
+    let emitted Array<String>: []
     let i i64: 0
     while i.lt(ctx.typeDecls.len()) {
         let decl TypeDecl: ctx.typeDecls.at(i)
         // cTypes have no runtime header / type_tag, so no @suru_clone_T/@suru_drop_T
         // helper is generated — their memory is managed manually via extern fn.
-        if types.isOwnType(ctx, decl.name) and not decl.isCType {
-            if decl.hasCustomLifecycle {
-                // User-declared clone()/drop() — emit vtable-dispatch wrappers.
-                let r CloneDropResult: emitCustomLifecycleCloneDrop(ctx, decl, cgTmp)
-                ctx: r.ctx
-                cgTmp: r.cgTmp
-            } else {
-                let r CloneDropResult: emitTypeCloneDrop(ctx, decl.name, cgTmp)
-                ctx: r.ctx
-                cgTmp: r.cgTmp
+        if not decl.isCType {
+            let dup bool: false
+            let e i64: 0
+            while e.lt(emitted.len()) {
+                if emitted.at(e).equals(decl.name) { dup: true }
+                e: e.add(1)
+            }
+            if not dup {
+                emitted.add(clone(decl.name))
+                if decl.hasCustomLifecycle {
+                    // User-declared clone()/drop() — emit vtable-dispatch wrappers.
+                    let r CloneDropResult: emitCustomLifecycleCloneDrop(ctx, decl, cgTmp)
+                    ctx: r.ctx
+                    cgTmp: r.cgTmp
+                } else {
+                    let r CloneDropResult: emitTypeCloneDrop(ctx, decl.name, cgTmp)
+                    ctx: r.ctx
+                    cgTmp: r.cgTmp
+                }
             }
         }
-        // External types: declare stubs are emitted on-demand by
-        // emitObjectLiteralAlloc when the type is actually instantiated.
         i: i.add(1)
     }
     return ctx

@@ -282,8 +282,9 @@ export fn ensureArrayHelper(ctx IrCodegenContext, elemSuru String) IrCodegenCont
         ctx: types.addSuruDecl(ctx, "declare ptr  @suru_array_clone_scalar(ptr, i64)\n")
         ctx: types.addSuruDecl(ctx, "declare void @suru_array_drop_scalar(ptr)\n")
         let esz String: elemSizeBytes(elemSuru).toString()
-        // linkonce_odr: these monomorphized wrappers may be emitted in several
-        // per-module .ll files; the linker folds the duplicate definitions.
+        // linkonce_odr is vestigial now that the program is one .ll — the sentinel
+        // above already emits each wrapper exactly once.  Kept because changing the
+        // linkage would churn ~300 lines of IR for no functional gain.
         let hc String: "define linkonce_odr ptr @".append(cloneName).append("(ptr %a) {\nentry:\n")
         hc: hc.append("  %r = call ptr @suru_array_clone_scalar(ptr %a, i64 ").append(esz).append(")\n")
         hc: hc.append("  ret ptr %r\n}\n\n")

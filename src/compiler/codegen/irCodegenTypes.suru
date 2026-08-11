@@ -32,11 +32,16 @@ export type VarEntry: { name String, allocaName String, suruType String }
 // and to emit correct `define`/`declare` headers.
 // paramSuruTypes: list of Suru type names for each parameter (needed by
 // emitFunction to emit the LLVM parameter list and by emitMainWrapper).
+// srcPath: the module that declares this function ("" for extern fns).  With one
+// .ll per program every module's functions share ctx.functions, and bare names are
+// NOT unique across modules (e.g. `isSumTypeName` exists in both semantic/exprs and
+// codegen/types).  lookupFn therefore resolves module-locally first — see there.
 export type FnEntry: {
     name           String
     returnLlvmType String
     returnSuruType String
     paramSuruTypes Array<String>
+    srcPath        String
 }
 
 // ─── Module-level constant ────────────────────────────────────────────────────
@@ -88,7 +93,6 @@ export type SumTypeDecl: { name String, variants Array<String> }
 //   strGlobals       — @.str_N private constant globals
 //   decls            — `declare` stubs for libc functions (malloc, fopen, …)
 //   suruDecls        — `declare` stubs for Suru runtime functions (suru_string_*, …)
-//   extCloneDropDecls— `declare ptr @suru_clone_T` stubs for external struct types
 //
 // Module-level registries (filled during pre-pass, never reset):
 //   functions   — user-defined function signatures for call-site lookup
@@ -96,7 +100,6 @@ export type SumTypeDecl: { name String, variants Array<String> }
 //   typeDecls   — struct type declarations for field-offset lookup
 //   sumTypes    — sum type declarations for variant-index and exhaustiveness
 //   strIndex    — interned string literal text → global name
-//   ownFnNames  — names of functions defined in THIS module (vs. from includes)
 //   declares    — dedup set for idempotent addDecl / addSuruDecl
 //
 // Per-function state (reset at the start of each emitFunction call):
@@ -116,18 +119,16 @@ export type IrCodegenContext: {
     strLiterals       String
     decls             String
     suruDecls         String
-    extCloneDropDecls     String
-    extCloneDropTypeNames Array<String>
     functions             Array<FnEntry>
     globalVars        Array<GlobalVar>
     typeDecls         Array<TypeDecl>
     sumTypes          Array<SumTypeDecl>
     strIndex          Array<StrIndexEntry>
-    ownFnNames        Array<String>
-    monoFnNames       Array<String>
-    ownTypeNames      Array<String>
     fnSrcName         Array<String>
     fnSrcPath         Array<String>
+    // srcPath of the function body currently being emitted.  Scopes bare-name
+    // function resolution to the calling module (see lookupFn / lookupFnSrcPath).
+    currentFnSrcPath  String
     // SelectiveAliased import aliases: fnAliasLocal[i] is the local alias name
     // (e.g. "dbl") and fnAliasReal[i] is the real exported function name
     // (e.g. "double").  Populated by emitModule; used by emitUserFnCall to
@@ -174,9 +175,6 @@ export fn makeIrContext() IrCodegenContext {
     let typeDecls   Array<TypeDecl>:     []
     let sumTypes    Array<SumTypeDecl>:  []
     let strIndex    Array<StrIndexEntry>:[]
-    let ownFnNames   Array<String>:       []
-    let monoFnNames  Array<String>:       []
-    let ownTypeNames Array<String>:       []
     let fnSrcName    Array<String>:       []
     let fnSrcPath    Array<String>:       []
     let fnAliasLocal Array<String>:       []
@@ -186,7 +184,6 @@ export fn makeIrContext() IrCodegenContext {
     let vars              Array<VarEntry>: []
     let mutatedLocals         Array<String>: []
     let declares              Array<String>: []
-    let extCloneDropTypeNames Array<String>: []
     let loopCondLabels        Array<String>: []
     let loopAfterLabels       Array<String>: []
     return {
@@ -196,18 +193,14 @@ export fn makeIrContext() IrCodegenContext {
         strLiterals:          ""
         decls:                ""
         suruDecls:            ""
-        extCloneDropDecls:    ""
-        extCloneDropTypeNames: extCloneDropTypeNames
         functions:         functions
         globalVars:        globalVars
         typeDecls:         typeDecls
         sumTypes:          sumTypes
         strIndex:          strIndex
-        ownFnNames:        ownFnNames
-        monoFnNames:       monoFnNames
-        ownTypeNames:      ownTypeNames
         fnSrcName:         fnSrcName
         fnSrcPath:         fnSrcPath
+        currentFnSrcPath:  ""
         fnAliasLocal:      fnAliasLocal
         fnAliasReal:       fnAliasReal
         srcNsPath:         srcNsPath
@@ -228,15 +221,49 @@ export fn makeIrContext() IrCodegenContext {
 
 // ─── Declare-stub dedup helpers ───────────────────────────────────────────────
 
+// Dedup key for a line handed to addDecl/addSuruDecl.
+//
+// A `declare` is keyed by its SYMBOL, not its full text: one .ll per program means
+// the compiler's hardwired libc declares and a user `extern fn` for the same C
+// function now land in the same module, and LLVM rejects two declares of one name
+// with different signatures — e.g. codegen's `declare ptr @memcpy(ptr, ptr, i64)`
+// (emitMainWrapper) versus stdlib's `extern fn memcpy(...) void`.  First writer
+// wins.  That is safe under opaque pointers: every `call` carries its own explicit
+// function type, so the callee's declared signature is not consulted, and the ABI
+// is whatever the call site states — exactly what the linker resolved to before.
+//
+// Anything else (vtable globals, the @@arrhelp: sentinels) is keyed by full text.
+fn declKey(line String) String {
+    if line.len().lt(8) { return line }
+    if not line.slice(0, 8).equals("declare ") { return line }
+    let at i64: -1
+    let lp i64: -1
+    let i i64: 8
+    while i.lt(line.len()) {
+        if at.lt(0) {
+            if line.at(i).equals("@") { at: i }
+        } else {
+            if lp.lt(0) {
+                if line.at(i).equals("(") { lp: i }
+            }
+        }
+        i: i.add(1)
+    }
+    if at.lt(0) { return line }
+    if lp.lt(0) { return line }
+    return line.slice(at, lp)
+}
+
 // Append `line` to ctx.decls (libc externals) only if not already declared.
 // malloc/free/fopen/strlen/exit go here (one leading space).
 export fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
+    let key String: declKey(line)
     let i i64: 0
     while i.lt(ctx.declares.len()) {
-        if ctx.declares.at(i).equals(line) { return ctx }
+        if ctx.declares.at(i).equals(key) { return ctx }
         i: i.add(1)
     }
-    ctx.declares.add(line)
+    ctx.declares.add(key)
     ctx.decls: ctx.decls.append(line)
     return ctx
 }
@@ -244,29 +271,14 @@ export fn addDecl(ctx IrCodegenContext, line String) IrCodegenContext {
 // Append `line` to ctx.suruDecls (Suru runtime declares) only if not already declared.
 // suru_*/suru_string_* use two leading spaces.
 export fn addSuruDecl(ctx IrCodegenContext, line String) IrCodegenContext {
+    let key String: declKey(line)
     let i i64: 0
     while i.lt(ctx.declares.len()) {
-        if ctx.declares.at(i).equals(line) { return ctx }
+        if ctx.declares.at(i).equals(key) { return ctx }
         i: i.add(1)
     }
-    ctx.declares.add(line)
+    ctx.declares.add(key)
     ctx.suruDecls: ctx.suruDecls.append(line)
-    return ctx
-}
-
-// Append declare stubs for an external struct type's clone/drop functions.
-// Idempotent — uses ctx.declares for deduplication.
-export fn addExtCloneDropDecl(ctx IrCodegenContext, typeName String) IrCodegenContext {
-    let cloneLine String: "declare ptr  @suru_clone_".append(typeName).append("(ptr)\n")
-    let dropLine  String: "declare void @suru_drop_".append(typeName).append("(ptr)\n")
-    let i i64: 0
-    while i.lt(ctx.declares.len()) {
-        if ctx.declares.at(i).equals(cloneLine) { return ctx }
-        i: i.add(1)
-    }
-    ctx.declares.add(cloneLine)
-    // Collect type name for sorted assembly in generate() — names are sorted alphabetically.
-    ctx.extCloneDropTypeNames.add(typeName)
     return ctx
 }
 
@@ -320,15 +332,30 @@ export fn updateVar(ctx IrCodegenContext, varName String, entry VarEntry) IrCode
 // ─── Function registry ────────────────────────────────────────────────────────
 
 // Linear search for a function signature by name.  Returns an empty FnEntry if not found.
+//
+// Module-local first: a bare name inside a function body refers to that module's
+// own declaration whenever it has one.  Before the single-.ll switch this was
+// implicit — each module's IR was generated from its own dependency closure, so a
+// same-named helper in an unrelated module was simply not visible.  Now every
+// module shares one ctx, and a plain first-match would make semantic/exprs call
+// codegen/types' `isSumTypeName`.  ctx.currentFnSrcPath is the module being emitted.
 export fn lookupFn(ctx IrCodegenContext, name String) FnEntry {
     let i i64: 0
     while i.lt(ctx.functions.len()) {
         let e FnEntry: ctx.functions.at(i)
-        if e.name.equals(name) { return e }
+        if e.name.equals(name) {
+            if e.srcPath.equals(ctx.currentFnSrcPath) { return e }
+        }
         i: i.add(1)
     }
+    let j i64: 0
+    while j.lt(ctx.functions.len()) {
+        let e2 FnEntry: ctx.functions.at(j)
+        if e2.name.equals(name) { return e2 }
+        j: j.add(1)
+    }
     let emptyParams Array<String>: []
-    return { name: "", returnLlvmType: "", returnSuruType: "", paramSuruTypes: emptyParams }
+    return { name: "", returnLlvmType: "", returnSuruType: "", paramSuruTypes: emptyParams, srcPath: "" }
 }
 
 // Append a function signature.  Called during pre-pass; NOT idempotent.
@@ -481,40 +508,6 @@ export fn fieldIndex(decl TypeDecl, fieldName String) i64 {
         i: i.add(1)
     }
     return -1
-}
-
-// True when name is in ctx.monoFnNames (concrete instantiation produced by the
-// mono pass for this compilation unit).  Unlike ownFnNames, monoFnNames only
-// contains freshly-instantiated names, preventing same-named functions from
-// unrelated included files from being treated as own.
-export fn isMonoFn(ctx IrCodegenContext, name String) bool {
-    let i i64: 0
-    while i.lt(ctx.monoFnNames.len()) {
-        if ctx.monoFnNames.at(i).equals(name) { return true }
-        i: i.add(1)
-    }
-    return false
-}
-
-// True when name is in ctx.ownFnNames (function defined in this module, not from includes).
-export fn isOwnFn(ctx IrCodegenContext, name String) bool {
-    let i i64: 0
-    while i.lt(ctx.ownFnNames.len()) {
-        if ctx.ownFnNames.at(i).equals(name) { return true }
-        i: i.add(1)
-    }
-    return false
-}
-
-// True when name is in ctx.ownTypeNames (type declared in this module, not from includes).
-// Used by emitAllTypeCloneDrop to decide whether to emit a body or a declare stub.
-export fn isOwnType(ctx IrCodegenContext, name String) bool {
-    let i i64: 0
-    while i.lt(ctx.ownTypeNames.len()) {
-        if ctx.ownTypeNames.at(i).equals(name) { return true }
-        i: i.add(1)
-    }
-    return false
 }
 
 // String literal interning helpers (irEscapeStr, internString, lookupStrGlobal,

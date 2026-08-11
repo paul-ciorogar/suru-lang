@@ -249,7 +249,7 @@ fn main(args Array<String>) {
             actual: readFile(outFile)
         } else {
             exec("suru compile /work/".append(tc.source).append("/main.suru ").append(ll).append(" 2>/dev/null"))
-            exec("clang-18 ".append(dir).append("*.ll ").append(runtime).append("/*.o -o ").append(bin).append(" 2>/dev/null"))
+            exec("clang-18 ".append(ll).append(" ").append(runtime).append("/*.o -o ").append(bin).append(" 2>/dev/null"))
             exec(bin.append(tc.args).append(" > ").append(outFile).append(" 2>&1"))
             actual: readFile(outFile)
             memCheck: exec("valgrind --error-exitcode=1 --leak-check=full --quiet ".append(bin).append(tc.args).append(" >/dev/null 2>&1"))

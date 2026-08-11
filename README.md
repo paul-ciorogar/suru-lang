@@ -1020,12 +1020,12 @@ Or copy/symlink it somewhere on your `$PATH` as `suru`.
 
 ### compile
 
-Compile a `.suru` source file to LLVM IR files. This is the low-level interface used by build scripts and the test runner — it mirrors the old `suru-build <source> <output.ll>` interface:
+Compile a `.suru` source file to a **single** LLVM IR file containing the whole program — the entry file and every transitively imported module. This is the low-level interface used by build scripts and the test runner — it mirrors the old `suru-build <source> <output.ll>` interface:
 
 ```sh
 build/cli/main compile src/myprogram/main.suru /tmp/out/main.ll
-# writes main.ll and one .ll per imported file into /tmp/out/
-clang-18 /tmp/out/*.ll /usr/local/lib/suru/runtime/*.o -o myprogram
+# writes exactly one file: /tmp/out/main.ll
+clang-18 /tmp/out/main.ll /usr/local/lib/suru/runtime/*.o -o myprogram
 ```
 
 ### build
@@ -1068,7 +1068,11 @@ Run the full compilation pipeline and print the generated LLVM IR to stdout, wit
 build/cli/main ir src/myprogram/main.suru
 ```
 
-Useful for inspecting codegen output or diffing IR across changes without producing a binary.
+The output is the complete program, so it is directly linkable — useful for inspecting codegen output, diffing IR across changes, or getting LLVM's own diagnostics on the whole build:
+
+```sh
+build/cli/main ir src/myprogram/main.suru | clang-18 -x ir - /usr/local/lib/suru/runtime/*.o -o myprogram
+```
 
 ### debug
 

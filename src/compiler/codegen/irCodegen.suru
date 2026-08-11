@@ -114,26 +114,38 @@ fn emitInt32Static(ctx IrCodegenContext, method String, args Array<AstNode>) Cod
 // ─── Per-module symbol mangling ─────────────────────────────────────────────────
 
 // name → owning source path (or "" when not a user function: runtime/builtin).
+// Module-local first, for the same reason as types.lookupFn: bare function names
+// are not unique across the program, and an unqualified call inside a module means
+// that module's own declaration whenever it has one.
 export fn lookupFnSrcPath(ctx IrCodegenContext, name String) String {
     let names Array<String>: ctx.fnSrcName
     let paths Array<String>: ctx.fnSrcPath
     let i i64: 0
     while i.lt(names.len()) {
-        if names.at(i).equals(name) { return paths.at(i) }
+        if names.at(i).equals(name) {
+            if paths.at(i).equals(ctx.currentFnSrcPath) { return paths.at(i) }
+        }
         i: i.add(1)
+    }
+    let j i64: 0
+    while j.lt(names.len()) {
+        if names.at(j).equals(name) { return paths.at(j) }
+        j: j.add(1)
     }
     return ""
 }
 
-// name → source path of an external (non-own-file) function, or "".
+// name → source path of a function declared outside the calling module, or "".
 // Used when emitting alias method calls (lib.fn()) to prefer the imported
-// function over a same-named local function.
+// function over a same-named local one.  "Local" is the module owning the body
+// being emitted (ctx.currentFnSrcPath) — before the single-.ll switch that was
+// always ctx.rootPath, because each module was compiled as its own root.
 export fn lookupExternalFnSrcPath(ctx IrCodegenContext, name String) String {
     let i i64: 0
     while i.lt(ctx.fnSrcName.len()) {
         if ctx.fnSrcName.at(i).equals(name) {
             let sp String: ctx.fnSrcPath.at(i)
-            if not sp.equals(ctx.rootPath) {
+            if not sp.equals(ctx.currentFnSrcPath) {
                 return sp
             }
         }
@@ -2242,29 +2254,18 @@ fn emitStmts(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContext {
     return ctx
 }
 
-// Emit a function definition or declare stub (for external/included functions).
-// Resets per-function state.
+// Emit a function definition.  One .ll per program: every FnDeclNode reaching
+// codegen — root, imported, or monomorphized — gets a full body here.
 export fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext {
-    // A function is defined here only when it belongs to the file being
-    // compiled as root (by source path) OR its name is in ownFnNames.
-    // The second condition handles concrete monomorphic instantiations: a
-    // generic template from an included file (e.g. opt.some<T>) produces a
-    // concrete copy (some-i64) whose srcPath still points to the included
-    // file, but the instantiation belongs to the root's compilation unit.
-    let isOwn bool: fnDecl.srcPath.equals(ctx.rootPath)
-    if not isOwn { isOwn: types.isMonoFn(ctx, fnDecl.name) }
-    if not isOwn {
-        let retSuru String: tyh.makeSuruType(fnDecl.returnType)
-        let retLlvm String: match fnDecl.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
-        let paramParts Array<String>: []
-        let i i64: 0
-        while i.lt(fnDecl.params.len()) {
-            paramParts.add(box.llvmTypeOf(tyh.makeSuruType(fnDecl.params.at(i).typeName)))
-            i: i.add(1)
-        }
-        ctx.fns: ctx.fns.append("declare ").append(retLlvm).append(" @").append(fnMangleSym(ctx, fnDecl.srcPath, fnDecl.name)).append("(").append(ir.joinArgs(paramParts)).append(")\n")
-        return ctx
+    // Defensive: only the root file's `main` becomes @suru_main.  src/compiler/build.suru
+    // declares its own `main` inside a scanned namespace root, so a stray reference to
+    // that module must not mint a second @suru_main/@main.
+    if fnDecl.name.equals("main") {
+        if not fnDecl.srcPath.equals(ctx.rootPath) { return ctx }
     }
+
+    // Scope bare-name call resolution to this function's own module.
+    ctx.currentFnSrcPath: fnDecl.srcPath
 
     // Reset per-function state, preserving the SSA counter across functions.
     // SSA names must be globally unique — ir.freshFnBuilder carries the current
@@ -2439,48 +2440,12 @@ export fn emitModule(ctx IrCodegenContext, stmts Array<AstNode>) IrCodegenContex
     return ctx
 }
 
-// Insertion-sort an Array<String> alphabetically and return the sorted copy.
-// Used to emit external clone/drop declares in deterministic order.
-fn sortStrings(arr Array<String>) Array<String> {
-    let result Array<String>: []
-    let i i64: 0
-    while i.lt(arr.len()) {
-        result.add(arr.at(i))
-        i: i.add(1)
-    }
-    let n i64: result.len()
-    let outer i64: 1
-    while outer.lt(n) {
-        let key String: result.at(outer)
-        let j i64: outer.take(1)
-        let go bool: j.gte(0)
-        while go {
-            if result.at(j).compare(key).gt(0) {
-                result.set(result.at(j), j.add(1))
-                j: j.take(1)
-                go: j.gte(0)
-            } else {
-                go: false
-            }
-        }
-        result.set(key, j.add(1))
-        outer: outer.add(1)
-    }
-    return result
-}
-
-// Top-level entry point: initialise context, run emit(), assemble .ll text.
-// ownFnNames:  names of functions defined in THIS file (not from includes).
-// monoFnNames: names of concrete functions produced by the mono pass for this
-//              compilation unit.  These may have srcPath pointing to an included
-//              file (the generic template's origin), but should still get a full
-//              define in this file's IR.  Kept separate from ownFnNames to avoid
-//              false-positive "own" matches for same-named functions in includes.
-export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<String>, ownTypeNames Array<String>, monoFnNames Array<String>, rootPath String, srcNsEntries Array<SrcNsEntry>) String {
+// Top-level entry point: initialise context, run emit(), assemble the .ll text.
+// One context == one whole program: every function and type in `stmts` is defined
+// here, there are no declare stubs for "other modules".  rootPath is the entry
+// file, used only to pick which `main` becomes @suru_main.
+export fn generate(stmts Array<AstNode>, sourceName String, rootPath String, srcNsEntries Array<SrcNsEntry>) String {
     let ctx IrCodegenContext: types.makeIrContext()
-    ctx.ownFnNames: ownFnNames
-    ctx.monoFnNames: monoFnNames
-    ctx.ownTypeNames: ownTypeNames
     ctx.rootPath: rootPath
 
     // Populate srcPath → namespace table so fnMangleSym and registerConstants
@@ -2552,25 +2517,14 @@ export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<Str
     ctx.fnAliasLocal: fnAliasLocal
     ctx.fnAliasReal: fnAliasReal
 
-    // Register external function signatures for namespace calls.
+    // Register extern fn signatures.  User FnDeclNodes are registered later by
+    // passes.registerFunctions (from emitModule) in a single stmts-order pass —
+    // ctx.functions is keyed by bare name and lookupFn returns the first match,
+    // so stmts order decides the winner for cross-module name duplicates.
     let i i64: 0
     while i.lt(stmts.len()) {
         let s AstNode: stmts.at(i)
         match s {
-            FnDeclNode: {
-                if not types.isOwnFn(ctx, s.name) {
-                    let retSuru String: tyh.makeSuruType(s.returnType)
-                    let retLlvm String: match s.returnType.equals("void") { true: "ptr", _: box.llvmTypeOf(retSuru) }
-                    let paramTypes Array<String>: []
-                    let j i64: 0
-                    while j.lt(s.params.len()) {
-                        paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
-                        j: j.add(1)
-                    }
-                    let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
-                    ctx: types.addFn(ctx, fnEnt)
-                }
-            }
             ExternFnNode: {
                 let retSuru String: tyh.makeSuruType(s.returnType)
                 let retLlvm String: match s.returnType.equals("void") { true: "void", _: box.llvmTypeOf(retSuru) }
@@ -2580,7 +2534,7 @@ export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<Str
                     paramTypes.add(tyh.makeSuruType(s.params.at(j).typeName))
                     j: j.add(1)
                 }
-                let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes }
+                let fnEnt FnEntry: { name: s.name, returnLlvmType: retLlvm, returnSuruType: retSuru, paramSuruTypes: paramTypes, srcPath: "" }
                 ctx: types.addFn(ctx, fnEnt)
             }
             _: {}
@@ -2591,7 +2545,7 @@ export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<Str
     ctx: emitModule(ctx, stmts)
 
     // Assemble output: header | globalConstants | strGlobals | decls | suruDecls |
-    //                  extCloneDropDecls | helpers | fns
+    //                  helpers | fns
     let header String: "; ModuleID = '"
         .append(sourceName).append("'\n")
         .append("source_filename = \"").append(sourceName).append("\"\n")
@@ -2605,26 +2559,12 @@ export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<Str
     // Blank-line separators:
     //   sep1 — after globalVars (if any)
     //   sep2 — after user string literals (if any); NOT after mode/format globals
-    //   sep3 — after extCloneDropDecls (if any)
     // ctx.strGlobals holds mode/format/bool strings (no blank after).
     // ctx.strLiterals holds user Suru string literal globals (blank after if non-empty).
     let sep1 String: ""
     if not globalConsts.len().equals(0) { sep1: "\n" }
     let sep2 String: ""
     if not ctx.strLiterals.len().equals(0) { sep2: "\n" }
-    // Build extCloneDropDecls from sorted type names (alphabetical for deterministic output).
-    let sortedNames Array<String>: sortStrings(ctx.extCloneDropTypeNames)
-    let extCloneDropDecls String: ""
-    let ei i64: 0
-    while ei.lt(sortedNames.len()) {
-        let tn String: sortedNames.at(ei)
-        extCloneDropDecls: extCloneDropDecls
-            .append("declare ptr  @suru_clone_").append(tn).append("(ptr)\n")
-            .append("declare void @suru_drop_").append(tn).append("(ptr)\n")
-        ei: ei.add(1)
-    }
-    let sep3 String: ""
-    if not extCloneDropDecls.len().equals(0) { sep3: "\n" }
     return header
         .append(globalConsts)
         .append(sep1)
@@ -2633,8 +2573,6 @@ export fn generate(stmts Array<AstNode>, sourceName String, ownFnNames Array<Str
         .append(sep2)
         .append(ctx.decls)
         .append(ctx.suruDecls)
-        .append(extCloneDropDecls)
-        .append(sep3)
         .append(ctx.helpers)
         .append(ctx.fns)
 }

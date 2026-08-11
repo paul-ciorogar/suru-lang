@@ -5,8 +5,8 @@
 //
 // None is listed first in the variant declaration so that None: {} struct
 // literals created outside the monomorphized context (e.g. in the none()
-// helper compiled by compileOneFile) keep the default variant_idx=0 and
-// are dispatched correctly by suru_variant_tag.
+// helper) keep the default variant_idx=0 and are dispatched correctly by
+// suru_variant_tag.
 //
 // Usage (include style):
 //   include "stdlib/option.suru" as opt
@@ -26,9 +26,9 @@ export type Some<T>: { value T }
 export type None: {}
 
 // None is variant 0, Some<T> is variant 1.  This ordering ensures that a
-// None struct created in compileOneFile (where the generic Option<T> is
-// filtered out by filterGenericDefs) retains the default variant_idx=0 and
-// is correctly dispatched by suru_variant_tag in any Option<T> match.
+// None struct created where the generic Option<T> has been filtered out by
+// filterGenericDefs retains the default variant_idx=0 and is correctly
+// dispatched by suru_variant_tag in any Option<T> match.
 export type Option<T>: None, Some<T>
 
 // some — wrap a value in Some, returning Option<T>.

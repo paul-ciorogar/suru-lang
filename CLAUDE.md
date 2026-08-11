@@ -71,7 +71,12 @@ Source → Lexer → Parser → Semantic Analysis → Type Resolution → IR Cod
    - `monoVariantArms.suru` — the final mono step, `rewriteVariantArms`: match-arm patterns still carry the unmangled base name the programmer wrote (`Some:`), and are resolved against the concrete `SumTypeDeclNode`'s variant list (`Some-i64:`). Split out of `monoPass.suru` to keep both under the 500-line limit.
    - `monoSubst.suru` — recursive type-name and AST-node rewriters for substitution. **Everything a node carries that names a type must be substituted when a generic body is cloned** — the `resolvedType`/`typeName` strings *and* the structured `typeArgs` on `CallNode`/`MethodCallNode`/`ObjectLitNode` (via `substTypeArgs`). Inside a template the resolver records the enclosing type parameter itself: `List<T>.clone()`'s inner `newList()` carries `typeArgs=[T]`. Since mono treats `typeArgs` as the authoritative binding for both instantiation and call-site renaming, leaving them verbatim makes the `List-i64` copy ask for `newList-T` — a name never instantiated — and the build fails with `undefined function 'newList'`.
 5. **Type Resolution** (`semantic/resolveTypes.suru`) — infers and annotates `resolvedType` on every AST expression node; codegen depends on these annotations
-6. **Code Generation** (`src/compiler/codegen/`) — emits LLVM IR (one `.ll` per module); links with `runtime/*.o` (compiled from `runtime/*.c`) via `clang-18`. Leaf helper: `irOwnedLocals.suru` (`collectMutatedLocals`) — a pure AST walk deciding which `String` locals are owned slots (see Memory Management)
+6. **Code Generation** (`src/compiler/codegen/`) — emits **one `.ll` for the whole program** (entry file + every transitively imported module); links with `runtime/*.o` (compiled from `runtime/*.c`) via `clang-18`, naming the `.ll` explicitly (never globbing, so a stale file is inert). Leaf helper: `irOwnedLocals.suru` (`collectMutatedLocals`) — a pure AST walk deciding which `String` locals are owned slots (see Memory Management)
+
+**One `IrCodegenContext` == one whole program.** There is no `define`-vs-`declare` ownership gate: every `FnDeclNode`/`TypeDeclNode` that reaches codegen is defined there. Two consequences the old per-module split used to hide, and which any new lookup must respect:
+- **Bare names are not unique across modules.** `isSumTypeName` is declared by both `semantic/exprs.suru` and `codegen/irCodegenTypes.suru`; `joinDots`, `containsName` and the `rewriteMatchArm*` family too. `types.lookupFn` and `lookupFnSrcPath` (`irCodegen.suru`) therefore resolve **module-locally first** — matching `ctx.currentFnSrcPath` (set per body in `emitFunction`) before falling back to first-match. `lookupExternalFnSrcPath` compares against `currentFnSrcPath` for the same reason. A new bare-name registry keyed only by name is a regression.
+- **`declare`s are deduped by symbol, not by text** (`declKey` in `irCodegenTypes.suru`), first writer wins. The compiler's hardwired `declare ptr @memcpy(…)` (`emitMainWrapper`) and stdlib's `extern fn memcpy(…) void` are two signatures for one name, which LLVM rejects. This is safe only because opaque pointers make every `call` carry its own explicit function type, so the callee's declared signature is never consulted.
+- `@suru_clone_T`/`@suru_drop_T` are **not** namespace-mangled, so `emitAllTypeCloneDrop` guards on an already-emitted-name list (walked in `ctx.typeDecls` registration order, to keep output deterministic for the bootstrap fixed point).
 
 Pipeline order in `pipeline.suru` (`runPipelineFull`):
 ```
@@ -85,11 +90,16 @@ lex → parse → collectFnNames/TypeNames → resolveIncludes → buildModuleIm
 → rewriteCallSites (monoPass.suru)           // rename generic calls from node.typeArgs
 → rewriteVariantArms (monoVariantArms.suru)  // unmangled "Some:" → "Some-i64:"
 → lowerObjects                               // augmentPrivateFields then method lift
-→ analyzeModuleStatements → codegen
+→ analyzeModuleStatements
+→ rewriteQualifiedCalls(mergedStmts)         // imported bodies are emitted from this list too
+→ append resolved.externFns                  // imported externs rejoin for their `declare`s
+→ codegen                                    // one .ll for everything
 ```
 
+Imported `extern fn`s are held in a side channel (`ResolveResult.externFns`) so `runPrePasses` doesn't see the same C name declared by several modules as a duplicate; they are folded back into the codegen statements at the very end so `emitModule` emits each `declare` (deduped by symbol) and `generate` registers each signature.
+
 Pipeline entry points in `pipeline.suru`:
-- `runBuildDriver(sourcePath, outputPath)` — full pipeline, writes `.ll` files
+- `runBuildDriver(sourcePath, outputPath)` — full pipeline, writes the program's single `.ll`
 - `compilePipeline(sourcePath, buildDir)` — full pipeline + invokes `clang-18` to link a binary
 - `generateIRText(sourcePath)` — full pipeline, returns IR as a string
 - `runPipelineDebug(sourcePath, stopPass)` — stops after the named pass and returns `DebugResult { stmts, state }`; valid pass names: `resolve1`, `mono`, `resolve2`, `semantic`
@@ -181,11 +191,12 @@ deleted until this boundary and the `String`-returning-a-literal boundary are cl
 ## CLI Commands
 
 ```bash
-suru compile <file> <out.ll>        # Emit LLVM IR files
+suru compile <file> <out.ll>        # Emit the whole program as ONE LLVM IR file at <out.ll>
 suru build   <file>                 # Compile to native binary (placed next to source in build/)
 suru lex     <file>                 # Print tokens (KIND text line:col)
 suru parse   <file>                 # Print AST (with includes expanded)
-suru ir      <file>                 # Print LLVM IR to stdout
+suru ir      <file>                 # Print the whole program's LLVM IR to stdout (directly linkable:
+                                    #   suru ir x.suru | clang-18 -x ir - /usr/local/lib/suru/runtime/*.o)
 suru debug   <pass> <file>          # Stop after pass, print AST + symbol table
                                     # Passes: resolve1, mono, resolve2, semantic
 ```

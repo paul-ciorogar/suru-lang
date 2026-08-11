@@ -1,11 +1,11 @@
 // suru CLI — user-facing frontend for the Suru compiler.
 //
 // Commands:
-//   compile <file> <out.ll>   Compile to LLVM IR files (replaces bin/suru-build)
+//   compile <file> <out.ll>   Compile the whole program to ONE LLVM IR file (replaces bin/suru-build)
 //   build   <file>            Compile to a native executable (written to build/ next to the source)
 //   lex     <file>            Print all tokens produced by the lexer, one per line
 //   parse   <file>            Print the parsed AST as an indented tree (imports are expanded)
-//   ir      <file>            Print the generated LLVM IR without invoking clang
+//   ir      <file>            Print the whole program's LLVM IR without invoking clang
 
 namespace Suru.Cli
 
@@ -43,7 +43,7 @@ fn runParse(sourcePath String) {
 
 // ─── IR command ────────────────────────────────────────────────────────────────
 
-// Run the full compilation pipeline and print the LLVM IR to stdout.
+// Run the full compilation pipeline and print the whole program's LLVM IR to stdout.
 fn runIR(sourcePath String) {
     printLn(pipeline.generateIRText(sourcePath))
 }
@@ -81,11 +81,11 @@ fn printUsage() {
     printError("Usage: suru <command> [args]")
     printError("")
     printError("Commands:")
-    printError("  compile <file> <out.ll>   Compile to LLVM IR files (used by build scripts)")
+    printError("  compile <file> <out.ll>   Compile the whole program to one LLVM IR file")
     printError("  build   <file>            Compile to a native executable (written to build/ next to the source)")
     printError("  lex     <file>            Print all tokens produced by the lexer, one per line")
     printError("  parse   <file>            Print the parsed AST as an indented tree (includes are expanded)")
-    printError("  ir      <file>            Print the generated LLVM IR without invoking clang")
+    printError("  ir      <file>            Print the whole program's LLVM IR without invoking clang")
     printError("  debug   <pass> <file>     Stop after a pass and print AST + symbol table")
     printError("                            Passes: resolve1, mono, resolve2, semantic")
 }

@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### One `.ll` for the whole program
+
+Codegen emitted one `.ll` per module and linked them with a shell glob
+(`clang-18 <buildDir>*.ll`). The driver therefore re-ran the **full** pipeline for
+every transitively imported file (`compileOneFile`), plus a third pass per module
+that declared generics (`{stem}__mono.ll`) — 48 near-redundant compilations for the
+compiler's own build. Worse, "which module defines this symbol" was a hand-maintained
+invariant: `ownFnNames` / `ownTypeNames` / `monoFnNames` / `rootPath` decided
+`define` vs `declare`, and any drift was a link error or a missing symbol.
+
+`runPipelineFull` already ran every pass over the merged statements of every module;
+only that ownership gate kept the root `.ll` from containing everything. Removing it
+puts the whole program in one file, and every per-module counter becomes correct for
+free because there is now exactly **one `IrCodegenContext`**: string-literal interning
+(`@.str_N`), `declare` dedup, the `ensureArrayHelper` sentinels, and the
+`internal constant` namespace globals were previously duplicated across up to 41 of
+the 48 files.
+
+Two hazards the per-module split had been hiding, both fixed here:
+
+- **Bare function names are not unique across modules.** `isSumTypeName` is declared
+  by both `semantic/exprs.suru` and `codegen/types.suru`; `joinDots`, `containsName`
+  and the `rewriteMatchArm*` family are similarly duplicated. Each module's IR used to
+  be generated from its own dependency closure, so an unrelated same-named helper was
+  simply invisible; merged, a first-match lookup made `semantic/exprs` call
+  `codegen/types`' version. `types.lookupFn` and `lookupFnSrcPath` now resolve
+  **module-locally first** against `ctx.currentFnSrcPath` (set per body in
+  `emitFunction`) before falling back; `FnEntry` carries its `srcPath`.
+  `lookupExternalFnSrcPath` likewise compares against the calling module rather than
+  `rootPath` — the faithful translation, since each module used to be its own root.
+- **Hardwired libc declares now share a module with user `extern fn`s.** Codegen's
+  `declare ptr @memcpy(ptr, ptr, i64)` (`emitMainWrapper`) and stdlib's
+  `extern fn memcpy(…) void` are two declares of one name with different signatures,
+  which LLVM rejects. `addDecl`/`addSuruDecl` now dedup a `declare` by its **symbol**
+  rather than its full text (`declKey`), first writer wins. Safe under opaque
+  pointers: every `call` carries its own explicit function type, so the callee's
+  declared signature is never consulted — exactly what the linker resolved to before.
+
+Also folded in:
+
+- **Single mono request bucket.** The root-vs-declaring-module split
+  (`findGenericDeclSrcPath` / `groupRequestsByModule` / `MonoGroup`) is gone;
+  `runPipelineFull` now uses the same `monoPass.runMonoPass` + `injectMonoConcretes`
+  path as `runPipelineDebug`. Requests whose declaring module could not be located
+  were previously dropped on the floor; they are now instantiated.
+- **Imported externs reach codegen.** They stay out of the semantic pre-passes (the
+  same C name is declared by several modules) but are folded back into the codegen
+  statements at the end of `runPipelineFull`, so their `declare`s are emitted and
+  their signatures registered.
+- **Imported bodies get the qualified-call rewrite** the root's own statements get —
+  they are emitted from this statement list now, and `importPass.rewriteCodegenStmts`
+  is a no-op.
+- **Per-type `@suru_clone_T`/`@suru_drop_T` are dedup-guarded by name** in
+  `emitAllTypeCloneDrop` (they are not namespace-mangled, so a repeat is a hard LLVM
+  redefinition), walked in registration order to keep output deterministic.
+- **Both link steps name the `.ll` explicitly** instead of globbing, so a stale file
+  left in a build directory is inert rather than a duplicate-symbol error.
+
+`suru compile <file> <out.ll>` now writes exactly the one file named, and `suru ir`
+emits a complete, directly linkable program for the first time. The compiler's
+self-build drops from ~4:40 to ~2:39 and its IR from 4.1 MB across 48 files to
+3.6 MB in one. C2 == C3 fixed point holds; 106/106 fixtures pass under valgrind.
+
 ### String split B3 — ownership is a property of the slot, decided statically
 
 B2 gave a literal its own type (`Str`); B3 makes the codegen act on it. A borrowed

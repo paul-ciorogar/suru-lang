@@ -4,7 +4,7 @@
 // the user-facing CLI (src/cli/main.suru).
 //
 // Public entry points:
-//   runBuildDriver(sourcePath, outputPath)  — full pipeline + write per-module .ll files
+//   runBuildDriver(sourcePath, outputPath)  — full pipeline + write the program's single .ll
 //   generateIRText(sourcePath)              — full pipeline, return IR string (no file I/O)
 //   compilePipeline(sourcePath, buildDir)   — full pipeline + mkdir + clang link
 //
@@ -26,8 +26,6 @@ import {
     monoPass: Suru.Compiler.Semantic.Mono
     variantArms: Suru.Compiler.Semantic.Mono.VariantArms
     collect: Suru.Compiler.Semantic.Mono.Collect
-    infer: Suru.Compiler.Semantic.Mono.Infer
-    inst: Suru.Compiler.Semantic.Mono.Instantiate
     nsPass: Suru.Compiler.Semantic.NamespacePass
     exportPass: Suru.Compiler.Semantic.ExportPass
     importPass: Suru.Compiler.Semantic.ImportPass
@@ -233,12 +231,14 @@ export fn resolveIncludesRec(stmts Array<AstNode>, dir String, filePath String, 
                 state.decls.add(fd)
             }
             // Imported extern fns (e.g. stdlib's `malloc`/`free`) are collected into
-            // a SEPARATE channel — never into `decls`/`stmts`, because codegen emits
-            // each module's externs in its own {module}__mono.ll and a second declare
-            // in the root IR redefines them (conflicting `declare @memcpy`). The
-            // semantic registry still needs the signatures so analyzeImportedFnBodies
-            // can resolve calls inside imported bodies instead of mis-flagging them
-            // as undefined functions; they are registered post-prepass from here.
+            // a SEPARATE channel rather than `decls`/`stmts` so runPrePasses never
+            // sees them as duplicate declarations (the same C name is declared by
+            // several modules). The semantic registry still needs the signatures so
+            // analyzeImportedFnBodies can resolve calls inside imported bodies
+            // instead of mis-flagging them as undefined functions; they are
+            // registered post-prepass via registerImportedExterns, and folded back
+            // into the codegen stmts at the end of runPipelineFull so emitModule
+            // emits each `declare` exactly once (addSuruDecl dedups).
             ExternFnNode:    { state.externFns.add(s) }
             TypeDeclNode:    { state.decls.add(s) }
             SumTypeDeclNode: { state.decls.add(s) }
@@ -1058,249 +1058,7 @@ fn printErrorsFrom(state AnalyzerState, path String) {
     }
 }
 
-// ─── Own-declaration collectors ────────────────────────────────────────────────
-
-// Collect the names of all FnDeclNode items in the raw parsed module statements.
-fn collectFnNames(stmts Array<AstNode>) Array<String> {
-    let names Array<String>: []
-    let i i64: 0
-    while i.lt(stmts.len()) {
-        let s AstNode: stmts.at(i)
-        match s {
-            FnDeclNode: { names.add(s.name) }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return names
-}
-
-// Collect the names of all TypeDeclNode and SumTypeDeclNode items in the raw
-// parsed module statements (own types only, before include resolution).
-fn collectTypeNames(stmts Array<AstNode>) Array<String> {
-    let names Array<String>: []
-    let i i64: 0
-    while i.lt(stmts.len()) {
-        let s AstNode: stmts.at(i)
-        match s {
-            TypeDeclNode:    { names.add(s.name) }
-            SumTypeDeclNode: { names.add(s.name) }
-            _: {}
-        }
-        i: i.add(1)
-    }
-    return names
-}
-
-// ─── Per-file compilation helper ───────────────────────────────────────────────
-
-// Compile a single source file and write its .ll to outDir/<stem>.ll.
-// Own functions get full definitions; functions from includes get declare stubs.
-// Semantic *error reporting* is skipped — library files are validated by the
-// root file — but the resolved-type annotation pass still runs so that every
-// expression node carries its `resolvedType` for codegen to read. Without
-// this, struct/array literals in included files would emit with an empty
-// type name and crash the compiler.
-export fn compileOneFile(sourcePath String, outDir String, reg NamespaceRegistry) {
-    let src String: readFile(sourcePath)
-    let tokens Array<Token>: lex.tokenize(src, sourcePath)
-    let mod AstModule: parser.parse(tokens, sourcePath)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
-    // Back-fill the registry with namespaces found via include directives so
-    // that qualified-name codegen can mangle their symbols correctly.
-    reg: nsReg.augmentRegistry(reg, resolved.srcNsEntries)
-    let state AnalyzerState: semantic.makeAnalyzerState()
-    state.currentSrcPath: sourcePath
-    state.moduleImportRegistry: buildModuleImportRegistry(resolved.modules)
-    passes.runPrePasses(state, resolved.stmts)
-    semresolve.resolveModuleTypes(state, resolved.stmts)
-    lowerObjects(state, resolved.stmts, sourcePath, resolved.srcNsEntries)
-    // Filter generic templates (typeParams non-empty) from both the codegen
-    // stmts and the own-name lists.  emitFunction decides to emit a full
-    // definition based on fnDecl.srcPath == rootPath, so passing concreteStmts
-    // prevents generic function bodies (e.g. some<T>) from being emitted in the
-    // included file's IR.  Concrete instantiations are produced by the root
-    // file's mono pass and emitted in the root file's IR only.
-    let concreteStmts Array<AstNode>: monoPass.filterGenericDefs(resolved.stmts)
-    let rewrittenStmts Array<AstNode>: qualNamePass.rewriteQualifiedCalls(concreteStmts, resolved.nsExports)
-    let concreteOwnStmts Array<AstNode>: monoPass.filterGenericDefs(mod.stmts)
-    let ownFnNames Array<String>: collectFnNames(concreteOwnStmts)
-    let ownTypeNames Array<String>: collectTypeNames(concreteOwnStmts)
-    let noMonoFns Array<String>: []
-    let irText String: irCodegen.generate(rewrittenStmts, baseName(sourcePath), ownFnNames, ownTypeNames, noMonoFns, sourcePath, resolved.srcNsEntries)
-    writeFile(outDir.append(fileNameStem(sourcePath)).append(".ll"), irText)
-}
-
-// ─── Mono grouping helpers ─────────────────────────────────────────────────────
-
-// findGenericDeclSrcPath — return the source file path that declares the generic
-// named `name`. For functions the path is stored on GenericFnDef; for types and
-// sum types we scan the module list to find which file owns the declaration.
-fn findGenericDeclSrcPath(name String, registry GenericRegistry, modules Array<Module>) String {
-    let fi i64: registry.findFn(name)
-    if not fi.equals(registry.fns.len()) {
-        return registry.fns.at(fi).srcPath
-    }
-    let mi i64: 0
-    while mi.lt(modules.len()) {
-        let mod Module: modules.at(mi)
-        let si i64: 0
-        while si.lt(mod.stmts.len()) {
-            match mod.stmts.at(si) {
-                TypeDeclNode: {
-                    let td TypeDeclNode: mod.stmts.at(si)
-                    if td.name.equals(name) and td.typeParams.len().gt(0) { return mod.srcPath }
-                }
-                SumTypeDeclNode: {
-                    let sd SumTypeDeclNode: mod.stmts.at(si)
-                    if sd.name.equals(name) and sd.typeParams.len().gt(0) { return mod.srcPath }
-                }
-                _: {}
-            }
-            si: si.add(1)
-        }
-        mi: mi.add(1)
-    }
-    return ""
-}
-
-// groupRequestsByModule — partition requests into per-declaring-module groups.
-// Each MonoGroup holds a declaringSrcPath and the requests whose generic was
-// declared in that file.  Requests with unknown declaring modules are dropped.
-fn groupRequestsByModule(requests Array<InstantiationRequest>, registry GenericRegistry, modules Array<Module>) Array<MonoGroup> {
-    // First pass: collect unique declaring srcPaths.
-    let srcPaths Array<String>: []
-    let ri0 i64: 0
-    while ri0.lt(requests.len()) {
-        let req InstantiationRequest: requests.at(ri0)
-        let sp String: findGenericDeclSrcPath(req.genericName, registry, modules)
-        if not sp.equals("") {
-            let found bool: false
-            let si i64: 0
-            while si.lt(srcPaths.len()) {
-                if srcPaths.at(si).equals(sp) { found: true }
-                si: si.add(1)
-            }
-            if not found { srcPaths.add(clone(sp)) }
-        }
-        ri0: ri0.add(1)
-    }
-    // Second pass: for each srcPath collect the matching requests.
-    let groups Array<MonoGroup>: []
-    let gi i64: 0
-    while gi.lt(srcPaths.len()) {
-        let sp String: srcPaths.at(gi)
-        let groupReqs Array<InstantiationRequest>: []
-        let ri i64: 0
-        while ri.lt(requests.len()) {
-            let req InstantiationRequest: requests.at(ri)
-            let reqSp String: findGenericDeclSrcPath(req.genericName, registry, modules)
-            if reqSp.equals(sp) {
-                let cloned InstantiationRequest: { genericName: clone(req.genericName), concreteTypes: clone(req.concreteTypes) }
-                groupReqs.add(cloned)
-            }
-            ri: ri.add(1)
-        }
-        let group MonoGroup: { declaringSrcPath: clone(sp), requests: groupReqs }
-        groups.add(group)
-        gi: gi.add(1)
-    }
-    drop(srcPaths)
-    return groups
-}
-
-// compileOneFileWithRequests — compile a declaring module with a specific set of
-// instantiation requests and write the concrete definitions to {stem}__mono.ll.
-// This is Phase 2 of the shared-instantiation design: the declaring module's
-// extern fn declarations (malloc, realloc, free, etc.) are naturally in scope,
-// so the emitted IR is valid without any extern propagation hacks.
-fn compileOneFileWithRequests(sourcePath String, outDir String, reg NamespaceRegistry, requests Array<InstantiationRequest>, globalRegistry GenericRegistry) {
-    if requests.len().equals(0) { return }
-    let src String: readFile(sourcePath)
-    let tokens Array<Token>: lex.tokenize(src, sourcePath)
-    let mod AstModule: parser.parse(tokens, sourcePath)
-    let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
-    reg: nsReg.augmentRegistry(reg, resolved.srcNsEntries)
-    let state AnalyzerState: semantic.makeAnalyzerState()
-    state.currentSrcPath: sourcePath
-    state.moduleImportRegistry: buildModuleImportRegistry(resolved.modules)
-    passes.runPrePasses(state, resolved.stmts)
-    // Pass 1: per-module type resolution (same as runPipelineFull).
-    let p1mi i64: 0
-    while p1mi.lt(resolved.modules.len()) {
-        let p1Mod Module: resolved.modules.at(p1mi)
-        state.currentModuleImports: p1Mod.importedNs
-        semresolve.resolveModuleTypes(state, p1Mod.stmts)
-        p1mi: p1mi.add(1)
-    }
-    // Instantiate using the provided requests (skip inference — requests come from Phase 1).
-    // Use rootPath="" so that irCodegen.emitFunction never treats a function as "own"
-    // via srcPath match.  Instead, only monoFnNames controls which functions get define
-    // bodies — that is exactly the set of freshly-instantiated concrete functions.
-    // Non-concrete functions (already defined in {module}.ll) are emitted as declare
-    // stubs, which the linker resolves against the existing definitions.
-    let newNodes Array<AstNode>: inst.instantiateAll(globalRegistry, requests)
-    let ownFnNames Array<String>: []
-    monoPass.extractFnNames(newNodes, ownFnNames)
-    let ownTypeNames Array<String>: []
-    // Concrete type names must be in ownTypeNames so irCodegen emits full
-    // clone/drop define bodies (not declare stubs) in __mono.ll.
-    monoPass.extractTypeNames(newNodes, ownTypeNames)
-    let monoFnNames Array<String>: []
-    monoPass.extractFnNames(newNodes, monoFnNames)
-    let stmts Array<AstNode>: resolved.stmts
-    let nni i64: 0
-    while nni.lt(newNodes.len()) {
-        stmts.add(newNodes.at(nni))
-        nni: nni.add(1)
-    }
-    stmts: monoPass.filterGenericDefs(stmts)
-    // Pass 2: fresh state over concrete stmts.
-    state: semantic.makeAnalyzerState()
-    state.currentSrcPath: sourcePath
-    state.moduleImportRegistry: buildModuleImportRegistry(resolved.modules)
-    passes.runPrePasses(state, stmts)
-    passes.registerImportedExterns(state, resolved.externFns)
-    semresolve.resolveModuleTypes(state, stmts)
-    // Rewrite generic call sites and variant arm patterns.
-    stmts: monoPass.rewriteCallSites(stmts, globalRegistry)
-    stmts: variantArms.rewriteVariantArms(stmts)
-    // Lower object literals to vtable + synthetic method FnDeclNodes.
-    let preLowerLen i64: stmts.len()
-    lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
-    // Synthetic methods for concrete types (e.g. $m_DynArray-i64_add_0) need
-    // define bodies in __mono.ll.  Register them in monoFnNames so irCodegen
-    // emits define (rootPath="" means srcPath match is never true).
-    let li i64: preLowerLen
-    while li.lt(stmts.len()) {
-        match stmts.at(li) {
-            FnDeclNode: {
-                let fd FnDeclNode: stmts.at(li)
-                if isMethodOfMonoType(fd.name, ownTypeNames) { monoFnNames.add(fd.name) }
-            }
-            _: {}
-        }
-        li: li.add(1)
-    }
-    // Rewrite qualified calls in the full merged stmts.
-    let rewrittenStmts Array<AstNode>: qualNamePass.rewriteQualifiedCalls(stmts, resolved.nsExports)
-    // rootPath="" disables the srcPath-based "own" check so non-concrete module
-    // functions (already defined in {module}.ll) get declare stubs, not define bodies.
-    let irText String: irCodegen.generate(rewrittenStmts, baseName(sourcePath), ownFnNames, ownTypeNames, monoFnNames, "", resolved.srcNsEntries)
-    writeFile(outDir.append(fileNameStem(sourcePath)).append("__mono.ll"), irText)
-}
-
 // ─── Public pipeline entry points ──────────────────────────────────────────────
-
-// MonoGroup — a set of instantiation requests that all belong to one declaring module.
-// Used by runBuildDriver to dispatch compileOneFileWithRequests per declaring source file.
-type MonoGroup: { declaringSrcPath String, requests Array<InstantiationRequest> }
-
-// Carries the IR text for the main file, the list of resolved include paths,
-// the NamespaceRegistry built during the run (reused by runBuildDriver when
-// compiling each included file), the grouped mono requests for __mono.ll emission,
-// and the generic registry (reused by compileOneFileWithRequests for instantiation).
-type PipelineResult: { irText String, includedPaths Array<String>, builtReg NamespaceRegistry, monoGroups Array<MonoGroup>, genericRegistry GenericRegistry }
 
 // Carries intermediate pipeline state for per-pass debugging.
 // stmts is the statement list as it exists at the named stop point;
@@ -1308,28 +1066,16 @@ type PipelineResult: { irText String, includedPaths Array<String>, builtReg Name
 export type DebugResult: { stmts Array<AstNode>, state AnalyzerState }
 
 // injectMonoConcretes — common monomorphization fan-in.  Appends the new
-// concrete nodes produced by monoPass.runMonoPass into stmts, strips the
-// original generic templates via filterGenericDefs, and grows ownFnNames /
-// ownTypeNames with the freshly-instantiated names so codegen will emit them
-// as part of this file's IR.  Returns the filtered statement array.
-fn injectMonoConcretes(stmts Array<AstNode>, ownFnNames Array<String>, ownTypeNames Array<String>, monoResult MonoResult) Array<AstNode> {
+// concrete nodes produced by monoPass.runMonoPass into stmts and strips the
+// original generic templates via filterGenericDefs.  Returns the filtered
+// statement array.
+fn injectMonoConcretes(stmts Array<AstNode>, monoResult MonoResult) Array<AstNode> {
     let ni i64: 0
     while ni.lt(monoResult.newNodes.len()) {
         stmts.add(monoResult.newNodes.at(ni))
         ni: ni.add(1)
     }
-    let filtered Array<AstNode>: monoPass.filterGenericDefs(stmts)
-    let fi i64: 0
-    while fi.lt(monoResult.newFnNames.len()) {
-        ownFnNames.add(monoResult.newFnNames.at(fi))
-        fi: fi.add(1)
-    }
-    let ti i64: 0
-    while ti.lt(monoResult.newTypeNames.len()) {
-        ownTypeNames.add(monoResult.newTypeNames.at(ti))
-        ti: ti.add(1)
-    }
-    return filtered
+    return monoPass.filterGenericDefs(stmts)
 }
 
 // buildModuleImportRegistry — converts the Array<Module> produced by
@@ -1348,63 +1094,13 @@ fn buildModuleImportRegistry(modules Array<Module>) Array<SrcModImports> {
     return reg
 }
 
-// isMethodOfMonoType — true when methodName is an object-literal method body
-// (starts with "$m_") produced by lowerObjects from a mono-instantiated type.
-// Checks whether any name in monoTypeNames is a prefix of the method's type segment.
-// Example: "$m_DynArray-i64_add_0" matches "DynArray-i64" in monoTypeNames.
-fn isMethodOfMonoType(methodName String, monoTypeNames Array<String>) bool {
-    if methodName.len().lt(4) { return false }
-    if not methodName.slice(0, 3).equals("$m_") { return false }
-    let withoutPrefix String: methodName.slice(3, methodName.len())
-    let ti i64: 0
-    while ti.lt(monoTypeNames.len()) {
-        let tname String: monoTypeNames.at(ti)
-        let prefixLen i64: tname.len().add(1)
-        if withoutPrefix.len().gte(prefixLen) {
-            let segment String: withoutPrefix.slice(0, prefixLen)
-            let expected String: tname.append("_")
-            let matched bool: segment.equals(expected)
-            if matched {
-                drop(withoutPrefix)
-                return true
-            }
-        }
-        ti: ti.add(1)
-    }
-    drop(withoutPrefix)
-    return false
-}
-
-// augmentMonoFnNamesFromLowered — after lowerObjects adds method FnDeclNodes
-// from mono-instantiated types, register their names in monoResult.newFnNames
-// so irCodegen.generate treats them as definitions (not external declarations).
-// Only processes stmts[startIdx..] and only entries with srcPath != rootPath.
-fn augmentMonoFnNamesFromLowered(stmts Array<AstNode>, startIdx i64, monoResult MonoResult, rootPath String) {
-    let i i64: startIdx
-    while i.lt(stmts.len()) {
-        match stmts.at(i) {
-            FnDeclNode: {
-                let fd FnDeclNode: stmts.at(i)
-                if not fd.srcPath.equals(rootPath) {
-                    if isMethodOfMonoType(fd.name, monoResult.newTypeNames) {
-                        monoResult.newFnNames.add(fd.name)
-                    }
-                }
-            }
-            _: {}
-        }
-        i: i.add(1)
-    }
-}
-
 // runPipelineFull — lex→parse→semantic→codegen for sourcePath.
+// Returns the whole program's LLVM IR as one string.
 // Exits with code 1 if semantic analysis produces errors.
-fn runPipelineFull(sourcePath String) PipelineResult {
+fn runPipelineFull(sourcePath String) String {
     let source String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(source, sourcePath)
     let mod AstModule: parser.parse(tokens, sourcePath)
-    let ownFnNames Array<String>: collectFnNames(mod.stmts)
-    let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
     let reg NamespaceRegistry: nsReg.buildNamespaceRegistryMulti(registryRootsFor(sourcePath))
     let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
     // Back-fill the registry with namespaces found via include directives so
@@ -1433,50 +1129,11 @@ fn runPipelineFull(sourcePath String) PipelineResult {
 
     // ─── Monomorphization pass ────────────────────────────────────────────────
     // Collect all generic defs and infer every instantiation request.
-    // Split requests into two buckets:
-    //   rootRequests  — declared in the root file itself → define in main.ll
-    //   extRequests   — declared in an included module  → declare stub in main.ll,
-    //                   define in {module}__mono.ll (Phase 2)
+    // One .ll per program: every instantiation is defined here, so there is a
+    // single request bucket — no root-vs-declaring-module split.
     let registry GenericRegistry: collect.collectGenericDefs(stmts)
-    let requests Array<InstantiationRequest>: infer.collectInstantiations(stmts, registry)
-    let rootRequests Array<InstantiationRequest>: []
-    let extRequests Array<InstantiationRequest>: []
-    let rqi i64: 0
-    while rqi.lt(requests.len()) {
-        let req InstantiationRequest: requests.at(rqi)
-        let sp String: findGenericDeclSrcPath(req.genericName, registry, resolved.modules)
-        if sp.equals(sourcePath) {
-            let clonedReq InstantiationRequest: { genericName: clone(req.genericName), concreteTypes: clone(req.concreteTypes) }
-            rootRequests.add(clonedReq)
-        } else if not sp.equals("") {
-            let clonedReq InstantiationRequest: { genericName: clone(req.genericName), concreteTypes: clone(req.concreteTypes) }
-            extRequests.add(clonedReq)
-        }
-        rqi: rqi.add(1)
-    }
-    // External requests group into __mono.ll files; root requests go into main.ll defines.
-    let monoGroups Array<MonoGroup>: groupRequestsByModule(extRequests, registry, resolved.modules)
-
-    // Instantiate root-declared generics → inject as define in main.ll.
-    let rootNewNodes Array<AstNode>: inst.instantiateAll(registry, rootRequests)
-    let rni i64: 0
-    while rni.lt(rootNewNodes.len()) {
-        stmts.add(rootNewNodes.at(rni))
-        rni: rni.add(1)
-    }
-    monoPass.extractFnNames(rootNewNodes, ownFnNames)
-    monoPass.extractTypeNames(rootNewNodes, ownTypeNames)
-
-    // Instantiate external-declared generics → inject nodes for pass-2 type resolution,
-    // but omit from ownFnNames/ownTypeNames so codegen emits declare stubs in main.ll.
-    let extNewNodes Array<AstNode>: inst.instantiateAll(registry, extRequests)
-    let eni i64: 0
-    while eni.lt(extNewNodes.len()) {
-        stmts.add(extNewNodes.at(eni))
-        eni: eni.add(1)
-    }
-
-    stmts: monoPass.filterGenericDefs(stmts)
+    let monoResult MonoResult: monoPass.runMonoPass(stmts, registry)
+    stmts: injectMonoConcretes(stmts, monoResult)
     // Pass 2: fresh state sees only concrete types (no generic templates).
     // Concrete copies injected by mono inherit srcPath from their generic
     // template, so the per-FnDecl registry lookup in resolveModuleTypes
@@ -1499,8 +1156,6 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     // ─────────────────────────────────────────────────────────────────────────
 
     lowerObjects(state, stmts, sourcePath, resolved.srcNsEntries)
-    // Intentionally skip augmentMonoFnNamesFromLowered: mono object-method bodies
-    // live in __mono.ll (declaring module), not in the root IR.
     // Filter generic defs from ownStmts too: analyzeFunctionDeclaration would
     // emit false "unknown type" errors on typeParam-annotated bodies.
     let rawOwnStmts Array<AstNode>: collectNonInclude(mod.stmts)
@@ -1521,9 +1176,20 @@ fn runPipelineFull(sourcePath String) PipelineResult {
     printErrorsFrom(state, sourcePath)
     let errors Array<AnalysisError>: state.errors
     if errors.len().gt(0) { exit(1) }
-    let noMonoFns Array<String>: []
-    let irText String: irCodegen.generate(stmts, baseName(sourcePath), ownFnNames, ownTypeNames, noMonoFns, sourcePath, resolved.srcNsEntries)
-    return { irText: irText, includedPaths: resolved.includedPaths, builtReg: reg, monoGroups: monoGroups, genericRegistry: registry }
+    // Imported bodies are now emitted from this same stmts list, so they need the
+    // same FieldAccess-chain → QualifiedNameNode normalisation the root's own stmts
+    // get above.  Idempotent for already-rewritten nodes.
+    stmts: qualNamePass.rewriteQualifiedCalls(stmts, resolved.nsExports)
+    // Fold the imported-extern side channel into the codegen stmts so emitModule
+    // emits `declare @memcpy` etc. exactly once (addSuruDecl dedups on the exact
+    // line) and generate() registers their signatures.  Done here, after the
+    // semantic passes, so runPrePasses never sees them as duplicate declarations.
+    let efi i64: 0
+    while efi.lt(resolved.externFns.len()) {
+        stmts.add(resolved.externFns.at(efi))
+        efi: efi.add(1)
+    }
+    return irCodegen.generate(stmts, baseName(sourcePath), sourcePath, resolved.srcNsEntries)
 }
 
 // runPipelineDebug — run the pipeline for sourcePath and stop after the named
@@ -1540,8 +1206,6 @@ export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     let source String: readFile(sourcePath)
     let tokens Array<Token>: lex.tokenize(source, sourcePath)
     let mod AstModule: parser.parse(tokens, sourcePath)
-    let ownFnNames Array<String>: collectFnNames(mod.stmts)
-    let ownTypeNames Array<String>: collectTypeNames(mod.stmts)
     let reg NamespaceRegistry: nsReg.buildNamespaceRegistryMulti(registryRootsFor(sourcePath))
     let resolved ResolveResult: resolveIncludes(mod.stmts, dirName(sourcePath), sourcePath, reg)
     reg: nsReg.augmentRegistry(reg, resolved.srcNsEntries)
@@ -1564,7 +1228,7 @@ export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
     // ─── Monomorphization ─────────────────────────────────────────────────────
     let registry GenericRegistry: collect.collectGenericDefs(stmts)
     let monoResult MonoResult: monoPass.runMonoPass(stmts, registry)
-    stmts: injectMonoConcretes(stmts, ownFnNames, ownTypeNames, monoResult)
+    stmts: injectMonoConcretes(stmts, monoResult)
     state: semantic.makeAnalyzerState()
     state.currentSrcPath: sourcePath
     state.moduleImportRegistry: modImportRegDbg
@@ -1603,39 +1267,24 @@ export fn runPipelineDebug(sourcePath String, stopPass String) DebugResult {
 // generateIRText — run the full pipeline for sourcePath and return the LLVM IR
 // string for the main file.  No files are written.
 export fn generateIRText(sourcePath String) String {
-    let result PipelineResult: runPipelineFull(sourcePath)
-    return result.irText
+    return runPipelineFull(sourcePath)
 }
 
-// runBuildDriver — compile sourcePath to IR, write the main file's IR to
-// outputPath, and compile each included file to a .ll in the same directory.
-// This is the entry point used by bin/suru-build.
+// runBuildDriver — compile the whole program rooted at sourcePath into a single
+// .ll written to outputPath.  This is the entry point used by bin/suru-build.
 export fn runBuildDriver(sourcePath String, outputPath String) {
-    let result PipelineResult: runPipelineFull(sourcePath)
-    writeFile(outputPath, result.irText)
-    let outDir String: dirName(outputPath)
-    let pi i64: 0
-    while pi.lt(result.includedPaths.len()) {
-        compileOneFile(result.includedPaths.at(pi), outDir, result.builtReg)
-        pi: pi.add(1)
-    }
-    // Phase 2: emit {stem}__mono.ll for each declaring module that has requests.
-    let mgi i64: 0
-    while mgi.lt(result.monoGroups.len()) {
-        let mg MonoGroup: result.monoGroups.at(mgi)
-        compileOneFileWithRequests(mg.declaringSrcPath, outDir, result.builtReg, mg.requests, result.genericRegistry)
-        mgi: mgi.add(1)
-    }
+    writeFile(outputPath, runPipelineFull(sourcePath))
 }
 
-// compilePipeline — full pipeline for sourcePath: creates buildDir, writes
-// all .ll files there, then links them with clang-18 into buildDir/main.
+// compilePipeline — full pipeline for sourcePath: creates buildDir, writes the
+// program's single .ll there, then links it with clang-18 into buildDir/main.
 // The runtime is linked from precompiled C objects (runtime/*.o, built by the
-// Docker scripts); the program's own modules are still IR (buildDir/*.ll).
+// Docker scripts).  The .ll is named explicitly (not globbed), so a stale .ll
+// left in buildDir is inert rather than a duplicate-symbol link error.
 export fn compilePipeline(sourcePath String, buildDir String) {
     exec("mkdir -p ".append(buildDir))
     let outputPath String: buildDir.append(fileNameStem(baseName(sourcePath))).append(".ll")
     runBuildDriver(sourcePath, outputPath)
     let runtime String: "/usr/local/lib/suru/runtime"
-    exec("clang-18 ".append(buildDir).append("*.ll ").append(runtime).append("/*.o -o ").append(buildDir).append("main"))
+    exec("clang-18 ".append(outputPath).append(" ").append(runtime).append("/*.o -o ").append(buildDir).append("main"))
 }

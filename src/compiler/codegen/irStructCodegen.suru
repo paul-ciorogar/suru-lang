@@ -19,9 +19,8 @@
 //
 // ── Clone / Drop vtable ────────────────────────────────────────────────────────
 // Per-type @suru_clone_T / @suru_drop_T are emitted into ctx.helpers by
-// ir-type-clone-drop-codegen.suru BEFORE any user function bodies (for own types).
-// For types from included modules, declare stubs are emitted into ctx.extCloneDropDecls
-// by emitObjectLiteralAlloc when it detects the type is not in ctx.typeDecls.
+// ir-type-clone-drop-codegen.suru BEFORE any user function bodies — for every
+// registered type, since one .ll holds the whole program.
 // Explicit clone(x)/drop(x) calls route through @suru_clone_dyn / @suru_drop_dyn,
 // which read the vtable at offsets 16/24 for tag=4 and tag=7.
 //
@@ -272,10 +271,8 @@ export fn structFieldFromI64(ctx IrCodegenContext, raw String, suruType String) 
 // Variant creation (type_tag=7, variant_idx=N) is patched in by ir-codegen.suru
 // AFTER this call, by overwriting bytes 0 and 8 with GEP stores.
 //
-// External type detection: if typeName is NOT in ctx.typeDecls (i.e. it comes from
-// an included module), declare stubs for @suru_clone_T/@suru_drop_T are added to
-// ctx.extCloneDropDecls.  Own types already have define bodies in ctx.helpers
-// emitted by ir-type-clone-drop-codegen.suru before user function bodies.
+// @suru_clone_T/@suru_drop_T always have define bodies in ctx.helpers, emitted by
+// ir-type-clone-drop-codegen.suru before any user function body.
 export fn emitObjectLiteralAlloc(ctx IrCodegenContext, typeName String) CodegenResult {
     ctx: types.addDecl(ctx, "declare ptr @malloc(i64)\n")
     // Determine field count from the registered TypeDecl.
@@ -318,13 +315,8 @@ export fn emitObjectLiteralAlloc(ctx IrCodegenContext, typeName String) CodegenR
     ctx.builder: dfGr.builder
     ctx.builder: ir.emitStore(ctx.builder, "ptr", "@suru_drop_".append(typeName), dfGr.name)
 
-    // External type detection: if typeName is not an own type, add declare stubs
-    // so the LLVM assembler can resolve @suru_clone_T / @suru_drop_T forward references.
-    match types.isOwnType(ctx, typeName) {
-        true: {}
-        _: { ctx: types.addExtCloneDropDecl(ctx, typeName) }
-    }
-
+    // No declare stubs needed: one .ll per program, so emitAllTypeCloneDrop has
+    // already defined @suru_clone_T / @suru_drop_T for every registered type.
     return { ctx: ctx, name: mem, llvmType: "ptr", suruType: typeName }
 }
 

@@ -51,7 +51,7 @@ fn firstLetValue(mod AstModule) AstNode {
 // first let, and return its `typeArgs` length. Returns -1 if the value is neither a
 // CallNode nor a MethodCallNode (a test failure signal). The tokens and module are
 // intentionally NOT dropped: the parser shares token-text strings into the AST, so
-// the established in-process pattern (runPipelineDebug / compileOneFile) leaves both
+// the established in-process pattern (runPipelineDebug) leaves both
 // alive — dropping both would double-free. Unit tests are not valgrind'd, so the
 // per-call leak is harmless (and bounded — two calls per run).
 fn callTypeArgsLen(source String) i64 {
