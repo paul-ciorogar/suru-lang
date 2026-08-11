@@ -1,0 +1,210 @@
+// irOwnedLocals.suru — which `String` locals of a function are OWNED slots.
+//
+// ── Why this exists (String-split B3) ─────────────────────────────────────────
+// A `Str` is a borrowed pointer into `.rodata`; a `String` is a heap allocation
+// that must be freed exactly once. Since B3 the codegen decides `drop` statically
+// from the variable's registered type — no runtime `type_tag` read — so that
+// registered type has to be correct at EVERY drop site in the function, not just
+// at the one the emitter happens to reach first.
+//
+// That rules out tracking the ownership of the value a variable currently holds.
+// Codegen walks the statement list once, in source order, while control flow does
+// not: in
+//
+//     let s String: ""          // value is a borrowed Str …
+//     while k.lt(3) {
+//         let tmp String: s.append("x")
+//         drop(s)               // … so this drop is emitted as a no-op …
+//         s: tmp                // … but from here on s owns a heap string.
+//     }
+//
+// the `drop(s)` is emitted once and executed three times, leaking on the second
+// and third trip around the back edge.
+//
+// So ownership is a property of the SLOT, fixed for the variable's whole lifetime,
+// and this pass computes it up front. A `String`-annotated local is owned when it
+// can ever come to hold an owned value, which is exactly when it is:
+//
+//   * the target of an assignment (`s: expr`), or
+//   * the root of an in-place `__append` chain (`buf.__append(x)` writes the fresh
+//     owned string back into buf's slot).
+//
+// An owned local materializes a borrowed initializer into a heap copy at its `let`
+// (see irStr.materializeStr), so every drop of it is a real free. A local that is
+// neither — the overwhelmingly common `let day String: "Monday"` — keeps its
+// initializer's ownership, allocates nothing, and drops to a no-op.
+//
+// ── Precision vs. safety ──────────────────────────────────────────────────────
+// Both directions of imprecision are memory-SAFE, never a double free or a free of
+// `.rodata`: an owned slot always holds an owned value (materialized on the way
+// in), and a borrowed slot's drop is a no-op. Missing a mutation site under-counts
+// and leaks; over-counting costs one clone. Correctness of the free/no-free
+// decision does not depend on this pass being exact.
+//
+// The walk therefore descends only where a mutation can appear — statements, and
+// the expression forms that can contain a call — and ignores the rest.
+//
+// Include DAG: depends only on the parser AST. No codegen context, no emission.
+
+namespace Suru.Compiler.Codegen.OwnedLocals
+
+import {
+    ast: Suru.Compiler.Parser.Ast
+}
+
+// ─── Entry point ──────────────────────────────────────────────────────────────
+
+// The names of every local mutated in `body`, in first-seen order. Callers filter
+// by declared type; this pass is type-blind (a mutated `i64` in the list is
+// harmless — the caller only consults it for `String`-annotated slots).
+export fn collectMutatedLocals(body Array<AstNode>) Array<String> {
+    let acc Array<String>: []
+    return walkStmts(body, acc)
+}
+
+// ─── Statement walk ───────────────────────────────────────────────────────────
+
+fn walkStmts(stmts Array<AstNode>, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    let i i64: 0
+    while i.lt(stmts.len()) {
+        out: walkStmt(stmts.at(i), out)
+        i: i.add(1)
+    }
+    return out
+}
+
+fn walkStmt(stmt AstNode, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    match stmt {
+        AssignNode: {
+            out: addUnique(out, stmt.name)
+            out: walkExpr(stmt.value, out)
+        }
+        LetNode:         { out: walkExpr(stmt.value, out) }
+        FieldAssignNode: { out: walkExpr(stmt.value, out) }
+        ExprStmtNode:    { out: walkExpr(stmt.expr, out) }
+        ReturnNode: {
+            if stmt.hasValue { out: walkExpr(stmt.value, out) }
+        }
+        WhileNode: {
+            out: walkExpr(stmt.condition, out)
+            out: walkStmts(stmt.body, out)
+        }
+        IfNode: {
+            out: walkExpr(stmt.condition, out)
+            out: walkStmts(stmt.thenBranch.stmts, out)
+            out: walkStmts(stmt.elseBranch.stmts, out)
+        }
+        BlockNode: { out: walkStmts(stmt.stmts, out) }
+        MatchStmtNode: {
+            out: walkExpr(stmt.condition, out)
+            let i i64: 0
+            while i.lt(stmt.arms.len()) {
+                out: walkStmts(stmt.arms.at(i).stmts, out)
+                i: i.add(1)
+            }
+        }
+        // A bare call used as a statement — `buf.__append("x")` is the case that
+        // matters, and the parser leaves it unwrapped.
+        MethodCallNode: { out: walkExpr(stmt, out) }
+        CallNode:       { out: walkExpr(stmt, out) }
+        _: {}
+    }
+    return out
+}
+
+// ─── Expression walk ──────────────────────────────────────────────────────────
+
+fn walkExpr(expr AstNode, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    match expr {
+        MethodCallNode: {
+            // The in-place append intrinsic writes its result back into the slot of
+            // the local its receiver chain roots at, so that local is mutated.
+            if expr.methodName.equals("__append") {
+                let root String: chainRootName(expr.receiver)
+                if not root.equals("") { out: addUnique(out, root) }
+            }
+            out: walkExpr(expr.receiver, out)
+            out: walkArgs(expr.args, out)
+        }
+        CallNode:        { out: walkArgs(expr.args, out) }
+        FieldAccessNode: { out: walkExpr(expr.receiver, out) }
+        ArrayLitNode:    { out: walkArgs(expr.elems, out) }
+        UnaryNode:       { out: walkExpr(expr.operand, out) }
+        BinaryNode: {
+            out: walkExpr(expr.left, out)
+            out: walkExpr(expr.right, out)
+        }
+        MatchExprNode: {
+            out: walkExpr(expr.condition, out)
+            let i i64: 0
+            while i.lt(expr.arms.len()) {
+                out: walkExpr(expr.arms.at(i).body, out)
+                i: i.add(1)
+            }
+        }
+        ObjectLitNode: {
+            let i i64: 0
+            while i.lt(expr.fields.len()) {
+                let f ObjectFieldNode: expr.fields.at(i)
+                // A method body belongs to the lifted method, not to this function's
+                // frame, so its locals are analysed when that method is emitted.
+                if not f.isMethod { out: walkExpr(f.value, out) }
+                i: i.add(1)
+            }
+        }
+        _: {}
+    }
+    return out
+}
+
+fn walkArgs(args Array<AstNode>, acc Array<String>) Array<String> {
+    let out Array<String>: acc
+    let i i64: 0
+    while i.lt(args.len()) {
+        out: walkExpr(args.at(i), out)
+        i: i.add(1)
+    }
+    return out
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// The local a method-call chain bottoms out at, or "" when it does not root at a
+// plain variable (`f().__append(x)`, `this.buf.__append(x)`, …). Only a chain of
+// method calls is traversed — a field or call receiver is not a local slot.
+export fn chainRootName(node AstNode) String {
+    let cur AstNode: node
+    while true {
+        match cur {
+            MethodCallNode: { cur: cur.receiver }
+            VarRefNode:     { return cur.name }
+            _:              { return "" }
+        }
+    }
+    return ""
+}
+
+// Append `name` unless already present (order-preserving set insert).
+fn addUnique(acc Array<String>, name String) Array<String> {
+    let out Array<String>: acc
+    let i i64: 0
+    while i.lt(out.len()) {
+        if out.at(i).equals(name) { return out }
+        i: i.add(1)
+    }
+    out.add(name)
+    return out
+}
+
+// True when `name` is one of the mutated locals collected above.
+export fn isMutatedLocal(mutated Array<String>, name String) bool {
+    let i i64: 0
+    while i.lt(mutated.len()) {
+        if mutated.at(i).equals(name) { return true }
+        i: i.add(1)
+    }
+    return false
+}

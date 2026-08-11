@@ -140,6 +140,12 @@ export type IrCodegenContext: {
     srcNsNs           Array<String>
     rootPath          String
     vars              Array<VarEntry>
+    // Locals mutated somewhere in the current function body (assignment target or
+    // in-place `__append` root), collected once per function by
+    // OwnedLocals.collectMutatedLocals. A `String`-annotated local in this list is
+    // an OWNED slot — see the `let` emission for why ownership must be fixed for
+    // the whole lifetime of the binding rather than tracked value by value.
+    mutatedLocals     Array<String>
     blockOpen         bool
     isMain            bool
     currentReturnLlvmType String
@@ -178,6 +184,7 @@ export fn makeIrContext() IrCodegenContext {
     let srcNsPath    Array<String>:       []
     let srcNsNs      Array<String>:       []
     let vars              Array<VarEntry>: []
+    let mutatedLocals         Array<String>: []
     let declares              Array<String>: []
     let extCloneDropTypeNames Array<String>: []
     let loopCondLabels        Array<String>: []
@@ -207,6 +214,7 @@ export fn makeIrContext() IrCodegenContext {
         srcNsNs:           srcNsNs
         rootPath:          ""
         vars:              vars
+        mutatedLocals:     mutatedLocals
         blockOpen:         false
         isMain:            false
         currentReturnLlvmType: ""

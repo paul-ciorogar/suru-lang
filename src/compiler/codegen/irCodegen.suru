@@ -25,6 +25,7 @@ import {
     irCD: Suru.Compiler.Codegen.CloneDrop
     passes: Suru.Compiler.Codegen.RegisterPasses
     eh: Suru.Compiler.Codegen.ExprHelpers
+    owned: Suru.Compiler.Codegen.OwnedLocals
 }
 
 // Module-level pre-passes (registerTypes/registerFunctions/registerConstants/
@@ -519,31 +520,6 @@ fn appendRootSlot(ctx IrCodegenContext, node AstNode) String {
                 let entry VarEntry: types.lookupVar(ctx, cur.name)
                 if entry.name.equals("") { return "" }
                 return entry.allocaName
-            }
-            _: { return "" }
-        }
-    }
-    return ""
-}
-
-// appendRootVarName — the NAME of the root local of a `__append` chain (companion
-// to appendRootSlot), or "" when the root is not a bound local. Used to PROMOTE
-// that variable's registered type to `String` after an in-place append: `__append`
-// always produces an owned heap string, so a variable that started as a borrowed
-// `Str` literal (`let buf String: ""`) becomes owned once appended to, and its
-// final `drop` must free rather than no-op (String-split B3).
-fn appendRootVarName(ctx IrCodegenContext, node AstNode) String {
-    let cur AstNode: node
-    while true {
-        match cur {
-            MethodCallNode: {
-                if cur.methodName.equals("__append") { cur: cur.receiver }
-                else { return "" }
-            }
-            VarRefNode: {
-                let entry VarEntry: types.lookupVar(ctx, cur.name)
-                if entry.name.equals("") { return "" }
-                return cur.name
             }
             _: { return "" }
         }
@@ -1248,24 +1224,21 @@ export fn emitMethodCall(ctx IrCodegenContext, expr MethodCallNode) CodegenResul
                 }
             }
             // Drop the old receiver value — but ONLY if it is owned. A borrowed
-            // `Str` receiver (a literal-initialized builder root, `let buf String:
-            // ""`) points into .rodata; its bytes are already copied into newPtr,
-            // and freeing it would corrupt the heap. Before B3 this was a runtime
-            // no-op via the type_tag==8 net; it is now decided statically from the
-            // receiver's type, which is what lets the net be removed.
+            // `Str` receiver points into .rodata; its bytes are already copied into
+            // newPtr, and freeing it would corrupt the heap. Before B3 this was a
+            // runtime no-op via the type_tag==8 net; it is now decided statically
+            // from the receiver's type, which is what lets the net be removed.
+            // A `String`-declared root cannot be borrowed here — the `let` and
+            // assignment sites materialize it — so the drop below is always a real
+            // free for the builder idiom (`let buf String: ""` … `buf.append(x)`).
+            // KNOWN GAP: appending in place to a `Str`-DECLARED local writes the
+            // owned result back into a borrowed slot, whose drop is a no-op — a
+            // leak. Declare such a builder `String`.
             if not recvSuruType.equals("Str") {
                 let rdr CodegenResult: irStr.emitStringDrop(ctx, recvVal)
                 ctx: rdr.ctx
             }
             if not rootSlot.equals("") { ctx.builder: ir.emitStore(ctx.builder, "ptr", newPtr, rootSlot) }
-            // Promote the root local to `String`: it now owns a heap allocation, so
-            // its eventual `drop` must free (see appendRootVarName).
-            let rootVar String: appendRootVarName(ctx, recv)
-            if not rootVar.equals("") {
-                let rootEntry VarEntry: types.lookupVar(ctx, rootVar)
-                let promoted VarEntry: { name: rootEntry.name, allocaName: rootEntry.allocaName, suruType: "String" }
-                ctx: types.updateVar(ctx, rootVar, promoted)
-            }
             return { ctx: ctx, name: newPtr, llvmType: "ptr", suruType: "String" }
         }
         if method.equals("equals") {
@@ -1998,13 +1971,26 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             // General let: emit value, optionally coerce, alloca, store.
             let vr CodegenResult: emitValue(ctx, letValueNode)
             ctx: vr.ctx
-            let letVal String: vr.name
-            // A local is not force-materialized: it borrows or owns whatever its
-            // value is, and is REGISTERED under the value's ownership within the
-            // string family (tyh.ownedVarType) so `drop` decides correctly with no
-            // runtime tag — `let s String: "hi"` registers `Str` (drop no-op),
-            // `let s String: builder.build()` registers `String` (drop frees).
-            let regType String: tyh.ownedVarType(annSuruType, vr.suruType)
+            // The slot's ownership is fixed here, once, for the whole life of the
+            // binding — a per-variable state that moved with each assignment would
+            // be wrong the moment control flow loops back (see irOwnedLocals.suru).
+            // A `String`-annotated local that this function ever mutates is an
+            // OWNED slot: a borrowed `Str` initializer is materialized into a heap
+            // copy, so every later drop of it is a real free. One that is never
+            // mutated cannot come to hold anything but its initializer, so it keeps
+            // the initializer's ownership — the common `let day String: "Monday"`
+            // stays a borrow, allocates nothing, and drops to a no-op.
+            let slotSuruType String: annSuruType
+            if annSuruType.equals("String") {
+                if vr.suruType.equals("Str") {
+                    if not owned.isMutatedLocal(ctx.mutatedLocals, stmt.name) {
+                        slotSuruType: "Str"
+                    }
+                }
+            }
+            let mr CodegenResult: irStr.materializeStr(ctx, vr.name, vr.suruType, slotSuruType)
+            ctx: mr.ctx
+            let letVal String: mr.name
             // Annotation-guided unbox: `let x i64: arr.at(0)` returns (ptr, NamedType).
             if box.isScalarType(annSuruType) and not box.isScalarType(vr.suruType) {
                 let ur CodegenResult: box.unboxScalar(ctx, vr.name, annSuruType)
@@ -2014,18 +2000,17 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
             let ptrR IrResult: ir.emitNamedAlloca(ctx.builder, stmt.name, annLlvm)
             ctx.builder: ptrR.builder
             ctx.builder: ir.emitStore(ctx.builder, annLlvm, letVal, ptrR.name)
-            ctx: types.addVar(ctx, stmt.name, ptrR.name, regType)
+            ctx: types.addVar(ctx, stmt.name, ptrR.name, slotSuruType)
             return ctx
         }
         AssignNode: {
             let v VarEntry: types.lookupVar(ctx, stmt.name)
             let assignVal String: ""
             let assignLlvm String: box.llvmTypeOf(v.suruType)
-            // The variable's registered type tracks the NEW value's ownership within
-            // the string family, so `drop` stays correct across a reassignment (B3):
-            // `let s String: "a"` (Str) then `s: s.append("x")` (String) promotes `s`
-            // to `String` so the final `drop(s)` frees; the reverse demotes to `Str`.
-            let newRegType String: v.suruType
+            // The variable's registered type is fixed by its declaration and is NOT
+            // re-derived here (B3): the slot keeps its ownership, and the value is
+            // brought up to it below, exactly as at the `let`. Tracking the value's
+            // ownership instead would be unsound across a loop back-edge.
             // Evaluate the RHS first (may read the current variable value, e.g. s: s.append("x")).
             let assignValueNode AstNode: stmt.value
             match assignValueNode {
@@ -2037,8 +2022,11 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                 _: {
                     let vr CodegenResult: emitValue(ctx, assignValueNode)
                     ctx: vr.ctx
-                    assignVal: vr.name
-                    newRegType: tyh.ownedVarType(v.suruType, vr.suruType)
+                    // Owned slot: a borrowed `Str` assigned into a `String` variable
+                    // becomes a heap copy, so the variable's eventual drop is correct.
+                    let mr CodegenResult: irStr.materializeStr(ctx, vr.name, vr.suruType, v.suruType)
+                    ctx: mr.ctx
+                    assignVal: mr.name
                     if box.isScalarType(v.suruType) and not box.isScalarType(vr.suruType) {
                         let ur CodegenResult: box.unboxScalar(ctx, vr.name, v.suruType)
                         ctx: ur.ctx
@@ -2047,8 +2035,6 @@ fn emitStmt(ctx IrCodegenContext, stmt AstNode) IrCodegenContext {
                 }
             }
             ctx.builder: ir.emitStore(ctx.builder, assignLlvm, assignVal, v.allocaName)
-            let updated VarEntry: { name: v.name, allocaName: v.allocaName, suruType: newRegType }
-            ctx: types.updateVar(ctx, stmt.name, updated)
             return ctx
         }
         FieldAssignNode: {
@@ -2285,6 +2271,9 @@ export fn emitFunction(ctx IrCodegenContext, fnDecl FnDeclNode) IrCodegenContext
     // tmpCount into the new builder so the counter never resets between functions.
     let freshVars Array<VarEntry>: []
     ctx.vars: freshVars
+    // Which locals this function mutates — decides, at each `let`, whether a
+    // `String` slot is owned (and therefore materializes a borrowed initializer).
+    ctx.mutatedLocals: owned.collectMutatedLocals(fnDecl.body)
     ctx.blockOpen: true
     ctx.builder: ir.freshFnBuilder(ctx.builder)
 

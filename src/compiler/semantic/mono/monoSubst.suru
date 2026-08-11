@@ -101,8 +101,16 @@ export fn substTypeArgs(typeArgs Array<Type>, paramNames Array<String>, concrete
 // ─── Param / MethodSig substitution ──────────────────────────────────────────
 
 // substParam — produce a new Param with its typeName rewritten.
+//
+// `name` is CLONED, not aliased. The substituted `typeName` is a fresh string, but
+// the name would otherwise be one pointer shared by the template's Param and this
+// copy — two independently-owned records whose deep drops would both free it. That
+// was invisible while every such string was a `.rodata` literal whose drop was a
+// runtime no-op; since B3 an owned slot always holds a real allocation, so the
+// alias is a genuine double free (`variantInstantiationTest` drops both the
+// registry and the instantiated nodes and caught it).
 fn substParam(p Param, paramNames Array<String>, concreteTypes Array<String>) Param {
-    return { name: p.name, typeName: substituteType(p.typeName, paramNames, concreteTypes) }
+    return { name: clone(p.name), typeName: substituteType(p.typeName, paramNames, concreteTypes) }
 }
 
 // substParams — return a new Array<Param> with all typeName fields substituted.

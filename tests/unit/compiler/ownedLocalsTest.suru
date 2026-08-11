@@ -1,0 +1,165 @@
+// ownedLocalsTest.suru — in-process tests for the String-split B3 ownership
+// analysis (`src/compiler/codegen/irOwnedLocals.suru`).
+//
+// What this pins, and why it is worth pinning:
+//
+// The codegen decides `drop` statically from a local's registered type, and it
+// registers a `String` local as OWNED exactly when this analysis reports the local
+// as mutated. Both directions of a wrong answer are memory bugs that no fixture
+// output would reveal — only valgrind would, and only if a fixture happened to
+// exercise the shape:
+//
+//   * a mutated local reported as unmutated keeps its borrowed initializer, so
+//     every value later assigned into it is dropped by a no-op and leaks (this is
+//     the `while` + `s: tmp` case that made the first B3 attempt leak one string
+//     per loop iteration);
+//   * an unmutated local reported as mutated materializes a heap copy of its
+//     literal that nothing frees.
+//
+// The two mutation forms are assignment and the in-place `__append` intrinsic,
+// which writes its fresh owned string back into the root local's slot. The
+// FUNCTIONAL `.append` is not a mutation — it returns a new string and leaves the
+// receiver alone — and confusing the two is the most likely regression here, so
+// both are asserted.
+//
+// Run in-process by the test runner (tests/runner/main.suru).
+
+namespace Test.Unit.Compiler.OwnedLocals
+
+import {
+    [TestResult, assertTrue, assertEqI64]: Test.Unit.Assert
+    [collectMutatedLocals, isMutatedLocal, chainRootName]: Suru.Compiler.Codegen.OwnedLocals
+    [AstNode, LetNode, AssignNode, WhileNode, IfNode, BlockNode, MethodCallNode, VarRefNode, StrLitNode, FieldAccessNode]: Suru.Compiler.Parser.Ast
+}
+
+// ─── AST builders ─────────────────────────────────────────────────────────────
+// Hand-built nodes rather than a parse: the analysis is a pure function of the
+// AST, so driving it directly keeps the test independent of parser changes.
+
+fn varRef(name String) AstNode {
+    let v VarRefNode: { name: name, line: 0, col: 0, resolvedType: "" }
+    return v
+}
+
+fn strLit(text String) AstNode {
+    let s StrLitNode: { text: text, resolvedType: "" }
+    return s
+}
+
+fn letStmt(name String, value AstNode) AstNode {
+    let l LetNode: { name: name, typeName: "String", value: value, line: 0, col: 0, srcPath: "" }
+    return l
+}
+
+fn assignStmt(name String, value AstNode) AstNode {
+    let a AssignNode: { name: name, value: value, line: 0, col: 0 }
+    return a
+}
+
+// A method call with one argument — `recv.method(arg)`.
+fn methodCall(recv AstNode, method String, arg AstNode) AstNode {
+    let args Array<AstNode>: []
+    args.add(arg)
+    let noTypeArgs Array<Type>: []
+    let m MethodCallNode: { receiver: recv, methodName: method, args: args, typeArgs: noTypeArgs, line: 0, col: 0, resolvedType: "" }
+    return m
+}
+
+fn whileStmt(body Array<AstNode>) AstNode {
+    let w WhileNode: { condition: strLit("cond"), body: body, line: 0, col: 0 }
+    return w
+}
+
+fn ifStmt(thenStmts Array<AstNode>, elseStmts Array<AstNode>) AstNode {
+    let thenB BlockNode: { stmts: thenStmts }
+    let elseB BlockNode: { stmts: elseStmts }
+    let n IfNode: { condition: strLit("cond"), thenBranch: thenB, elseBranch: elseB, line: 0, col: 0 }
+    return n
+}
+
+fn stmts1(a AstNode) Array<AstNode> {
+    let out Array<AstNode>: []
+    out.add(a)
+    return out
+}
+
+fn stmts2(a AstNode, b AstNode) Array<AstNode> {
+    let out Array<AstNode>: []
+    out.add(a)
+    out.add(b)
+    return out
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+export fn ownedLocalsTests() Array<TestResult> {
+    let results Array<TestResult>: []
+
+    // 1. A local that is only ever bound is not mutated — the common
+    //    `let day String: "Monday"`, which must stay a borrow and allocate nothing.
+    let onlyLet Array<AstNode>: stmts1(letStmt("day", strLit("Monday")))
+    let m1 Array<String>: collectMutatedLocals(onlyLet)
+    results.add(assertEqI64("plain let mutates nothing", 0, m1.len()))
+    results.add(assertTrue("day is not mutated", not isMutatedLocal(m1, "day")))
+
+    // 2. An assignment is a mutation: the slot can come to hold an owned value, so
+    //    it must be an owned slot from its `let` onwards.
+    let withAssign Array<AstNode>: stmts2(letStmt("s", strLit("")), assignStmt("s", varRef("t")))
+    let m2 Array<String>: collectMutatedLocals(withAssign)
+    results.add(assertTrue("assigned local is mutated", isMutatedLocal(m2, "s")))
+
+    // 3. The assignment that started all this is inside a loop body — the walk must
+    //    descend into nested statement lists, or the back edge is missed entirely.
+    let loopBody Array<AstNode>: stmts1(assignStmt("s", varRef("tmp")))
+    let inLoop Array<AstNode>: stmts2(letStmt("s", strLit("")), whileStmt(loopBody))
+    let m3 Array<String>: collectMutatedLocals(inLoop)
+    results.add(assertTrue("assignment inside a while body is found", isMutatedLocal(m3, "s")))
+
+    // …and inside both halves of an if.
+    let thenS Array<AstNode>: stmts1(assignStmt("a", varRef("x")))
+    let elseS Array<AstNode>: stmts1(assignStmt("b", varRef("y")))
+    let m4 Array<String>: collectMutatedLocals(stmts1(ifStmt(thenS, elseS)))
+    results.add(assertTrue("assignment in then-branch is found", isMutatedLocal(m4, "a")))
+    results.add(assertTrue("assignment in else-branch is found", isMutatedLocal(m4, "b")))
+
+    // 4. `__append` writes its result back into the root local's slot, so the root
+    //    is mutated even though no assignment statement appears. This is the shape
+    //    the compiler's own lexer uses (`text.__append(...)`).
+    let appendStmt AstNode: methodCall(varRef("buf"), "__append", strLit("x"))
+    let m5 Array<String>: collectMutatedLocals(stmts2(letStmt("buf", strLit("")), appendStmt))
+    results.add(assertTrue("__append root is mutated", isMutatedLocal(m5, "buf")))
+
+    // A chain roots at the same local: `s.__append("y").__append("z")`.
+    let inner AstNode: methodCall(varRef("s"), "__append", strLit("y"))
+    let chain AstNode: methodCall(inner, "__append", strLit("z"))
+    let m6 Array<String>: collectMutatedLocals(stmts1(chain))
+    results.add(assertTrue("chained __append roots at the base local", isMutatedLocal(m6, "s")))
+    results.add(assertEqI64("chained __append records the root once", 1, m6.len()))
+
+    // 5. The FUNCTIONAL `.append` returns a new string and leaves its receiver
+    //    alone — it is not a mutation. Treating it as one would make every
+    //    literal-initialized local allocate a copy nobody frees.
+    let functional AstNode: methodCall(varRef("s"), "append", strLit("x"))
+    let m7 Array<String>: collectMutatedLocals(stmts1(functional))
+    results.add(assertEqI64(".append is not a mutation", 0, m7.len()))
+
+    // 6. A `__append` whose receiver is not a plain local has no slot to promote.
+    let fieldRecv FieldAccessNode: { receiver: varRef("this"), fieldName: "buf", line: 0, col: 0, resolvedType: "" }
+    let fieldNode AstNode: fieldRecv
+    let fieldAppend AstNode: methodCall(fieldNode, "__append", strLit("x"))
+    let m8 Array<String>: collectMutatedLocals(stmts1(fieldAppend))
+    results.add(assertEqI64("field-rooted __append records no local", 0, m8.len()))
+
+    // 7. chainRootName itself: through method calls to the base variable, and "" for
+    //    a receiver that is not one.
+    results.add(assertTrue("chainRootName finds the base local", chainRootName(inner).equals("s")))
+    results.add(assertTrue("chainRootName of a field receiver is empty", chainRootName(fieldNode).equals("")))
+
+    // 8. A mutation found through a nested expression still counts — the value of a
+    //    `let` is walked, not just statement heads.
+    let nested AstNode: letStmt("out", methodCall(varRef("acc"), "__append", strLit("x")))
+    let m9 Array<String>: collectMutatedLocals(stmts1(nested))
+    results.add(assertTrue("__append inside a let value is found", isMutatedLocal(m9, "acc")))
+
+    return results
+}

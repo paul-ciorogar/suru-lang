@@ -50,12 +50,40 @@ fn main(args Array<String>) {
     printLn(names.at(2))     // gamma
     drop(names)
 
-    // A literal bound to a String-annotated local: accepted by the string family.
-    // A local is not a deep-dropped slot, so it stays a borrowed `Str` (no copy);
-    // the drop below is therefore a safe no-op.
+    // ── Owned locals (B3) ────────────────────────────────────────────────────
+    // A `String`-annotated local is an owned slot: the literal is materialized
+    // into a heap copy at the `let`, so the drop below frees that copy rather
+    // than the .rodata global. Valgrind asserts both halves — a missing copy is
+    // an invalid free, a missing drop is a leak.
     let owned String: "copied"
     printLn(owned)           // copied
     drop(owned)
+
+    // The ownership of a local is fixed by its DECLARATION, not by the value it
+    // currently holds — which is what keeps the drop decision correct across a
+    // loop back-edge. `built` starts as a materialized copy of "" and is replaced
+    // by an owned append result on every iteration; each `drop` must free the
+    // value that iteration produced.
+    let built String: ""
+    let n i64: 0
+    while n.lt(3) {
+        let grown String: built.append("x")
+        drop(built)
+        built: grown
+        n: n.add(1)
+    }
+    printLn(built)           // xxx
+    drop(built)
+
+    // The same builder written in place: `__append` frees the old receiver and
+    // stores the fresh one back into the local's slot, so the local must be owned
+    // from the start — otherwise that free would be aimed at the .rodata `""`.
+    // This is the shape the compiler's own lexer uses to accumulate text.
+    let inPlace String: ""
+    inPlace.__append("a")
+    inPlace.__append("b")
+    printLn(inPlace)         // ab
+    drop(inPlace)
 
     drop(s)                  // no-op (borrowed static)
     printLn("done")

@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### String split B3 — ownership is a property of the slot, decided statically
+
+B2 gave a literal its own type (`Str`); B3 makes the codegen act on it. A borrowed
+`Str` is now **materialized into an owned heap copy wherever it enters an owned
+slot**, and `drop` is decided from the static type alone — no runtime tag read on
+any path the compiler emits.
+
+- **Materialization sites** (`irStr.materializeStr`, `codegen/irStringCodegen.suru`):
+  object-literal fields, field assignment, array literals, `arr.add`/`arr.set`, and
+  `String`-annotated locals. Call **arguments** and **returns** are deliberately not
+  materialized: a parameter is borrowed and never auto-dropped, so a copy made there
+  would be freed by nobody.
+- **`drop` and `__append` decide statically.** `drop(x)` on a `Str` emits no call at
+  all (`emitDropDyn`, `irExprHelpers.suru`), and the in-place `__append` only frees
+  its old receiver when that receiver is owned. Both were previously runtime no-ops
+  that depended on `suru_string_drop` inspecting `type_tag == 8`.
+- **Ownership is fixed at the declaration, not tracked through the value.** The
+  first cut of B3 registered a local under the ownership of whatever value it
+  currently held, promoting it on assignment. That is unsound: codegen walks the
+  statement list once while control flow does not, so in
+
+      let s String: ""
+      while k.lt(3) { let tmp String: s.append("x")   drop(s)   s: tmp }
+
+  the `drop(s)` was emitted once, as a no-op, and executed three times — leaking one
+  string per trip around the back edge (`while-loop` and `cli-lex` both leaked under
+  valgrind). A `String` local is now an owned slot for its whole lifetime whenever
+  the function can ever store an owned value into it, which the new pure analysis in
+  **`src/compiler/codegen/irOwnedLocals.suru`** (`collectMutatedLocals`) answers:
+  the local is an assignment target, or the root of an in-place `__append` chain
+  (`buf.__append(x)` writes the fresh string back into buf's slot). An owned local
+  materializes its literal initializer once, at the `let`; a local that is never
+  mutated — the overwhelmingly common `let day String: "Monday"` — keeps its
+  initializer's ownership, allocates nothing, and still drops to a no-op. Both
+  directions of imprecision are memory-safe (a missed mutation leaks, an extra one
+  costs a clone); neither can free `.rodata`.
+- **A latent double free surfaced and was fixed.** `substParam`
+  (`semantic/mono/monoSubst.suru`) built the instantiated `Param` with
+  `name: p.name`, aliasing one string across two independently-owned records. While
+  every such string was a literal, both drops were runtime no-ops; with
+  materialization they became a real double free (`variantInstantiationTest`, which
+  drops both the registry and the instantiated nodes, aborted the bootstrap on it).
+  The name is cloned now.
+- **The `type_tag == 8` net in `runtime/string.c` STAYS**, and the header comment
+  there now says why. Removing it was the point of B3, and it is genuinely closer —
+  every declared owned slot is materialized — but two boundaries can still put a
+  borrowed pointer behind the static type `String`: a function whose declared return
+  type is `String` returning a literal, and a `String` parameter that the callee
+  stores into an owned slot (`makeToken(text String, …) Token`). Deleting the check
+  with those open does not fail at one site: a full suite run with it removed
+  produced 29 invalid-free contexts across the lexer, the resolver and mono. Closing
+  those two boundaries is the next step.
+- Coverage: new `tests/unit/compiler/ownedLocalsTest.suru` (14 assertions — both
+  mutation forms, nested loop/if bodies, the functional `.append` that must NOT
+  count, and non-local `__append` roots); `tests/fixtures/str-type/` gains the
+  ownership-transition cases (loop-carried builder, in-place `__append` builder,
+  literal into a `String` local), where valgrind is the real assertion — a missing
+  copy is an invalid free, a missing drop a leak. Full suite green (106 passed,
+  0 failed, 0 memcheck); bootstrap fixed point confirmed (C2 == C3).
+
 ### String split B2 — a string literal is typed `Str`, not `String`
 
 `Str` (the borrowed static-string type) has existed as a full string-family member

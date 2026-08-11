@@ -48,7 +48,25 @@ void *suru_string_clone(void *sp) {
 }
 
 /* Free a String. Static literals (type_tag = 8) live in .rodata — skip entirely;
- * freeing them would corrupt the heap. */
+ * freeing them would corrupt the heap.
+ *
+ * ── Why this check outlives String-split B3 ──────────────────────────────────
+ * B3 made every DECLARED owned slot materialize an owned copy — object fields,
+ * array elements, and `String` locals the function mutates — so none of those can
+ * hand a borrowed pointer to this function any more. Two boundaries still can,
+ * because at both of them a borrowed value wears the static type `String`:
+ *
+ *   * a function whose declared return type is `String` returning a literal
+ *     (`fn classify(n i64) String { return "zero" }`), and
+ *   * a `String` PARAMETER stored into an owned slot by the callee
+ *     (`fn makeToken(text String, …) Token { return { text: text, … } }`),
+ *     since a parameter is borrowed and the callee cannot see where its argument
+ *     came from.
+ *
+ * Deleting this check therefore does not fail loudly at one site — it turns every
+ * such path into a free of `.rodata`. Removing it is the next step and needs the
+ * ownership discipline extended to those two boundaries first; the check stays
+ * until then, as the one remaining type_tag READ in the system. */
 void suru_string_drop(void *sp) {
     if (sp == NULL) {
         return; /* null heap field (e.g. the `{}` release idiom) — nothing to free */
